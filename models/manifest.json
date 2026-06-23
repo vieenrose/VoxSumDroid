@@ -1,0 +1,48 @@
+{
+  "_comment": "On-device model registry — Android counterpart of the dicts in src/utils.py. FOSS-licensed only; SHA-256 to be filled during the Phase 0 spike. Non-free models (Llama, Gemma) are intentionally excluded for F-Droid.",
+  "asr": [
+    {
+      "id": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
+      "kind": "ASR",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+      "sha256": "TODO",
+      "license": "Apache-2.0",
+      "default": true
+    }
+  ],
+  "vad": [
+    {
+      "id": "silero_vad",
+      "kind": "VAD",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+      "sha256": "TODO",
+      "license": "MIT"
+    }
+  ],
+  "diarization": [
+    {
+      "id": "sherpa-onnx-pyannote-segmentation-3-0",
+      "kind": "DIARIZATION_SEG",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
+      "sha256": "TODO",
+      "license": "MIT"
+    },
+    {
+      "id": "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k",
+      "kind": "DIARIZATION_EMB",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
+      "sha256": "TODO",
+      "license": "Apache-2.0"
+    }
+  ],
+  "llm": [
+    {
+      "id": "qwen2.5-1.5b-instruct-q4_k_m",
+      "kind": "LLM",
+      "url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+      "sha256": "TODO",
+      "license": "Apache-2.0",
+      "default": true
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+VoxSumDroid is licensed under the GNU General Public License v3.0 or later
+(SPDX-License-Identifier: GPL-3.0-or-later).
+
+TODO: replace this file with the full GPL-3.0 license text before publishing /
+submitting to F-Droid (F-Droid requires the complete license text). Get it from:
+https://www.gnu.org/licenses/gpl-3.0.txt
+
+Bundled source dependencies (built from source, not relicensed):
+  - sherpa-onnx  — Apache-2.0
+  - llama.cpp    — MIT
+Model weights downloaded at runtime keep their own licenses (Apache-2.0 / MIT);
+see models/manifest.json.

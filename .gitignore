@@ -1,0 +1,18 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx/
+local.properties
+
+# Gradle wrapper jar is generated, not committed (run: gradle wrapper)
+gradle/wrapper/gradle-wrapper.jar
+
+# Models are downloaded/side-loaded at runtime, never committed
+/models/*.gguf
+/models/*.onnx
+/models/*.tar.bz2

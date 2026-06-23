@@ -1,0 +1,30 @@
+# fdroiddata recipe STUB — copy into fdroiddata/metadata/studio.voxsum.yml when submitting.
+# This will not pass as-is: the submodule commits and a real versioned tag must exist, and
+# the onnxruntime source build must complete in F-Droid's pipeline (see SPIKE.md 0.2).
+Categories:
+  - Multimedia
+License: GPL-3.0-or-later
+AuthorName: TODO
+SourceCode: https://github.com/TODO/VoxSumDroid
+IssueTracker: https://github.com/TODO/VoxSumDroid/issues
+
+RepoType: git
+Repo: https://github.com/TODO/VoxSumDroid.git
+
+Builds:
+  - versionName: "0.1.0"
+    versionCode: 1
+    commit: v0.1.0
+    subdir: app
+    submodules: true       # native/sherpa-onnx + native/llama.cpp built from source
+    gradle:
+      - yes
+    # No prebuilt binaries are committed; everything compiles via the NDK/CMake step.
+
+AutoUpdateMode: Version v%v
+UpdateCheckMode: Tags
+CurrentVersion: "0.1.0"
+CurrentVersionCode: 1
+
+# AntiFeatures: none expected for the default (offline) build. If the optional
+# podcast/YouTube flavor is shipped, declare NonFreeNet on that flavor only.

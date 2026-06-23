@@ -1,0 +1,10 @@
+VoxSum transcribes and summarizes audio entirely on your device — no account, no server,
+no cloud. Pick a local audio file and get a speaker-labelled transcript and a concise
+summary, all computed locally.
+
+Speech recognition, voice activity detection, and speaker diarization run via sherpa-onnx;
+summarization runs via llama.cpp with a small open-weights model. Everything is free and
+open source and built from source.
+
+First launch downloads the open-licensed models once (or you can side-load them to stay
+fully network-free). After that, the app works offline.
