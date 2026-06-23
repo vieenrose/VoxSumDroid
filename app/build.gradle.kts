@@ -41,6 +41,20 @@ android {
         }
     }
 
+    // Release signing is driven by env vars so CI can inject a keystore from secrets and
+    // local/debug builds still work without any. See RELEASING.md.
+    val keystorePath = System.getenv("VOXSUM_KEYSTORE")
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("VOXSUM_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("VOXSUM_KEY_ALIAS")
+                keyPassword = System.getenv("VOXSUM_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -48,6 +62,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (keystorePath != null) signingConfig = signingConfigs.getByName("release")
         }
     }
 
