@@ -4,13 +4,11 @@
 /.idea/
 .DS_Store
 /build
+/app/build
 /captures
 .externalNativeBuild
 .cxx/
 local.properties
-
-# Gradle wrapper jar is generated, not committed (run: gradle wrapper)
-gradle/wrapper/gradle-wrapper.jar
 
 # Models are downloaded/side-loaded at runtime, never committed
 /models/*.gguf

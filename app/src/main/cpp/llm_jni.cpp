@@ -1,13 +1,13 @@
 // JNI bridge: studio.voxsum.core.llm.LlmEngine <-> llama.cpp.
 //
-// Mirrors src/summarization.py's use of llama_cpp directly for inference. We keep
-// a single model + context resident behind an opaque handle (cf. get_llm lru_cache),
+// Mirrors src/summarization.py's use of llama_cpp directly for inference. We keep a
+// single model + context resident behind an opaque handle (cf. get_llm lru_cache),
 // stream tokens back to Kotlin through a callback, and expose a cancel flag so the
 // foreground service can stop a long summarization.
 //
-// SPIKE STATUS: skeleton. The token loop below is the shape, not yet compiled against
-// a pinned llama.cpp tag — verify the API (llama_decode / sampler chain) against the
-// submodule's headers in Phase 0, since llama.cpp's API moves.
+// API NOTE: written against the current llama.cpp C API (vocab-based tokenize +
+// llama_sampler chain + llama_batch_get_one). Pin the submodule to a tagged release and
+// re-verify these symbols in Phase 0 — llama.cpp's API moves between tags.
 
 #include <jni.h>
 #include <android/log.h>
@@ -26,17 +26,38 @@ namespace {
 struct LlmHandle {
     llama_model*   model = nullptr;
     llama_context* ctx   = nullptr;
+    int            nCtx  = 0;
     std::atomic<bool> cancel{false};
 };
 
 inline LlmHandle* asHandle(jlong p) { return reinterpret_cast<LlmHandle*>(p); }
 
+// Tokenize via the two-call idiom (query length, then fill).
+std::vector<llama_token> tokenize(const llama_vocab* vocab, const std::string& text,
+                                  bool addSpecial) {
+    const int n = -llama_tokenize(vocab, text.c_str(), (int32_t) text.size(),
+                                  nullptr, 0, addSpecial, /*parse_special=*/true);
+    std::vector<llama_token> out(n);
+    if (n > 0) {
+        llama_tokenize(vocab, text.c_str(), (int32_t) text.size(),
+                       out.data(), (int32_t) out.size(), addSpecial, true);
+    }
+    return out;
+}
+
+std::string pieceOf(const llama_vocab* vocab, llama_token tok) {
+    char buf[256];
+    const int n = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, /*special=*/true);
+    if (n < 0) return std::string();
+    return std::string(buf, n);
+}
+
 } // namespace
 
 extern "C" {
 
-// Load a GGUF model. n_threads should come from Kotlin (cf. num_vcpus in src/utils.py;
-// on a phone, pass a small value — big-core count, not all cores).
+// Load a GGUF model. nThreads should come from Kotlin (cf. num_vcpus in src/utils.py;
+// on a phone pass the big-core count, not all cores). CPU-only: n_gpu_layers = 0.
 JNIEXPORT jlong JNICALL
 Java_studio_voxsum_core_llm_LlmEngine_nativeLoad(
         JNIEnv* env, jobject /*thiz*/, jstring jPath, jint nThreads, jint nCtx) {
@@ -45,48 +66,80 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeLoad(
     const char* path = env->GetStringUTFChars(jPath, nullptr);
 
     llama_model_params mp = llama_model_default_params();
-    // mmap keeps peak RAM down — critical on mobile (see SPIKE.md "memory").
+    mp.n_gpu_layers = 0;          // CPU-only on device
+    mp.use_mmap     = true;       // keep peak RAM down (see SPIKE.md "memory")
+
     auto* h = new LlmHandle();
     h->model = llama_model_load_from_file(path, mp);
     env->ReleaseStringUTFChars(jPath, path);
     if (!h->model) { LOGE("model load failed"); delete h; return 0; }
 
     llama_context_params cp = llama_context_default_params();
-    cp.n_ctx     = static_cast<uint32_t>(nCtx);
-    cp.n_threads = nThreads;
+    cp.n_ctx           = (uint32_t) nCtx;
+    cp.n_threads       = nThreads;
     cp.n_threads_batch = nThreads;
-    h->ctx = llama_init_from_model(h->model, cp);
+    h->ctx  = llama_init_from_model(h->model, cp);
+    h->nCtx = nCtx;
     if (!h->ctx) { LOGE("ctx init failed"); llama_model_free(h->model); delete h; return 0; }
 
     LOGI("loaded model, n_ctx=%d threads=%d", nCtx, nThreads);
     return reinterpret_cast<jlong>(h);
 }
 
-// Generate a completion for `prompt`, invoking onToken(String) per decoded piece.
-// Returns the full text. TODO(spike): wire tokenize -> llama_decode loop -> sampler.
+// Generate a completion for `prompt`, invoking onToken(String) per decoded piece, and
+// returning the full text. Greedy-ish chain (top_k/top_p/temp) for stable summaries.
 JNIEXPORT jstring JNICALL
 Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
-        JNIEnv* env, jobject thiz, jlong ptr, jstring jPrompt,
+        JNIEnv* env, jobject /*thiz*/, jlong ptr, jstring jPrompt,
         jint maxTokens, jobject onToken) {
     LlmHandle* h = asHandle(ptr);
     if (!h) return env->NewStringUTF("");
     h->cancel = false;
 
-    jclass cb = env->GetObjectClass(onToken);
-    jmethodID emit = env->GetMethodID(cb, "onToken", "(Ljava/lang/String;)V");
+    const llama_vocab* vocab = llama_model_get_vocab(h->model);
+
+    jclass cbClass = env->GetObjectClass(onToken);
+    jmethodID emit = env->GetMethodID(cbClass, "onToken", "(Ljava/lang/String;)V");
 
     const char* prompt = env->GetStringUTFChars(jPrompt, nullptr);
-    std::string out;
-
-    // ---- TODO(Phase 0 spike): real decode loop ----
-    //  vocab = llama_model_get_vocab(h->model);
-    //  tokenize prompt -> batch -> llama_decode
-    //  build sampler chain (top_k/top_p/temp) -> sample -> append piece
-    //  call emit(piece) each step; break on EOG or h->cancel or maxTokens
-    // ------------------------------------------------
-    (void)maxTokens; (void)emit; (void)thiz;
-
+    std::vector<llama_token> tokens = tokenize(vocab, std::string(prompt), /*addSpecial=*/true);
     env->ReleaseStringUTFChars(jPrompt, prompt);
+
+    // Sampler chain (cf. summarization.py temperature/top_p). Fixed seed = reproducible.
+    llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
+    llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.7f));
+    llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+    std::string out;
+    int nPos = (int) tokens.size();
+    llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t) tokens.size());
+
+    for (int generated = 0; generated < maxTokens; ++generated) {
+        if (h->cancel.load()) break;
+        if (nPos + batch.n_tokens > h->nCtx) { LOGI("hit n_ctx, stopping"); break; }
+
+        if (llama_decode(h->ctx, batch) != 0) { LOGE("llama_decode failed"); break; }
+        nPos += batch.n_tokens;
+
+        llama_token id = llama_sampler_sample(smpl, h->ctx, -1);
+        if (llama_vocab_is_eog(vocab, id)) break;
+
+        const std::string piece = pieceOf(vocab, id);
+        out += piece;
+
+        jstring jPiece = env->NewStringUTF(piece.c_str());
+        env->CallVoidMethod(onToken, emit, jPiece);
+        env->DeleteLocalRef(jPiece);            // avoid local-ref overflow over long runs
+
+        // Next step decodes just the new token; positions advance via the KV cache.
+        static thread_local llama_token one;    // keep storage alive past this scope
+        one = id;
+        batch = llama_batch_get_one(&one, 1);
+    }
+
+    llama_sampler_free(smpl);
     return env->NewStringUTF(out.c_str());
 }
 

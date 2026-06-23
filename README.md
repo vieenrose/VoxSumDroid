@@ -31,10 +31,12 @@ Requires Android Studio (Ladybug+), Android SDK 35, NDK 27.
 ```bash
 git clone --recurse-submodules <this repo>
 cd VoxSumDroid
-# generate the Gradle wrapper jar once (not committed):
-gradle wrapper --gradle-version 8.11.1
 ./gradlew :app:assembleDebug
 ```
+
+The Kotlin layer and the llama.cpp JNI bridge are build-verified (arm64). The full
+`assembleDebug` additionally compiles sherpa-onnx + onnxruntime from source — slow, and the
+focus of the Phase 0 spike (see [`SPIKE.md`](SPIKE.md)).
 
 Models are **not** bundled; they download (SHA-256-verified) on first run, or can be
 side-loaded into the app's models dir to stay network-free. See
