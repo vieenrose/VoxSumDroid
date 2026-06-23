@@ -26,6 +26,14 @@ if [ ! -d "$ORT_SRC" ]; then
     https://github.com/microsoft/onnxruntime.git "$ORT_SRC"
 fi
 
+# For a fully offline build (F-Droid), set VOXSUM_ORT_MIRROR to a dir pre-populated by
+# scripts/fetch-ort-deps-mirror.sh; ORT then resolves all deps from disk, no network.
+MIRROR_ARG=()
+if [ -n "${VOXSUM_ORT_MIRROR:-}" ]; then
+  MIRROR_ARG=(--cmake_deps_mirror_dir "$VOXSUM_ORT_MIRROR")
+  echo ">> offline build using deps mirror: $VOXSUM_ORT_MIRROR"
+fi
+
 echo ">> building onnxruntime for Android $ABI (this is the slow gate)"
 cd "$ORT_SRC"
 python3 tools/ci_build/build.py \
@@ -41,7 +49,8 @@ python3 tools/ci_build/build.py \
   --skip_tests \
   --cmake_generator Ninja \
   --compile_no_warning_as_error \
-  --allow_running_as_root
+  --allow_running_as_root \
+  "${MIRROR_ARG[@]}"
 
 echo ">> flattening public headers into $ORT_HEADERS"
 rm -rf "$ORT_HEADERS" && mkdir -p "$ORT_HEADERS"

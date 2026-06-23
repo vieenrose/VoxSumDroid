@@ -1,30 +1,45 @@
-# fdroiddata recipe STUB — copy into fdroiddata/metadata/studio.voxsum.yml when submitting.
-# This will not pass as-is: the submodule commits and a real versioned tag must exist, and
-# the onnxruntime source build must complete in F-Droid's pipeline (see SPIKE.md 0.2).
+# fdroiddata recipe for VoxSum. Copy into fdroiddata/metadata/studio.voxsum.yml when
+# submitting the Merge Request. See FDROID_SUBMISSION.md for the full playbook and the
+# onnxruntime offline-build caveat (the main packaging challenge).
 Categories:
   - Multimedia
 License: GPL-3.0-or-later
-AuthorName: TODO
-SourceCode: https://github.com/TODO/VoxSumDroid
-IssueTracker: https://github.com/TODO/VoxSumDroid/issues
+AuthorName: vieenrose
+SourceCode: https://github.com/vieenrose/VoxSumDroid
+IssueTracker: https://github.com/vieenrose/VoxSumDroid/issues
 
 RepoType: git
-Repo: https://github.com/TODO/VoxSumDroid.git
+Repo: https://github.com/vieenrose/VoxSumDroid.git
 
 Builds:
   - versionName: "0.1.0"
     versionCode: 1
     commit: v0.1.0
     subdir: app
-    submodules: true       # native/sherpa-onnx + native/llama.cpp built from source
+    submodules: true          # native/sherpa-onnx, native/llama.cpp, native/onnxruntime
+    sudo:
+      # onnxruntime must build from source offline. Its build-time deps (cmake/deps.txt)
+      # are vendored under native/ort-deps-mirror (see scripts/fetch-ort-deps-mirror.sh),
+      # so no network is needed at build time.
+      - echo "deps mirror is vendored; no network fetch"
+    prebuild:
+      - export ANDROID_NDK_HOME=$$NDK$$
+      - export VOXSUM_ORT_MIRROR=$$WORKDIR$$/../native/ort-deps-mirror
+      - ./scripts/build-onnxruntime-android.sh
+      - export SHERPA_ONNXRUNTIME_LIB_DIR=$$HOME$$/ort-build/Release
+      - export SHERPA_ONNXRUNTIME_INCLUDE_DIR=$$HOME$$/ort-headers
     gradle:
       - yes
     # No prebuilt binaries are committed; everything compiles via the NDK/CMake step.
+    # NOTE: the onnxruntime + sherpa-onnx + llama.cpp build is heavy (tens of minutes,
+    # several GB). This may exceed F-Droid's default build limits — coordinate with
+    # F-Droid maintainers (see FDROID_SUBMISSION.md "Build resources").
 
 AutoUpdateMode: Version v%v
 UpdateCheckMode: Tags
 CurrentVersion: "0.1.0"
 CurrentVersionCode: 1
 
-# AntiFeatures: none expected for the default (offline) build. If the optional
-# podcast/YouTube flavor is shipped, declare NonFreeNet on that flavor only.
+# AntiFeatures: none for the default offline build. Models are FOSS (Apache-2.0 / MIT),
+# SHA-256-pinned, and downloaded at first run from upstream release pages (or side-loaded).
+# If the optional podcast/YouTube flavor is added later, declare NonFreeNet on that flavor.
