@@ -6,12 +6,18 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.net.Uri
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import studio.voxsum.core.asr.AsrEngine
+import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.events.TranscriptEvent
+import studio.voxsum.core.models.ModelManager
 
 /**
  * Long-running pipeline host. Transcription + diarization + summarization can take
@@ -49,13 +55,43 @@ class TranscriptionService : LifecycleService() {
     }
 
     /**
-     * TODO(Phase 1+): decode (AudioDecoder) -> AsrEngine.transcribe (emit utterances) ->
-     * DiarizationEngine.assignSpeakers (emit Complete) -> release ASR -> LlmEngine.load ->
-     * Summarizer.summarize (emit Partial/SummaryComplete/Title) -> release LLM.
-     * Re-emit each engine Flow into [events].
+     * Phase 1: ensure ASR models -> decode (MediaCodec) -> AsrEngine.transcribe, re-emitting
+     * its events. Phase 2+ will append diarization, then release ASR and run summarization.
      */
     private suspend fun runPipeline(audioUri: String?) {
-        events.emit(TranscriptEvent.Status("Pipeline not yet wired — see SPIKE.md Phase 1."))
+        val uri = audioUri?.let(Uri::parse)
+            ?: run { events.emit(TranscriptEvent.Failed("No audio source")); return }
+
+        val models = ModelManager(this)
+        if (!models.asrReady()) {
+            events.emit(TranscriptEvent.Status("Downloading models (first run)…"))
+            models.ensureAsrModels { frac ->
+                updateNotification("Downloading models… ${(frac * 100).toInt()}%")
+            }
+        }
+
+        events.emit(TranscriptEvent.Status("Decoding audio…"))
+        val pcm = AudioDecoder.decodeToPcm16k(this, uri)
+
+        AsrEngine(
+            senseVoiceModel = models.senseVoiceModel.absolutePath,
+            tokens = models.tokens.absolutePath,
+            vadModel = models.vadModel.absolutePath,
+            numThreads = asrThreads(),
+        ).use { asr ->
+            asr.transcribe(pcm)
+                .flowOn(Dispatchers.Default)
+                .collect { events.emit(it) }
+        }
+    }
+
+    /** Small thread budget — phone big-core count, not all cores (cf. num_vcpus). */
+    private fun asrThreads(): Int =
+        Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
+
+    private fun updateNotification(text: String) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(NOTIF_ID, buildNotification(text))
     }
 
     private fun buildNotification(text: String): Notification {

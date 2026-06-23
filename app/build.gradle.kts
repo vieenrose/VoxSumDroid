@@ -97,4 +97,5 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.commons.compress) // tar.bz2 model extraction (Apache-2.0)
 }

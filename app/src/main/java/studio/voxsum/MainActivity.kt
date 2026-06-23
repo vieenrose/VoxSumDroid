@@ -1,69 +1,121 @@
 package studio.voxsum
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.service.TranscriptionService
 
 /**
- * Single-screen entry point. The real UI (transcript player synced to audio, per-speaker
- * colors, inline editing) is Phase 4 — this is the spike shell that lets you kick the
- * pipeline and watch [TranscriptEvent]s arrive.
+ * Phase 1 shell: pick a local audio file (SAF) → run the foreground pipeline → render the
+ * transcript incrementally as utterances arrive. The synced audio player, speaker colors,
+ * and editing come in later phases.
  */
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        maybeRequestNotifications()
         setContent {
             MaterialTheme {
-                Surface(Modifier.fillMaxSize()) { TranscribeShell() }
+                Surface(Modifier.fillMaxSize()) { TranscribeScreen(::startTranscription) }
             }
+        }
+    }
+
+    private fun startTranscription(uri: Uri) {
+        // Persist read access so the service can open the document.
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        val intent = Intent(this, TranscriptionService::class.java)
+            .putExtra(TranscriptionService.EXTRA_AUDIO_URI, uri.toString())
+        ContextCompat.startForegroundService(this, intent)
+    }
+
+    private fun maybeRequestNotifications() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
     }
 }
 
 @Composable
-private fun TranscribeShell() {
-    val latest by TranscriptionService.eventStream.collectAsState(initial = TranscriptEvent.Ready)
-    var picked by remember { mutableStateOf<String?>(null) }
+private fun TranscribeScreen(onPicked: (Uri) -> Unit) {
+    var status by remember { mutableStateOf("Pick an audio file to begin.") }
+    val utterances = remember { mutableStateListOf<TranscriptEvent.Utterance>() }
 
-    Column(Modifier.padding(24.dp)) {
-        Text("VoxSum", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(16.dp))
-        // TODO(Phase 1): SAF file picker -> set `picked` -> start TranscriptionService.
-        Button(onClick = { /* TODO start service with picked uri */ }) {
-            Text(if (picked == null) "Pick audio…" else "Transcribe")
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? -> if (uri != null) { utterances.clear(); status = "Starting…"; onPicked(uri) } }
+
+    // Collect pipeline events and update UI incrementally (append, not rebuild).
+    LaunchedEffect(Unit) {
+        TranscriptionService.eventStream.collect { e ->
+            when (e) {
+                is TranscriptEvent.Status -> status = e.message
+                is TranscriptEvent.Utterance -> utterances.add(e)
+                is TranscriptEvent.Progress -> status = "Transcribing ${(e.fraction * 100).toInt()}%"
+                is TranscriptEvent.Complete -> status = "Done — ${e.utterances.size} utterances"
+                is TranscriptEvent.Failed -> status = "Error: ${e.error}"
+                else -> Unit
+            }
         }
-        Spacer(Modifier.height(16.dp))
-        Text("Status: ${render(latest)}", style = MaterialTheme.typography.bodyMedium)
+    }
+
+    Column(Modifier.padding(16.dp)) {
+        Text("VoxSum", style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = { picker.launch(arrayOf("audio/*")) }) { Text("Pick audio…") }
+        Spacer(Modifier.height(8.dp))
+        Text(status, style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(12.dp))
+        LazyColumn {
+            items(utterances) { u ->
+                Text(
+                    "[${fmt(u.startSec)}] ${u.text}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+            }
+        }
     }
 }
 
-private fun render(e: TranscriptEvent): String = when (e) {
-    is TranscriptEvent.Ready -> "ready"
-    is TranscriptEvent.Status -> e.message
-    is TranscriptEvent.Progress -> "${(e.fraction * 100).toInt()}%"
-    is TranscriptEvent.Utterance -> "utterance ${e.index}"
-    is TranscriptEvent.Complete -> "done: ${e.utterances.size} utterances"
-    is TranscriptEvent.Title -> "title: ${e.title}"
-    is TranscriptEvent.Partial -> "summarizing…"
-    is TranscriptEvent.SummaryComplete -> "summary ready"
-    is TranscriptEvent.Failed -> "error: ${e.error}"
+private fun fmt(sec: Double): String {
+    val s = sec.toInt()
+    return "%d:%02d".format(s / 60, s % 60)
 }
