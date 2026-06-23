@@ -22,8 +22,11 @@ Prove the models actually run on a device, using upstream prebuilts to iterate f
       push models to the app dir and `am instrument` (or `./gradlew connectedDebugAndroidTest`).
 - [ ] **Diarization smoke test:** run `OfflineSpeakerDiarization` on a 2-speaker clip; log
       `speaker/start/end` segments.
-- [ ] **LLM smoke test:** finish the decode loop in `llm_jni.cpp` against the pinned
-      llama.cpp headers; summarize a paragraph with Qwen2.5-1.5B Q4_K_M; confirm token streaming.
+- [x] **LLM smoke test — PASSED on emulator (autonomous).** `LlmEngineTest` (instrumented)
+      loads a Qwen2.5 Q4_K_M GGUF and runs the `llm_jni.cpp` decode loop. Result:
+      "The capital of France is" → " Paris. It is the largest city in France and the second
+      largest in the European" in 2.6 s. Confirms tokenize → decode → sample → token_to_piece
+      → streamed callback all work on-device.
 - [ ] **Memory check:** measure peak RSS for (a) ASR+diar resident, (b) LLM resident. Confirm
       they fit a 4–6 GB device *only when not simultaneous*. This validates the two-phase design.
 

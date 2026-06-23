@@ -17,6 +17,8 @@ import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.events.TranscriptEvent
+import studio.voxsum.core.llm.LlmEngine
+import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.ModelManager
 
 /**
@@ -34,6 +36,7 @@ class TranscriptionService : LifecycleService() {
         private const val CHANNEL_ID = "voxsum_pipeline"
         private const val NOTIF_ID = 1
         const val EXTRA_AUDIO_URI = "audio_uri"
+        private const val DEFAULT_PROMPT = "Summarize the key points of this transcript."
 
         // Process-wide event bus the UI subscribes to. replay=0: UI must be collecting.
         val events = MutableSharedFlow<TranscriptEvent>(extraBufferCapacity = 256)
@@ -55,8 +58,9 @@ class TranscriptionService : LifecycleService() {
     }
 
     /**
-     * Phase 1: ensure ASR models -> decode (MediaCodec) -> AsrEngine.transcribe, re-emitting
-     * its events. Phase 2+ will append diarization, then release ASR and run summarization.
+     * Decode (MediaCodec) -> ASR (Phase 1) -> summarization (Phase 2). The ASR models are
+     * released before the LLM loads — never both resident (see SPIKE.md "memory"). Phase 3
+     * inserts diarization between ASR and the Complete event.
      */
     private suspend fun runPipeline(audioUri: String?) {
         val uri = audioUri?.let(Uri::parse)
@@ -73,6 +77,8 @@ class TranscriptionService : LifecycleService() {
         events.emit(TranscriptEvent.Status("Decoding audio…"))
         val pcm = AudioDecoder.decodeToPcm16k(this, uri)
 
+        // --- ASR phase: collect utterances while streaming them to the UI. ---
+        val utterances = ArrayList<TranscriptEvent.Utterance>()
         AsrEngine(
             senseVoiceModel = models.senseVoiceModel.absolutePath,
             tokens = models.tokens.absolutePath,
@@ -80,6 +86,26 @@ class TranscriptionService : LifecycleService() {
             numThreads = asrThreads(),
         ).use { asr ->
             asr.transcribe(pcm)
+                .flowOn(Dispatchers.Default)
+                .collect { e ->
+                    if (e is TranscriptEvent.Utterance) utterances += e
+                    events.emit(e)
+                }
+        } // ASR native resources freed here, before the LLM is loaded.
+
+        if (utterances.isEmpty()) return
+
+        // --- Summarization phase. ---
+        if (!models.llmReady()) {
+            events.emit(TranscriptEvent.Status("Downloading summarization model…"))
+            models.ensureLlmModel { frac ->
+                updateNotification("Summarization model… ${(frac * 100).toInt()}%")
+            }
+        }
+        updateNotification("Summarizing…")
+        val transcript = utterances.joinToString("\n") { it.text }
+        LlmEngine.load(models.llmModel.absolutePath, nThreads = asrThreads()).use { llm ->
+            Summarizer(llm).summarize(transcript, DEFAULT_PROMPT)
                 .flowOn(Dispatchers.Default)
                 .collect { events.emit(it) }
         }

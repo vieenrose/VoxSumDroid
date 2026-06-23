@@ -27,8 +27,10 @@ class ModelManager(context: Context) {
     val senseVoiceModel: File get() = File(senseVoiceDir, "model.int8.onnx")
     val tokens: File get() = File(senseVoiceDir, "tokens.txt")
     val vadModel: File get() = File(modelsDir, "silero_vad.onnx")
+    val llmModel: File get() = File(modelsDir, "llm.gguf")
 
     fun asrReady(): Boolean = senseVoiceModel.exists() && tokens.exists() && vadModel.exists()
+    fun llmReady(): Boolean = llmModel.exists()
 
     /**
      * Ensure the ASR models are present, downloading what's missing. [onProgress] receives a
@@ -47,6 +49,12 @@ class ModelManager(context: Context) {
             onProgress(1f)
         }
         check(asrReady()) { "Model files missing after provisioning" }
+    }
+
+    /** Ensure the summarization GGUF is present (Phase 2). ~1 GB on first run. */
+    suspend fun ensureLlmModel(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
+        if (!llmModel.exists()) download(LLM_URL, llmModel, onProgress)
+        check(llmReady()) { "LLM model missing after provisioning" }
     }
 
     /** Resumable-ish single-file download to a temp file, then atomic rename into place. */
@@ -105,5 +113,9 @@ class ModelManager(context: Context) {
                 "$SENSE_VOICE_DIR.tar.bz2"
         private const val VAD_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
+        // Qwen2.5-1.5B-Instruct Q4_K_M (Apache-2.0) — the on-device summarization default.
+        private const val LLM_URL =
+            "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/" +
+                "qwen2.5-1.5b-instruct-q4_k_m.gguf"
     }
 }
