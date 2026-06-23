@@ -40,18 +40,23 @@ This is the make-or-break for Path A. F-Droid will not accept committed `.so`/`.
       `SHERPA_ONNXRUNTIME_LIB_DIR` + `SHERPA_ONNXRUNTIME_INCLUDE_DIR` (onnxruntime.cmake:128–156).
       So the F-Droid build order is: **build ORT from source → point sherpa at it → build sherpa JNI.**
 
-### The real F-Droid recipe (revised)
+### The real F-Droid recipe — ✅ PROVEN (arm64-v8a, NDK 27.2)
 
-1. [ ] Build **onnxruntime from source** for Android arm64 (its own `build.sh --android …`),
-       pinned to **v1.24.3** to match sherpa's expected headers. ← the heavy gate; **time it**.
-2. [ ] `export SHERPA_ONNXRUNTIME_LIB_DIR=… SHERPA_ONNXRUNTIME_INCLUDE_DIR=…` then build
-       sherpa-onnx with `SHERPA_ONNX_ENABLE_JNI=ON` → `libsherpa-onnx-jni.so`; confirm the
-       `com.k2fsa.sherpa.onnx` Kotlin API resolves against it.
-3. [ ] Reproduce twice; confirm byte-identical outputs (or pin down nondeterminism:
+The full native stack builds from source. No prebuilt `.so`/`.aar` involved.
+
+1. ✅ **onnxruntime from source** for Android arm64, pinned **v1.24.3**
+       (`scripts/build-onnxruntime-android.sh`) → `Release/libonnxruntime.so` (~19 MB).
+       This was the heavy gate; it builds with host cmake 3.28 + NDK 27.2.
+2. ✅ `export SHERPA_ONNXRUNTIME_LIB_DIR=… SHERPA_ONNXRUNTIME_INCLUDE_DIR=…` then build
+       sherpa with `SHERPA_ONNX_ENABLE_JNI=ON` → `libsherpa-onnx-jni.so` (~94 MB).
+       **Gotcha found & fixed:** sherpa builds TTS (espeak-ng) by default, which fails to link
+       (`undefined symbol: ucd_tolower`). We don't use TTS → `SHERPA_ONNX_ENABLE_TTS=OFF`
+       (also `WEBSOCKET=OFF`), wired into `app/src/main/cpp/CMakeLists.txt`.
+3. ✅ `libllama.so` + `libvoxsum-llm.so` build from source (verified earlier).
+4. [ ] Reproduce twice; confirm byte-identical outputs (or pin down nondeterminism:
        timestamps, paths, `-march`).
-4. [ ] Draft a local `fdroid build` (fdroiddata + `metadata/studio.voxsum.yml`). If ORT can't
-       build within F-Droid's pipeline limits → escalate: pin a known-good ORT recipe, or fall
-       back to Path B (whisper.cpp for ASR, sherpa only for diarization).
+5. [ ] For actual F-Droid submission, ORT must be a submodule/srclib (no network during their
+       build). Draft a local `fdroid build` (fdroiddata + `metadata/studio.voxsum.yml`).
 
 ## 0.3 — Decision
 

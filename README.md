@@ -34,9 +34,20 @@ cd VoxSumDroid
 ./gradlew :app:assembleDebug
 ```
 
-The Kotlin layer and the llama.cpp JNI bridge are build-verified (arm64). The full
-`assembleDebug` additionally compiles sherpa-onnx + onnxruntime from source — slow, and the
-focus of the Phase 0 spike (see [`SPIKE.md`](SPIKE.md)).
+The full native stack is **build-verified from source for arm64-v8a** (NDK 27.2): onnxruntime
+v1.24.3, sherpa-onnx JNI, llama.cpp, and the Kotlin layer — no prebuilt binaries. Because
+sherpa-onnx links against onnxruntime, build ORT first, then point the app build at it:
+
+```bash
+# 1. Build onnxruntime from source for Android (the slow step). Pinned to v1.24.3.
+./scripts/build-onnxruntime-android.sh
+# 2. Hand its outputs to the app's CMake, then build.
+export SHERPA_ONNXRUNTIME_LIB_DIR="$HOME/ort-build/Release"
+export SHERPA_ONNXRUNTIME_INCLUDE_DIR="$HOME/ort-headers"
+./gradlew :app:assembleDebug
+```
+
+See [`SPIKE.md`](SPIKE.md) for the proven recipe and the one gotcha (TTS/espeak-ng disabled).
 
 Models are **not** bundled; they download (SHA-256-verified) on first run, or can be
 side-loaded into the app's models dir to stay network-free. See

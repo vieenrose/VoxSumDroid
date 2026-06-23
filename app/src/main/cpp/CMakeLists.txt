@@ -36,6 +36,13 @@ if(NOT VOXSUM_SHERPA_PREBUILT)
     set(SHERPA_ONNX_ENABLE_BINARY      OFF CACHE BOOL "" FORCE)
     set(SHERPA_ONNX_ENABLE_JNI         ON  CACHE BOOL "" FORCE)
     set(BUILD_SHARED_LIBS              ON  CACHE BOOL "" FORCE)
+    # We use ASR + VAD + speaker diarization only. Disable TTS (pulls espeak-ng/ucd,
+    # which fails to link and we don't need) and the websocket server.
+    set(SHERPA_ONNX_ENABLE_TTS                 OFF CACHE BOOL "" FORCE)
+    set(SHERPA_ONNX_ENABLE_WEBSOCKET           OFF CACHE BOOL "" FORCE)
+    set(SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION ON  CACHE BOOL "" FORCE)
+    # onnxruntime is supplied from source via env vars SHERPA_ONNXRUNTIME_LIB_DIR /
+    # SHERPA_ONNXRUNTIME_INCLUDE_DIR (built separately for F-Droid — see SPIKE.md).
     add_subdirectory("${NATIVE_DIR}/sherpa-onnx" sherpa-build)
 endif()
 
