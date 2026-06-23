@@ -9,7 +9,9 @@ import android.os.Build
 import android.net.Uri
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flowOn
@@ -37,6 +39,7 @@ class TranscriptionService : LifecycleService() {
         private const val CHANNEL_ID = "voxsum_pipeline"
         private const val NOTIF_ID = 1
         const val EXTRA_AUDIO_URI = "audio_uri"
+        const val ACTION_STOP = "studio.voxsum.STOP"
         private const val DEFAULT_PROMPT = "Summarize the key points of this transcript."
 
         // Process-wide event bus the UI subscribes to. replay=0: UI must be collecting.
@@ -44,14 +47,31 @@ class TranscriptionService : LifecycleService() {
         val eventStream = events.asSharedFlow()
     }
 
+    private var pipelineJob: Job? = null
+    // Held so a stop request can break the native generate loop promptly (it ignores
+    // coroutine cancellation while inside a blocking JNI call).
+    @Volatile private var activeLlm: LlmEngine? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        startForeground(NOTIF_ID, buildNotification("Preparing…"))
 
+        if (intent?.action == ACTION_STOP) {
+            activeLlm?.cancel()
+            pipelineJob?.cancel()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        startForeground(NOTIF_ID, buildNotification("Preparing…"))
         val uri = intent?.getStringExtra(EXTRA_AUDIO_URI)
-        lifecycleScope.launch {
+        pipelineJob = lifecycleScope.launch {
             runCatching { runPipeline(uri) }
-                .onFailure { events.emit(TranscriptEvent.Failed(it.message ?: "pipeline error")) }
+                .onFailure { e ->
+                    if (e !is CancellationException) {
+                        events.emit(TranscriptEvent.Failed(e.message ?: "pipeline error"))
+                    }
+                }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -125,9 +145,14 @@ class TranscriptionService : LifecycleService() {
         updateNotification("Summarizing…")
         val transcript = tagged.joinToString("\n") { it.text }
         LlmEngine.load(models.llmModel.absolutePath, nThreads = asrThreads()).use { llm ->
-            Summarizer(llm).summarize(transcript, DEFAULT_PROMPT)
-                .flowOn(Dispatchers.Default)
-                .collect { events.emit(it) }
+            activeLlm = llm
+            try {
+                Summarizer(llm).summarize(transcript, DEFAULT_PROMPT)
+                    .flowOn(Dispatchers.Default)
+                    .collect { events.emit(it) }
+            } finally {
+                activeLlm = null
+            }
         }
     }
 

@@ -1,11 +1,11 @@
 {
-  "_comment": "On-device model registry — Android counterpart of the dicts in src/utils.py. FOSS-licensed only; SHA-256 to be filled during the Phase 0 spike. Non-free models (Llama, Gemma) are intentionally excluded for F-Droid.",
+  "_comment": "On-device model registry — Android counterpart of the dicts in src/utils.py. FOSS-licensed only; SHA-256 pins are the real release-artifact hashes (verified after download in ModelManager). Non-free models (Llama, Gemma) intentionally excluded for F-Droid.",
   "asr": [
     {
       "id": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
       "kind": "ASR",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
-      "sha256": "TODO",
+      "sha256": "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e",
       "license": "Apache-2.0",
       "default": true
     }
@@ -15,7 +15,7 @@
       "id": "silero_vad",
       "kind": "VAD",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
-      "sha256": "TODO",
+      "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
       "license": "MIT"
     }
   ],
@@ -24,14 +24,14 @@
       "id": "sherpa-onnx-pyannote-segmentation-3-0",
       "kind": "DIARIZATION_SEG",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
-      "sha256": "TODO",
+      "sha256": "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488",
       "license": "MIT"
     },
     {
       "id": "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k",
       "kind": "DIARIZATION_EMB",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
-      "sha256": "TODO",
+      "sha256": "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b",
       "license": "Apache-2.0"
     }
   ],
@@ -40,7 +40,7 @@
       "id": "qwen2.5-1.5b-instruct-q4_k_m",
       "kind": "LLM",
       "url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
-      "sha256": "TODO",
+      "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
       "license": "Apache-2.0",
       "default": true
     }

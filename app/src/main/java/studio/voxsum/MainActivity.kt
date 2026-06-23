@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -29,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -57,7 +59,9 @@ class MainActivity : ComponentActivity() {
         maybeRequestNotifications()
         setContent {
             MaterialTheme {
-                Surface(Modifier.fillMaxWidth()) { TranscribeScreen(::startTranscription) }
+                Surface(Modifier.fillMaxWidth()) {
+                    TranscribeScreen(::startTranscription, ::stopTranscription)
+                }
             }
         }
     }
@@ -71,6 +75,12 @@ class MainActivity : ComponentActivity() {
         ContextCompat.startForegroundService(this, intent)
     }
 
+    private fun stopTranscription() {
+        startService(
+            Intent(this, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_STOP)
+        )
+    }
+
     private fun maybeRequestNotifications() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
@@ -82,12 +92,14 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun TranscribeScreen(onPicked: (Uri) -> Unit) {
+private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
     val context = LocalContext.current
     var status by remember { mutableStateOf("Pick an audio file to begin.") }
     var title by remember { mutableStateOf<String?>(null) }
     var summary by remember { mutableStateOf<String?>(null) }
     var audioUri by remember { mutableStateOf<Uri?>(null) }
+    var running by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
     val utterances = remember { mutableStateListOf<TranscriptEvent.Utterance>() }
 
     // --- Synced player (android MediaPlayer; no extra dep). ---
@@ -113,7 +125,7 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit) {
     ) { uri: Uri? ->
         if (uri != null) {
             utterances.clear(); title = null; summary = null; isPlaying = false
-            status = "Starting…"; audioUri = uri; onPicked(uri)
+            running = true; progress = 0f; status = "Starting…"; audioUri = uri; onPicked(uri)
         }
     }
 
@@ -135,15 +147,15 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit) {
             when (e) {
                 is TranscriptEvent.Status -> status = e.message
                 is TranscriptEvent.Utterance -> utterances.add(e)
-                is TranscriptEvent.Progress -> status = "Transcribing ${(e.fraction * 100).toInt()}%"
+                is TranscriptEvent.Progress -> { progress = e.fraction; status = "Transcribing ${(e.fraction * 100).toInt()}%" }
                 is TranscriptEvent.Complete -> {
                     utterances.clear(); utterances.addAll(e.utterances)
                     status = "Transcript: ${e.utterances.size} utterances" +
                         (e.speakerCount?.let { ", $it speakers" } ?: "")
                 }
                 is TranscriptEvent.Title -> title = e.title
-                is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = "Done" }
-                is TranscriptEvent.Failed -> status = "Error: ${e.error}"
+                is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = "Done"; running = false }
+                is TranscriptEvent.Failed -> { status = "Error: ${e.error}"; running = false }
                 else -> Unit
             }
         }
@@ -158,9 +170,15 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit) {
         Text("VoxSum", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
         Row {
-            Button(onClick = { picker.launch(arrayOf("audio/*")) }) { Text("Pick audio…") }
-            if (player != null) {
-                Spacer(Modifier.height(0.dp).then(Modifier.padding(4.dp)))
+            Button(
+                onClick = { picker.launch(arrayOf("audio/*")) },
+                enabled = !running,
+                modifier = Modifier.padding(end = 6.dp),
+            ) { Text("Pick audio…") }
+            if (running) {
+                Button(onClick = onStop, modifier = Modifier.padding(end = 6.dp)) { Text("Stop") }
+            }
+            if (player != null && !running) {
                 Button(onClick = {
                     val p = player ?: return@Button
                     if (isPlaying) { p.pause(); isPlaying = false } else { p.start(); isPlaying = true }
@@ -168,6 +186,12 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit) {
             }
         }
         Spacer(Modifier.height(8.dp))
+        if (running) {
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            )
+        }
         Text(status, style = MaterialTheme.typography.bodyMedium)
 
         if (utterances.isNotEmpty()) {

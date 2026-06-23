@@ -9,6 +9,7 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 /**
  * Lazy, first-run model provisioning — Android counterpart of the "download on first use"
@@ -44,11 +45,11 @@ class ModelManager(context: Context) {
      */
     suspend fun ensureAsrModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         if (!vadModel.exists()) {
-            download(VAD_URL, vadModel) { onProgress(it * 0.2f) }
+            download(VAD_URL, vadModel, VAD_SHA) { onProgress(it * 0.2f) }
         }
         if (!senseVoiceModel.exists() || !tokens.exists()) {
             val archive = File(modelsDir, "$SENSE_VOICE_DIR.tar.bz2")
-            download(SENSE_VOICE_URL, archive) { onProgress(0.2f + it * 0.7f) }
+            download(SENSE_VOICE_URL, archive, SENSE_VOICE_SHA) { onProgress(0.2f + it * 0.7f) }
             extractTarBz2(archive, modelsDir)
             archive.delete()
             onProgress(1f)
@@ -58,7 +59,7 @@ class ModelManager(context: Context) {
 
     /** Ensure the summarization GGUF is present (Phase 2). ~1 GB on first run. */
     suspend fun ensureLlmModel(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        if (!llmModel.exists()) download(LLM_URL, llmModel, onProgress)
+        if (!llmModel.exists()) download(LLM_URL, llmModel, LLM_SHA, onProgress)
         check(llmReady()) { "LLM model missing after provisioning" }
     }
 
@@ -66,18 +67,22 @@ class ModelManager(context: Context) {
     suspend fun ensureDiarizationModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         if (!segmentationModel.exists()) {
             val archive = File(modelsDir, "$SEG_DIR.tar.bz2")
-            download(SEG_URL, archive) { onProgress(it * 0.4f) }
+            download(SEG_URL, archive, SEG_SHA) { onProgress(it * 0.4f) }
             extractTarBz2(archive, modelsDir)
             archive.delete()
         }
         if (!embeddingModel.exists()) {
-            download(EMB_URL, embeddingModel) { onProgress(0.4f + it * 0.6f) }
+            download(EMB_URL, embeddingModel, EMB_SHA) { onProgress(0.4f + it * 0.6f) }
         }
         check(diarizationReady()) { "Diarization models missing after provisioning" }
     }
 
-    /** Resumable-ish single-file download to a temp file, then atomic rename into place. */
-    private fun download(url: String, dest: File, onProgress: (Float) -> Unit) {
+    /**
+     * Download to a temp file, verify its SHA-256 (when pinned), then atomically rename into
+     * place. A checksum mismatch deletes the temp file and throws — no half-trusted model is
+     * ever used. The pins are the FOSS release artifacts' real hashes (see manifest / below).
+     */
+    private fun download(url: String, dest: File, sha256: String? = null, onProgress: (Float) -> Unit) {
         val tmp = File(dest.parentFile, "${dest.name}.part")
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 30_000
@@ -98,7 +103,23 @@ class ModelManager(context: Context) {
                 }
             }
         }
+        if (sha256 != null) {
+            val actual = sha256Of(tmp)
+            if (!actual.equals(sha256, ignoreCase = true)) {
+                tmp.delete()
+                error("Checksum mismatch for ${dest.name}: expected $sha256, got $actual")
+            }
+        }
         check(tmp.renameTo(dest)) { "Could not move ${tmp.name} into place" }
+    }
+
+    private fun sha256Of(f: File): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        f.inputStream().use { ins ->
+            val buf = ByteArray(1 shl 16)
+            while (true) { val n = ins.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun extractTarBz2(archive: File, outDir: File) {
@@ -144,5 +165,12 @@ class ModelManager(context: Context) {
         private const val EMB_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/" +
                 "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
+
+        // SHA-256 pins for the exact release artifacts above (verified after download).
+        private const val VAD_SHA = "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+        private const val SENSE_VOICE_SHA = "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e"
+        private const val SEG_SHA = "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488"
+        private const val EMB_SHA = "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b"
+        private const val LLM_SHA = "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"
     }
 }
