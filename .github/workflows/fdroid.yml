@@ -26,12 +26,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 350   # ORT-from-source on 4 cores is slow; stay under the 6h cap
+    outputs:
+      has_keystore: ${{ steps.ks.outputs.has }}
     env:
       ORT_SRC: /home/runner/ort-src
       ORT_BUILD: /home/runner/ort-build
       ORT_HEADERS: /home/runner/ort-headers
       HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
     steps:
+      # Surface keystore presence as a job output (job-level `if` can't read `secrets`).
+      - id: ks
+        run: echo "has=${{ secrets.KEYSTORE_BASE64 != '' }}" >> "$GITHUB_OUTPUT"
+
       # CI has network, so onnxruntime is cloned/built by the script — we only need the
       # sherpa + llama submodules for the app's CMake. Skipping the ORT submodule here saves
       # ~1 GB of checkout (the ORT submodule is only for F-Droid's OFFLINE build, Route A).
@@ -134,7 +140,7 @@ jobs:
   # Publish to Pages only on a real tagged release with a keystore configured.
   deploy:
     needs: build
-    if: ${{ github.ref_type == 'tag' && secrets.KEYSTORE_BASE64 != '' }}
+    if: ${{ github.ref_type == 'tag' && needs.build.outputs.has_keystore == 'true' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
