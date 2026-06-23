@@ -17,11 +17,13 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            // arm64 is the only ABI worth shipping for on-device LLM perf.
-            // Add "armeabi-v7a" only if you must support old devices (much slower).
-            abiFilters += listOf("arm64-v8a")
+            // arm64 is the only ABI worth shipping for on-device LLM perf. Override with
+            // -PvoxsumAbi=x86_64 to build for an emulator (provide a matching ORT via
+            // SHERPA_ONNXRUNTIME_LIB_DIR). See RELEASING.md / the emulator test in SPIKE.md.
+            abiFilters += ((project.findProperty("voxsumAbi") as String?) ?: "arm64-v8a")
         }
         externalNativeBuild {
             cmake {
@@ -98,4 +100,7 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.commons.compress) // tar.bz2 model extraction (Apache-2.0)
+
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 }

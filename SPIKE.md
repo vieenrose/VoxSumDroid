@@ -14,8 +14,12 @@ Prove the models actually run on a device, using upstream prebuilts to iterate f
       and `.../llama.cpp native/llama.cpp`; pin both to a release tag.
 - [ ] Build llama.cpp via the app CMake; flip `VOXSUM_SHERPA_PREBUILT=ON` to link sherpa
       prebuilts temporarily.
-- [ ] **ASR smoke test:** decode a local WAV (MediaCodec), run sherpa `Vad` +
-      `OfflineRecognizer` (SenseVoice int8), log utterances. Confirm Chinese/English both decode.
+- [x] **ASR smoke test — PASSED on emulator (autonomous).** `AsrEngineTest` (instrumented)
+      feeds a 16 kHz wav through sherpa `Vad` (Silero) + `OfflineRecognizer` (SenseVoice int8)
+      on an x86_64 emulator. Native libs all built from source (incl. ORT x86_64). Result:
+      7.15 s clip → "The tribal chieftain called for the boy. And presented him with 50
+      pieces of gold." in 2.5 s. Repro: build `-PvoxsumAbi=x86_64` with an x86_64 ORT, then
+      push models to the app dir and `am instrument` (or `./gradlew connectedDebugAndroidTest`).
 - [ ] **Diarization smoke test:** run `OfflineSpeakerDiarization` on a 2-speaker clip; log
       `speaker/start/end` segments.
 - [ ] **LLM smoke test:** finish the decode loop in `llm_jni.cpp` against the pinned
