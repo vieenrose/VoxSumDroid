@@ -76,11 +76,17 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun TranscribeScreen(onPicked: (Uri) -> Unit) {
     var status by remember { mutableStateOf("Pick an audio file to begin.") }
+    var title by remember { mutableStateOf<String?>(null) }
+    var summary by remember { mutableStateOf<String?>(null) }
     val utterances = remember { mutableStateListOf<TranscriptEvent.Utterance>() }
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? -> if (uri != null) { utterances.clear(); status = "Starting…"; onPicked(uri) } }
+    ) { uri: Uri? ->
+        if (uri != null) {
+            utterances.clear(); title = null; summary = null; status = "Starting…"; onPicked(uri)
+        }
+    }
 
     // Collect pipeline events and update UI incrementally (append, not rebuild).
     LaunchedEffect(Unit) {
@@ -89,7 +95,14 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit) {
                 is TranscriptEvent.Status -> status = e.message
                 is TranscriptEvent.Utterance -> utterances.add(e)
                 is TranscriptEvent.Progress -> status = "Transcribing ${(e.fraction * 100).toInt()}%"
-                is TranscriptEvent.Complete -> status = "Done — ${e.utterances.size} utterances"
+                is TranscriptEvent.Complete -> {
+                    // Replace with the speaker-tagged utterances from diarization.
+                    utterances.clear(); utterances.addAll(e.utterances)
+                    status = "Transcript: ${e.utterances.size} utterances" +
+                        (e.speakerCount?.let { ", $it speakers" } ?: "")
+                }
+                is TranscriptEvent.Title -> title = e.title
+                is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = "Done" }
                 is TranscriptEvent.Failed -> status = "Error: ${e.error}"
                 else -> Unit
             }
@@ -104,9 +117,20 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit) {
         Text(status, style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(12.dp))
         LazyColumn {
+            title?.let { item { Text(it, style = MaterialTheme.typography.titleMedium) } }
+            summary?.let {
+                item {
+                    Text(
+                        "Summary: $it",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+            }
             items(utterances) { u ->
+                val who = u.speaker?.let { "S$it " } ?: ""
                 Text(
-                    "[${fmt(u.startSec)}] ${u.text}",
+                    "[${fmt(u.startSec)}] $who${u.text}",
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(vertical = 4.dp),
                 )

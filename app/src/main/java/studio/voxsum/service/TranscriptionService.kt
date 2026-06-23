@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.audio.AudioDecoder
+import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.Summarizer
@@ -95,6 +96,25 @@ class TranscriptionService : LifecycleService() {
 
         if (utterances.isEmpty()) return
 
+        // --- Diarization phase (Phase 3): tag speakers, emit the final Complete. ---
+        var tagged: List<TranscriptEvent.Utterance> = utterances
+        if (!models.diarizationReady()) {
+            events.emit(TranscriptEvent.Status("Downloading diarization models…"))
+            models.ensureDiarizationModels { frac ->
+                updateNotification("Diarization model… ${(frac * 100).toInt()}%")
+            }
+        }
+        events.emit(TranscriptEvent.Status("Identifying speakers…"))
+        DiarizationEngine(
+            segmentationModel = models.segmentationModel.absolutePath,
+            embeddingModel = models.embeddingModel.absolutePath,
+            numThreads = asrThreads(),
+        ).use { de ->
+            val (t, count) = de.assignSpeakers(pcm, utterances)
+            tagged = t
+            events.emit(TranscriptEvent.Complete(t, count))
+        } // diarization native resources freed before the LLM loads.
+
         // --- Summarization phase. ---
         if (!models.llmReady()) {
             events.emit(TranscriptEvent.Status("Downloading summarization model…"))
@@ -103,7 +123,7 @@ class TranscriptionService : LifecycleService() {
             }
         }
         updateNotification("Summarizing…")
-        val transcript = utterances.joinToString("\n") { it.text }
+        val transcript = tagged.joinToString("\n") { it.text }
         LlmEngine.load(models.llmModel.absolutePath, nThreads = asrThreads()).use { llm ->
             Summarizer(llm).summarize(transcript, DEFAULT_PROMPT)
                 .flowOn(Dispatchers.Default)

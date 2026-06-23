@@ -1,40 +1,65 @@
 package studio.voxsum.core.diarization
 
+import com.k2fsa.sherpa.onnx.FastClusteringConfig
+import com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization
+import com.k2fsa.sherpa.onnx.OfflineSpeakerDiarizationConfig
+import com.k2fsa.sherpa.onnx.OfflineSpeakerSegmentationModelConfig
+import com.k2fsa.sherpa.onnx.OfflineSpeakerSegmentationPyannoteModelConfig
+import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
 import studio.voxsum.core.events.TranscriptEvent
 
 /**
- * Speaker diarization — Android counterpart of src/diarization.py +
- * src/improved_diarization.py. Uses sherpa-onnx's OfflineSpeakerDiarization, which
- * bundles the whole pipeline natively:
- *   segmentation (pyannote-segmentation-3.0) -> speaker embeddings (3D-Speaker) ->
- *   FastClustering (num_clusters or threshold).
+ * Speaker diarization — Android counterpart of src/diarization.py. Wraps sherpa-onnx's
+ * OfflineSpeakerDiarization, which runs the whole pipeline natively: pyannote segmentation
+ * → 3D-Speaker embeddings → FastClustering. We then attach a speaker id to each ASR
+ * utterance by maximum temporal overlap with the diarization segments.
  *
- * This is why we chose Path A: VoxSum's diarization maps onto a single sherpa-onnx call
- * instead of reimplementing FAISS clustering. The cost is the onnxruntime source build
- * for F-Droid (see SPIKE.md).
+ * numClusters = -1 → auto speaker count via the clustering threshold (matches VoxSum's
+ * "let it decide" default). One instance owns native resources; call [close].
  */
 class DiarizationEngine(
-    private val segmentationModel: String,  // sherpa-onnx-pyannote-segmentation-3-0/model.onnx
-    private val embeddingModel: String,     // 3dspeaker_*_sv_*.onnx
-    private val numThreads: Int,
-) {
+    segmentationModel: String,
+    embeddingModel: String,
+    numThreads: Int,
+) : AutoCloseable {
+
+    private val sd = OfflineSpeakerDiarization(
+        config = OfflineSpeakerDiarizationConfig(
+            segmentation = OfflineSpeakerSegmentationModelConfig(
+                pyannote = OfflineSpeakerSegmentationPyannoteModelConfig(model = segmentationModel),
+                numThreads = numThreads,
+            ),
+            embedding = SpeakerEmbeddingExtractorConfig(
+                model = embeddingModel,
+                numThreads = numThreads,
+            ),
+            clustering = FastClusteringConfig(numClusters = -1, threshold = 0.5f),
+        ),
+    )
+
     /**
-     * Assigns a speaker id to each utterance. If [numSpeakers] is null, clustering uses a
-     * distance threshold (auto count) — same idea as the Python small-n heuristic path.
-     *
-     * Returns the utterances tagged with `speaker`, plus the detected speaker count, so the
-     * caller can emit the final Complete event and the UI can apply per-speaker colors
-     * (getSpeakerColor mirrors src/diarization.py::get_speaker_color).
+     * Tag each utterance with a speaker id. Returns the tagged utterances and the detected
+     * speaker count (0 if diarization found nothing, leaving utterances unchanged).
      */
     fun assignSpeakers(
         pcm16k: FloatArray,
         utterances: List<TranscriptEvent.Utterance>,
-        numSpeakers: Int? = null,
     ): Pair<List<TranscriptEvent.Utterance>, Int> {
-        // TODO(spike): build OfflineSpeakerDiarizationConfig(segmentation, embedding,
-        //   FastClusteringConfig(numClusters = numSpeakers ?: -1, threshold = 0.5)),
-        //   process(pcm) -> segments(speaker,start,end), then overlap-match each utterance
-        //   to the segment it falls in and copy the speaker id.
-        TODO("sherpa-onnx OfflineSpeakerDiarization + overlap-match to utterances")
+        val segments = sd.process(pcm16k)
+        if (segments.isEmpty()) return utterances to 0
+
+        val tagged = utterances.map { u ->
+            var bestSpeaker = -1
+            var bestOverlap = 0.0
+            for (s in segments) {
+                val overlap = minOf(u.endSec, s.end.toDouble()) - maxOf(u.startSec, s.start.toDouble())
+                if (overlap > bestOverlap) { bestOverlap = overlap; bestSpeaker = s.speaker }
+            }
+            if (bestSpeaker >= 0) u.copy(speaker = bestSpeaker) else u
+        }
+        val speakerCount = segments.maxOf { it.speaker } + 1
+        return tagged to speakerCount
     }
+
+    override fun close() = sd.release()
 }

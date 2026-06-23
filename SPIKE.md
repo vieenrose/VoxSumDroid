@@ -20,8 +20,10 @@ Prove the models actually run on a device, using upstream prebuilts to iterate f
       7.15 s clip → "The tribal chieftain called for the boy. And presented him with 50
       pieces of gold." in 2.5 s. Repro: build `-PvoxsumAbi=x86_64` with an x86_64 ORT, then
       push models to the app dir and `am instrument` (or `./gradlew connectedDebugAndroidTest`).
-- [ ] **Diarization smoke test:** run `OfflineSpeakerDiarization` on a 2-speaker clip; log
-      `speaker/start/end` segments.
+- [x] **Diarization smoke test — PASSED on emulator (autonomous).** `DiarizationTest`
+      transcribes a 2-speaker clip (English + Chinese) then runs `OfflineSpeakerDiarization`
+      (pyannote seg + 3D-Speaker emb + FastClustering). Result: **2 speakers**, correctly split —
+      English utterances → S1, Chinese → S0. Confirms the full diarization native path on-device.
 - [x] **LLM smoke test — PASSED on emulator (autonomous).** `LlmEngineTest` (instrumented)
       loads a Qwen2.5 Q4_K_M GGUF and runs the `llm_jni.cpp` decode loop. Result:
       "The capital of France is" → " Paris. It is the largest city in France and the second

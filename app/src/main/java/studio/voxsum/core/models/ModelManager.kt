@@ -29,8 +29,13 @@ class ModelManager(context: Context) {
     val vadModel: File get() = File(modelsDir, "silero_vad.onnx")
     val llmModel: File get() = File(modelsDir, "llm.gguf")
 
+    private val segDir = File(modelsDir, SEG_DIR)
+    val segmentationModel: File get() = File(segDir, "model.onnx")
+    val embeddingModel: File get() = File(modelsDir, "speaker_embedding.onnx")
+
     fun asrReady(): Boolean = senseVoiceModel.exists() && tokens.exists() && vadModel.exists()
     fun llmReady(): Boolean = llmModel.exists()
+    fun diarizationReady(): Boolean = segmentationModel.exists() && embeddingModel.exists()
 
     /**
      * Ensure the ASR models are present, downloading what's missing. [onProgress] receives a
@@ -55,6 +60,20 @@ class ModelManager(context: Context) {
     suspend fun ensureLlmModel(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         if (!llmModel.exists()) download(LLM_URL, llmModel, onProgress)
         check(llmReady()) { "LLM model missing after provisioning" }
+    }
+
+    /** Ensure diarization models (pyannote segmentation + 3D-Speaker embedding) — Phase 3. */
+    suspend fun ensureDiarizationModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
+        if (!segmentationModel.exists()) {
+            val archive = File(modelsDir, "$SEG_DIR.tar.bz2")
+            download(SEG_URL, archive) { onProgress(it * 0.4f) }
+            extractTarBz2(archive, modelsDir)
+            archive.delete()
+        }
+        if (!embeddingModel.exists()) {
+            download(EMB_URL, embeddingModel) { onProgress(0.4f + it * 0.6f) }
+        }
+        check(diarizationReady()) { "Diarization models missing after provisioning" }
     }
 
     /** Resumable-ish single-file download to a temp file, then atomic rename into place. */
@@ -117,5 +136,13 @@ class ModelManager(context: Context) {
         private const val LLM_URL =
             "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/" +
                 "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+
+        const val SEG_DIR = "sherpa-onnx-pyannote-segmentation-3-0"
+        private const val SEG_URL =
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/" +
+                "speaker-segmentation-models/$SEG_DIR.tar.bz2"
+        private const val EMB_URL =
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/" +
+                "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
     }
 }
