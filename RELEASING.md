@@ -34,6 +34,18 @@ Answer the prompts; remember the store + key passwords.
 
 `Settings → Pages → Build and deployment → Source = GitHub Actions`.
 
+## Step 0 — DRY RUN first (do this before anything else)
+
+The first build compiles onnxruntime from source on a GitHub runner — heavy, and unproven on
+their hardware. Validate it cheaply, with **no keystore needed**:
+
+1. Actions tab → **Build & publish F-Droid repo** → **Run workflow**.
+2. It builds the app and uploads a **`voxsum-apk`** artifact. If that artifact appears, the
+   native build fits a runner and you're clear to set up signing. If it fails (usually disk or
+   time), that's the thing to fix before tagging — not after.
+
+(The ORT build is cached after the first success, so later runs are much faster.)
+
 ## Cut a release
 
 ```bash
