@@ -26,22 +26,34 @@ class Summarizer(private val llm: LlmEngine) {
         val partials = ArrayList<String>(chunks.size)
         for ((i, c) in chunks.withIndex()) {
             val sb = StringBuilder()
-            val prompt = MAP_TEMPLATE.format(userPrompt, c)
-            llm.generate(prompt, maxTokens = 512) { piece -> sb.append(piece) }
-            partials += sb.toString()
-            emit(TranscriptEvent.Partial(sb.toString()))
+            llm.generate(chatml(MAP_TEMPLATE.format(userPrompt, c)), maxTokens = 256) { sb.append(it) }
+            partials += sb.toString().trim()
+            emit(TranscriptEvent.Partial(sb.toString().trim()))
             emit(TranscriptEvent.Progress((i + 1f) / chunks.size))
         }
 
-        val finalPrompt = REDUCE_TEMPLATE.format(userPrompt, partials.joinToString("\n\n"))
+        // If there was only one chunk, its summary IS the final summary — skip a redundant pass.
         val finalSb = StringBuilder()
-        llm.generate(finalPrompt, maxTokens = 1024) { piece -> finalSb.append(piece) }
-        emit(TranscriptEvent.SummaryComplete(finalSb.toString()))
+        if (partials.size == 1) {
+            finalSb.append(partials[0])
+        } else {
+            llm.generate(
+                chatml(REDUCE_TEMPLATE.format(userPrompt, partials.joinToString("\n\n"))),
+                maxTokens = 400,
+            ) { finalSb.append(it) }
+        }
+        emit(TranscriptEvent.SummaryComplete(finalSb.toString().trim()))
 
         val title = StringBuilder()
-        llm.generate(TITLE_TEMPLATE.format(finalSb.toString()), maxTokens = 32) { title.append(it) }
+        llm.generate(chatml(TITLE_TEMPLATE.format(finalSb.toString())), maxTokens = 24) { title.append(it) }
         emit(TranscriptEvent.Title(title.toString().trim()))
     }
+
+    /** Wrap a user instruction in Qwen2.5's ChatML template so the instruct model behaves and
+     *  stops at <|im_end|> (an EOG token) instead of rambling on a raw prompt. */
+    private fun chatml(user: String): String =
+        "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
+            "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n"
 
     /** Naive char-window chunker; replace with a sentence-aware splitter in Phase 2. */
     private fun chunk(text: String, size: Int = 3500, overlap: Int = 300): List<String> {

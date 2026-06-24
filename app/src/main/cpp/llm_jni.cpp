@@ -105,8 +105,12 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
     std::vector<llama_token> tokens = tokenize(vocab, std::string(prompt), /*addSpecial=*/true);
     env->ReleaseStringUTFChars(jPrompt, prompt);
 
-    // Sampler chain (cf. summarization.py temperature/top_p). Fixed seed = reproducible.
+    // Sampler chain (cf. summarization.py temperature/top_p). A repetition penalty is
+    // essential here — small instruct models otherwise fall into "say the same sentence
+    // forever" loops on summarization. Fixed seed = reproducible.
     llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
+        /*penalty_last_n=*/256, /*penalty_repeat=*/1.3f, /*penalty_freq=*/0.0f, /*penalty_present=*/0.0f));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.7f));
