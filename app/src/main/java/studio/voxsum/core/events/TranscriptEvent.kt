@@ -39,5 +39,8 @@ sealed interface TranscriptEvent {
     data class Partial(val chunk: String) : TranscriptEvent
     data class SummaryComplete(val summary: String) : TranscriptEvent
 
+    /** Live recording finished and the captured WAV was written — the UI loads it for playback. */
+    data class RecordingSaved(val uri: String) : TranscriptEvent
+
     data class Failed(val error: String) : TranscriptEvent
 }

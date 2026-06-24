@@ -132,10 +132,23 @@ class MainActivity : ComponentActivity() {
         setContent {
             VoxSumTheme {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    TranscribeScreen(::startTranscription, ::stopTranscription)
+                    TranscribeScreen(::startTranscription, ::stopTranscription, ::startRecording, ::stopRecording)
                 }
             }
         }
+    }
+
+    private fun startRecording() {
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_RECORD),
+        )
+    }
+
+    private fun stopRecording() {
+        startService(
+            Intent(this, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_STOP_RECORDING)
+        )
     }
 
     private fun startTranscription(uri: Uri) {
@@ -168,7 +181,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
+private fun TranscribeScreen(
+    onPicked: (Uri) -> Unit,
+    onStop: () -> Unit,
+    onRecord: () -> Unit,
+    onStopRecording: () -> Unit,
+) {
     val context = LocalContext.current
     var status by remember { mutableStateOf("Pick an audio file to begin.") }
     var title by remember { mutableStateOf<String?>(null) }
@@ -231,6 +249,37 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? -> if (uri != null) launchAudio(uri) }
 
+    // --- Live recording (mic → streaming ASR; diarization/summary run on stop). ---
+    var isRecording by remember { mutableStateOf(false) }
+    var recSeconds by remember { mutableIntStateOf(0) }
+    LaunchedEffect(isRecording) {
+        recSeconds = 0
+        while (isRecording) { delay(1000); recSeconds++ }
+    }
+    fun beginRecording() {
+        utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
+        title = null; summary = null; isPlaying = false
+        showPodcastSheet = false; showConfigSheet = false
+        TranscriptionConfig.Holder.config = config
+        audioUri = null; running = true; isRecording = true; progress = 0f
+        status = "Recording…"; onRecord()
+    }
+    val recordPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) beginRecording()
+        else scope.launch { snackbarHostState.showSnackbar("Microphone permission is required to record") }
+    }
+    fun requestRecord() {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) beginRecording() else recordPermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+    // Stop routing: end recording gracefully (continue to diarization/summary) vs cancel a run.
+    fun handleStop() {
+        if (isRecording) { isRecording = false; onStopRecording() } else onStop()
+    }
+
     // --- Export via SAF; one launcher, target chosen on button press. ---
     var pending by remember { mutableStateOf<PendingExport>(PendingExport.Transcript(TranscriptExport.Format.SRT)) }
     val exporter = rememberLauncherForActivityResult(
@@ -267,6 +316,7 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
                         (e.speakerCount?.let { ", $it speakers" } ?: "")
                 }
                 is TranscriptEvent.Title -> title = e.title
+                is TranscriptEvent.RecordingSaved -> { audioUri = Uri.parse(e.uri); isRecording = false }
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = "Done"; running = false }
                 is TranscriptEvent.Failed -> {
                     status = "Error: ${e.error}"; running = false
@@ -362,9 +412,12 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
             if (!isEmptyState) {
                 SourceBar(
                     running = running,
+                    isRecording = isRecording,
+                    recSeconds = recSeconds,
                     onPickFile = { picker.launch(arrayOf("audio/*")) },
+                    onRecord = { requestRecord() },
                     onPodcast = { showPodcastSheet = true },
-                    onStop = onStop,
+                    onStop = { handleStop() },
                 )
             }
 
@@ -407,6 +460,7 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
                     asrLabel = asrShort,
                     llmLabel = llmShort,
                     onPickFile = { picker.launch(arrayOf("audio/*")) },
+                    onRecord = { requestRecord() },
                     onPodcast = { showPodcastSheet = true },
                     onOpenConfig = { showConfigSheet = true },
                 )

@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.net.Uri
 import androidx.lifecycle.LifecycleService
@@ -19,6 +20,7 @@ import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.audio.AudioDecoder
+import studio.voxsum.core.audio.AudioRecorder
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
@@ -27,6 +29,7 @@ import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.core.text.OpenCcConverter
+import java.io.File
 
 /**
  * Long-running pipeline host. Transcription + diarization + summarization can take
@@ -44,6 +47,10 @@ class TranscriptionService : LifecycleService() {
         private const val NOTIF_ID = 1
         const val EXTRA_AUDIO_URI = "audio_uri"
         const val ACTION_STOP = "studio.voxsum.STOP"
+        const val ACTION_RECORD = "studio.voxsum.RECORD"
+        // Gracefully end live recording and continue into diarization/summary (vs ACTION_STOP,
+        // which cancels the whole job).
+        const val ACTION_STOP_RECORDING = "studio.voxsum.STOP_RECORDING"
 
         // Process-wide event bus the UI subscribes to. replay=0: UI must be collecting.
         val events = MutableSharedFlow<TranscriptEvent>(extraBufferCapacity = 256)
@@ -54,24 +61,34 @@ class TranscriptionService : LifecycleService() {
     // Held so a stop request can break the native generate loop promptly (it ignores
     // coroutine cancellation while inside a blocking JNI call).
     @Volatile private var activeLlm: LlmEngine? = null
+    @Volatile private var stopRecordingRequested = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
 
-        if (intent?.action == ACTION_STOP) {
-            activeLlm?.cancel()
-            pipelineJob?.cancel()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                activeLlm?.cancel()
+                pipelineJob?.cancel()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            // End recording but let the job carry on into diarization/summary.
+            ACTION_STOP_RECORDING -> {
+                stopRecordingRequested = true
+                return START_NOT_STICKY
+            }
         }
 
-        startForeground(NOTIF_ID, buildNotification("Preparing…"))
+        val recording = intent?.action == ACTION_RECORD
+        stopRecordingRequested = false
+        startForegroundTyped(recording, "Preparing…")
         val uri = intent?.getStringExtra(EXTRA_AUDIO_URI)
         // Run the whole pipeline off the main thread — the MediaCodec decode is a long
         // blocking call that would otherwise ANR the UI (lifecycleScope defaults to Main).
         pipelineJob = lifecycleScope.launch(Dispatchers.Default) {
-            runCatching { runPipeline(uri) }
+            runCatching { if (recording) runRecordingPipeline() else runPipeline(uri) }
                 .onFailure { e ->
                     if (e !is CancellationException) {
                         events.emit(TranscriptEvent.Failed(e.message ?: "pipeline error"))
@@ -136,7 +153,76 @@ class TranscriptionService : LifecycleService() {
         } // ASR native resources freed here, before the LLM is loaded.
 
         if (utterances.isEmpty()) return
+        finishPipeline(pcm, utterances, cfg, models, converter)
+    }
 
+    /**
+     * Live recording: mic → streaming VAD/ASR (utterances stream in as you speak). On stop the
+     * capture is written to a WAV (for the synced player) and the shared finish runs
+     * diarization + summarization over the full waveform.
+     */
+    private suspend fun runRecordingPipeline() {
+        val cfg = TranscriptionConfig.Holder.config
+        val models = ModelManager(this)
+        val backend = AsrBackend.fromId(cfg.asrBackend)
+        if (!models.asrReady(backend)) {
+            events.emit(TranscriptEvent.Status("Downloading models (first run)…"))
+            models.ensureAsrModels(backend) { frac ->
+                updateNotification("Downloading models… ${(frac * 100).toInt()}%")
+            }
+        }
+        val converter = if (cfg.traditionalChinese) OpenCcConverter.get(this) else null
+        val recorder = AudioRecorder()
+        val utterances = ArrayList<TranscriptEvent.Utterance>()
+
+        updateNotification("Recording…")
+        AsrEngine(
+            backend = backend,
+            files = models.asrFiles(backend),
+            vadModel = models.vadModel.absolutePath,
+            numThreads = asrThreads(),
+            language = cfg.language,
+            useItn = cfg.useItn,
+            vadThreshold = cfg.vadThreshold,
+        ).use { asr ->
+            asr.transcribeLive(recorder.record { stopRecordingRequested })
+                .flowOn(Dispatchers.Default)
+                .collect { e ->
+                    when (e) {
+                        is TranscriptEvent.Utterance -> {
+                            val u = converter?.let { e.copy(text = it.convert(e.text)) } ?: e
+                            utterances += u
+                            events.emit(u)
+                        }
+                        else -> events.emit(e)
+                    }
+                }
+        } // ASR + mic released here, before diarization/LLM load.
+
+        val pcm = recorder.samples()
+        // Drop the microphone foreground type for the CPU-bound finish.
+        startForegroundTyped(recording = false, text = "Processing…")
+        if (pcm.isEmpty()) { events.emit(TranscriptEvent.Failed("No audio recorded")); return }
+
+        val wav = File(File(filesDir, "audio").apply { mkdirs() }, "recording_${System.currentTimeMillis()}.wav")
+        recorder.writeWav(wav)
+        events.emit(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
+
+        if (utterances.isEmpty()) {
+            events.emit(TranscriptEvent.Complete(emptyList(), speakerCount = null))
+            return
+        }
+        finishPipeline(pcm, utterances, cfg, models, converter)
+    }
+
+    /** Diarization (optional) + summarization — shared by the file and recording paths. */
+    private suspend fun finishPipeline(
+        pcm: FloatArray,
+        utterances: List<TranscriptEvent.Utterance>,
+        cfg: TranscriptionConfig,
+        models: ModelManager,
+        converter: OpenCcConverter?,
+    ) {
         // --- Diarization phase (optional). Tag speakers, emit the final Complete. ---
         var tagged: List<TranscriptEvent.Utterance> = utterances
         if (cfg.diarizationEnabled) {
@@ -192,6 +278,18 @@ class TranscriptionService : LifecycleService() {
     /** Small thread budget — phone big-core count, not all cores (cf. num_vcpus). */
     private fun asrThreads(): Int =
         Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
+
+    /** Start/refresh the FGS with the right type: microphone while recording, else data-sync. */
+    private fun startForegroundTyped(recording: Boolean, text: String) {
+        val notif = buildNotification(text)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val type = if (recording) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            else ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            startForeground(NOTIF_ID, notif, type)
+        } else {
+            startForeground(NOTIF_ID, notif)
+        }
+    }
 
     private fun updateNotification(text: String) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

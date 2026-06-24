@@ -2,15 +2,19 @@ package studio.voxsum.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -27,6 +31,7 @@ fun EmptyState(
     asrLabel: String,
     llmLabel: String,
     onPickFile: () -> Unit,
+    onRecord: () -> Unit,
     onPodcast: () -> Unit,
     onOpenConfig: () -> Unit,
 ) {
@@ -48,12 +53,16 @@ fun EmptyState(
             textAlign = TextAlign.Center,
         )
         Text(
-            "Pick an audio file or browse podcasts to begin.",
+            "Pick a file, record a meeting live, or browse podcasts to begin.",
             style = MaterialTheme.typography.bodyMedium,
             color = VoxSumPalette.Slate400,
             textAlign = TextAlign.Center,
         )
         GradientButton("Pick audio…", Icons.Filled.FolderOpen, onClick = onPickFile)
+        OutlinedButton(onClick = onRecord) {
+            Icon(Icons.Filled.Mic, contentDescription = null, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp)); Text("Record a meeting")
+        }
         TextButton(onClick = onPodcast) { Text("Browse podcasts") }
         // Spell out the two pipeline stages so the header chip isn't cryptic.
         Text(

@@ -30,6 +30,7 @@ browser/file manager. The ASR/diarization/LLM models are **not** bundled — the
   - **Moonshine** (English, fast)
   - **Zipformer zh-en** (transducer)
   - **Qwen3-ASR** (large, high accuracy)
+- **Live recording** — record a meeting and **transcribe as you speak**: the mic streams straight into the VAD/ASR loop so utterances appear in real time, then diarization + summary run when you stop (the recording is saved to a WAV and playable in the synced player).
 - **VAD-segmented streaming transcription** — utterances appear incrementally as speech is detected (Silero VAD), not in one blocking batch.
 - **Speaker diarization** — pyannote segmentation + 3D-Speaker embeddings + clustering, with a color-coded **timeline strip**, per-speaker pill chips, and a speaker-statistics panel (talk time, segment counts).
 - **On-device summarization** — local GGUF LLM via llama.cpp (Qwen2.5-0.5B-Instruct by default, 1.5B optional), map-reduce over the transcript to produce a title + summary.

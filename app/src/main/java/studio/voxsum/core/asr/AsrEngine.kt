@@ -57,6 +57,32 @@ class AsrEngine(
         ),
     )
 
+    // Monotonic utterance counter, shared by the file + live entry points (one engine, one run).
+    private val index = intArrayOf(0)
+
+    /** Pull every ready segment out of the VAD queue and decode it, numbering from [index]. */
+    private fun drain(): List<TranscriptEvent.Utterance> {
+        val fresh = ArrayList<TranscriptEvent.Utterance>()
+        while (!vad.empty()) {
+            val seg = vad.front()
+            val stream = recognizer.createStream()
+            stream.acceptWaveform(seg.samples, SAMPLE_RATE)
+            recognizer.decode(stream)
+            val text = recognizer.getResult(stream).text.trim()
+            stream.release()
+            vad.pop()
+            if (text.isNotEmpty()) {
+                fresh += TranscriptEvent.Utterance(
+                    index = index[0]++,
+                    text = text,
+                    startSec = seg.start.toDouble() / SAMPLE_RATE,
+                    endSec = (seg.start + seg.samples.size).toDouble() / SAMPLE_RATE,
+                )
+            }
+        }
+        return fresh
+    }
+
     /**
      * Cold flow of Status / Utterance / Progress / Complete. Heavy CPU work — collect with
      * `.flowOn(Dispatchers.Default)`.
@@ -64,30 +90,6 @@ class AsrEngine(
     fun transcribe(pcm16k: FloatArray): Flow<TranscriptEvent> = flow {
         emit(TranscriptEvent.Status("Transcribing…"))
         val utterances = ArrayList<TranscriptEvent.Utterance>()
-        var nextIndex = 0
-
-        // Pull every ready segment out of the VAD queue and decode it.
-        fun drain(): List<TranscriptEvent.Utterance> {
-            val fresh = ArrayList<TranscriptEvent.Utterance>()
-            while (!vad.empty()) {
-                val seg = vad.front()
-                val stream = recognizer.createStream()
-                stream.acceptWaveform(seg.samples, SAMPLE_RATE)
-                recognizer.decode(stream)
-                val text = recognizer.getResult(stream).text.trim()
-                stream.release()
-                vad.pop()
-                if (text.isNotEmpty()) {
-                    fresh += TranscriptEvent.Utterance(
-                        index = nextIndex++,
-                        text = text,
-                        startSec = seg.start.toDouble() / SAMPLE_RATE,
-                        endSec = (seg.start + seg.samples.size).toDouble() / SAMPLE_RATE,
-                    )
-                }
-            }
-            return fresh
-        }
 
         var i = 0
         while (i + WINDOW <= pcm16k.size) {
@@ -101,6 +103,30 @@ class AsrEngine(
 
         emit(TranscriptEvent.Progress(1f))
         emit(TranscriptEvent.Complete(utterances, speakerCount = null))
+    }
+
+    /**
+     * Live VAD-segmented ASR over a stream of mic chunks (see AudioRecorder). Utterances are
+     * emitted as speech segments close, exactly like [transcribe] but with no known total, so
+     * no Progress/Complete is emitted — the caller runs diarization/summary after the source
+     * ends. Chunk sizes are arbitrary; a sub-window remainder is carried to the next chunk.
+     */
+    fun transcribeLive(chunks: Flow<FloatArray>): Flow<TranscriptEvent> = flow {
+        emit(TranscriptEvent.Status("Recording…"))
+        var carry = FloatArray(0)
+        chunks.collect { chunk ->
+            val data = if (carry.isEmpty()) chunk else carry + chunk
+            var off = 0
+            while (off + WINDOW <= data.size) {
+                vad.acceptWaveform(data.copyOfRange(off, off + WINDOW))
+                off += WINDOW
+                for (u in drain()) emit(u)
+            }
+            carry = if (off < data.size) data.copyOfRange(off, data.size) else FloatArray(0)
+        }
+        if (carry.isNotEmpty()) vad.acceptWaveform(carry)
+        vad.flush()
+        for (u in drain()) emit(u)
     }
 
     override fun close() {
