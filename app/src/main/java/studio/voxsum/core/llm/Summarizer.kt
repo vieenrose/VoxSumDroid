@@ -59,11 +59,21 @@ class Summarizer(
 
     private fun maybeTw(s: String) = if (traditionalChinese) toTraditional(s) else s
 
-    /** First non-blank line, with markdown emphasis / quotes / "Title:" prefix stripped. */
+    /**
+     * Extract a single clean title from the model's reply. Verbose models (e.g. Gemma 4) answer
+     * with "Here are a few options:" then a numbered list, so skip preamble/header lines, take
+     * the first real candidate, and strip list numbering, markdown, quotes, and "Title:".
+     */
     private fun cleanTitle(raw: String): String {
-        val line = raw.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
-        return line
-            .replace(Regex("[*_`#>]"), "")
+        val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val candidate = lines.firstOrNull { line ->
+            !line.endsWith(":") &&
+                !line.matches(Regex("(?i)^(here|sure|okay|ok|option|options|below|these|certainly).*"))
+        } ?: lines.firstOrNull().orEmpty()
+        return candidate
+            .replace(Regex("^\\s*\\d+[.)]\\s*"), "")   // "1. " / "1) " numbering
+            .replace(Regex("^\\s*[-*•]\\s*"), "")        // leading bullet
+            .replace(Regex("[*_`#>]"), "")               // markdown emphasis
             .replace(Regex("(?i)^\\s*title\\s*:\\s*"), "")
             .trim()
             .trim('"', '\'', '“', '”', '«', '»', ' ', '.', ':')
@@ -117,12 +127,19 @@ class Summarizer(
     }
 
     private companion object {
-        // Mirrors the prompts in src/summarization.py.
+        // Directive prompts: one concise bullet-point summary, no multiple versions / section
+        // headers / preamble (verbose models like Gemma 4 otherwise emit "Short Summary:",
+        // "Detailed Summary:", etc.). First %s = the user's instruction, second %s = the text.
         const val MAP_TEMPLATE =
-            "Summarize this part of the transcript, keeping key points.\n%s\n\nTranscript:\n%s\n\nSummary:"
+            "%s\nWrite the summary of the transcript section below as a few short bullet points. " +
+                "Output only the bullet points — no headings, no multiple versions, no preamble.\n\n" +
+                "Transcript:\n%s\n\nSummary:"
         const val REDUCE_TEMPLATE =
-            "Combine these partial summaries into one coherent summary.\n%s\n\nPartials:\n%s\n\nFinal summary:"
+            "%s\nCombine the partial summaries below into ONE concise summary of a few short bullet " +
+                "points. Output only the bullet points — no headings, no multiple versions, no preamble.\n\n" +
+                "Partial summaries:\n%s\n\nSummary:"
         const val TITLE_TEMPLATE =
-            "Give a short title (<=8 words) for this summary:\n%s\n\nTitle:"
+            "Write ONE short title (at most 8 words) for the summary below. " +
+                "Output only the title text — no quotes, no list, no preamble.\n\nSummary:\n%s\n\nTitle:"
     }
 }

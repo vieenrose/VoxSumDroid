@@ -478,7 +478,6 @@ private fun TranscribeScreen(
                         item {
                             SpeakerStatsPanel(
                                 stats = stats,
-                                names = speakerNames,
                                 isDetecting = isDetecting,
                                 onDetectNames = { detectNames() },
                             )
