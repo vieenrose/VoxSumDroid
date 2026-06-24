@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,6 +33,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -385,24 +388,38 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
         Spacer(Modifier.height(12.dp))
         LazyColumn(state = listState) {
             if (showSettings) {
-                item { SettingsContent(config) { config = it } }
+                item {
+                    SectionCard {
+                        Text("Settings", style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold)
+                        SettingsContent(config) { config = it }
+                    }
+                }
             }
             if (showPodcast) {
-                item { PodcastPanel(onEpisodeReady = { uri -> launchAudio(uri) }) }
+                item { SectionCard { PodcastPanel(onEpisodeReady = { uri -> launchAudio(uri) }) } }
             }
-            title?.let { item { Text(it, style = MaterialTheme.typography.titleMedium) } }
+            title?.let {
+                item {
+                    Text(it, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(vertical = 6.dp))
+                }
+            }
             summary?.let { s ->
                 item {
-                    Column(Modifier.padding(vertical = 8.dp)) {
-                        Text("Summary: $s", style = MaterialTheme.typography.bodyMedium)
-                        Row(Modifier.padding(top = 6.dp)) {
+                    SectionCard {
+                        Text("Summary", style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(6.dp))
+                        Text(s, style = MaterialTheme.typography.bodyMedium)
+                        Row(Modifier.padding(top = 8.dp)) {
                             Button(
                                 onClick = { pending = PendingExport.SummaryMd; exporter.launch("summary.md") },
                                 modifier = Modifier.padding(end = 6.dp),
-                            ) { Text("Summary .md") }
+                            ) { Text(".md") }
                             Button(
                                 onClick = { pending = PendingExport.SummaryTxt; exporter.launch("summary.txt") },
-                            ) { Text("Summary .txt") }
+                            ) { Text(".txt") }
                         }
                     }
                 }
@@ -464,6 +481,19 @@ private fun fmt(sec: Double): String {
 private fun fmtMs(ms: Int): String {
     val s = ms / 1000
     return "%d:%02d".format(s / 60, s % 60)
+}
+
+/** A rounded surface card used to group a section (settings, podcast, summary). */
+@Composable
+private fun SectionCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Column(Modifier.padding(16.dp), content = content)
+    }
 }
 
 @Composable
@@ -670,15 +700,22 @@ private fun SpeakerTag(
     onCommit: (String) -> Unit,
     onCancel: () -> Unit,
 ) {
-    val bg = Color(speakerColor(speakerId)).copy(alpha = 0.25f)
+    val color = Color(speakerColor(speakerId))
+    val bg = color.copy(alpha = 0.18f)
     if (!editing) {
-        Surface(color = bg, shape = MaterialTheme.shapes.small) {
+        Surface(
+            color = bg,
+            shape = RoundedCornerShape(50),
+            border = BorderStroke(1.dp, color.copy(alpha = 0.6f)),
+        ) {
             Text(
                 label,
                 style = MaterialTheme.typography.labelMedium,
+                color = color,
+                fontWeight = FontWeight.Medium,
                 modifier = Modifier
                     .clickable(onClick = onTap)
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                    .padding(horizontal = 10.dp, vertical = 3.dp),
             )
         }
     } else {
