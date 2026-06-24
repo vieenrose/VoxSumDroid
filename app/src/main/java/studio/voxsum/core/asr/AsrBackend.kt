@@ -1,11 +1,18 @@
 package studio.voxsum.core.asr
 
 /** ASR engine families (same ids as the Python SHERPA_BACKENDS / asr.py). */
-enum class AsrBackend(val id: String, val displayName: String) {
-    SENSEVOICE("sensevoice", "SenseVoice (multilingual)"),
-    MOONSHINE("moonshine", "Moonshine (English, fast)"),
-    XASR("x-asr", "Zipformer zh-en"),
-    QWEN3("qwen3", "Qwen3-ASR (large, slow)");
+enum class AsrBackend(
+    val id: String,
+    val displayName: String,
+    /** Compact name for the header status chip. */
+    val shortName: String,
+    /** One-word descriptor for the model-picker subtitle. */
+    val tagline: String,
+) {
+    SENSEVOICE("sensevoice", "SenseVoice (multilingual)", "SenseVoice", "multilingual"),
+    MOONSHINE("moonshine", "Moonshine (English, fast)", "Moonshine", "English, fast"),
+    XASR("x-asr", "Zipformer zh-en", "Zipformer", "zh-en transducer"),
+    QWEN3("qwen3", "Qwen3-ASR (large, slow)", "Qwen3-ASR", "large, slow");
 
     companion object {
         fun fromId(id: String): AsrBackend = entries.firstOrNull { it.id == id } ?: SENSEVOICE

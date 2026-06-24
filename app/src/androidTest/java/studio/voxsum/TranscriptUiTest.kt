@@ -4,6 +4,7 @@ import android.Manifest
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
@@ -33,8 +34,9 @@ class TranscriptUiTest {
 
     @Test
     fun rendersUtterancesAsEventsArrive() {
-        // Initial state.
-        compose.onNodeWithText("Pick audio…").assertIsDisplayed()
+        // Initial state — the "Pick audio…" CTA appears in both the empty-state hero and the
+        // source bar, so assert at least one is shown.
+        compose.onAllNodesWithText("Pick audio…").onFirst().assertIsDisplayed()
 
         // Simulate the pipeline emitting a status then two utterances.
         TranscriptionService.events.tryEmit(TranscriptEvent.Status("Transcribing…"))

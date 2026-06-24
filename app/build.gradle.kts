@@ -98,6 +98,9 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    // Full Material icon set (Pause/Stop/Mic/Tune/GraphicEq/Volume…). R8 tree-shakes
+    // unused icons, so release-APK impact is negligible. BOM supplies the version.
+    implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.commons.compress) // tar.bz2 model extraction (Apache-2.0)
 

@@ -14,14 +14,45 @@ object VoxSumPalette {
     val Sky = Color(0xFF38BDF8)
     val Indigo = Color(0xFF818CF8)
     val Slate900 = Color(0xFF0F172A)
+    val Slate900Bottom = Color(0xFF111827)
     val Slate800 = Color(0xFF1E293B)
     val Slate700 = Color(0xFF334155)
     val Slate400 = Color(0xFF94A3B8)
     val Slate200 = Color(0xFFE2E8F0)
     val Red = Color(0xFFEF4444)
 
-    /** The brand 135° gradient (#38bdf8 → #818cf8) used on the header and accents. */
+    // Semantic status colors (mirror the web app's pill states).
+    val Success = Color(0xFF22C55E)
+    val Warning = Color(0xFFF59E0B)
+    val Info = Color(0xFF3B82F6)
+    val Idle = Color(0xFFEAB308)
+
+    /** The brand 135° gradient (#38bdf8 → #818cf8) used on the header, primary CTA, and accents. */
     val BrandGradient = Brush.linearGradient(listOf(Sky, Indigo))
+
+    /** App background — web `body` vertical slate gradient (#0F172A → #111827). */
+    val Slate900Grad = Brush.verticalGradient(listOf(Slate900, Slate900Bottom))
+
+    // Panel/card surfaces — translucent slate over the gradient, with a hairline border.
+    val PanelSurface = Slate800.copy(alpha = 0.85f)
+    val InsetSurface = Slate900.copy(alpha = 0.50f)
+    val Hairline = Slate400.copy(alpha = 0.15f)
+
+    // Active transcript row — web `.utterance-item.active` (sky tint + left accent bar).
+    val ActiveTint = Sky.copy(alpha = 0.15f)
+    val ActiveBar = Sky
+}
+
+/** Map a pipeline status string to a semantic color (matches the web app's status pill). */
+fun statusColor(status: String): Color {
+    val s = status.lowercase()
+    return when {
+        s.startsWith("error") || s.contains("failed") -> VoxSumPalette.Red
+        s.startsWith("done") || s.startsWith("transcript") || s.contains("detected") -> VoxSumPalette.Success
+        s.contains("transcrib") || s.contains("decod") || s.contains("identif") ||
+            s.contains("summar") || s.contains("detect") || s.contains("start") -> VoxSumPalette.Info
+        else -> VoxSumPalette.Slate400
+    }
 }
 
 private val VoxSumColors = darkColorScheme(

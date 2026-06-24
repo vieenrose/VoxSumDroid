@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,25 +26,37 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Forward5
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay5
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -60,6 +73,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -83,6 +97,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.export.TranscriptExport
@@ -95,9 +110,12 @@ import studio.voxsum.data.computeDiarizationStats
 import studio.voxsum.data.speakerColor
 import studio.voxsum.data.speakerLabel
 import studio.voxsum.service.TranscriptionService
-import studio.voxsum.ui.PodcastPanel
-import studio.voxsum.ui.SettingsContent
+import studio.voxsum.ui.ConfigSheet
+import studio.voxsum.ui.EmptyState
+import studio.voxsum.ui.PodcastSheet
+import studio.voxsum.ui.SourceBar
 import studio.voxsum.ui.SpeakerStatsPanel
+import studio.voxsum.ui.VoxSumTopBar
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.VoxSumTheme
 
@@ -159,8 +177,9 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
     var running by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     var config by remember { mutableStateOf(TranscriptionConfig.Holder.config) }
-    var showSettings by remember { mutableStateOf(false) }
-    var showPodcast by remember { mutableStateOf(false) }
+    var showConfigSheet by remember { mutableStateOf(false) }
+    var showPodcastSheet by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
     val utterances = remember { mutableStateListOf<TranscriptEvent.Utterance>() }
 
     // --- Inline editing (mirrors the web app): id->name overrides + which row/speaker is open. ---
@@ -203,7 +222,8 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
     fun launchAudio(uri: Uri) {
         TranscriptionConfig.Holder.config = config   // apply settings to this run
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
-        title = null; summary = null; isPlaying = false; showPodcast = false
+        title = null; summary = null; isPlaying = false
+        showPodcastSheet = false; showConfigSheet = false
         running = true; progress = 0f; status = "Starting…"; audioUri = uri; onPicked(uri)
     }
 
@@ -248,7 +268,10 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
                 }
                 is TranscriptEvent.Title -> title = e.title
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = "Done"; running = false }
-                is TranscriptEvent.Failed -> { status = "Error: ${e.error}"; running = false }
+                is TranscriptEvent.Failed -> {
+                    status = "Error: ${e.error}"; running = false
+                    scope.launch { snackbarHostState.showSnackbar("Error: ${e.error}") }
+                }
                 else -> Unit
             }
         }
@@ -284,8 +307,7 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
 
     val stats = computeDiarizationStats(utterances)
     // Header items rendered before the utterance list (for auto-scroll index math).
-    val headerCount = (if (showSettings) 1 else 0) + (if (showPodcast) 1 else 0) +
-        (if (title != null) 1 else 0) + (if (summary != null) 1 else 0) +
+    val headerCount = (if (title != null) 1 else 0) + (if (summary != null) 1 else 0) +
         (if (stats.perSpeaker.isNotEmpty()) 1 else 0)
     LaunchedEffect(activeIndex) {
         if (activeIndex in utterances.indices) {
@@ -293,176 +315,194 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
         }
     }
 
-    Column(Modifier.padding(16.dp)) {
-        Box(
+    // Active-model summary for the header chip + a one-shot download-pending probe.
+    val asrShort = AsrBackend.fromId(config.asrBackend).shortName
+    val llmShort = LlmRegistry.byId(config.llmModelId).let { it.shortName.ifEmpty { it.displayName } }
+    val modelLabel = "$asrShort · $llmShort"
+    val llmDisplay = LlmRegistry.byId(config.llmModelId).displayName
+    var downloadPending by remember { mutableStateOf(false) }
+    LaunchedEffect(config.asrBackend, config.llmModelId) {
+        downloadPending = withContext(Dispatchers.IO) {
+            val m = ModelManager(context)
+            !(runCatching { m.asrReady(AsrBackend.fromId(config.asrBackend)) }.getOrDefault(false) &&
+                runCatching { m.llmReady(LlmRegistry.byId(config.llmModelId)) }.getOrDefault(false))
+        }
+    }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize().background(VoxSumPalette.Slate900Grad),
+        containerColor = Color.Transparent,
+        topBar = {
+            VoxSumTopBar(
+                modelLabel = modelLabel,
+                downloadPending = downloadPending,
+                status = status,
+                running = running,
+                progress = progress,
+                transcriptAvailable = utterances.isNotEmpty(),
+                summaryAvailable = summary != null,
+                onChipClick = { showConfigSheet = true },
+                onExportTranscript = { f -> pending = PendingExport.Transcript(f); exporter.launch("transcript${f.ext}") },
+                onExportSummaryMarkdown = { pending = PendingExport.SummaryMd; exporter.launch("summary.md") },
+                onExportSummaryText = { pending = PendingExport.SummaryTxt; exporter.launch("summary.txt") },
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { innerPadding ->
+        Column(
             Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(VoxSumPalette.BrandGradient)
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .padding(innerPadding)
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
         ) {
-            Text(
-                "VoxSum",
-                style = MaterialTheme.typography.headlineMedium,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-        Spacer(Modifier.height(12.dp))
-        Row {
-            Button(
-                onClick = { picker.launch(arrayOf("audio/*")) },
-                enabled = !running,
-                modifier = Modifier.padding(end = 6.dp),
-            ) { Text("Pick audio…") }
-            if (running) {
-                Button(onClick = onStop, modifier = Modifier.padding(end = 6.dp)) { Text("Stop") }
-            }
-            Button(
-                onClick = { showSettings = !showSettings },
-                enabled = !running,
-                modifier = Modifier.padding(end = 6.dp),
-            ) { Text(if (showSettings) "Hide settings" else "⚙ Settings") }
-            Button(onClick = { showPodcast = !showPodcast }, enabled = !running) {
-                Text(if (showPodcast) "Hide podcasts" else "🎙 Podcast")
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        if (running) {
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            )
-        }
-        Text(status, style = MaterialTheme.typography.bodyMedium)
-
-        // --- Rich synced player (available during transcription too, like the web app) ---
-        if (player != null) {
-            fun doSeek(ms: Int) {
-                val p = player ?: return
-                val clamped = ms.coerceIn(0, durationMs)
-                runCatching { p.seekTo(clamped) }
-                positionMs = clamped
-                if (!isPlaying) { p.start(); isPlaying = true }
-            }
-            PlayerBar(
-                utterances = utterances,
-                positionMs = positionMs,
-                durationMs = durationMs,
-                dragMs = dragMs,
-                isPlaying = isPlaying,
-                volume = volume,
-                muted = muted,
-                activeIndex = activeIndex,
-                onPlayPause = {
-                    val p = player ?: return@PlayerBar
-                    if (isPlaying) { p.pause(); isPlaying = false } else { p.start(); isPlaying = true }
-                },
-                onSeekTo = { doSeek(it) },
-                onDragChange = { dragMs = it },
-                onSkip = { delta -> doSeek((dragMs ?: positionMs) + delta) },
-                onVolume = { v -> volume = v; muted = v == 0f; player?.setVolume(v, v) },
-                onToggleMute = {
-                    muted = !muted
-                    val v = if (muted) 0f else volume.coerceAtLeast(0.05f).also { volume = it }
-                    player?.setVolume(v, v)
-                },
-            )
-        }
-
-        if (utterances.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Row {
-                for (f in listOf(
-                    TranscriptExport.Format.SRT, TranscriptExport.Format.VTT,
-                    TranscriptExport.Format.TXT, TranscriptExport.Format.JSON,
-                )) {
-                    Button(
-                        onClick = { pending = PendingExport.Transcript(f); exporter.launch("transcript${f.ext}") },
-                        modifier = Modifier.padding(end = 6.dp),
-                    ) { Text(f.name) }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-        LazyColumn(state = listState) {
-            if (showSettings) {
-                item {
-                    SectionCard {
-                        Text("Settings", style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold)
-                        SettingsContent(config) { config = it }
-                    }
-                }
-            }
-            if (showPodcast) {
-                item { SectionCard { PodcastPanel(onEpisodeReady = { uri -> launchAudio(uri) }) } }
-            }
-            title?.let {
-                item {
-                    Text(it, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(vertical = 6.dp))
-                }
-            }
-            summary?.let { s ->
-                item {
-                    SectionCard {
-                        Text("Summary", style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(6.dp))
-                        Text(s, style = MaterialTheme.typography.bodyMedium)
-                        Row(Modifier.padding(top = 8.dp)) {
-                            Button(
-                                onClick = { pending = PendingExport.SummaryMd; exporter.launch("summary.md") },
-                                modifier = Modifier.padding(end = 6.dp),
-                            ) { Text(".md") }
-                            Button(
-                                onClick = { pending = PendingExport.SummaryTxt; exporter.launch("summary.txt") },
-                            ) { Text(".txt") }
-                        }
-                    }
-                }
-            }
-            if (stats.perSpeaker.isNotEmpty()) {
-                item {
-                    SpeakerStatsPanel(
-                        stats = stats,
-                        names = speakerNames,
-                        isDetecting = isDetecting,
-                        onDetectNames = { detectNames() },
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
-                }
-            }
-            items(count = utterances.size, key = { utterances[it].index }) { idx ->
-                val u = utterances[idx]
-                UtteranceRow(
-                    utt = u,
-                    active = idx == activeIndex,
-                    isEditing = editingIndex == idx,
-                    speakerNames = speakerNames,
-                    editingSpeakerId = editingSpeakerId,
-                    onSeek = { sec ->
-                        player?.let { p ->
-                            p.seekTo((sec * 1000).toInt()); if (!isPlaying) { p.start(); isPlaying = true }
-                        }
-                    },
-                    onBeginEdit = { editingIndex = idx; editingSpeakerId = null },
-                    onSaveText = { newText ->
-                        if (newText.isNotEmpty()) { utterances[idx] = u.copy(text = newText); editingIndex = -1 }
-                    },
-                    onCancelEdit = { editingIndex = -1 },
-                    onBeginSpeakerEdit = { sid -> editingSpeakerId = sid; editingIndex = -1 },
-                    onCommitSpeakerName = { sid, name ->
-                        if (name.isBlank()) speakerNames.remove(sid)
-                        else speakerNames[sid] = SpeakerName(name, confidence = "user")
-                        editingSpeakerId = null
-                    },
-                    onCancelSpeakerEdit = { editingSpeakerId = null },
+            // On the blank slate the EmptyState hero carries the primary CTA, so the compact
+            // SourceBar would duplicate "Pick audio…" — show it only once there's content.
+            val isEmptyState = utterances.isEmpty() && !running && player == null
+            Spacer(Modifier.height(10.dp))
+            if (!isEmptyState) {
+                SourceBar(
+                    running = running,
+                    onPickFile = { picker.launch(arrayOf("audio/*")) },
+                    onPodcast = { showPodcastSheet = true },
+                    onStop = onStop,
                 )
             }
+
+            // --- Rich synced player (available during transcription too, like the web app) ---
+            if (player != null) {
+                fun doSeek(ms: Int) {
+                    val p = player ?: return
+                    val clamped = ms.coerceIn(0, durationMs)
+                    runCatching { p.seekTo(clamped) }
+                    positionMs = clamped
+                    if (!isPlaying) { p.start(); isPlaying = true }
+                }
+                PlayerBar(
+                    utterances = utterances,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    dragMs = dragMs,
+                    isPlaying = isPlaying,
+                    volume = volume,
+                    muted = muted,
+                    activeIndex = activeIndex,
+                    onPlayPause = {
+                        val p = player ?: return@PlayerBar
+                        if (isPlaying) { p.pause(); isPlaying = false } else { p.start(); isPlaying = true }
+                    },
+                    onSeekTo = { doSeek(it) },
+                    onDragChange = { dragMs = it },
+                    onSkip = { delta -> doSeek((dragMs ?: positionMs) + delta) },
+                    onVolume = { v -> volume = v; muted = v == 0f; player?.setVolume(v, v) },
+                    onToggleMute = {
+                        muted = !muted
+                        val v = if (muted) 0f else volume.coerceAtLeast(0.05f).also { volume = it }
+                        player?.setVolume(v, v)
+                    },
+                )
+            }
+
+            if (isEmptyState) {
+                EmptyState(
+                    asrLabel = asrShort,
+                    llmLabel = llmShort,
+                    onPickFile = { picker.launch(arrayOf("audio/*")) },
+                    onPodcast = { showPodcastSheet = true },
+                    onOpenConfig = { showConfigSheet = true },
+                )
+            } else {
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    title?.let { t -> item { TitleCard(t, llmDisplay) } }
+                    summary?.let { s -> item { SummaryCard(s, llmDisplay) } }
+                    if (stats.perSpeaker.isNotEmpty()) {
+                        item {
+                            SpeakerStatsPanel(
+                                stats = stats,
+                                names = speakerNames,
+                                isDetecting = isDetecting,
+                                onDetectNames = { detectNames() },
+                            )
+                        }
+                    }
+                    items(count = utterances.size, key = { utterances[it].index }) { idx ->
+                        val u = utterances[idx]
+                        UtteranceRow(
+                            utt = u,
+                            active = idx == activeIndex,
+                            isEditing = editingIndex == idx,
+                            speakerNames = speakerNames,
+                            editingSpeakerId = editingSpeakerId,
+                            onSeek = { sec ->
+                                player?.let { p ->
+                                    p.seekTo((sec * 1000).toInt()); if (!isPlaying) { p.start(); isPlaying = true }
+                                }
+                            },
+                            onBeginEdit = { editingIndex = idx; editingSpeakerId = null },
+                            onSaveText = { newText ->
+                                if (newText.isNotEmpty()) { utterances[idx] = u.copy(text = newText); editingIndex = -1 }
+                            },
+                            onCancelEdit = { editingIndex = -1 },
+                            onBeginSpeakerEdit = { sid -> editingSpeakerId = sid; editingIndex = -1 },
+                            onCommitSpeakerName = { sid, name ->
+                                if (name.isBlank()) speakerNames.remove(sid)
+                                else speakerNames[sid] = SpeakerName(name, confidence = "user")
+                                editingSpeakerId = null
+                            },
+                            onCancelSpeakerEdit = { editingSpeakerId = null },
+                        )
+                    }
+                }
+            }
         }
+    }
+
+    if (showConfigSheet) {
+        ConfigSheet(
+            config = config,
+            enabled = !running,
+            onChange = { config = it },
+            onDismiss = { showConfigSheet = false },
+        )
+    }
+    if (showPodcastSheet) {
+        PodcastSheet(
+            onEpisodeReady = { uri -> launchAudio(uri) },
+            onDismiss = { showPodcastSheet = false },
+        )
+    }
+    BackHandler(showConfigSheet || showPodcastSheet) {
+        showConfigSheet = false; showPodcastSheet = false
+    }
+}
+
+/** Generated-title card with model attribution. */
+@Composable
+private fun TitleCard(title: String, llm: String) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = VoxSumPalette.Slate200,
+        )
+        Text("via $llm", style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
+    }
+}
+
+/** Summary card with model attribution (export is in the top-bar menu). */
+@Composable
+private fun SummaryCard(summary: String, llm: String) {
+    SectionCard {
+        Text(
+            "Summary",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = VoxSumPalette.Slate200,
+        )
+        Text("via $llm", style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
+        Spacer(Modifier.height(8.dp))
+        Text(summary, style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Slate200)
     }
 }
 
@@ -487,10 +527,11 @@ private fun fmtMs(ms: Int): String {
 @Composable
 private fun SectionCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = VoxSumPalette.PanelSurface),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, VoxSumPalette.Hairline),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
     ) {
         Column(Modifier.padding(16.dp), content = content)
     }
@@ -538,12 +579,33 @@ private fun PlayerBar(
         }
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { onSkip(-5000) }) { Text("« 5s") }
-            Button(onClick = onPlayPause) { Text(if (isPlaying) "Pause" else "Play") }
-            TextButton(onClick = { onSkip(5000) }) { Text("5s »") }
+            IconButton(onClick = { onSkip(-5000) }) {
+                Icon(Icons.Filled.Replay5, contentDescription = "back 5 seconds", tint = VoxSumPalette.Slate200)
+            }
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(VoxSumPalette.BrandGradient)
+                    .clickable(onClick = onPlayPause),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (isPlaying) "pause" else "play",
+                    tint = VoxSumPalette.Slate900,
+                )
+            }
+            IconButton(onClick = { onSkip(5000) }) {
+                Icon(Icons.Filled.Forward5, contentDescription = "forward 5 seconds", tint = VoxSumPalette.Slate200)
+            }
             Spacer(Modifier.width(12.dp))
             IconButton(onClick = onToggleMute) {
-                Text(if (muted || volume == 0f) "🔇" else if (volume < 0.5f) "🔉" else "🔊")
+                Icon(
+                    if (muted || volume == 0f) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                    contentDescription = if (muted) "unmute" else "mute",
+                    tint = VoxSumPalette.Slate400,
+                )
             }
             Slider(
                 value = if (muted) 0f else volume,
@@ -568,7 +630,7 @@ private fun TimelineStrip(
     Canvas(
         modifier = modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(Color(0xFF1E293B))
+            .background(VoxSumPalette.Slate800)
             .pointerInput(durationMs) {
                 detectTapGestures { offset ->
                     if (size.width > 0 && durationMs > 0) {
@@ -603,7 +665,7 @@ private fun TimelineStrip(
             }
         }
         val cx = (progressMs.toFloat() / durationMs).coerceIn(0f, 1f) * w
-        drawLine(Color(0xFF38BDF8), Offset(cx, 0f), Offset(cx, h), strokeWidth = 3f)
+        drawLine(VoxSumPalette.Sky, Offset(cx, 0f), Offset(cx, h), strokeWidth = 3f)
     }
 }
 
@@ -625,11 +687,17 @@ private fun UtteranceRow(
     Column(
         Modifier
             .fillMaxWidth()
-            .background(if (active) Color(0x332196F3) else Color.Transparent)
-            .padding(vertical = 4.dp),
+            .drawBehind {
+                if (active) {
+                    drawRect(VoxSumPalette.ActiveTint)
+                    drawRect(VoxSumPalette.ActiveBar, size = Size(3.dp.toPx(), size.height))
+                }
+            }
+            .padding(vertical = 4.dp, horizontal = 6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("[${fmt(utt.startSec)}]", style = MaterialTheme.typography.labelMedium)
+            Text("[${fmt(utt.startSec)}]", style = MaterialTheme.typography.labelMedium,
+                color = VoxSumPalette.Slate400)
             Spacer(Modifier.width(6.dp))
             utt.speaker?.let { sid ->
                 SpeakerTag(
@@ -643,12 +711,14 @@ private fun UtteranceRow(
             }
             Spacer(Modifier.weight(1f))
             if (!isEditing) {
-                Text(
-                    "✏️",
-                    modifier = Modifier
-                        .clickable(onClick = onBeginEdit)
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                )
+                IconButton(onClick = onBeginEdit, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = "edit",
+                        tint = VoxSumPalette.Slate400,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
         }
         if (isEditing) {

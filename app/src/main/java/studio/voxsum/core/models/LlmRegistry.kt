@@ -9,6 +9,7 @@ data class LlmSpec(
     val sizeBytes: Long,
     val fileName: String,       // distinct per id so models coexist on disk
     val chatTemplate: ChatTemplate,
+    val shortName: String = "",  // compact name for the header status chip
 )
 
 enum class ChatTemplate { CHATML, GEMMA }
@@ -31,6 +32,7 @@ object LlmRegistry {
             sizeBytes = 491_400_032L,
             fileName = "llm.gguf",   // default keeps the legacy name (device/test push compat)
             chatTemplate = ChatTemplate.CHATML,
+            shortName = "Qwen 0.5B",
         ),
         LlmSpec(
             id = "qwen2.5-1.5b-instruct-q4_k_m",
@@ -41,6 +43,7 @@ object LlmRegistry {
             sizeBytes = 1_117_000_000L,
             fileName = "qwen2.5-1.5b-instruct-q4_k_m.gguf",
             chatTemplate = ChatTemplate.CHATML,
+            shortName = "Qwen 1.5B",
         ),
     )
 

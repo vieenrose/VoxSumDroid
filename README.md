@@ -19,9 +19,9 @@ browser/file manager. The ASR/diarization/LLM models are **not** bundled — the
 
 ## Screenshots
 
-| Home | Settings · model picker | Transcript · diarization · player | Play while transcribing |
+| Home | Models (ASR + LLM) | Transcript · diarization · player | Summary |
 |:---:|:---:|:---:|:---:|
-| ![Home](docs/screenshots/01-home.png) | ![Settings](docs/screenshots/02-settings.png) | ![Transcript](docs/screenshots/03-transcript.png) | ![Playing](docs/screenshots/04-playing-while-transcribing.png) |
+| ![Home](docs/screenshots/01-home.png) | ![Models](docs/screenshots/02-models.png) | ![Transcript](docs/screenshots/03-transcript.png) | ![Summary](docs/screenshots/04-summary.png) |
 
 ## Features
 
