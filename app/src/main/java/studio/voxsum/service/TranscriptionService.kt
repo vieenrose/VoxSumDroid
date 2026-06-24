@@ -105,6 +105,10 @@ class TranscriptionService : LifecycleService() {
         events.emit(TranscriptEvent.Status("Decoding audio…"))
         val pcm = AudioDecoder.decodeToPcm16k(this, uri)
 
+        // OpenCC s2tw: like the web app, convert Simplified→Traditional on every utterance
+        // (and later the summary/title). Built once, reused.
+        val converter = if (cfg.traditionalChinese) OpenCcConverter.get(this) else null
+
         // --- ASR phase: collect utterances while streaming them to the UI. ---
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         AsrEngine(
@@ -119,8 +123,15 @@ class TranscriptionService : LifecycleService() {
             asr.transcribe(pcm)
                 .flowOn(Dispatchers.Default)
                 .collect { e ->
-                    if (e is TranscriptEvent.Utterance) utterances += e
-                    events.emit(e)
+                    when (e) {
+                        is TranscriptEvent.Utterance -> {
+                            val u = converter?.let { e.copy(text = it.convert(e.text)) } ?: e
+                            utterances += u
+                            events.emit(u)
+                        }
+                        is TranscriptEvent.Complete -> Unit  // service emits the final Complete
+                        else -> events.emit(e)
+                    }
                 }
         } // ASR native resources freed here, before the LLM is loaded.
 
@@ -161,7 +172,6 @@ class TranscriptionService : LifecycleService() {
         }
         updateNotification("Summarizing…")
         val transcript = tagged.joinToString("\n") { it.text }
-        val converter = if (cfg.traditionalChinese) OpenCcConverter.get(this) else null
         LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
             activeLlm = llm
             try {
