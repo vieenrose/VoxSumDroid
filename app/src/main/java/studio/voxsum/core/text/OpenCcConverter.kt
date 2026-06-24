@@ -1,7 +1,6 @@
 package studio.voxsum.core.text
 
 import android.content.Context
-import java.util.zip.GZIPInputStream
 
 /**
  * Minimal on-device OpenCC Simplified→Traditional (s2tw) — the FOSS, dependency-free Android
@@ -43,19 +42,19 @@ class OpenCcConverter private constructor(
 
         private fun build(context: Context): OpenCcConverter {
             val s2t = HashMap<String, String>(60_000)
-            loadInto(context, "opencc/STPhrases.txt.gz", s2t)
-            loadInto(context, "opencc/STCharacters.txt.gz", s2t)
+            loadInto(context, "opencc/STPhrases.txt", s2t)
+            loadInto(context, "opencc/STCharacters.txt", s2t)
             val tw = HashMap<String, String>(64)
-            loadInto(context, "opencc/TWVariants.txt.gz", tw)
+            loadInto(context, "opencc/TWVariants.txt", tw)
             val maxKey = (s2t.keys.asSequence() + tw.keys.asSequence()).maxOfOrNull { it.length } ?: 1
             return OpenCcConverter(s2t, tw, maxKey)
         }
 
         /** OpenCC line: "src<TAB>tgt[ tgt2 …]" — take the first target; skip blank/# lines. */
         private fun loadInto(context: Context, asset: String, into: MutableMap<String, String>) {
-            runCatching {
+            try {
                 context.assets.open(asset).use { raw ->
-                    GZIPInputStream(raw).bufferedReader(Charsets.UTF_8).useLines { seq ->
+                    raw.bufferedReader(Charsets.UTF_8).useLines { seq ->
                         seq.forEach { line ->
                             if (line.isBlank() || line.startsWith('#')) return@forEach
                             val tab = line.indexOf('\t')
@@ -66,6 +65,9 @@ class OpenCcConverter private constructor(
                         }
                     }
                 }
+                android.util.Log.i("OpenCcConverter", "loaded $asset, total entries now ${into.size}")
+            } catch (e: Throwable) {
+                android.util.Log.e("OpenCcConverter", "failed loading $asset", e)
             }
         }
     }

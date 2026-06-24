@@ -315,8 +315,8 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
         }
         Text(status, style = MaterialTheme.typography.bodyMedium)
 
-        // --- Rich synced player ---
-        if (player != null && !running) {
+        // --- Rich synced player (available during transcription too, like the web app) ---
+        if (player != null) {
             fun doSeek(ms: Int) {
                 val p = player ?: return
                 val clamped = ms.coerceIn(0, durationMs)
