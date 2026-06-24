@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/screenshots/app-icon.png" width="112" alt="VoxSum app icon" />
+</p>
+
 # VoxSum for Android
 
 Fully **offline**, on-device port of [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak) —
