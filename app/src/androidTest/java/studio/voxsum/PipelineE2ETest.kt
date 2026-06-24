@@ -52,7 +52,8 @@ class PipelineE2ETest {
         // 1) ASR
         val utterances = mutableListOf<TranscriptEvent.Utterance>()
         AsrEngine(
-            models.senseVoiceModel.absolutePath, models.tokens.absolutePath,
+            studio.voxsum.core.asr.AsrBackend.SENSEVOICE,
+            models.asrFiles(studio.voxsum.core.asr.AsrBackend.SENSEVOICE),
             models.vadModel.absolutePath, numThreads = 4,
         ).use { asr ->
             asr.transcribe(pcm).collect { if (it is TranscriptEvent.Utterance) utterances.add(it) }

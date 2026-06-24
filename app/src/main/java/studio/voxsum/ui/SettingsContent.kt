@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
 
@@ -28,19 +29,32 @@ import studio.voxsum.core.models.LlmRegistry
 fun SettingsContent(config: TranscriptionConfig, onChange: (TranscriptionConfig) -> Unit) {
     Column(Modifier.padding(4.dp)) {
         Section("ASR")
-        // Language (SenseVoice)
-        LabeledRow("Language") {
+        LabeledRow("Backend") {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TranscriptionConfig.LANGUAGES.forEach { (code, label) ->
+                AsrBackend.entries.forEach { b ->
                     FilterChip(
-                        selected = config.language == code,
-                        onClick = { onChange(config.copy(language = code)) },
-                        label = { Text(label) },
+                        selected = config.asrBackend == b.id,
+                        onClick = { onChange(config.copy(asrBackend = b.id)) },
+                        label = { Text(b.displayName) },
                     )
                 }
             }
         }
-        SwitchRow("Inverse text normalization", config.useItn) { onChange(config.copy(useItn = it)) }
+        // Language + ITN apply to SenseVoice only.
+        if (config.asrBackend == AsrBackend.SENSEVOICE.id) {
+            LabeledRow("Language") {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TranscriptionConfig.LANGUAGES.forEach { (code, label) ->
+                        FilterChip(
+                            selected = config.language == code,
+                            onClick = { onChange(config.copy(language = code)) },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+            }
+            SwitchRow("Inverse text normalization", config.useItn) { onChange(config.copy(useItn = it)) }
+        }
         SliderRow("VAD threshold", config.vadThreshold, 0.1f, 0.9f) {
             onChange(config.copy(vadThreshold = it))
         }

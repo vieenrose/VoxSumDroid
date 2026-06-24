@@ -2,9 +2,12 @@ package studio.voxsum.core.asr
 
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
+import com.k2fsa.sherpa.onnx.OfflineMoonshineModelConfig
+import com.k2fsa.sherpa.onnx.OfflineQwen3AsrModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OfflineSenseVoiceModelConfig
+import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.SileroVadModelConfig
 import com.k2fsa.sherpa.onnx.Vad
 import com.k2fsa.sherpa.onnx.VadModelConfig
@@ -23,8 +26,8 @@ import studio.voxsum.core.events.TranscriptEvent
  * resources — call [close] when done (the foreground service does this in a finally block).
  */
 class AsrEngine(
-    senseVoiceModel: String,
-    tokens: String,
+    backend: AsrBackend,
+    files: AsrModelFiles,
     vadModel: String,
     numThreads: Int,
     language: String = "",
@@ -35,16 +38,7 @@ class AsrEngine(
     private val recognizer = OfflineRecognizer(
         config = OfflineRecognizerConfig(
             featConfig = FeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
-            modelConfig = OfflineModelConfig(
-                senseVoice = OfflineSenseVoiceModelConfig(
-                    model = senseVoiceModel,
-                    language = language,
-                    useInverseTextNormalization = useItn,
-                ),
-                tokens = tokens,
-                numThreads = numThreads,
-                provider = "cpu",
-            ),
+            modelConfig = buildModelConfig(backend, files, numThreads, language, useItn),
         ),
     )
 
@@ -117,5 +111,41 @@ class AsrEngine(
     private companion object {
         const val SAMPLE_RATE = 16_000
         const val WINDOW = 512 // Silero VAD window size
+
+        /** Populate the right sub-config per backend; the decode path is backend-agnostic. */
+        fun buildModelConfig(
+            backend: AsrBackend,
+            f: AsrModelFiles,
+            numThreads: Int,
+            language: String,
+            useItn: Boolean,
+        ): OfflineModelConfig = when (backend) {
+            AsrBackend.SENSEVOICE -> OfflineModelConfig(
+                senseVoice = OfflineSenseVoiceModelConfig(
+                    model = f.model, language = language, useInverseTextNormalization = useItn,
+                ),
+                tokens = f.tokens, numThreads = numThreads, provider = "cpu",
+            )
+            AsrBackend.MOONSHINE -> OfflineModelConfig(
+                moonshine = OfflineMoonshineModelConfig(
+                    preprocessor = f.preprocessor, encoder = f.encoder,
+                    uncachedDecoder = f.uncachedDecoder, cachedDecoder = f.cachedDecoder,
+                ),
+                tokens = f.tokens, numThreads = numThreads, provider = "cpu",
+            )
+            AsrBackend.XASR -> OfflineModelConfig(
+                transducer = OfflineTransducerModelConfig(
+                    encoder = f.encoder, decoder = f.decoder, joiner = f.joiner,
+                ),
+                tokens = f.tokens, modelType = "transducer", numThreads = numThreads, provider = "cpu",
+            )
+            AsrBackend.QWEN3 -> OfflineModelConfig(
+                qwen3Asr = OfflineQwen3AsrModelConfig(
+                    convFrontend = f.convFrontend, encoder = f.encoder,
+                    decoder = f.decoder, tokenizer = f.tokenizerDir,
+                ),
+                tokens = "", numThreads = numThreads, provider = "cpu",
+            )
+        }
     }
 }

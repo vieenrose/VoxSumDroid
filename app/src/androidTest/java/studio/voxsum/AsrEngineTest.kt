@@ -40,9 +40,9 @@ class AsrEngineTest {
 
         val utterances = mutableListOf<TranscriptEvent.Utterance>()
         AsrEngine(
-            senseVoiceModel = models.senseVoiceModel.absolutePath,
-            tokens = models.tokens.absolutePath,
-            vadModel = models.vadModel.absolutePath,
+            studio.voxsum.core.asr.AsrBackend.SENSEVOICE,
+            models.asrFiles(studio.voxsum.core.asr.AsrBackend.SENSEVOICE),
+            models.vadModel.absolutePath,
             numThreads = 4,
         ).use { asr ->
             asr.transcribe(pcm).collect { e ->

@@ -3,6 +3,8 @@ package studio.voxsum.core.models
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import studio.voxsum.core.asr.AsrBackend
+import studio.voxsum.core.asr.AsrModelFiles
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.BufferedInputStream
@@ -35,6 +37,96 @@ class ModelManager(context: Context) {
 
     fun asrReady(): Boolean = senseVoiceModel.exists() && tokens.exists() && vadModel.exists()
     fun diarizationReady(): Boolean = segmentationModel.exists() && embeddingModel.exists()
+
+    // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
+    private data class AsrModelSpec(
+        val dir: String,
+        val url: String,
+        val sha256: String,
+        val sentinels: List<String>,                  // "already provisioned" check (relative to dir)
+        val buildFiles: (File) -> AsrModelFiles,
+    )
+
+    private val asrSpecs: Map<AsrBackend, AsrModelSpec> = mapOf(
+        AsrBackend.SENSEVOICE to AsrModelSpec(
+            dir = SENSE_VOICE_DIR, url = SENSE_VOICE_URL, sha256 = SENSE_VOICE_SHA,
+            sentinels = listOf("model.int8.onnx", "tokens.txt"),
+            buildFiles = { d -> AsrModelFiles(model = File(d, "model.int8.onnx").path, tokens = File(d, "tokens.txt").path) },
+        ),
+        AsrBackend.MOONSHINE to AsrModelSpec(
+            dir = "sherpa-onnx-moonshine-tiny-en-int8",
+            url = "$REL/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
+            sha256 = "d5fe6ec4334fef36255b2a4010412cad4c007e33103fec62fb5d17cad88086f2",
+            sentinels = listOf("preprocess.onnx", "encode.int8.onnx", "uncached_decode.int8.onnx",
+                "cached_decode.int8.onnx", "tokens.txt"),
+            buildFiles = { d ->
+                AsrModelFiles(
+                    preprocessor = File(d, "preprocess.onnx").path,
+                    encoder = File(d, "encode.int8.onnx").path,
+                    uncachedDecoder = File(d, "uncached_decode.int8.onnx").path,
+                    cachedDecoder = File(d, "cached_decode.int8.onnx").path,
+                    tokens = File(d, "tokens.txt").path,
+                )
+            },
+        ),
+        AsrBackend.XASR to AsrModelSpec(
+            dir = "sherpa-onnx-zipformer-zh-en-2023-11-22",
+            url = "$REL/sherpa-onnx-zipformer-zh-en-2023-11-22.tar.bz2",
+            sha256 = "0c3f2b9c884335a6931b8ccee6ede30e8dd3f89efc289ff64cd79d530a3bcf91",
+            sentinels = listOf("encoder-epoch-34-avg-19.int8.onnx", "decoder-epoch-34-avg-19.onnx",
+                "joiner-epoch-34-avg-19.int8.onnx", "tokens.txt"),
+            buildFiles = { d ->
+                AsrModelFiles(
+                    encoder = File(d, "encoder-epoch-34-avg-19.int8.onnx").path,
+                    decoder = File(d, "decoder-epoch-34-avg-19.onnx").path,
+                    joiner = File(d, "joiner-epoch-34-avg-19.int8.onnx").path,
+                    tokens = File(d, "tokens.txt").path,
+                )
+            },
+        ),
+        AsrBackend.QWEN3 to AsrModelSpec(
+            dir = "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
+            url = "$REL/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+            sha256 = "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
+            sentinels = listOf("conv_frontend.onnx", "encoder.int8.onnx", "decoder.int8.onnx",
+                "tokenizer/vocab.json"),
+            buildFiles = { d ->
+                AsrModelFiles(
+                    convFrontend = File(d, "conv_frontend.onnx").path,
+                    encoder = File(d, "encoder.int8.onnx").path,
+                    decoder = File(d, "decoder.int8.onnx").path,
+                    tokenizerDir = File(d, "tokenizer").path,
+                )
+            },
+        ),
+    )
+
+    private fun specDir(spec: AsrModelSpec) = File(modelsDir, spec.dir)
+
+    fun asrReady(backend: AsrBackend): Boolean {
+        val spec = asrSpecs.getValue(backend)
+        val d = specDir(spec)
+        return vadModel.exists() && spec.sentinels.all { File(d, it).exists() }
+    }
+
+    fun asrFiles(backend: AsrBackend): AsrModelFiles =
+        asrSpecs.getValue(backend).let { it.buildFiles(specDir(it)) }
+
+    /** Download + extract the model for [backend] if missing (VAD shared across backends). */
+    suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
+        withContext(Dispatchers.IO) {
+            if (!vadModel.exists()) download(VAD_URL, vadModel, VAD_SHA) { onProgress(it * 0.1f) }
+            val spec = asrSpecs.getValue(backend)
+            val d = specDir(spec)
+            if (!spec.sentinels.all { File(d, it).exists() }) {
+                val archive = File(modelsDir, "${spec.dir}.tar.bz2")
+                download(spec.url, archive, spec.sha256) { onProgress(0.1f + it * 0.9f) }
+                extractTarBz2(archive, modelsDir)
+                archive.delete()
+                onProgress(1f)
+            }
+            check(asrReady(backend)) { "ASR model files missing after provisioning ($backend)" }
+        }
 
     // --- LLM: selectable per LlmSpec; each model coexists on disk under its own filename. ---
     fun llmFile(spec: LlmSpec): File = File(modelsDir, spec.fileName)
@@ -156,6 +248,7 @@ class ModelManager(context: Context) {
 
     companion object {
         // Mirrors models/manifest.json. All FOSS-licensed. LLM specs live in LlmRegistry.
+        private const val REL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
         const val SENSE_VOICE_DIR = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
 
         private const val SENSE_VOICE_URL =

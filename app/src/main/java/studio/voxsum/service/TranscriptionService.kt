@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.config.TranscriptionConfig
@@ -93,9 +94,10 @@ class TranscriptionService : LifecycleService() {
         val cfg = TranscriptionConfig.Holder.config
 
         val models = ModelManager(this)
-        if (!models.asrReady()) {
+        val backend = AsrBackend.fromId(cfg.asrBackend)
+        if (!models.asrReady(backend)) {
             events.emit(TranscriptEvent.Status("Downloading models (first run)…"))
-            models.ensureAsrModels { frac ->
+            models.ensureAsrModels(backend) { frac ->
                 updateNotification("Downloading models… ${(frac * 100).toInt()}%")
             }
         }
@@ -106,8 +108,8 @@ class TranscriptionService : LifecycleService() {
         // --- ASR phase: collect utterances while streaming them to the UI. ---
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         AsrEngine(
-            senseVoiceModel = models.senseVoiceModel.absolutePath,
-            tokens = models.tokens.absolutePath,
+            backend = backend,
+            files = models.asrFiles(backend),
             vadModel = models.vadModel.absolutePath,
             numThreads = asrThreads(),
             language = cfg.language,
