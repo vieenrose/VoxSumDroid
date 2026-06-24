@@ -1,0 +1,36 @@
+package studio.voxsum.core.config
+
+/**
+ * User-facing pipeline configuration — the Android equivalent of the original web app's
+ * ASR / Diarization / LLM / Summarization settings sidebar. Held in a process-wide
+ * [Holder] so the Activity can set it before starting the foreground service (same process).
+ */
+data class TranscriptionConfig(
+    // --- ASR ---
+    val asrBackend: String = "sensevoice",   // sensevoice | moonshine | x-asr | qwen3 (Increment 2)
+    val asrModelId: String = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
+    val language: String = "",                // SenseVoice: ""=auto, zh/en/ja/ko/yue
+    val useItn: Boolean = true,               // inverse text normalization
+    val vadThreshold: Float = 0.5f,           // 0.1..0.9
+
+    // --- Diarization ---
+    val diarizationEnabled: Boolean = true,
+    val numSpeakers: Int = -1,                // -1 = auto
+    val clusterThreshold: Float = 0.5f,       // 0.1..1.0
+
+    // --- Summarization ---
+    val llmModelId: String = "qwen2.5-0.5b-instruct-q4_k_m",
+    val summaryPrompt: String = "Summarize the key points of this transcript.",
+    val traditionalChinese: Boolean = true,   // OpenCC s2tw on Chinese output (Increment 6)
+) {
+    object Holder {
+        @Volatile var config: TranscriptionConfig = TranscriptionConfig()
+    }
+
+    companion object {
+        val LANGUAGES = listOf(
+            "" to "Auto", "zh" to "Chinese", "en" to "English",
+            "ja" to "Japanese", "ko" to "Korean", "yue" to "Cantonese",
+        )
+    }
+}

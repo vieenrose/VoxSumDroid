@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.audio.AudioDecoder
+import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.llm.LlmEngine
@@ -40,7 +41,6 @@ class TranscriptionService : LifecycleService() {
         private const val NOTIF_ID = 1
         const val EXTRA_AUDIO_URI = "audio_uri"
         const val ACTION_STOP = "studio.voxsum.STOP"
-        private const val DEFAULT_PROMPT = "Summarize the key points of this transcript."
 
         // Process-wide event bus the UI subscribes to. replay=0: UI must be collecting.
         val events = MutableSharedFlow<TranscriptEvent>(extraBufferCapacity = 256)
@@ -88,6 +88,7 @@ class TranscriptionService : LifecycleService() {
     private suspend fun runPipeline(audioUri: String?) {
         val uri = audioUri?.let(Uri::parse)
             ?: run { events.emit(TranscriptEvent.Failed("No audio source")); return }
+        val cfg = TranscriptionConfig.Holder.config
 
         val models = ModelManager(this)
         if (!models.asrReady()) {
@@ -107,6 +108,9 @@ class TranscriptionService : LifecycleService() {
             tokens = models.tokens.absolutePath,
             vadModel = models.vadModel.absolutePath,
             numThreads = asrThreads(),
+            language = cfg.language,
+            useItn = cfg.useItn,
+            vadThreshold = cfg.vadThreshold,
         ).use { asr ->
             asr.transcribe(pcm)
                 .flowOn(Dispatchers.Default)
@@ -118,24 +122,30 @@ class TranscriptionService : LifecycleService() {
 
         if (utterances.isEmpty()) return
 
-        // --- Diarization phase (Phase 3): tag speakers, emit the final Complete. ---
+        // --- Diarization phase (optional). Tag speakers, emit the final Complete. ---
         var tagged: List<TranscriptEvent.Utterance> = utterances
-        if (!models.diarizationReady()) {
-            events.emit(TranscriptEvent.Status("Downloading diarization models…"))
-            models.ensureDiarizationModels { frac ->
-                updateNotification("Diarization model… ${(frac * 100).toInt()}%")
+        if (cfg.diarizationEnabled) {
+            if (!models.diarizationReady()) {
+                events.emit(TranscriptEvent.Status("Downloading diarization models…"))
+                models.ensureDiarizationModels { frac ->
+                    updateNotification("Diarization model… ${(frac * 100).toInt()}%")
+                }
             }
+            events.emit(TranscriptEvent.Status("Identifying speakers…"))
+            DiarizationEngine(
+                segmentationModel = models.segmentationModel.absolutePath,
+                embeddingModel = models.embeddingModel.absolutePath,
+                numThreads = asrThreads(),
+                numClusters = cfg.numSpeakers,
+                clusterThreshold = cfg.clusterThreshold,
+            ).use { de ->
+                val (t, count) = de.assignSpeakers(pcm, utterances)
+                tagged = t
+                events.emit(TranscriptEvent.Complete(t, count))
+            } // diarization native resources freed before the LLM loads.
+        } else {
+            events.emit(TranscriptEvent.Complete(utterances, speakerCount = null))
         }
-        events.emit(TranscriptEvent.Status("Identifying speakers…"))
-        DiarizationEngine(
-            segmentationModel = models.segmentationModel.absolutePath,
-            embeddingModel = models.embeddingModel.absolutePath,
-            numThreads = asrThreads(),
-        ).use { de ->
-            val (t, count) = de.assignSpeakers(pcm, utterances)
-            tagged = t
-            events.emit(TranscriptEvent.Complete(t, count))
-        } // diarization native resources freed before the LLM loads.
 
         // --- Summarization phase. ---
         if (!models.llmReady()) {
@@ -149,7 +159,7 @@ class TranscriptionService : LifecycleService() {
         LlmEngine.load(models.llmModel.absolutePath, nThreads = asrThreads()).use { llm ->
             activeLlm = llm
             try {
-                Summarizer(llm).summarize(transcript, DEFAULT_PROMPT)
+                Summarizer(llm).summarize(transcript, cfg.summaryPrompt)
                     .flowOn(Dispatchers.Default)
                     .collect { events.emit(it) }
             } finally {

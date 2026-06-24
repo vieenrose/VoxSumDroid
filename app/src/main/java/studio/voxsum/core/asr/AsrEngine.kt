@@ -27,6 +27,9 @@ class AsrEngine(
     tokens: String,
     vadModel: String,
     numThreads: Int,
+    language: String = "",
+    useItn: Boolean = true,
+    vadThreshold: Float = 0.5f,
 ) : AutoCloseable {
 
     private val recognizer = OfflineRecognizer(
@@ -35,7 +38,8 @@ class AsrEngine(
             modelConfig = OfflineModelConfig(
                 senseVoice = OfflineSenseVoiceModelConfig(
                     model = senseVoiceModel,
-                    useInverseTextNormalization = true,
+                    language = language,
+                    useInverseTextNormalization = useItn,
                 ),
                 tokens = tokens,
                 numThreads = numThreads,
@@ -48,7 +52,7 @@ class AsrEngine(
         config = VadModelConfig(
             sileroVadModelConfig = SileroVadModelConfig(
                 model = vadModel,
-                threshold = 0.5f,
+                threshold = vadThreshold,
                 minSilenceDuration = 0.25f,
                 minSpeechDuration = 0.25f,
                 windowSize = WINDOW,

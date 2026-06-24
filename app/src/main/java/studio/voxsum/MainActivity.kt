@@ -42,10 +42,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
+import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.export.TranscriptExport
 import studio.voxsum.data.speakerColor
 import studio.voxsum.service.TranscriptionService
+import studio.voxsum.ui.SettingsContent
 
 /**
  * Phase 4 shell: pick a local audio file (SAF) → run the foreground pipeline → render the
@@ -100,6 +102,8 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
     var audioUri by remember { mutableStateOf<Uri?>(null) }
     var running by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
+    var config by remember { mutableStateOf(TranscriptionConfig.Holder.config) }
+    var showSettings by remember { mutableStateOf(false) }
     val utterances = remember { mutableStateListOf<TranscriptEvent.Utterance>() }
 
     // --- Synced player (android MediaPlayer; no extra dep). ---
@@ -124,6 +128,7 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
+            TranscriptionConfig.Holder.config = config   // apply settings to this run
             utterances.clear(); title = null; summary = null; isPlaying = false
             running = true; progress = 0f; status = "Starting…"; audioUri = uri; onPicked(uri)
         }
@@ -182,7 +187,10 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
                 Button(onClick = {
                     val p = player ?: return@Button
                     if (isPlaying) { p.pause(); isPlaying = false } else { p.start(); isPlaying = true }
-                }) { Text(if (isPlaying) "Pause" else "Play") }
+                }, modifier = Modifier.padding(end = 6.dp)) { Text(if (isPlaying) "Pause" else "Play") }
+            }
+            Button(onClick = { showSettings = !showSettings }, enabled = !running) {
+                Text(if (showSettings) "Hide settings" else "⚙ Settings")
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -211,6 +219,9 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
 
         Spacer(Modifier.height(12.dp))
         LazyColumn {
+            if (showSettings) {
+                item { SettingsContent(config) { config = it } }
+            }
             title?.let { item { Text(it, style = MaterialTheme.typography.titleMedium) } }
             summary?.let {
                 item {

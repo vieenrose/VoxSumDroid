@@ -21,6 +21,8 @@ class DiarizationEngine(
     segmentationModel: String,
     embeddingModel: String,
     numThreads: Int,
+    numClusters: Int = -1,
+    clusterThreshold: Float = 0.5f,
 ) : AutoCloseable {
 
     private val sd = OfflineSpeakerDiarization(
@@ -33,7 +35,7 @@ class DiarizationEngine(
                 model = embeddingModel,
                 numThreads = numThreads,
             ),
-            clustering = FastClusteringConfig(numClusters = -1, threshold = 0.5f),
+            clustering = FastClusteringConfig(numClusters = numClusters, threshold = clusterThreshold),
         ),
     )
 
