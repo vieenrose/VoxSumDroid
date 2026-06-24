@@ -98,6 +98,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import studio.voxsum.core.asr.AsrBackend
+import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.export.TranscriptExport
@@ -199,7 +200,10 @@ private fun TranscribeScreen(
     var audioUri by remember { mutableStateOf<Uri?>(null) }
     var running by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
-    var config by remember { mutableStateOf(TranscriptionConfig.Holder.config) }
+    // Load the user's persisted settings (survives restarts) and seed the process-wide Holder.
+    var config by remember {
+        mutableStateOf(ConfigStore.load(context).also { TranscriptionConfig.Holder.config = it })
+    }
     var showConfigSheet by remember { mutableStateOf(false) }
     var showPodcastSheet by remember { mutableStateOf(false) }
     var showAddSourceSheet by remember { mutableStateOf(false) }
@@ -519,7 +523,7 @@ private fun TranscribeScreen(
         ConfigSheet(
             config = config,
             enabled = !running,
-            onChange = { config = it },
+            onChange = { config = it; ConfigStore.save(context, it) },
             onDismiss = { showConfigSheet = false },
         )
     }
