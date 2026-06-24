@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import studio.voxsum.data.DiarizationStats
 import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.voxSumFilledTonalColors
 import studio.voxsum.data.SpeakerName
 import studio.voxsum.data.SpeakerStats
 import studio.voxsum.data.formatDuration
@@ -62,10 +63,18 @@ fun SpeakerStatsPanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Speakers (${stats.totalSpeakers})", style = MaterialTheme.typography.titleMedium)
-                FilledTonalButton(onClick = onDetectNames, enabled = !isDetecting) {
+                Text("Speakers (${stats.totalSpeakers})", style = MaterialTheme.typography.titleMedium,
+                    color = VoxSumPalette.Slate200)
+                FilledTonalButton(
+                    onClick = onDetectNames,
+                    enabled = !isDetecting,
+                    colors = voxSumFilledTonalColors(
+                        container = VoxSumPalette.Sky.copy(alpha = 0.18f),
+                        content = VoxSumPalette.Sky,
+                    ),
+                ) {
                     if (isDetecting) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(Modifier.size(16.dp), color = VoxSumPalette.Sky, strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp)); Text("Detecting…")
                     } else {
                         Text("Detect speaker names")
@@ -110,7 +119,7 @@ private fun SpeakerStatsRow(sp: SpeakerStats, detected: SpeakerName?) {
             modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
         )
         Text(
-            "${formatDuration(sp.speakingTimeSec)} · ${sp.utteranceCount} utterances · " +
+            "${formatDuration(sp.speakingTimeSec)} · ${sp.utteranceCount} lines · " +
                 "avg ${formatDuration(sp.avgUtteranceLengthSec)}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

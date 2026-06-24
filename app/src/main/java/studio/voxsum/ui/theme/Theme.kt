@@ -17,6 +17,7 @@ object VoxSumPalette {
     val Slate900Bottom = Color(0xFF111827)
     val Slate800 = Color(0xFF1E293B)
     val Slate700 = Color(0xFF334155)
+    val Slate600 = Color(0xFF475569)
     val Slate400 = Color(0xFF94A3B8)
     val Slate200 = Color(0xFFE2E8F0)
     val Red = Color(0xFFEF4444)
@@ -26,6 +27,15 @@ object VoxSumPalette {
     val Warning = Color(0xFFF59E0B)
     val Info = Color(0xFF3B82F6)
     val Idle = Color(0xFFEAB308)
+
+    // On-gradient (brand band) foreground tints.
+    val OnBrand = Color.White
+    val OnBrandMuted = Color.White.copy(alpha = 0.70f)
+    val OnBrandFaint = Color.White.copy(alpha = 0.35f)
+
+    // Per-speaker chip/segment alpha convention.
+    const val SpeakerFillAlpha = 0.15f
+    const val SpeakerBorderAlpha = 0.6f
 
     /** The brand 135° gradient (#38bdf8 → #818cf8) used on the header, primary CTA, and accents. */
     val BrandGradient = Brush.linearGradient(listOf(Sky, Indigo))

@@ -34,9 +34,8 @@ class TranscriptUiTest {
 
     @Test
     fun rendersUtterancesAsEventsArrive() {
-        // Initial state — the "Pick audio…" CTA appears in both the empty-state hero and the
-        // source bar, so assert at least one is shown.
-        compose.onAllNodesWithText("Pick audio…").onFirst().assertIsDisplayed()
+        // Initial state — a single "Add audio" CTA opens the source chooser.
+        compose.onAllNodesWithText("Add audio").onFirst().assertIsDisplayed()
 
         // Simulate the pipeline emitting a status then two utterances.
         TranscriptionService.events.tryEmit(TranscriptEvent.Status("Transcribing…"))

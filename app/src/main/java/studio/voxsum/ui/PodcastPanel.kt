@@ -1,17 +1,22 @@
 package studio.voxsum.ui
 
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,6 +33,9 @@ import kotlinx.coroutines.launch
 import studio.voxsum.online.Episode
 import studio.voxsum.online.Podcast
 import studio.voxsum.online.PodcastSeries
+import studio.voxsum.ui.components.GradientButton
+import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.voxSumTextFieldColors
 
 /**
  * Podcast search/browse/download — Android counterpart of the web app's Podcast tab.
@@ -45,17 +53,23 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
                 label = { Text("Search podcasts") },
                 singleLine = true,
+                colors = voxSumTextFieldColors(),
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))
-            Button(
+            GradientButton(
+                "Search",
+                enabled = query.isNotBlank() && !busy,
                 onClick = {
                     scope.launch {
                         busy = true; error = null; selected = null; episodes = emptyList()
@@ -64,46 +78,54 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
                         busy = false
                     }
                 },
-                enabled = query.isNotBlank() && !busy,
-            ) { Text("Search") }
+            )
         }
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 4.dp))
-        error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error) }
+        if (busy) {
+            LinearProgressIndicator(
+                color = VoxSumPalette.Sky,
+                trackColor = VoxSumPalette.Slate700,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        error?.let { Text("Error: $it", color = VoxSumPalette.Red) }
 
         val sel = selected
         if (sel == null) {
             series.forEach { s ->
-                Column(
-                    Modifier.fillMaxWidth()
-                        .clickable {
-                            scope.launch {
-                                busy = true; error = null; selected = s
-                                episodes = runCatching { Podcast.fetchEpisodes(s.feedUrl) }
-                                    .getOrElse { error = it.message; emptyList() }
-                                busy = false
-                            }
-                        }
-                        .padding(vertical = 6.dp),
-                ) {
-                    Text(s.title, style = MaterialTheme.typography.bodyLarge)
-                    Text("${s.artist} · ${s.episodeCount} episodes", style = MaterialTheme.typography.bodySmall)
+                RowCard(onClick = {
+                    scope.launch {
+                        busy = true; error = null; selected = s
+                        episodes = runCatching { Podcast.fetchEpisodes(s.feedUrl) }
+                            .getOrElse { error = it.message; emptyList() }
+                        busy = false
+                    }
+                }) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(s.title, style = MaterialTheme.typography.bodyLarge, color = VoxSumPalette.Slate200)
+                        Text("${s.artist} · ${s.episodeCount} episodes",
+                            style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+                    }
                 }
             }
         } else {
-            TextButton(onClick = { selected = null; episodes = emptyList() }) { Text("← ${sel.title}") }
+            TextButton(onClick = { selected = null; episodes = emptyList() }) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, Modifier.width(18.dp))
+                Spacer(Modifier.width(6.dp)); Text(sel.title)
+            }
             episodes.forEach { e ->
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(e.title, style = MaterialTheme.typography.bodyMedium)
-                        if (e.durationText.isNotBlank()) {
-                            Text(e.durationText, style = MaterialTheme.typography.bodySmall)
+                RowCard(onClick = null) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(e.title, style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Slate200)
+                            if (e.durationText.isNotBlank()) {
+                                Text(e.durationText, style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+                            }
                         }
-                    }
-                    Button(
-                        onClick = {
+                        Spacer(Modifier.width(8.dp))
+                        GradientButton("Transcribe", enabled = !busy, onClick = {
                             scope.launch {
                                 busy = true; error = null
                                 val uri = runCatching {
@@ -112,11 +134,20 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
                                 busy = false
                                 uri?.let(onEpisodeReady)
                             }
-                        },
-                        enabled = !busy,
-                    ) { Text("Transcribe") }
+                        })
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun RowCard(onClick: (() -> Unit)?, content: @Composable () -> Unit) {
+    Surface(
+        color = VoxSumPalette.InsetSurface,
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, VoxSumPalette.Hairline),
+        modifier = Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+    ) { content() }
 }

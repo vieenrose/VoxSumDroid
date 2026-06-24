@@ -9,15 +9,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FiberManualRecord
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -25,11 +22,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import studio.voxsum.ui.components.GradientButton
 import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.voxSumFilledTonalColors
 
 /**
- * Audio-source actions: the brand "Pick audio…" CTA, a live **Record** entry, and a Podcast
- * entry point. While a run is active the CTA is replaced by Stop; while recording, a red
- * "● m:ss" indicator sits beside it.
+ * The single primary action: "Add audio" (opens the source chooser) when idle; while a run is
+ * active it becomes Stop, with a red "● m:ss" indicator during live recording.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -37,9 +34,7 @@ fun SourceBar(
     running: Boolean,
     isRecording: Boolean,
     recSeconds: Int,
-    onPickFile: () -> Unit,
-    onRecord: () -> Unit,
-    onPodcast: () -> Unit,
+    onAddSource: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -49,21 +44,19 @@ fun SourceBar(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (running) {
-            FilledTonalButton(onClick = onStop) {
+            FilledTonalButton(
+                onClick = onStop,
+                colors = voxSumFilledTonalColors(
+                    container = VoxSumPalette.Red.copy(alpha = 0.18f),
+                    content = VoxSumPalette.Red,
+                ),
+            ) {
                 Icon(Icons.Filled.Stop, contentDescription = null, Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp)); Text(if (isRecording) "Stop recording" else "Stop")
             }
             if (isRecording) RecordingPulse(recSeconds)
         } else {
-            GradientButton("Pick audio…", Icons.Filled.FolderOpen, onClick = onPickFile)
-            OutlinedButton(onClick = onRecord) {
-                Icon(Icons.Filled.Mic, contentDescription = null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp)); Text("Record")
-            }
-            OutlinedButton(onClick = onPodcast) {
-                Icon(Icons.Filled.Podcasts, contentDescription = null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp)); Text("Podcast")
-            }
+            GradientButton("Add audio", Icons.Filled.Add, onClick = onAddSource)
         }
     }
 }

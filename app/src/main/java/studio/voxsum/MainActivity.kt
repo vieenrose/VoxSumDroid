@@ -110,14 +110,18 @@ import studio.voxsum.data.computeDiarizationStats
 import studio.voxsum.data.speakerColor
 import studio.voxsum.data.speakerLabel
 import studio.voxsum.service.TranscriptionService
+import studio.voxsum.ui.AddSourceSheet
 import studio.voxsum.ui.ConfigSheet
 import studio.voxsum.ui.EmptyState
 import studio.voxsum.ui.PodcastSheet
 import studio.voxsum.ui.SourceBar
 import studio.voxsum.ui.SpeakerStatsPanel
 import studio.voxsum.ui.VoxSumTopBar
+import studio.voxsum.ui.YouTubeSheet
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.VoxSumTheme
+import studio.voxsum.ui.theme.voxSumSliderColors
+import studio.voxsum.ui.theme.voxSumTextFieldColors
 
 /**
  * Phase 4 shell: pick a local audio file (SAF) → run the foreground pipeline → render the
@@ -197,6 +201,8 @@ private fun TranscribeScreen(
     var config by remember { mutableStateOf(TranscriptionConfig.Holder.config) }
     var showConfigSheet by remember { mutableStateOf(false) }
     var showPodcastSheet by remember { mutableStateOf(false) }
+    var showAddSourceSheet by remember { mutableStateOf(false) }
+    var showYouTubeSheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val utterances = remember { mutableStateListOf<TranscriptEvent.Utterance>() }
 
@@ -242,6 +248,7 @@ private fun TranscribeScreen(
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         title = null; summary = null; isPlaying = false
         showPodcastSheet = false; showConfigSheet = false
+        showAddSourceSheet = false; showYouTubeSheet = false
         running = true; progress = 0f; status = "Starting…"; audioUri = uri; onPicked(uri)
     }
 
@@ -260,6 +267,7 @@ private fun TranscribeScreen(
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         title = null; summary = null; isPlaying = false
         showPodcastSheet = false; showConfigSheet = false
+        showAddSourceSheet = false; showYouTubeSheet = false
         TranscriptionConfig.Holder.config = config
         audioUri = null; running = true; isRecording = true; progress = 0f
         status = "Recording…"; onRecord()
@@ -312,7 +320,7 @@ private fun TranscribeScreen(
                     }
                     utterances.clear(); utterances.addAll(merged)
                     editingIndex = -1; editingSpeakerId = null
-                    status = "Transcript: ${merged.size} utterances" +
+                    status = "Transcript: ${merged.size} lines" +
                         (e.speakerCount?.let { ", $it speakers" } ?: "")
                 }
                 is TranscriptEvent.Title -> title = e.title
@@ -366,9 +374,6 @@ private fun TranscribeScreen(
     }
 
     // Active-model summary for the header chip + a one-shot download-pending probe.
-    val asrShort = AsrBackend.fromId(config.asrBackend).shortName
-    val llmShort = LlmRegistry.byId(config.llmModelId).let { it.shortName.ifEmpty { it.displayName } }
-    val modelLabel = "$asrShort · $llmShort"
     val llmDisplay = LlmRegistry.byId(config.llmModelId).displayName
     var downloadPending by remember { mutableStateOf(false) }
     LaunchedEffect(config.asrBackend, config.llmModelId) {
@@ -384,14 +389,13 @@ private fun TranscribeScreen(
         containerColor = Color.Transparent,
         topBar = {
             VoxSumTopBar(
-                modelLabel = modelLabel,
                 downloadPending = downloadPending,
                 status = status,
                 running = running,
                 progress = progress,
                 transcriptAvailable = utterances.isNotEmpty(),
                 summaryAvailable = summary != null,
-                onChipClick = { showConfigSheet = true },
+                onSettings = { showConfigSheet = true },
                 onExportTranscript = { f -> pending = PendingExport.Transcript(f); exporter.launch("transcript${f.ext}") },
                 onExportSummaryMarkdown = { pending = PendingExport.SummaryMd; exporter.launch("summary.md") },
                 onExportSummaryText = { pending = PendingExport.SummaryTxt; exporter.launch("summary.txt") },
@@ -414,9 +418,7 @@ private fun TranscribeScreen(
                     running = running,
                     isRecording = isRecording,
                     recSeconds = recSeconds,
-                    onPickFile = { picker.launch(arrayOf("audio/*")) },
-                    onRecord = { requestRecord() },
-                    onPodcast = { showPodcastSheet = true },
+                    onAddSource = { showAddSourceSheet = true },
                     onStop = { handleStop() },
                 )
             }
@@ -456,14 +458,7 @@ private fun TranscribeScreen(
             }
 
             if (isEmptyState) {
-                EmptyState(
-                    asrLabel = asrShort,
-                    llmLabel = llmShort,
-                    onPickFile = { picker.launch(arrayOf("audio/*")) },
-                    onRecord = { requestRecord() },
-                    onPodcast = { showPodcastSheet = true },
-                    onOpenConfig = { showConfigSheet = true },
-                )
+                EmptyState(onAddSource = { showAddSourceSheet = true })
             } else {
                 Spacer(Modifier.height(8.dp))
                 LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -525,8 +520,24 @@ private fun TranscribeScreen(
             onDismiss = { showPodcastSheet = false },
         )
     }
-    BackHandler(showConfigSheet || showPodcastSheet) {
+    if (showAddSourceSheet) {
+        AddSourceSheet(
+            onPickFile = { picker.launch(arrayOf("audio/*")) },
+            onRecord = { requestRecord() },
+            onPodcast = { showPodcastSheet = true },
+            onYouTube = { showYouTubeSheet = true },
+            onDismiss = { showAddSourceSheet = false },
+        )
+    }
+    if (showYouTubeSheet) {
+        YouTubeSheet(
+            onAudioReady = { uri -> launchAudio(uri) },
+            onDismiss = { showYouTubeSheet = false },
+        )
+    }
+    BackHandler(showConfigSheet || showPodcastSheet || showAddSourceSheet || showYouTubeSheet) {
         showConfigSheet = false; showPodcastSheet = false
+        showAddSourceSheet = false; showYouTubeSheet = false
     }
 }
 
@@ -625,6 +636,7 @@ private fun PlayerBar(
             valueRange = 0f..dur.toFloat(),
             onValueChange = { onDragChange(it.toInt()) },
             onValueChangeFinished = { dragMs?.let { onSeekTo(it) }; onDragChange(null) },
+            colors = voxSumSliderColors(),
             modifier = Modifier.fillMaxWidth(),
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -665,6 +677,7 @@ private fun PlayerBar(
                 value = if (muted) 0f else volume,
                 valueRange = 0f..1f,
                 onValueChange = onVolume,
+                colors = voxSumSliderColors(),
                 modifier = Modifier.weight(1f),
             )
         }
@@ -802,6 +815,7 @@ private fun UtteranceTextEditor(initial: String, onSave: (String) -> Unit, onCan
             onValueChange = { text = it },
             modifier = Modifier.fillMaxWidth().focusRequester(focus),
             textStyle = MaterialTheme.typography.bodyMedium,
+            colors = voxSumTextFieldColors(),
             minLines = 2,
         )
         Row(Modifier.padding(top = 4.dp)) {

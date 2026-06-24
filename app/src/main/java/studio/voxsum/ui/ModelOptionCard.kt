@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.voxSumRadioColors
 
 /**
  * A selectable model row (ASR backend or LLM) — replaces the bare FilterChip so the picker
@@ -46,7 +47,7 @@ fun ModelOptionCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(selected = selected, onClick = onClick, enabled = enabled)
+            RadioButton(selected = selected, onClick = onClick, enabled = enabled, colors = voxSumRadioColors())
             Column(Modifier.weight(1f).padding(start = 4.dp)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge, color = VoxSumPalette.Slate200)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)

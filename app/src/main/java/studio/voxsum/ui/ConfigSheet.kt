@@ -1,18 +1,13 @@
 package studio.voxsum.ui
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -34,9 +29,9 @@ import studio.voxsum.core.models.ModelManager
 import studio.voxsum.ui.theme.VoxSumPalette
 
 /**
- * The configuration surface — a [ModalBottomSheet] hosting [SettingsContent], opened by the
- * header model chip. A [ConfigSummaryStrip] at the top recaps the active pipeline at a glance;
- * download-readiness is probed once off the main thread (cheap File.exists checks).
+ * Settings — a [ModalBottomSheet] hosting [SettingsContent], opened by the header gear.
+ * Download-readiness is probed once off the main thread (cheap File.exists checks) so the
+ * model rows can show a downloaded vs will-download badge.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,48 +69,13 @@ fun ConfigSheet(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text(
-                "Pipeline",
+                "Settings",
                 style = MaterialTheme.typography.titleLarge,
                 color = VoxSumPalette.Slate200,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
-            ConfigSummaryStrip(config)
             SettingsContent(config, readyAsr, readyLlm, enabled, onChange)
-        }
-    }
-}
-
-/** Read-only at-a-glance recap of the active pipeline config. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ConfigSummaryStrip(config: TranscriptionConfig) {
-    val asr = AsrBackend.fromId(config.asrBackend).shortName
-    val llm = LlmRegistry.byId(config.llmModelId).let { it.shortName.ifEmpty { it.displayName } }
-    val lang = TranscriptionConfig.LANGUAGES.firstOrNull { it.first == config.language }?.second ?: "Auto"
-    val chips = buildList {
-        add("ASR: $asr")
-        if (config.asrBackend == AsrBackend.SENSEVOICE.id) add("Lang: $lang")
-        add(if (config.diarizationEnabled) "Diarize: on" else "Diarize: off")
-        add("LLM: $llm")
-        if (config.traditionalChinese) add("繁中")
-    }
-    FlowRow(
-        Modifier.fillMaxWidth().padding(bottom = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        chips.forEach { c ->
-            Surface(
-                color = VoxSumPalette.Sky.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(50),
-            ) {
-                Text(
-                    c,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = VoxSumPalette.Sky,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                )
-            }
         }
     }
 }

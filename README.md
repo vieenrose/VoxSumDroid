@@ -23,9 +23,9 @@ browser/file manager. The ASR/diarization/LLM models are **not** bundled — the
 
 ## Screenshots
 
-| Home | Models (ASR + LLM) | Transcript · diarization · player | Summary |
+| Home | Add audio (sources) | Transcript · diarization · player | Summary |
 |:---:|:---:|:---:|:---:|
-| ![Home](docs/screenshots/01-home.png) | ![Models](docs/screenshots/02-models.png) | ![Transcript](docs/screenshots/03-transcript.png) | ![Summary](docs/screenshots/04-summary.png) |
+| ![Home](docs/screenshots/01-home.png) | ![Add audio](docs/screenshots/02-add-source.png) | ![Transcript](docs/screenshots/03-transcript.png) | ![Summary](docs/screenshots/04-summary.png) |
 
 ## Features
 
@@ -43,6 +43,7 @@ browser/file manager. The ASR/diarization/LLM models are **not** bundled — the
 - **Inline editing** — edit utterance text and rename speakers directly in the transcript.
 - **Exports** — transcript to **SRT / VTT / TXT / JSON**; summary to **Markdown / plain text** (via the system file picker).
 - **Podcast ingestion** — search and browse podcasts (iTunes Search + RSS) and download an episode straight into the pipeline.
+- **YouTube** — paste a video link; the audio is resolved (NewPipeExtractor) and downloaded, then transcribed like any other source. (Some videos are region- or token-gated and won't resolve — handled with a clean error.)
 - **Private by design** — once models are present, transcription and summarization need no network. No Google Play Services, no analytics, no proprietary dependencies.
 
 ## Stack
@@ -54,6 +55,7 @@ browser/file manager. The ASR/diarization/LLM models are **not** bundled — the
 | Diarization | sherpa-onnx `OfflineSpeakerDiarization` (pyannote seg + 3D-Speaker emb) | Apache-2.0 |
 | Summarization | llama.cpp + Qwen2.5-Instruct Q4_K_M (GGUF) | MIT / Apache-2.0 |
 | zh-TW conversion | OpenCC (`s2tw`) dictionaries, bundled | Apache-2.0 |
+| YouTube extraction | NewPipeExtractor (via JitPack) | GPL-3.0 |
 | Audio decode | Android MediaCodec (no ffmpeg) | platform |
 | UI | Jetpack Compose (Material 3) | Apache-2.0 |
 

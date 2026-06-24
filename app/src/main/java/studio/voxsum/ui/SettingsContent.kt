@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -25,6 +26,8 @@ import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.voxSumSliderColors
+import studio.voxsum.ui.theme.voxSumSwitchColors
 
 /**
  * Pipeline configuration — Android counterpart of the original's ASR / Diarization /
@@ -85,6 +88,11 @@ fun SettingsContent(
                             enabled = enabled,
                             onClick = { onChange(config.copy(language = code)) },
                             label = { Text(label) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = VoxSumPalette.Sky.copy(alpha = 0.15f),
+                                selectedLabelColor = VoxSumPalette.Sky,
+                                labelColor = VoxSumPalette.Slate400,
+                            ),
                         )
                     }
                 }
@@ -162,7 +170,7 @@ private fun SwitchRow(label: String, checked: Boolean, enabled: Boolean, onChang
     ) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Slate200,
             modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled, colors = voxSumSwitchColors())
     }
 }
 
@@ -177,6 +185,7 @@ private fun SliderRow(
             color = VoxSumPalette.Slate200,
             modifier = Modifier.wrapContentWidth(),
         )
-        Slider(value = value, onValueChange = onChange, valueRange = from..to, enabled = enabled)
+        Slider(value = value, onValueChange = onChange, valueRange = from..to, enabled = enabled,
+            colors = voxSumSliderColors())
     }
 }
