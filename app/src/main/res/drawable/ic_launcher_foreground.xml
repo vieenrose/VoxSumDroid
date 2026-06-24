@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- VoxSum mark: a centered audio waveform (white pills) for adaptive icons. Drawn within
+     the 108dp viewport's center safe zone so the launcher mask never clips it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group>
+        <path android:fillColor="#FFFFFF"
+            android:pathData="M26,45 a3,3 0 0 1 6,0 v18 a3,3 0 0 1 -6,0 v-18 z" />
+        <path android:fillColor="#FFFFFF"
+            android:pathData="M36,35 a3,3 0 0 1 6,0 v38 a3,3 0 0 1 -6,0 v-38 z" />
+        <path android:fillColor="#FFFFFF"
+            android:pathData="M46,25 a3,3 0 0 1 6,0 v58 a3,3 0 0 1 -6,0 v-58 z" />
+        <path android:fillColor="#FFFFFF"
+            android:pathData="M56,25 a3,3 0 0 1 6,0 v58 a3,3 0 0 1 -6,0 v-58 z" />
+        <path android:fillColor="#FFFFFF"
+            android:pathData="M66,35 a3,3 0 0 1 6,0 v38 a3,3 0 0 1 -6,0 v-38 z" />
+        <path android:fillColor="#FFFFFF"
+            android:pathData="M76,45 a3,3 0 0 1 6,0 v18 a3,3 0 0 1 -6,0 v-18 z" />
+    </group>
+</vector>
