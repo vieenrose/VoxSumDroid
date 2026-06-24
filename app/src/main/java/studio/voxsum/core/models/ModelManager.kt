@@ -146,17 +146,19 @@ class ModelManager(context: Context) {
     companion object {
         // Mirrors models/manifest.json. All FOSS-licensed.
         const val SENSE_VOICE_DIR = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
-        const val DEFAULT_LLM = "qwen2.5-1.5b-instruct-q4_k_m" // Phase 2
+        const val DEFAULT_LLM = "qwen2.5-0.5b-instruct-q4_k_m" // Phase 2
 
         private const val SENSE_VOICE_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" +
                 "$SENSE_VOICE_DIR.tar.bz2"
         private const val VAD_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
-        // Qwen2.5-1.5B-Instruct Q4_K_M (Apache-2.0) — the on-device summarization default.
+        // Qwen2.5-0.5B-Instruct Q4_K_M (Apache-2.0) — on-device summarization default. Chosen
+        // over 1.5B to fit memory-constrained phones (the 1.5B GGUF + KV cache OOMs on low-RAM
+        // devices). ~469 MB. Swap back to 1.5B for better summaries on high-RAM devices.
         private const val LLM_URL =
-            "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/" +
-                "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+            "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/" +
+                "qwen2.5-0.5b-instruct-q4_k_m.gguf"
 
         const val SEG_DIR = "sherpa-onnx-pyannote-segmentation-3-0"
         private const val SEG_URL =
@@ -171,6 +173,6 @@ class ModelManager(context: Context) {
         private const val SENSE_VOICE_SHA = "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e"
         private const val SEG_SHA = "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488"
         private const val EMB_SHA = "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b"
-        private const val LLM_SHA = "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"
+        private const val LLM_SHA = "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
     }
 }

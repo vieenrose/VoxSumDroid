@@ -73,7 +73,7 @@ object AudioDecoder {
         codec: MediaCodec,
         channels: Int,
     ): FloatArray {
-        val out = ArrayList<Float>(1 shl 20)
+        val out = FloatList(1 shl 18)
         val bufferInfo = MediaCodec.BufferInfo()
         var sawInputEos = false
         var sawOutputEos = false
@@ -110,11 +110,26 @@ object AudioDecoder {
                 }
             }
         }
-        return out.toFloatArray()
+        return out.toArray()
+    }
+
+    /**
+     * Primitive (unboxed) growable float buffer. Using ArrayList<Float> here boxed every
+     * sample into a ~24-byte heap object — a few minutes of audio = hundreds of MB → OOM on
+     * a phone. This stores raw floats (4 bytes each).
+     */
+    private class FloatList(initial: Int) {
+        private var a = FloatArray(if (initial < 16) 16 else initial)
+        private var n = 0
+        fun add(v: Float) {
+            if (n == a.size) a = a.copyOf(a.size * 2)
+            a[n++] = v
+        }
+        fun toArray(): FloatArray = a.copyOf(n)
     }
 
     /** Interpret bytes as little-endian 16-bit PCM, average channels, scale to [-1, 1]. */
-    private fun appendDownmixed(buf: ByteBuffer, channels: Int, out: ArrayList<Float>) {
+    private fun appendDownmixed(buf: ByteBuffer, channels: Int, out: FloatList) {
         val shorts = buf.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
         val frames = shorts.remaining() / channels
         for (f in 0 until frames) {

@@ -17,6 +17,7 @@
 
     <application
         android:allowBackup="true"
+        android:largeHeap="true"
         android:label="VoxSum"
         android:supportsRtl="true"
         android:theme="@style/Theme.VoxSum"
