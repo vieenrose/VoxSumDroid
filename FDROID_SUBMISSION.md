@@ -25,30 +25,25 @@ Result: a live repo at `https://vieenrose.github.io/VoxSumDroid/repo` that users
 
 ## Route A — official f-droid.org repository
 
-F-Droid builds from source on their servers with **no network during the build** and publishes
-under their own signing key. The recipe is ready (`metadata/studio.voxsum.yml`). Two things make
-this app non-trivial; here's the status of each.
+F-Droid builds from source on their servers (the build VM **has network** — that's how Gradle
+resolves dependencies; the gatekeeper is the `scanner`, not an air gap) and publishes under
+their own signing key. The recipe is ready (`metadata/studio.voxsum.yml`). The real challenges:
 
-### 1. onnxruntime offline build — SOLVED & VALIDATED
+### 1. onnxruntime deps — NOT actually a blocker
 
-ORT fetches ~40 build-time deps (`cmake/deps.txt`). F-Droid forbids build-time network, but ORT
-supports a local mirror: it rewrites every `https://…` dep URL to `<MIRROR_DIR>/…`.
+ORT fetches ~40 source deps at build time (`cmake/deps.txt`). Since the F-Droid build VM has
+network, ORT builds the same way it did in our GitHub CI run (which had network and built in
+~40 min). So **no offline mirror is required for inclusion.**
 
-**Validated here:** with the mirror set, ORT's configure phase (where all deps are fetched)
-completed with **zero network downloads** — every dep resolved from the local mirror, then
-`Configuring done`. The compile itself is already known-good. So the offline build works. Steps:
+The offline mirror tooling (`scripts/fetch-ort-deps-mirror.sh`, validated to build ORT with zero
+network) is kept only for **reproducible builds** — a separate, optional F-Droid status, not a
+requirement for getting listed.
 
-```bash
-./scripts/fetch-ort-deps-mirror.sh                 # pre-download all deps into a mirror
-VOXSUM_ORT_MIRROR=$HOME/ort-deps-mirror \
-  ./scripts/build-onnxruntime-android.sh           # builds ORT with NO network
-```
+Watch instead: ORT downloads a **prebuilt protoc** as a build tool (`protoc_linux_*` in
+deps.txt). F-Droid's scanner may flag downloaded binaries used at build time — likely handled
+with a `scanignore`/`scandelete` entry, but confirm via `fdroid scanner` / `fdroid build`.
 
-For the F-Droid build, the mirror (~150 MB) must be present offline. Vendor it as
-`native/ort-deps-mirror` (committed, or a git submodule/srclib). The recipe's `prebuild`
-already wires `VOXSUM_ORT_MIRROR` to it.
-
-### 2. Build is heavy — the remaining risk
+### 2. Build is heavy — the main risk
 
 onnxruntime + sherpa-onnx + llama.cpp from source is tens of minutes and several GB. This may
 exceed F-Droid's default buildserver limits. There is no way around verifying this on *their*

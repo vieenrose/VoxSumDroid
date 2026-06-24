@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # create GitHub Releases on tags
   pages: write
   id-token: write
 
@@ -118,6 +118,17 @@ jobs:
           name: voxsum-apk
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+
+      - name: Publish signed APK as a GitHub Release
+        if: ${{ github.ref_type == 'tag' && env.HAS_KEYSTORE == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk "voxsum-${GITHUB_REF_NAME}.apk"
+          NOTES="Offline on-device transcription + diarization + summarization. Sideload the APK, or add the F-Droid repo: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo"
+          gh release create "$GITHUB_REF_NAME" "voxsum-${GITHUB_REF_NAME}.apk" \
+            --title "VoxSum $GITHUB_REF_NAME" --notes "$NOTES" \
+          || gh release upload "$GITHUB_REF_NAME" "voxsum-${GITHUB_REF_NAME}.apk" --clobber
 
       - name: Generate F-Droid repo
         if: env.HAS_KEYSTORE == 'true'

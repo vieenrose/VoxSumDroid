@@ -15,25 +15,24 @@ Builds:
   - versionName: "0.1.0"
     versionCode: 1
     commit: v0.1.0
-    subdir: app
     submodules: true          # native/sherpa-onnx, native/llama.cpp, native/onnxruntime
-    sudo:
-      # onnxruntime must build from source offline. Its build-time deps (cmake/deps.txt)
-      # are vendored under native/ort-deps-mirror (see scripts/fetch-ort-deps-mirror.sh),
-      # so no network is needed at build time.
-      - echo "deps mirror is vendored; no network fetch"
-    prebuild:
-      - export ANDROID_NDK_HOME=$$NDK$$
-      - export VOXSUM_ORT_MIRROR=$$WORKDIR$$/../native/ort-deps-mirror
+    ndk: r27c                 # == 27.2.12479018 (matches app/build.gradle.kts ndkVersion)
+    # Build onnxruntime from the pinned submodule (the build VM has network), then build the
+    # app. All in one `build:` block so the SHERPA_ONNXRUNTIME_* exports reach the gradle/NDK
+    # step. No prebuilt binaries are committed; everything compiles from source.
+    build:
+      - export ANDROID_NDK="$$NDK$$"
+      - export ORT_SRC="$$WORKDIR$$/native/onnxruntime"
+      - export PATH="$HOME/.local/bin:$PATH"
+      - pip3 install --user "cmake>=3.28" packaging
       - ./scripts/build-onnxruntime-android.sh
-      - export SHERPA_ONNXRUNTIME_LIB_DIR=$$HOME$$/ort-build/Release
-      - export SHERPA_ONNXRUNTIME_INCLUDE_DIR=$$HOME$$/ort-headers
-    gradle:
-      - yes
-    # No prebuilt binaries are committed; everything compiles via the NDK/CMake step.
-    # NOTE: the onnxruntime + sherpa-onnx + llama.cpp build is heavy (tens of minutes,
-    # several GB). This may exceed F-Droid's default build limits — coordinate with
-    # F-Droid maintainers (see FDROID_SUBMISSION.md "Build resources").
+      - export SHERPA_ONNXRUNTIME_LIB_DIR="$HOME/ort-build/Release"
+      - export SHERPA_ONNXRUNTIME_INCLUDE_DIR="$HOME/ort-headers"
+      - ./gradlew :app:assembleRelease
+    # NOTE: the onnxruntime + sherpa-onnx + llama.cpp build is heavy (~40 min on a 4-core
+    # runner, several GB). This may exceed F-Droid's default build limits — raise it with
+    # maintainers early (see FDROID_SUBMISSION.md "Build is heavy"). The recipe's build-field
+    # env wiring + NDK path will likely need one iteration against `fdroid build`.
 
 AutoUpdateMode: Version v%v
 UpdateCheckMode: Tags
