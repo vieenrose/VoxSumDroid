@@ -89,6 +89,7 @@ import studio.voxsum.data.computeDiarizationStats
 import studio.voxsum.data.speakerColor
 import studio.voxsum.data.speakerLabel
 import studio.voxsum.service.TranscriptionService
+import studio.voxsum.ui.PodcastPanel
 import studio.voxsum.ui.SettingsContent
 import studio.voxsum.ui.SpeakerStatsPanel
 
@@ -112,8 +113,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startTranscription(uri: Uri) {
-        runCatching {
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        // content:// (SAF) needs a persistable grant; file:// from our own filesDir/audio
+        // (podcast downloads) is already owned by the app.
+        if (uri.scheme == "content") {
+            runCatching {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
         }
         val intent = Intent(this, TranscriptionService::class.java)
             .putExtra(TranscriptionService.EXTRA_AUDIO_URI, uri.toString())
@@ -147,6 +152,7 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
     var progress by remember { mutableFloatStateOf(0f) }
     var config by remember { mutableStateOf(TranscriptionConfig.Holder.config) }
     var showSettings by remember { mutableStateOf(false) }
+    var showPodcast by remember { mutableStateOf(false) }
     val utterances = remember { mutableStateListOf<TranscriptEvent.Utterance>() }
 
     // --- Inline editing (mirrors the web app): id->name overrides + which row/speaker is open. ---
@@ -185,16 +191,17 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
         }
     }
 
+    // Start a run from any audio Uri (SAF pick or podcast download): reset session + go.
+    fun launchAudio(uri: Uri) {
+        TranscriptionConfig.Holder.config = config   // apply settings to this run
+        utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
+        title = null; summary = null; isPlaying = false; showPodcast = false
+        running = true; progress = 0f; status = "Starting…"; audioUri = uri; onPicked(uri)
+    }
+
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            TranscriptionConfig.Holder.config = config   // apply settings to this run
-            utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
-            title = null; summary = null; isPlaying = false
-            running = true; progress = 0f; status = "Starting…"; audioUri = uri; onPicked(uri)
-        }
-    }
+    ) { uri: Uri? -> if (uri != null) launchAudio(uri) }
 
     // --- Export via SAF; one launcher, target chosen on button press. ---
     var pending by remember { mutableStateOf<PendingExport>(PendingExport.Transcript(TranscriptExport.Format.SRT)) }
@@ -269,8 +276,9 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
 
     val stats = computeDiarizationStats(utterances)
     // Header items rendered before the utterance list (for auto-scroll index math).
-    val headerCount = (if (showSettings) 1 else 0) + (if (title != null) 1 else 0) +
-        (if (summary != null) 1 else 0) + (if (stats.perSpeaker.isNotEmpty()) 1 else 0)
+    val headerCount = (if (showSettings) 1 else 0) + (if (showPodcast) 1 else 0) +
+        (if (title != null) 1 else 0) + (if (summary != null) 1 else 0) +
+        (if (stats.perSpeaker.isNotEmpty()) 1 else 0)
     LaunchedEffect(activeIndex) {
         if (activeIndex in utterances.indices) {
             runCatching { listState.animateScrollToItem(headerCount + activeIndex, scrollOffset = -200) }
@@ -289,8 +297,13 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
             if (running) {
                 Button(onClick = onStop, modifier = Modifier.padding(end = 6.dp)) { Text("Stop") }
             }
-            Button(onClick = { showSettings = !showSettings }, enabled = !running) {
-                Text(if (showSettings) "Hide settings" else "⚙ Settings")
+            Button(
+                onClick = { showSettings = !showSettings },
+                enabled = !running,
+                modifier = Modifier.padding(end = 6.dp),
+            ) { Text(if (showSettings) "Hide settings" else "⚙ Settings") }
+            Button(onClick = { showPodcast = !showPodcast }, enabled = !running) {
+                Text(if (showPodcast) "Hide podcasts" else "🎙 Podcast")
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -355,6 +368,9 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
         LazyColumn(state = listState) {
             if (showSettings) {
                 item { SettingsContent(config) { config = it } }
+            }
+            if (showPodcast) {
+                item { PodcastPanel(onEpisodeReady = { uri -> launchAudio(uri) }) }
             }
             title?.let { item { Text(it, style = MaterialTheme.typography.titleMedium) } }
             summary?.let { s ->
