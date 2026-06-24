@@ -9,7 +9,9 @@ import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
+import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo
+import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -25,6 +27,35 @@ import java.net.URL
 object YouTube {
 
     data class YouTubeAudio(val title: String, val streamUrl: String, val ext: String)
+
+    /** A search result video. */
+    data class YouTubeVideo(val title: String, val url: String, val uploader: String, val durationSec: Long) {
+        val durationText: String
+            get() {
+                if (durationSec <= 0) return ""
+                val s = durationSec
+                return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)
+                else "%d:%02d".format(s / 60, s % 60)
+            }
+    }
+
+    /** True if the text is a URL we can resolve directly (vs a search keyword). */
+    fun looksLikeUrl(text: String): Boolean {
+        val t = text.trim()
+        return t.startsWith("http://") || t.startsWith("https://") || t.startsWith("youtu.be/") ||
+            t.startsWith("www.youtube.")
+    }
+
+    /** Keyword search → up to ~20 videos (search isn't poToken-gated, unlike stream resolution). */
+    suspend fun search(query: String): List<YouTubeVideo> = withContext(Dispatchers.IO) {
+        ensureInit()
+        val service = ServiceList.YouTube
+        val qh = service.searchQHFactory.fromQuery(query.trim(), listOf("videos"), "")
+        SearchInfo.getInfo(service, qh).relatedItems
+            .filterIsInstance<StreamInfoItem>()
+            .map { YouTubeVideo(it.name ?: "", it.url, it.uploaderName ?: "", it.duration) }
+            .filter { it.title.isNotBlank() && it.url.isNotBlank() }
+    }
 
     @Volatile private var initialized = false
     private const val USER_AGENT =
