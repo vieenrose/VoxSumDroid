@@ -36,7 +36,7 @@ fun SpeakerStatsPanel(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "${stats.totalSpeakers} speakers",
+            "${stats.totalSpeakers} " + if (stats.totalSpeakers == 1) "speaker" else "speakers",
             style = MaterialTheme.typography.bodyMedium,
             color = VoxSumPalette.Slate400,
         )

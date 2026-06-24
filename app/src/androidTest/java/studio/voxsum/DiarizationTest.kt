@@ -42,7 +42,7 @@ class DiarizationTest {
         assertTrue("expected utterances", utterances.isNotEmpty())
 
         val (tagged, count) = DiarizationEngine(
-            models.segmentationModel.absolutePath, models.embeddingModel.absolutePath,
+            embeddingModel = models.embeddingModel.absolutePath,
             numThreads = 4,
         ).use { it.assignSpeakers(pcm, utterances) }
 

@@ -16,7 +16,10 @@ data class TranscriptionConfig(
     // --- Diarization ---
     val diarizationEnabled: Boolean = true,
     val numSpeakers: Int = -1,                // -1 = auto
-    val clusterThreshold: Float = 0.5f,       // 0.1..1.0
+    // Cosine-distance cut for speaker clustering: a single voice's utterances stay within this,
+    // a different voice exceeds it. Tuned for the eres2net embeddings on short utterances
+    // (same-speaker spread reaches ~0.79). Lower = more speakers.
+    val clusterThreshold: Float = 0.8f,       // 0.1..1.0
 
     // --- Summarization ---
     val llmModelId: String = "gemma-3-1b-it-qat-q4",

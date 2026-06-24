@@ -62,7 +62,7 @@ class PipelineE2ETest {
 
         // 2) Diarization (ASR already released by .use above)
         val (tagged, speakers) = DiarizationEngine(
-            models.segmentationModel.absolutePath, models.embeddingModel.absolutePath, 4,
+            embeddingModel = models.embeddingModel.absolutePath, numThreads = 4,
         ).use { it.assignSpeakers(pcm, utterances) }
         Log.i(TAG, "speakers=$speakers")
         assertTrue("expected >=1 speaker", speakers >= 1)

@@ -234,7 +234,6 @@ class TranscriptionService : LifecycleService() {
             }
             events.emit(TranscriptEvent.Status("Identifying speakers…"))
             DiarizationEngine(
-                segmentationModel = models.segmentationModel.absolutePath,
                 embeddingModel = models.embeddingModel.absolutePath,
                 numThreads = asrThreads(),
                 numClusters = cfg.numSpeakers,

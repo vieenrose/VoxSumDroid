@@ -31,12 +31,12 @@ class ModelManager(context: Context) {
     val tokens: File get() = File(senseVoiceDir, "tokens.txt")
     val vadModel: File get() = File(modelsDir, "silero_vad.onnx")
 
-    private val segDir = File(modelsDir, SEG_DIR)
-    val segmentationModel: File get() = File(segDir, "model.onnx")
     val embeddingModel: File get() = File(modelsDir, "speaker_embedding.onnx")
 
     fun asrReady(): Boolean = senseVoiceModel.exists() && tokens.exists() && vadModel.exists()
-    fun diarizationReady(): Boolean = segmentationModel.exists() && embeddingModel.exists()
+    // Diarization is per-utterance embedding + clustering, so only the speaker-embedding
+    // model is needed (no pyannote segmentation model).
+    fun diarizationReady(): Boolean = embeddingModel.exists()
 
     // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
     private data class AsrModelSpec(
@@ -166,18 +166,12 @@ class ModelManager(context: Context) {
     suspend fun ensureLlmModel(onProgress: (Float) -> Unit) =
         ensureLlmModel(LlmRegistry.byId(LlmRegistry.DEFAULT_ID), onProgress)
 
-    /** Ensure diarization models (pyannote segmentation + 3D-Speaker embedding) — Phase 3. */
+    /** Ensure the diarization model (3D-Speaker eres2net embedding) — Phase 3. */
     suspend fun ensureDiarizationModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        if (!segmentationModel.exists()) {
-            val archive = File(modelsDir, "$SEG_DIR.tar.bz2")
-            download(SEG_URL, archive, SEG_SHA) { onProgress(it * 0.4f) }
-            extractTarBz2(archive, modelsDir)
-            archive.delete()
-        }
         if (!embeddingModel.exists()) {
-            download(EMB_URL, embeddingModel, EMB_SHA) { onProgress(0.4f + it * 0.6f) }
+            download(EMB_URL, embeddingModel, EMB_SHA) { onProgress(it) }
         }
-        check(diarizationReady()) { "Diarization models missing after provisioning" }
+        check(diarizationReady()) { "Diarization model missing after provisioning" }
     }
 
     /**
@@ -257,10 +251,6 @@ class ModelManager(context: Context) {
         private const val VAD_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
 
-        const val SEG_DIR = "sherpa-onnx-pyannote-segmentation-3-0"
-        private const val SEG_URL =
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/" +
-                "speaker-segmentation-models/$SEG_DIR.tar.bz2"
         private const val EMB_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/" +
                 "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
@@ -268,7 +258,6 @@ class ModelManager(context: Context) {
         // SHA-256 pins for the exact release artifacts above (verified after download).
         private const val VAD_SHA = "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
         private const val SENSE_VOICE_SHA = "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e"
-        private const val SEG_SHA = "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488"
         private const val EMB_SHA = "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b"
     }
 }
