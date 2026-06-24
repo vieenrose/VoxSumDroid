@@ -65,7 +65,9 @@ class TranscriptionService : LifecycleService() {
 
         startForeground(NOTIF_ID, buildNotification("Preparing…"))
         val uri = intent?.getStringExtra(EXTRA_AUDIO_URI)
-        pipelineJob = lifecycleScope.launch {
+        // Run the whole pipeline off the main thread — the MediaCodec decode is a long
+        // blocking call that would otherwise ANR the UI (lifecycleScope defaults to Main).
+        pipelineJob = lifecycleScope.launch(Dispatchers.Default) {
             runCatching { runPipeline(uri) }
                 .onFailure { e ->
                     if (e !is CancellationException) {
