@@ -11,8 +11,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,16 +24,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -46,11 +54,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -146,18 +160,29 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableIntStateOf(0) }
+    var durationMs by remember { mutableIntStateOf(0) }
+    var volume by remember { mutableFloatStateOf(1f) }
+    var muted by remember { mutableStateOf(false) }
+    var dragMs by remember { mutableStateOf<Int?>(null) }
+    val listState = rememberLazyListState()
     DisposableEffect(audioUri) {
         player?.release(); player = null
+        durationMs = 0; positionMs = 0; dragMs = null
         audioUri?.let { uri ->
             player = MediaPlayer().apply {
-                runCatching { setDataSource(context, uri); prepare() }
+                runCatching { setDataSource(context, uri); prepare() }.onSuccess { durationMs = duration }
+                setVolume(volume, volume)
                 setOnCompletionListener { isPlaying = false }
             }
         }
         onDispose { player?.release(); player = null }
     }
     LaunchedEffect(isPlaying) {
-        while (isPlaying) { positionMs = player?.currentPosition ?: 0; delay(150) }
+        while (isPlaying) {
+            positionMs = player?.currentPosition ?: 0
+            if (durationMs == 0) durationMs = player?.duration ?: 0
+            delay(150)
+        }
     }
 
     val picker = rememberLauncherForActivityResult(
@@ -242,6 +267,16 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
         }
     }
 
+    val stats = computeDiarizationStats(utterances)
+    // Header items rendered before the utterance list (for auto-scroll index math).
+    val headerCount = (if (showSettings) 1 else 0) + (if (title != null) 1 else 0) +
+        (if (summary != null) 1 else 0) + (if (stats.perSpeaker.isNotEmpty()) 1 else 0)
+    LaunchedEffect(activeIndex) {
+        if (activeIndex in utterances.indices) {
+            runCatching { listState.animateScrollToItem(headerCount + activeIndex, scrollOffset = -200) }
+        }
+    }
+
     Column(Modifier.padding(16.dp)) {
         Text("VoxSum", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
@@ -253,12 +288,6 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
             ) { Text("Pick audio…") }
             if (running) {
                 Button(onClick = onStop, modifier = Modifier.padding(end = 6.dp)) { Text("Stop") }
-            }
-            if (player != null && !running) {
-                Button(onClick = {
-                    val p = player ?: return@Button
-                    if (isPlaying) { p.pause(); isPlaying = false } else { p.start(); isPlaying = true }
-                }, modifier = Modifier.padding(end = 6.dp)) { Text(if (isPlaying) "Pause" else "Play") }
             }
             Button(onClick = { showSettings = !showSettings }, enabled = !running) {
                 Text(if (showSettings) "Hide settings" else "⚙ Settings")
@@ -272,6 +301,40 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
             )
         }
         Text(status, style = MaterialTheme.typography.bodyMedium)
+
+        // --- Rich synced player ---
+        if (player != null && !running) {
+            fun doSeek(ms: Int) {
+                val p = player ?: return
+                val clamped = ms.coerceIn(0, durationMs)
+                runCatching { p.seekTo(clamped) }
+                positionMs = clamped
+                if (!isPlaying) { p.start(); isPlaying = true }
+            }
+            PlayerBar(
+                utterances = utterances,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                dragMs = dragMs,
+                isPlaying = isPlaying,
+                volume = volume,
+                muted = muted,
+                activeIndex = activeIndex,
+                onPlayPause = {
+                    val p = player ?: return@PlayerBar
+                    if (isPlaying) { p.pause(); isPlaying = false } else { p.start(); isPlaying = true }
+                },
+                onSeekTo = { doSeek(it) },
+                onDragChange = { dragMs = it },
+                onSkip = { delta -> doSeek((dragMs ?: positionMs) + delta) },
+                onVolume = { v -> volume = v; muted = v == 0f; player?.setVolume(v, v) },
+                onToggleMute = {
+                    muted = !muted
+                    val v = if (muted) 0f else volume.coerceAtLeast(0.05f).also { volume = it }
+                    player?.setVolume(v, v)
+                },
+            )
+        }
 
         if (utterances.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
@@ -289,7 +352,7 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
         }
 
         Spacer(Modifier.height(12.dp))
-        LazyColumn {
+        LazyColumn(state = listState) {
             if (showSettings) {
                 item { SettingsContent(config) { config = it } }
             }
@@ -310,7 +373,6 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
                     }
                 }
             }
-            val stats = computeDiarizationStats(utterances)
             if (stats.perSpeaker.isNotEmpty()) {
                 item {
                     SpeakerStatsPanel(
@@ -363,6 +425,122 @@ private sealed interface PendingExport {
 private fun fmt(sec: Double): String {
     val s = sec.toInt()
     return "%d:%02d".format(s / 60, s % 60)
+}
+
+private fun fmtMs(ms: Int): String {
+    val s = ms / 1000
+    return "%d:%02d".format(s / 60, s % 60)
+}
+
+@Composable
+private fun PlayerBar(
+    utterances: List<TranscriptEvent.Utterance>,
+    positionMs: Int,
+    durationMs: Int,
+    dragMs: Int?,
+    isPlaying: Boolean,
+    volume: Float,
+    muted: Boolean,
+    activeIndex: Int,
+    onPlayPause: () -> Unit,
+    onSeekTo: (Int) -> Unit,
+    onDragChange: (Int?) -> Unit,
+    onSkip: (Int) -> Unit,
+    onVolume: (Float) -> Unit,
+    onToggleMute: () -> Unit,
+) {
+    val shownMs = dragMs ?: positionMs
+    val dur = durationMs.coerceAtLeast(1)
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        TimelineStrip(
+            utterances = utterances,
+            durationMs = durationMs,
+            activeIndex = activeIndex,
+            progressMs = shownMs,
+            onSeekTo = onSeekTo,
+            modifier = Modifier.fillMaxWidth().height(28.dp),
+        )
+        Spacer(Modifier.height(6.dp))
+        Slider(
+            value = shownMs.toFloat().coerceIn(0f, dur.toFloat()),
+            valueRange = 0f..dur.toFloat(),
+            onValueChange = { onDragChange(it.toInt()) },
+            onValueChangeFinished = { dragMs?.let { onSeekTo(it) }; onDragChange(null) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(fmtMs(shownMs), style = MaterialTheme.typography.labelSmall)
+            Text(fmtMs(durationMs), style = MaterialTheme.typography.labelSmall)
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { onSkip(-5000) }) { Text("« 5s") }
+            Button(onClick = onPlayPause) { Text(if (isPlaying) "Pause" else "Play") }
+            TextButton(onClick = { onSkip(5000) }) { Text("5s »") }
+            Spacer(Modifier.width(12.dp))
+            IconButton(onClick = onToggleMute) {
+                Text(if (muted || volume == 0f) "🔇" else if (volume < 0.5f) "🔉" else "🔊")
+            }
+            Slider(
+                value = if (muted) 0f else volume,
+                valueRange = 0f..1f,
+                onValueChange = onVolume,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimelineStrip(
+    utterances: List<TranscriptEvent.Utterance>,
+    durationMs: Int,
+    activeIndex: Int,
+    progressMs: Int,
+    onSeekTo: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val durSec = (durationMs / 1000.0).coerceAtLeast(0.001)
+    Canvas(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color(0xFF1E293B))
+            .pointerInput(durationMs) {
+                detectTapGestures { offset ->
+                    if (size.width > 0 && durationMs > 0) {
+                        onSeekTo(((offset.x / size.width).coerceIn(0f, 1f) * durationMs).toInt())
+                    }
+                }
+            },
+    ) {
+        if (durationMs <= 0) return@Canvas
+        val w = size.width
+        val h = size.height
+        utterances.forEachIndexed { i, u ->
+            val startX = (u.startSec / durSec).toFloat().coerceIn(0f, 1f) * w
+            val endX = (u.endSec / durSec).toFloat().coerceIn(0f, 1f) * w
+            val segW = (endX - startX).coerceAtLeast(1.5f)
+            val active = i == activeIndex
+            val base = Color(speakerColor(u.speaker))
+            drawRoundRect(
+                color = if (active) base else base.copy(alpha = 0.45f),
+                topLeft = Offset(startX, 0f),
+                size = Size(segW, h),
+                cornerRadius = CornerRadius(2f, 2f),
+            )
+            if (active) {
+                drawRoundRect(
+                    color = Color.White.copy(alpha = 0.35f),
+                    topLeft = Offset(startX, 0f),
+                    size = Size(segW, h),
+                    cornerRadius = CornerRadius(2f, 2f),
+                    style = Stroke(width = 2f),
+                )
+            }
+        }
+        val cx = (progressMs.toFloat() / durationMs).coerceIn(0f, 1f) * w
+        drawLine(Color(0xFF38BDF8), Offset(cx, 0f), Offset(cx, h), strokeWidth = 3f)
+    }
 }
 
 @Composable
