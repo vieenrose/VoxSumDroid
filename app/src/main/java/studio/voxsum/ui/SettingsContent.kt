@@ -2,6 +2,8 @@ package studio.voxsum.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -25,12 +27,13 @@ import studio.voxsum.core.models.LlmRegistry
  * Settings panel — Android counterpart of the original's ASR / Diarization / Summarization
  * sidebar. Edits a [TranscriptionConfig] and reports changes via [onChange].
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsContent(config: TranscriptionConfig, onChange: (TranscriptionConfig) -> Unit) {
     Column(Modifier.padding(4.dp)) {
         Section("ASR")
         LabeledRow("Backend") {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 AsrBackend.entries.forEach { b ->
                     FilterChip(
                         selected = config.asrBackend == b.id,
@@ -43,7 +46,7 @@ fun SettingsContent(config: TranscriptionConfig, onChange: (TranscriptionConfig)
         // Language + ITN apply to SenseVoice only.
         if (config.asrBackend == AsrBackend.SENSEVOICE.id) {
             LabeledRow("Language") {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     TranscriptionConfig.LANGUAGES.forEach { (code, label) ->
                         FilterChip(
                             selected = config.language == code,
@@ -81,7 +84,7 @@ fun SettingsContent(config: TranscriptionConfig, onChange: (TranscriptionConfig)
 
         Section("Summarization")
         LabeledRow("Model") {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 LlmRegistry.ALL.forEach { spec ->
                     FilterChip(
                         selected = config.llmModelId == spec.id,
