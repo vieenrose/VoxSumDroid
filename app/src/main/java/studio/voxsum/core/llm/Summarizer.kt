@@ -3,6 +3,7 @@ package studio.voxsum.core.llm
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import studio.voxsum.core.events.TranscriptEvent
+import studio.voxsum.core.models.ChatTemplate
 
 /**
  * Map-reduce summarization — Android port of src/summarization.py::summarize_transcript.
@@ -17,7 +18,13 @@ import studio.voxsum.core.events.TranscriptEvent
  *   3. reduce the chunk summaries into one final summary -> emit SummaryComplete
  *   4. generate_title equivalent -> emit Title
  */
-class Summarizer(private val llm: LlmEngine) {
+class Summarizer(
+    private val llm: LlmEngine,
+    private val template: ChatTemplate = ChatTemplate.CHATML,
+    private val traditionalChinese: Boolean = false,
+    /** Injected OpenCcConverter::convert when Traditional-Chinese output is on. */
+    private val toTraditional: (String) -> String = { it },
+) {
 
     fun summarize(transcript: String, userPrompt: String): Flow<TranscriptEvent> = flow {
         val chunks = chunk(transcript)
@@ -26,9 +33,9 @@ class Summarizer(private val llm: LlmEngine) {
         val partials = ArrayList<String>(chunks.size)
         for ((i, c) in chunks.withIndex()) {
             val sb = StringBuilder()
-            llm.generate(chatml(MAP_TEMPLATE.format(userPrompt, c)), maxTokens = 256) { sb.append(it) }
+            llm.generate(wrap(MAP_TEMPLATE.format(userPrompt, c)), maxTokens = 256) { sb.append(it) }
             partials += sb.toString().trim()
-            emit(TranscriptEvent.Partial(sb.toString().trim()))
+            emit(TranscriptEvent.Partial(sb.toString().trim()))   // partials stay raw (intermediate)
             emit(TranscriptEvent.Progress((i + 1f) / chunks.size))
         }
 
@@ -38,22 +45,26 @@ class Summarizer(private val llm: LlmEngine) {
             finalSb.append(partials[0])
         } else {
             llm.generate(
-                chatml(REDUCE_TEMPLATE.format(userPrompt, partials.joinToString("\n\n"))),
+                wrap(REDUCE_TEMPLATE.format(userPrompt, partials.joinToString("\n\n"))),
                 maxTokens = 400,
             ) { finalSb.append(it) }
         }
-        emit(TranscriptEvent.SummaryComplete(finalSb.toString().trim()))
+        val finalSummary = maybeTw(finalSb.toString().trim())
+        emit(TranscriptEvent.SummaryComplete(finalSummary))
 
         val title = StringBuilder()
-        llm.generate(chatml(TITLE_TEMPLATE.format(finalSb.toString())), maxTokens = 24) { title.append(it) }
-        emit(TranscriptEvent.Title(title.toString().trim()))
+        llm.generate(wrap(TITLE_TEMPLATE.format(finalSummary)), maxTokens = 24) { title.append(it) }
+        emit(TranscriptEvent.Title(maybeTw(title.toString().trim())))
     }
 
-    /** Wrap a user instruction in Qwen2.5's ChatML template so the instruct model behaves and
-     *  stops at <|im_end|> (an EOG token) instead of rambling on a raw prompt. */
-    private fun chatml(user: String): String =
-        "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
+    private fun maybeTw(s: String) = if (traditionalChinese) toTraditional(s) else s
+
+    /** Wrap a user instruction in the model's chat template so it behaves and stops at its EOG. */
+    private fun wrap(user: String): String = when (template) {
+        ChatTemplate.CHATML -> "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
             "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n"
+        ChatTemplate.GEMMA -> "<start_of_turn>user\n$user<end_of_turn>\n<start_of_turn>model\n"
+    }
 
     /** Naive char-window chunker; replace with a sentence-aware splitter in Phase 2. */
     private fun chunk(text: String, size: Int = 3500, overlap: Int = 300): List<String> {

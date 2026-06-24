@@ -23,7 +23,9 @@ import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.Summarizer
+import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
+import studio.voxsum.core.text.OpenCcConverter
 
 /**
  * Long-running pipeline host. Transcription + diarization + summarization can take
@@ -148,18 +150,25 @@ class TranscriptionService : LifecycleService() {
         }
 
         // --- Summarization phase. ---
-        if (!models.llmReady()) {
-            events.emit(TranscriptEvent.Status("Downloading summarization model…"))
-            models.ensureLlmModel { frac ->
+        val spec = LlmRegistry.byId(cfg.llmModelId)
+        if (!models.llmReady(spec)) {
+            events.emit(TranscriptEvent.Status("Downloading ${spec.displayName}…"))
+            models.ensureLlmModel(spec) { frac ->
                 updateNotification("Summarization model… ${(frac * 100).toInt()}%")
             }
         }
         updateNotification("Summarizing…")
         val transcript = tagged.joinToString("\n") { it.text }
-        LlmEngine.load(models.llmModel.absolutePath, nThreads = asrThreads()).use { llm ->
+        val converter = if (cfg.traditionalChinese) OpenCcConverter.get(this) else null
+        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
             activeLlm = llm
             try {
-                Summarizer(llm).summarize(transcript, cfg.summaryPrompt)
+                Summarizer(
+                    llm,
+                    template = spec.chatTemplate,
+                    traditionalChinese = cfg.traditionalChinese,
+                    toTraditional = { converter?.convert(it) ?: it },
+                ).summarize(transcript, cfg.summaryPrompt)
                     .flowOn(Dispatchers.Default)
                     .collect { events.emit(it) }
             } finally {

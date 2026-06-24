@@ -68,6 +68,7 @@ import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.export.TranscriptExport
 import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.SpeakerNamer
+import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.data.SpeakerName
 import studio.voxsum.data.computeDiarizationStats
@@ -170,13 +171,17 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
         }
     }
 
-    // --- Export via SAF; one launcher, format chosen on button press. ---
-    var pendingFormat by remember { mutableStateOf(TranscriptExport.Format.SRT) }
+    // --- Export via SAF; one launcher, target chosen on button press. ---
+    var pending by remember { mutableStateOf<PendingExport>(PendingExport.Transcript(TranscriptExport.Format.SRT)) }
     val exporter = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri: Uri? ->
         if (uri != null) {
-            val text = TranscriptExport.export(pendingFormat, utterances.toList())
+            val text = when (val p = pending) {
+                is PendingExport.Transcript -> TranscriptExport.export(p.format, utterances.toList())
+                PendingExport.SummaryMd -> TranscriptExport.summaryMarkdown(summary.orEmpty(), title)
+                PendingExport.SummaryTxt -> TranscriptExport.summaryPlain(summary.orEmpty(), title)
+            }
             runCatching {
                 context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
             }
@@ -224,8 +229,9 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
             val result = runCatching {
                 withContext(Dispatchers.Default) {
                     val models = ModelManager(context)
-                    if (!models.llmReady()) models.ensureLlmModel { }
-                    LlmEngine.load(models.llmModel.absolutePath, nThreads = 4).use { llm ->
+                    val spec = LlmRegistry.byId(config.llmModelId)
+                    if (!models.llmReady(spec)) models.ensureLlmModel(spec) { }
+                    LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = 4).use { llm ->
                         SpeakerNamer(llm).detect(snapshot)
                     }
                 }
@@ -275,7 +281,7 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
                     TranscriptExport.Format.TXT, TranscriptExport.Format.JSON,
                 )) {
                     Button(
-                        onClick = { pendingFormat = f; exporter.launch("transcript${f.ext}") },
+                        onClick = { pending = PendingExport.Transcript(f); exporter.launch("transcript${f.ext}") },
                         modifier = Modifier.padding(end = 6.dp),
                     ) { Text(f.name) }
                 }
@@ -288,10 +294,20 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
                 item { SettingsContent(config) { config = it } }
             }
             title?.let { item { Text(it, style = MaterialTheme.typography.titleMedium) } }
-            summary?.let {
+            summary?.let { s ->
                 item {
-                    Text("Summary: $it", style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(vertical = 8.dp))
+                    Column(Modifier.padding(vertical = 8.dp)) {
+                        Text("Summary: $s", style = MaterialTheme.typography.bodyMedium)
+                        Row(Modifier.padding(top = 6.dp)) {
+                            Button(
+                                onClick = { pending = PendingExport.SummaryMd; exporter.launch("summary.md") },
+                                modifier = Modifier.padding(end = 6.dp),
+                            ) { Text("Summary .md") }
+                            Button(
+                                onClick = { pending = PendingExport.SummaryTxt; exporter.launch("summary.txt") },
+                            ) { Text("Summary .txt") }
+                        }
+                    }
                 }
             }
             val stats = computeDiarizationStats(utterances)
@@ -335,6 +351,13 @@ private fun TranscribeScreen(onPicked: (Uri) -> Unit, onStop: () -> Unit) {
             }
         }
     }
+}
+
+/** What the SAF export launcher should write when it returns. */
+private sealed interface PendingExport {
+    data class Transcript(val format: TranscriptExport.Format) : PendingExport
+    data object SummaryMd : PendingExport
+    data object SummaryTxt : PendingExport
 }
 
 private fun fmt(sec: Double): String {

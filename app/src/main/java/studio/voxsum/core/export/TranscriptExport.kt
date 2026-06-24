@@ -194,6 +194,9 @@ $items
         return sb.toString()
     }
 
+    fun summaryPlain(summary: String, title: String? = null): String =
+        if (title != null) "$title\n\n$summary" else summary
+
     fun summaryMarkdown(summary: String, title: String? = null): String {
         val sb = StringBuilder()
         if (title != null) {

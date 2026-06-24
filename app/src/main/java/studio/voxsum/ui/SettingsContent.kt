@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import studio.voxsum.core.config.TranscriptionConfig
+import studio.voxsum.core.models.LlmRegistry
 
 /**
  * Settings panel — Android counterpart of the original's ASR / Diarization / Summarization
@@ -65,6 +66,17 @@ fun SettingsContent(config: TranscriptionConfig, onChange: (TranscriptionConfig)
         }
 
         Section("Summarization")
+        LabeledRow("Model") {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                LlmRegistry.ALL.forEach { spec ->
+                    FilterChip(
+                        selected = config.llmModelId == spec.id,
+                        onClick = { onChange(config.copy(llmModelId = spec.id)) },
+                        label = { Text(spec.displayName) },
+                    )
+                }
+            }
+        }
         SwitchRow("Traditional Chinese output", config.traditionalChinese) {
             onChange(config.copy(traditionalChinese = it))
         }

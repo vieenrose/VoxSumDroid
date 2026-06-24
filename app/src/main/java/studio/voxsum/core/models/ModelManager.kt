@@ -28,15 +28,21 @@ class ModelManager(context: Context) {
     val senseVoiceModel: File get() = File(senseVoiceDir, "model.int8.onnx")
     val tokens: File get() = File(senseVoiceDir, "tokens.txt")
     val vadModel: File get() = File(modelsDir, "silero_vad.onnx")
-    val llmModel: File get() = File(modelsDir, "llm.gguf")
 
     private val segDir = File(modelsDir, SEG_DIR)
     val segmentationModel: File get() = File(segDir, "model.onnx")
     val embeddingModel: File get() = File(modelsDir, "speaker_embedding.onnx")
 
     fun asrReady(): Boolean = senseVoiceModel.exists() && tokens.exists() && vadModel.exists()
-    fun llmReady(): Boolean = llmModel.exists()
     fun diarizationReady(): Boolean = segmentationModel.exists() && embeddingModel.exists()
+
+    // --- LLM: selectable per LlmSpec; each model coexists on disk under its own filename. ---
+    fun llmFile(spec: LlmSpec): File = File(modelsDir, spec.fileName)
+    fun llmReady(spec: LlmSpec): Boolean = llmFile(spec).exists()
+
+    // No-arg convenience over the default model (used by tests / the device push flow).
+    val llmModel: File get() = llmFile(LlmRegistry.byId(LlmRegistry.DEFAULT_ID))
+    fun llmReady(): Boolean = llmReady(LlmRegistry.byId(LlmRegistry.DEFAULT_ID))
 
     /**
      * Ensure the ASR models are present, downloading what's missing. [onProgress] receives a
@@ -57,11 +63,16 @@ class ModelManager(context: Context) {
         check(asrReady()) { "Model files missing after provisioning" }
     }
 
-    /** Ensure the summarization GGUF is present (Phase 2). ~1 GB on first run. */
-    suspend fun ensureLlmModel(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        if (!llmModel.exists()) download(LLM_URL, llmModel, LLM_SHA, onProgress)
-        check(llmReady()) { "LLM model missing after provisioning" }
+    /** Ensure the GGUF for [spec] is present (downloads on first use). */
+    suspend fun ensureLlmModel(spec: LlmSpec, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
+        val dest = llmFile(spec)
+        if (!dest.exists()) download(spec.url, dest, spec.sha256.ifBlank { null }, onProgress)
+        check(dest.exists()) { "LLM model missing after provisioning" }
     }
+
+    /** No-arg convenience over the default model. */
+    suspend fun ensureLlmModel(onProgress: (Float) -> Unit) =
+        ensureLlmModel(LlmRegistry.byId(LlmRegistry.DEFAULT_ID), onProgress)
 
     /** Ensure diarization models (pyannote segmentation + 3D-Speaker embedding) — Phase 3. */
     suspend fun ensureDiarizationModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
@@ -144,21 +155,14 @@ class ModelManager(context: Context) {
     }
 
     companion object {
-        // Mirrors models/manifest.json. All FOSS-licensed.
+        // Mirrors models/manifest.json. All FOSS-licensed. LLM specs live in LlmRegistry.
         const val SENSE_VOICE_DIR = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
-        const val DEFAULT_LLM = "qwen2.5-0.5b-instruct-q4_k_m" // Phase 2
 
         private const val SENSE_VOICE_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" +
                 "$SENSE_VOICE_DIR.tar.bz2"
         private const val VAD_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
-        // Qwen2.5-0.5B-Instruct Q4_K_M (Apache-2.0) — on-device summarization default. Chosen
-        // over 1.5B to fit memory-constrained phones (the 1.5B GGUF + KV cache OOMs on low-RAM
-        // devices). ~469 MB. Swap back to 1.5B for better summaries on high-RAM devices.
-        private const val LLM_URL =
-            "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/" +
-                "qwen2.5-0.5b-instruct-q4_k_m.gguf"
 
         const val SEG_DIR = "sherpa-onnx-pyannote-segmentation-3-0"
         private const val SEG_URL =
@@ -173,6 +177,5 @@ class ModelManager(context: Context) {
         private const val SENSE_VOICE_SHA = "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e"
         private const val SEG_SHA = "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488"
         private const val EMB_SHA = "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b"
-        private const val LLM_SHA = "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
     }
 }
