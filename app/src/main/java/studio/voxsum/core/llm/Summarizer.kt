@@ -49,15 +49,48 @@ class Summarizer(
                 maxTokens = 400,
             ) { finalSb.append(it) }
         }
-        val finalSummary = maybeTw(finalSb.toString().trim())
+        val finalSummary = maybeTw(cleanSummary(finalSb.toString()))
         emit(TranscriptEvent.SummaryComplete(finalSummary))
 
         val title = StringBuilder()
         llm.generate(wrap(TITLE_TEMPLATE.format(finalSummary)), maxTokens = 24) { title.append(it) }
-        emit(TranscriptEvent.Title(maybeTw(title.toString().trim())))
+        emit(TranscriptEvent.Title(maybeTw(cleanTitle(title.toString()))))
     }
 
     private fun maybeTw(s: String) = if (traditionalChinese) toTraditional(s) else s
+
+    /** First non-blank line, with markdown emphasis / quotes / "Title:" prefix stripped. */
+    private fun cleanTitle(raw: String): String {
+        val line = raw.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
+        return line
+            .replace(Regex("[*_`#>]"), "")
+            .replace(Regex("(?i)^\\s*title\\s*:\\s*"), "")
+            .trim()
+            .trim('"', '\'', '“', '”', '«', '»', ' ', '.', ':')
+    }
+
+    /**
+     * Plain-text cleanup of a model summary: drop a conversational lead-in ("Here's a
+     * summary…:"), unwrap bold/italic/code spans, strip heading marks, and normalize list
+     * bullets — Compose renders raw text, so leftover markdown shows as literal asterisks.
+     */
+    private fun cleanSummary(raw: String): String {
+        val lines = raw.trim().lines().toMutableList()
+        // Drop a leading conversational lead-in / header (e.g. "Here's a summary…:",
+        // "Key points:"). Any first line ending in a colon is a preamble, not content —
+        // robust to curly vs straight apostrophes. Then drop a now-leading blank line.
+        if (lines.size > 1 && lines.first().trim().endsWith(":")) {
+            lines.removeAt(0)
+            while (lines.size > 1 && lines.first().isBlank()) lines.removeAt(0)
+        }
+        return lines.joinToString("\n") { l ->
+            l.replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")      // **bold** -> bold
+                .replace(Regex("(?<![*\\w])\\*(?![*\\s])(.+?)\\*"), "$1") // *italic* -> italic
+                .replace("`", "")
+                .replace(Regex("^\\s{0,3}#{1,6}\\s*"), "")    // ## heading -> text
+                .replace(Regex("^(\\s*)[*\\-–•]\\s+"), "$1• ") // bullets -> "• "
+        }.replace(Regex("\n{3,}"), "\n\n").trim()
+    }
 
     /** Wrap a user instruction in the model's chat template so it behaves and stops at its EOG. */
     private fun wrap(user: String): String = when (template) {

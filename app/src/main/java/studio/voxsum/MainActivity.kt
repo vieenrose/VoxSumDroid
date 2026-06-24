@@ -115,6 +115,7 @@ import studio.voxsum.ui.ConfigSheet
 import studio.voxsum.ui.EmptyState
 import studio.voxsum.ui.PodcastSheet
 import studio.voxsum.ui.SourceBar
+import studio.voxsum.ui.renderMarkdown
 import studio.voxsum.ui.SpeakerStatsPanel
 import studio.voxsum.ui.VoxSumTopBar
 import studio.voxsum.ui.YouTubeSheet
@@ -335,9 +336,18 @@ private fun TranscribeScreen(
         }
     }
 
+    // Active utterance for the synced highlight: the line whose [start, end] holds the playhead.
+    // In an inter-utterance gap (silence), switch to the next line at the gap's MIDPOINT so the
+    // highlight anticipates upcoming speech instead of staying a line behind during the pause.
     val activeIndex = remember(positionMs, utterances.size) {
         val sec = positionMs / 1000.0
-        utterances.indexOfLast { it.startSec <= sec }
+        val n = utterances.size
+        var i = -1
+        while (i + 1 < n && utterances[i + 1].startSec <= sec) i++
+        if (i >= 0 && i + 1 < n && sec > utterances[i].endSec) {
+            val mid = (utterances[i].endSec + utterances[i + 1].startSec) / 2.0
+            if (sec >= mid) i + 1 else i
+        } else i
     }
 
     // LLM-based speaker-name detection (loads the LLM off the main thread; preserves user edits).
@@ -567,7 +577,7 @@ private fun SummaryCard(summary: String, llm: String) {
         )
         Text("via $llm", style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
         Spacer(Modifier.height(8.dp))
-        Text(summary, style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Slate200)
+        Text(renderMarkdown(summary), style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Slate200)
     }
 }
 

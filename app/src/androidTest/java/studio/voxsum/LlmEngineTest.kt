@@ -13,7 +13,8 @@ import studio.voxsum.core.models.ModelManager
  * On-device smoke test for the llama.cpp JNI decode loop (llm_jni.cpp). Loads a GGUF and
  * generates a short completion, asserting non-empty streamed output. This is the real
  * verification that the native generate loop (tokenize → decode → sample → token_to_piece)
- * works end to end. A small GGUF must be pre-pushed to the app's files/models/llm.gguf.
+ * works end to end. The default model GGUF must be pre-pushed to the app's models dir
+ * (files/models/<default fileName>, e.g. gemma-3-1b-it-q4.gguf).
  */
 @RunWith(AndroidJUnit4::class)
 class LlmEngineTest {

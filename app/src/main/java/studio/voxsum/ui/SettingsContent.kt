@@ -65,9 +65,13 @@ fun SettingsContent(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             LlmRegistry.ALL.forEach { spec ->
                 val mb = spec.sizeBytes / 1_000_000
-                val ram = if (spec.id.contains("0.5b")) "low RAM" else "high RAM"
+                val ram = when {
+                    spec.sizeBytes < 1_500_000_000L -> "low RAM"
+                    spec.sizeBytes < 3_500_000_000L -> "needs ~4 GB RAM"
+                    else -> "needs ~6 GB RAM"
+                }
                 ModelOptionCard(
-                    title = spec.shortName.ifEmpty { spec.displayName },
+                    title = spec.displayName,
                     subtitle = "$mb MB · $ram",
                     selected = config.llmModelId == spec.id,
                     downloaded = spec.id in readyLlm,

@@ -9,41 +9,54 @@ data class LlmSpec(
     val sizeBytes: Long,
     val fileName: String,       // distinct per id so models coexist on disk
     val chatTemplate: ChatTemplate,
-    val shortName: String = "",  // compact name for the header status chip
+    val shortName: String = "",  // compact name for the model picker
 )
 
 enum class ChatTemplate { CHATML, GEMMA }
 
 /**
- * On-device summarization models — the Android counterpart of available_gguf_llms. Only
- * Apache-2.0 (FOSS) models are listed (Gemma's license is non-OSI; excluded for F-Droid).
- * Default 0.5B fits memory-constrained phones; 1.5B for high-RAM devices.
+ * On-device summarization models — the Gemma lineup of the original VoxSum web app
+ * (available_gguf_llms). Qwen was dropped (0.5B was too weak for coherent summaries).
+ *
+ * Only the Gemma 3 / 3n variants are listed: they use the `<start_of_turn>…<end_of_turn>`
+ * chat template ([ChatTemplate.GEMMA]) that the bundled llama.cpp supports. Gemma 4 is
+ * intentionally excluded — it uses a different `<|turn>…<turn|>` template that neither this
+ * app nor the bundled llama.cpp chat-template list handles yet, so it would summarize
+ * incoherently. The larger 3n E2B/E4B variants need a high-RAM device.
  */
 object LlmRegistry {
-    const val DEFAULT_ID = "qwen2.5-0.5b-instruct-q4_k_m"
+    const val DEFAULT_ID = "gemma-3-1b-it-qat-q4"
+
+    private const val HF = "https://huggingface.co"
 
     val ALL: List<LlmSpec> = listOf(
         LlmSpec(
-            id = "qwen2.5-0.5b-instruct-q4_k_m",
-            displayName = "Qwen2.5 0.5B (small)",
-            url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/" +
-                "qwen2.5-0.5b-instruct-q4_k_m.gguf",
-            sha256 = "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
-            sizeBytes = 491_400_032L,
-            fileName = "llm.gguf",   // default keeps the legacy name (device/test push compat)
-            chatTemplate = ChatTemplate.CHATML,
-            shortName = "Qwen 0.5B",
+            id = "gemma-3-270m-it-qat-q8",
+            displayName = "Gemma 3 270M (tiny)",
+            url = "$HF/bartowski/google_gemma-3-270m-it-qat-GGUF/resolve/main/google_gemma-3-270m-it-qat-Q8_0.gguf",
+            sha256 = "", sizeBytes = 291_000_000L,
+            fileName = "gemma-3-270m-it-q8.gguf", chatTemplate = ChatTemplate.GEMMA, shortName = "Gemma 3 270M",
         ),
         LlmSpec(
-            id = "qwen2.5-1.5b-instruct-q4_k_m",
-            displayName = "Qwen2.5 1.5B (better, high-RAM)",
-            url = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/" +
-                "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-            sha256 = "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
-            sizeBytes = 1_117_000_000L,
-            fileName = "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-            chatTemplate = ChatTemplate.CHATML,
-            shortName = "Qwen 1.5B",
+            id = "gemma-3-1b-it-qat-q4",
+            displayName = "Gemma 3 1B (recommended)",
+            url = "$HF/bartowski/google_gemma-3-1b-it-qat-GGUF/resolve/main/google_gemma-3-1b-it-qat-Q4_0.gguf",
+            sha256 = "", sizeBytes = 721_000_000L,
+            fileName = "gemma-3-1b-it-q4.gguf", chatTemplate = ChatTemplate.GEMMA, shortName = "Gemma 3 1B",
+        ),
+        LlmSpec(
+            id = "gemma-3n-e2b-it-q4",
+            displayName = "Gemma 3n E2B (better)",
+            url = "$HF/unsloth/gemma-3n-E2B-it-GGUF/resolve/main/gemma-3n-E2B-it-Q4_0.gguf",
+            sha256 = "", sizeBytes = 2_965_000_000L,
+            fileName = "gemma-3n-e2b-it-q4.gguf", chatTemplate = ChatTemplate.GEMMA, shortName = "Gemma 3n E2B",
+        ),
+        LlmSpec(
+            id = "gemma-3n-e4b-it-q4",
+            displayName = "Gemma 3n E4B (high-RAM)",
+            url = "$HF/unsloth/gemma-3n-E4B-it-GGUF/resolve/main/gemma-3n-E4B-it-Q4_0.gguf",
+            sha256 = "", sizeBytes = 4_395_000_000L,
+            fileName = "gemma-3n-e4b-it-q4.gguf", chatTemplate = ChatTemplate.GEMMA, shortName = "Gemma 3n E4B",
         ),
     )
 
