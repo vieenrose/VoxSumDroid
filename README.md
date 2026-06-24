@@ -23,9 +23,9 @@ browser/file manager. The ASR/diarization/LLM models are **not** bundled — the
 
 ## Screenshots
 
-| Home | Add audio (sources) | Transcript · diarization · player | Summary |
+| Home | Add audio | Transcript | Summary |
 |:---:|:---:|:---:|:---:|
-| ![Home](docs/screenshots/01-home.png) | ![Add audio](docs/screenshots/02-add-source.png) | ![Transcript](docs/screenshots/03-transcript.png) | ![Summary](docs/screenshots/04-summary.png) |
+| <img src="docs/screenshots/01-home.png" width="200" alt="Home"> | <img src="docs/screenshots/02-add-source.png" width="200" alt="Add audio"> | <img src="docs/screenshots/03-transcript.png" width="200" alt="Transcript"> | <img src="docs/screenshots/04-summary.png" width="200" alt="Summary"> |
 
 ## Features
 
