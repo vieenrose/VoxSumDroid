@@ -97,6 +97,9 @@ class Summarizer(
         ChatTemplate.CHATML -> "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
             "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n"
         ChatTemplate.GEMMA -> "<start_of_turn>user\n$user<end_of_turn>\n<start_of_turn>model\n"
+        // Gemma 4 uses a different turn format (per its chat_template.jinja): a plain user
+        // turn with no system/thinking block. <bos> is auto-added by the tokenizer.
+        ChatTemplate.GEMMA4 -> "<|turn>user\n$user<turn|>\n<|turn>model\n"
     }
 
     /** Naive char-window chunker; replace with a sentence-aware splitter in Phase 2. */

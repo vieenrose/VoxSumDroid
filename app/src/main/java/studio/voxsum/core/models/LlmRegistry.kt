@@ -12,17 +12,18 @@ data class LlmSpec(
     val shortName: String = "",  // compact name for the model picker
 )
 
-enum class ChatTemplate { CHATML, GEMMA }
+enum class ChatTemplate { CHATML, GEMMA, GEMMA4 }
 
 /**
  * On-device summarization models — the Gemma lineup of the original VoxSum web app
  * (available_gguf_llms). Qwen was dropped (0.5B was too weak for coherent summaries).
  *
- * Only the Gemma 3 / 3n variants are listed: they use the `<start_of_turn>…<end_of_turn>`
- * chat template ([ChatTemplate.GEMMA]) that the bundled llama.cpp supports. Gemma 4 is
- * intentionally excluded — it uses a different `<|turn>…<turn|>` template that neither this
- * app nor the bundled llama.cpp chat-template list handles yet, so it would summarize
- * incoherently. The larger 3n E2B/E4B variants need a high-RAM device.
+ * Gemma 3 / 3n use the `<start_of_turn>…<end_of_turn>` template ([ChatTemplate.GEMMA]); Gemma 4
+ * uses the newer `<|turn>…<turn|>` template ([ChatTemplate.GEMMA4]) — taken from Gemma 4's own
+ * chat_template.jinja (plain user turn, no system/thinking). The bundled llama.cpp's built-in
+ * chat-template list only knows the `<start_of_turn>` form, so the Gemma 4 turn format is
+ * applied here rather than via the GGUF template. The larger E2B/E4B variants need a high-RAM
+ * device.
  */
 object LlmRegistry {
     const val DEFAULT_ID = "gemma-3-1b-it-qat-q4"
@@ -57,6 +58,20 @@ object LlmRegistry {
             url = "$HF/unsloth/gemma-3n-E4B-it-GGUF/resolve/main/gemma-3n-E4B-it-Q4_0.gguf",
             sha256 = "", sizeBytes = 4_395_000_000L,
             fileName = "gemma-3n-e4b-it-q4.gguf", chatTemplate = ChatTemplate.GEMMA, shortName = "Gemma 3n E4B",
+        ),
+        LlmSpec(
+            id = "gemma-4-e2b-it-q4",
+            displayName = "Gemma 4 E2B (newer, high-RAM)",
+            url = "$HF/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_0.gguf",
+            sha256 = "", sizeBytes = 3_041_000_000L,
+            fileName = "gemma-4-e2b-it-q4.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E2B",
+        ),
+        LlmSpec(
+            id = "gemma-4-e4b-it-q4",
+            displayName = "Gemma 4 E4B (newer, high-RAM)",
+            url = "$HF/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf",
+            sha256 = "", sizeBytes = 4_836_000_000L,
+            fileName = "gemma-4-e4b-it-q4.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E4B",
         ),
     )
 

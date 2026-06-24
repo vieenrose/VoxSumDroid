@@ -37,7 +37,7 @@ browser/file manager. The ASR/diarization/LLM models are **not** bundled — the
 - **Live recording** — record a meeting and **transcribe as you speak**: the mic streams straight into the VAD/ASR loop so utterances appear in real time, then diarization + summary run when you stop (the recording is saved to a WAV and playable in the synced player).
 - **VAD-segmented streaming transcription** — utterances appear incrementally as speech is detected (Silero VAD), not in one blocking batch.
 - **Speaker diarization** — pyannote segmentation + 3D-Speaker embeddings + clustering, with a color-coded **timeline strip**, per-speaker pill chips, and a speaker-statistics panel (talk time, segment counts).
-- **On-device summarization** — local GGUF LLM via llama.cpp, map-reduce over the transcript to produce a title + summary (markdown-rendered). Selectable **Gemma** models: Gemma 3 270M, Gemma 3 1B (default), Gemma 3n E2B, Gemma 3n E4B (the E2B/E4B variants need a high-RAM device). Gemma 4 is excluded for now — it uses a different chat template the bundled llama.cpp doesn't handle yet.
+- **On-device summarization** — local GGUF LLM via llama.cpp, map-reduce over the transcript to produce a title + summary (markdown-rendered). The original app's **Gemma lineup** is selectable: Gemma 3 270M, Gemma 3 1B (default), Gemma 3n E2B, Gemma 3n E4B, Gemma 4 E2B, Gemma 4 E4B — each with its correct chat template (Gemma 3/3n use `<start_of_turn>`, Gemma 4 uses `<|turn>`). The E2B/E4B variants need a high-RAM device.
 - **Traditional Chinese (zh-TW) output** — optional OpenCC `s2tw` conversion applied to the transcript, title, and summary (e.g. 平台 → 平臺), all on-device.
 - **Transcript-synced audio player** — tap any utterance to seek, active line auto-highlights, ±5 s skip, volume/mute, and **playback works *while* transcription is still running**.
 - **Inline editing** — edit utterance text and rename speakers directly in the transcript.
@@ -53,7 +53,7 @@ browser/file manager. The ASR/diarization/LLM models are **not** bundled — the
 | ASR | sherpa-onnx `OfflineRecognizer` (SenseVoice / Moonshine / Zipformer / Qwen3) | Apache-2.0 |
 | VAD | sherpa-onnx `Vad` (Silero) | Apache-2.0 |
 | Diarization | sherpa-onnx `OfflineSpeakerDiarization` (pyannote seg + 3D-Speaker emb) | Apache-2.0 |
-| Summarization | llama.cpp + Gemma 3 / 3n (GGUF) | Gemma Terms |
+| Summarization | llama.cpp + Gemma 3 / 3n / 4 (GGUF) | Gemma Terms |
 | zh-TW conversion | OpenCC (`s2tw`) dictionaries, bundled | Apache-2.0 |
 | YouTube extraction | NewPipeExtractor (via JitPack) | GPL-3.0 |
 | Audio decode | Android MediaCodec (no ffmpeg) | platform |

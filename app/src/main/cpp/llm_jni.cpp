@@ -117,7 +117,10 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     std::string out;
-    int nPos = (int) tokens.size();
+    // KV-cache fill level. Starts at 0; the prompt batch advances it to tokens.size() after
+    // the first decode. (Pre-seeding it with tokens.size() double-counted the prompt, which
+    // capped the usable context at ~n_ctx/2 and silently truncated longer/denser prompts.)
+    int nPos = 0;
     llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t) tokens.size());
 
     for (int generated = 0; generated < maxTokens; ++generated) {
