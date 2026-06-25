@@ -24,6 +24,7 @@
 
     <!-- Source bar / add-source sheet -->
     <string name="add_audio">加入音訊</string>
+    <string name="re_run">重新執行</string>
     <string name="re_transcribe">重新轉錄</string>
     <string name="re_summarize">重新摘要</string>
     <string name="re_detect_names">重新偵測名稱</string>

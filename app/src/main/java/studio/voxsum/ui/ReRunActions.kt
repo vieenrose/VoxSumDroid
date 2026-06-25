@@ -1,21 +1,25 @@
 package studio.voxsum.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
@@ -25,11 +29,11 @@ import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.voxSumFilledTonalColors
 
 /**
- * One place for the "re-run a stage" actions on an existing transcript — re-transcribe (full
- * pipeline), re-summarize (LLM only), and re-detect speaker names. Each appears only when it
- * applies, so the user can apply a settings change without starting over from scratch.
+ * A single compact "Re-run ▾" control that holds every "re-run a stage on the current transcript"
+ * action behind one button — re-transcribe (full pipeline), re-summarize (LLM only), and re-detect
+ * speaker names. Each item appears only when it applies, so a settings change can be applied
+ * without starting over, and without three buttons crowding the layout.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ReRunActions(
     canReTranscribe: Boolean,
@@ -42,32 +46,37 @@ fun ReRunActions(
     modifier: Modifier = Modifier,
 ) {
     if (!canReTranscribe && !canReSummarize && !canReDetect) return
-    FlowRow(
-        modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (canReTranscribe) ActionChip(Icons.Filled.Refresh, stringResource(R.string.re_transcribe), false, onReTranscribe)
-        if (canReSummarize) ActionChip(Icons.Filled.Summarize, stringResource(R.string.re_summarize), false, onReSummarize)
-        if (canReDetect) ActionChip(Icons.Filled.Badge, stringResource(R.string.re_detect_names), isDetecting, onReDetect)
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        FilledTonalButton(
+            onClick = { open = true },
+            colors = voxSumFilledTonalColors(
+                container = VoxSumPalette.Sky.copy(alpha = 0.18f),
+                content = VoxSumPalette.Sky,
+            ),
+        ) {
+            if (isDetecting) {
+                CircularProgressIndicator(Modifier.size(16.dp), color = VoxSumPalette.Sky, strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Filled.Refresh, contentDescription = null, Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.re_run))
+            Icon(Icons.Filled.ArrowDropDown, contentDescription = null, Modifier.size(18.dp))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            if (canReTranscribe) ReRunItem(Icons.Filled.Refresh, R.string.re_transcribe, true) { open = false; onReTranscribe() }
+            if (canReSummarize) ReRunItem(Icons.Filled.Summarize, R.string.re_summarize, true) { open = false; onReSummarize() }
+            if (canReDetect) ReRunItem(Icons.Filled.Badge, R.string.re_detect_names, !isDetecting) { open = false; onReDetect() }
+        }
     }
 }
 
 @Composable
-private fun ActionChip(icon: ImageVector, label: String, loading: Boolean, onClick: () -> Unit) {
-    FilledTonalButton(
+private fun ReRunItem(icon: ImageVector, labelRes: Int, enabled: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        enabled = enabled,
+        leadingIcon = { Icon(icon, contentDescription = null, Modifier.size(18.dp)) },
+        text = { Text(stringResource(labelRes)) },
         onClick = onClick,
-        enabled = !loading,
-        colors = voxSumFilledTonalColors(
-            container = VoxSumPalette.Sky.copy(alpha = 0.18f),
-            content = VoxSumPalette.Sky,
-        ),
-    ) {
-        if (loading) {
-            CircularProgressIndicator(Modifier.size(16.dp), color = VoxSumPalette.Sky, strokeWidth = 2.dp)
-        } else {
-            Icon(icon, contentDescription = null, Modifier.size(18.dp))
-        }
-        Spacer(Modifier.width(6.dp)); Text(label)
-    }
+    )
 }

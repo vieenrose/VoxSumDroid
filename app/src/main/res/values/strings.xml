@@ -24,6 +24,7 @@
 
     <!-- Source bar / add-source sheet -->
     <string name="add_audio">Add audio</string>
+    <string name="re_run">Re-run</string>
     <string name="re_transcribe">Re-transcribe</string>
     <string name="re_summarize">Re-summarize</string>
     <string name="re_detect_names">Re-detect names</string>
