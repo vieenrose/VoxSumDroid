@@ -31,7 +31,7 @@ ASR／語者分離／LLM 模型**不**內建於 App，會在首次使用時下�
 
 | 首頁 | 加入音訊 | 逐字稿 | 摘要 |
 |:---:|:---:|:---:|:---:|
-| <img src="docs/screenshots/01-home-zhtw.png" width="200" alt="首頁"> | <img src="docs/screenshots/02-add-source.png" width="200" alt="加入音訊"> | <img src="docs/screenshots/03-transcript.png" width="200" alt="逐字稿"> | <img src="docs/screenshots/04-summary.png" width="200" alt="摘要"> |
+| <img src="docs/screenshots/01-home-zhtw.png" width="200" alt="首頁"> | <img src="docs/screenshots/02-add-source-zhtw.png" width="200" alt="加入音訊"> | <img src="docs/screenshots/03-transcript-zhtw.png" width="200" alt="逐字稿"> | <img src="docs/screenshots/04-summary-zhtw.png" width="200" alt="摘要"> |
 
 ## 功能特色
 

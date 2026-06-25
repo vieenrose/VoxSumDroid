@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -418,6 +419,51 @@ private fun TranscribeScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            // Docked "now playing" bar — like a music player, the controls stay pinned at the
+            // bottom while the transcript scrolls above.
+            if (player != null) {
+                fun doSeek(ms: Int) {
+                    val p = player ?: return
+                    val clamped = ms.coerceIn(0, durationMs)
+                    runCatching { p.seekTo(clamped) }
+                    positionMs = clamped
+                    if (!isPlaying) { p.start(); isPlaying = true }
+                }
+                Surface(color = VoxSumPalette.PanelSurface, tonalElevation = 3.dp) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(horizontal = 16.dp),
+                    ) {
+                        PlayerBar(
+                            utterances = utterances,
+                            positionMs = positionMs,
+                            durationMs = durationMs,
+                            dragMs = dragMs,
+                            isPlaying = isPlaying,
+                            volume = volume,
+                            muted = muted,
+                            activeIndex = activeIndex,
+                            onPlayPause = {
+                                val p = player ?: return@PlayerBar
+                                if (isPlaying) { p.pause(); isPlaying = false } else { p.start(); isPlaying = true }
+                            },
+                            onSeekTo = { doSeek(it) },
+                            onDragChange = { dragMs = it },
+                            onSkip = { delta -> doSeek((dragMs ?: positionMs) + delta) },
+                            onVolume = { v -> volume = v; muted = v == 0f; player?.setVolume(v, v) },
+                            onToggleMute = {
+                                muted = !muted
+                                val v = if (muted) 0f else volume.coerceAtLeast(0.05f).also { volume = it }
+                                player?.setVolume(v, v)
+                            },
+                        )
+                    }
+                }
+            }
+        },
     ) { innerPadding ->
         Column(
             Modifier
@@ -436,40 +482,6 @@ private fun TranscribeScreen(
                     recSeconds = recSeconds,
                     onAddSource = { showAddSourceSheet = true },
                     onStop = { handleStop() },
-                )
-            }
-
-            // --- Rich synced player (available during transcription too, like the web app) ---
-            if (player != null) {
-                fun doSeek(ms: Int) {
-                    val p = player ?: return
-                    val clamped = ms.coerceIn(0, durationMs)
-                    runCatching { p.seekTo(clamped) }
-                    positionMs = clamped
-                    if (!isPlaying) { p.start(); isPlaying = true }
-                }
-                PlayerBar(
-                    utterances = utterances,
-                    positionMs = positionMs,
-                    durationMs = durationMs,
-                    dragMs = dragMs,
-                    isPlaying = isPlaying,
-                    volume = volume,
-                    muted = muted,
-                    activeIndex = activeIndex,
-                    onPlayPause = {
-                        val p = player ?: return@PlayerBar
-                        if (isPlaying) { p.pause(); isPlaying = false } else { p.start(); isPlaying = true }
-                    },
-                    onSeekTo = { doSeek(it) },
-                    onDragChange = { dragMs = it },
-                    onSkip = { delta -> doSeek((dragMs ?: positionMs) + delta) },
-                    onVolume = { v -> volume = v; muted = v == 0f; player?.setVolume(v, v) },
-                    onToggleMute = {
-                        muted = !muted
-                        val v = if (muted) 0f else volume.coerceAtLeast(0.05f).also { volume = it }
-                        player?.setVolume(v, v)
-                    },
                 )
             }
 
