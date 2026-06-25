@@ -21,17 +21,18 @@ import studio.voxsum.core.models.ChatTemplate
 class Summarizer(
     private val llm: LlmEngine,
     private val template: ChatTemplate = ChatTemplate.CHATML,
-    private val traditionalChinese: Boolean = false,
-    /** Injected OpenCcConverter::convert when Traditional-Chinese output is on. */
-    private val toTraditional: (String) -> String = { it },
+    /** Human-readable target language injected into the prompt; `null` = match the transcript. */
+    private val targetLanguage: String? = null,
+    /** Script post-conversion (OpenCC s2tw for Traditional Chinese); identity when not needed. */
+    private val convert: (String) -> String = { it },
 ) {
 
     fun summarize(transcript: String, userPrompt: String): Flow<TranscriptEvent> = flow {
-        // State the output language explicitly: Gemma replies in English from an English instruction
-        // even on a Chinese transcript. With s2tw on, force Traditional Chinese; otherwise tell it to
-        // match the transcript's language (OpenCC only converts Simplified→Traditional, it can't
-        // translate an English summary).
-        val langClause = if (traditionalChinese) " Write it in Traditional Chinese (繁體中文)."
+        // State the output language explicitly: a small LLM replies in English from an English
+        // instruction even on a Chinese transcript. With a target language picked, force it; otherwise
+        // tell the model to match the transcript's language. (OpenCC only converts Simplified→Traditional
+        // as a script pass — it can't translate, so the language itself must come from the model.)
+        val langClause = if (targetLanguage != null) " Write it in $targetLanguage."
             else " Write it in the same language as the transcript."
         val instr = userPrompt + langClause
         val chunks = chunk(transcript)
@@ -56,15 +57,13 @@ class Summarizer(
                 maxTokens = 400,
             ) { finalSb.append(it) }
         }
-        val finalSummary = maybeTw(cleanSummary(finalSb.toString()))
+        val finalSummary = convert(cleanSummary(finalSb.toString()))
         emit(TranscriptEvent.SummaryComplete(finalSummary))
 
         val title = StringBuilder()
         llm.generate(wrap(TITLE_TEMPLATE.format(langClause, finalSummary)), maxTokens = 24) { title.append(it) }
-        emit(TranscriptEvent.Title(maybeTw(cleanTitle(title.toString()))))
+        emit(TranscriptEvent.Title(convert(cleanTitle(title.toString()))))
     }
-
-    private fun maybeTw(s: String) = if (traditionalChinese) toTraditional(s) else s
 
     /**
      * Extract a single clean title from the model's reply. Verbose models (e.g. Gemma 4) answer

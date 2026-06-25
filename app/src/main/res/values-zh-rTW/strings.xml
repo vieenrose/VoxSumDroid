@@ -59,7 +59,8 @@
     <string name="settings_identify_speakers">辨識語者</string>
     <string name="settings_cluster_threshold">分群門檻</string>
     <string name="settings_summary_options">摘要選項</string>
-    <string name="settings_traditional_chinese">輸出繁體中文</string>
+    <string name="settings_summary_language">摘要語言</string>
+    <string name="summary_language_auto">與逐字稿相同</string>
     <string name="settings_summary_prompt">摘要提示詞</string>
     <string name="settings_about">關於</string>
     <string name="about_license">自由開放原始碼 · GPL-3.0</string>

@@ -1,12 +1,11 @@
-name: Build & publish F-Droid repo
+name: Build & publish release APK
 
-# Route B delivery. Two modes:
+# Two modes:
 #  - workflow_dispatch (manual "Run workflow"): DRY RUN — builds the app and uploads the APK
 #    as an artifact, so you can confirm the heavy onnxruntime-from-source build actually fits
 #    a GitHub runner BEFORE setting up a keystore. No secrets needed.
-#  - push tag v*: full release — builds a SIGNED APK, generates an F-Droid repo, publishes it
-#    to GitHub Pages (needs secrets KEYSTORE_BASE64/KEYSTORE_PASSWORD/KEY_ALIAS/KEY_PASSWORD
-#    and Settings -> Pages -> Source = GitHub Actions). See RELEASING.md.
+#  - push tag v*: full release — builds a SIGNED APK and publishes it as a GitHub Release
+#    (needs secrets KEYSTORE_BASE64/KEYSTORE_PASSWORD/KEY_ALIAS/KEY_PASSWORD). See RELEASING.md.
 
 on:
   push:
@@ -15,11 +14,9 @@ on:
 
 permissions:
   contents: write   # create GitHub Releases on tags
-  pages: write
-  id-token: write
 
 concurrency:
-  group: fdroid-pages
+  group: release-apk
   cancel-in-progress: false
 
 jobs:
@@ -125,37 +122,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/release/app-release.apk "voxsum-${GITHUB_REF_NAME}.apk"
-          NOTES="Offline on-device transcription + diarization + summarization. Sideload the APK, or add the F-Droid repo: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo"
+          NOTES="Offline on-device transcription + diarization + summarization. Sideload the APK."
           gh release create "$GITHUB_REF_NAME" "voxsum-${GITHUB_REF_NAME}.apk" \
             --title "VoxSum $GITHUB_REF_NAME" --notes "$NOTES" \
           || gh release upload "$GITHUB_REF_NAME" "voxsum-${GITHUB_REF_NAME}.apk" --clobber
-
-      - name: Generate F-Droid repo
-        if: env.HAS_KEYSTORE == 'true'
-        env:
-          VOXSUM_KEYSTORE: ${{ runner.temp }}/release.keystore
-          VOXSUM_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          VOXSUM_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          VOXSUM_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          FDROID_REPO_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo
-        run: |
-          python -m pip install fdroidserver
-          ./scripts/make-fdroid-repo.sh app/build/outputs/apk/release/app-release.apk
-
-      - name: Upload Pages artifact
-        if: env.HAS_KEYSTORE == 'true'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: fdroid
-
-  # Publish to Pages only on a real tagged release with a keystore configured.
-  deploy:
-    needs: build
-    if: ${{ github.ref_type == 'tag' && needs.build.outputs.has_keystore == 'true' }}
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4

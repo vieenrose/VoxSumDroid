@@ -24,20 +24,20 @@ enum class ChatTemplate { CHATML, GEMMA, GEMMA4, QWEN3 }
  * rather than via the GGUF's embedded template.
  */
 object LlmRegistry {
-    const val DEFAULT_ID = "qwen3.5-2b"
+    const val DEFAULT_ID = "gemma-4-e2b-it-qat"
 
     private const val HF = "https://huggingface.co"
 
     val ALL: List<LlmSpec> = listOf(
-        // Qwen3.5-2B replaced Gemma 4 E2B as the default: similar footprint (~1.3 GB q4 vs ~2.2 GB),
-        // much stronger multilingual/Chinese summaries, and non-thinking by default. Gemma 3 1B/270M/3n
-        // and Moonshine were dropped earlier (English-only / redundant). Qwen GGUF is Apache-2.0.
+        // Gemma 4 E2B (QAT) is the default: multilingual + CJK (which Gemma 3 1B/270M/3n lacked) at a
+        // ~2.2 GB footprint; Gemma 4 E4B is the higher-quality option. (Qwen3.5-2B was trialled as the
+        // default but reverted.) Moonshine + the smaller Gemmas were dropped earlier.
         LlmSpec(
-            id = "qwen3.5-2b",
-            displayName = "Qwen3.5 2B (recommended)",
-            url = "$HF/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-UD-Q4_K_XL.gguf",
-            sha256 = "", sizeBytes = 1_340_000_000L,
-            fileName = "qwen3.5-2b-q4.gguf", chatTemplate = ChatTemplate.QWEN3, shortName = "Qwen3.5 2B",
+            id = "gemma-4-e2b-it-qat",
+            displayName = "Gemma 4 E2B (recommended)",
+            url = "$HF/unsloth/gemma-4-E2B-it-qat-mobile-GGUF/resolve/main/gemma-4-E2B-it-qat-UD-Q2_K_XL.gguf",
+            sha256 = "", sizeBytes = 2_186_000_000L,
+            fileName = "gemma-4-e2b-it-qat.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E2B",
         ),
         LlmSpec(
             id = "gemma-4-e4b-it-qat",

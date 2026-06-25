@@ -59,7 +59,8 @@
     <string name="settings_identify_speakers">Identify speakers</string>
     <string name="settings_cluster_threshold">Cluster threshold</string>
     <string name="settings_summary_options">Summary Options</string>
-    <string name="settings_traditional_chinese">Traditional Chinese output</string>
+    <string name="settings_summary_language">Summary language</string>
+    <string name="summary_language_auto">Match transcript</string>
     <string name="settings_summary_prompt">Summary prompt</string>
     <string name="settings_about">About</string>
     <string name="about_license">Free &amp; open source · GPL-3.0</string>

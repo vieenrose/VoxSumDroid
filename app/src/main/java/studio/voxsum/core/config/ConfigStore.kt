@@ -13,6 +13,13 @@ object ConfigStore {
     fun load(context: Context): TranscriptionConfig {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val d = TranscriptionConfig()
+        // Summary language: a saved value wins; else migrate the legacy boolean (true→Traditional);
+        // a truly fresh install defaults to the user's display language ("summarize in your language").
+        val summaryLanguage = when {
+            p.contains("summaryLanguage") -> p.getString("summaryLanguage", d.summaryLanguage) ?: d.summaryLanguage
+            p.contains("traditionalChinese") -> if (p.getBoolean("traditionalChinese", true)) "zh-Hant" else "auto"
+            else -> SummaryLanguage.defaultFor(context).id
+        }
         return TranscriptionConfig(
             asrBackend = p.getString("asrBackend", d.asrBackend) ?: d.asrBackend,
             asrModelId = p.getString("asrModelId", d.asrModelId) ?: d.asrModelId,
@@ -24,7 +31,7 @@ object ConfigStore {
             clusterThreshold = p.getFloat("clusterThreshold", d.clusterThreshold),
             llmModelId = p.getString("llmModelId", d.llmModelId) ?: d.llmModelId,
             summaryPrompt = p.getString("summaryPrompt", d.summaryPrompt) ?: d.summaryPrompt,
-            traditionalChinese = p.getBoolean("traditionalChinese", d.traditionalChinese),
+            summaryLanguage = summaryLanguage,
         )
     }
 
@@ -40,7 +47,7 @@ object ConfigStore {
             putFloat("clusterThreshold", c.clusterThreshold)
             putString("llmModelId", c.llmModelId)
             putString("summaryPrompt", c.summaryPrompt)
-            putBoolean("traditionalChinese", c.traditionalChinese)
+            putString("summaryLanguage", c.summaryLanguage)
             apply()
         }
     }

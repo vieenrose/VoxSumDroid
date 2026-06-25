@@ -59,7 +59,8 @@
     <string name="settings_identify_speakers">Identifier les locuteurs</string>
     <string name="settings_cluster_threshold">Seuil de regroupement</string>
     <string name="settings_summary_options">Options de résumé</string>
-    <string name="settings_traditional_chinese">Sortie en chinois traditionnel</string>
+    <string name="settings_summary_language">Langue du résumé</string>
+    <string name="summary_language_auto">Comme la transcription</string>
     <string name="settings_summary_prompt">Invite de résumé</string>
     <string name="settings_about">À propos</string>
     <string name="about_license">Libre et open source · GPL-3.0</string>

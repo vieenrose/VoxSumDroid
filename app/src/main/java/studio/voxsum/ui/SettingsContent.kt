@@ -39,6 +39,7 @@ import kotlinx.coroutines.launch
 import studio.voxsum.BuildConfig
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
+import studio.voxsum.core.config.SummaryLanguage
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.update.UpdateChecker
@@ -157,8 +158,24 @@ fun SettingsContent(
 
         // (5) Summary options.
         Section(stringResource(R.string.settings_summary_options))
-        SwitchRow(stringResource(R.string.settings_traditional_chinese), config.traditionalChinese, enabled) {
-            onChange(config.copy(traditionalChinese = it))
+        LabeledRow(stringResource(R.string.settings_summary_language)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SummaryLanguage.entries.forEach { lang ->
+                    val label = if (lang == SummaryLanguage.AUTO)
+                        stringResource(R.string.summary_language_auto) else lang.autonym
+                    FilterChip(
+                        selected = config.summaryLanguage == lang.id,
+                        enabled = enabled,
+                        onClick = { onChange(config.copy(summaryLanguage = lang.id)) },
+                        label = { Text(label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = VoxSumPalette.Sky.copy(alpha = 0.15f),
+                            selectedLabelColor = VoxSumPalette.Sky,
+                            labelColor = VoxSumPalette.Slate400,
+                        ),
+                    )
+                }
+            }
         }
         OutlinedTextField(
             value = config.summaryPrompt,

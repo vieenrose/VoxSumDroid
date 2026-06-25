@@ -24,6 +24,7 @@ import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioRecorder
 import studio.voxsum.core.audio.WavSlicer
+import studio.voxsum.core.config.SummaryLanguage
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
@@ -243,8 +244,9 @@ class TranscriptionService : LifecycleService() {
 
         events.emit(TranscriptEvent.Status("Decoding audio…"))
         // OpenCC s2tw: like the web app, convert Simplified→Traditional on every utterance
-        // (and later the summary/title). Built once, reused.
-        val converter = if (cfg.traditionalChinese) OpenCcConverter.get(this) else null
+        // (and later the summary/title) — only when the summary language is Traditional Chinese.
+        // Built once, reused.
+        val converter = summaryConverter(cfg)
 
         // Stream-decode the source to a 16 kHz mono work WAV while feeding the live VAD/ASR — never
         // the whole waveform in RAM. The WAV is the player + diarization source (16 kHz mono).
@@ -306,7 +308,7 @@ class TranscriptionService : LifecycleService() {
                 updateNotification(getString(R.string.svc_downloading_models_pct, (frac * 100).toInt()))
             }
         }
-        val converter = if (cfg.traditionalChinese) OpenCcConverter.get(this) else null
+        val converter = summaryConverter(cfg)
         val recorder = AudioRecorder()
         val wav = File(File(filesDir, "audio").apply { mkdirs() }, "recording_${System.currentTimeMillis()}.wav")
         val utterances = ArrayList<TranscriptEvent.Utterance>()
@@ -411,8 +413,8 @@ class TranscriptionService : LifecycleService() {
                 Summarizer(
                     llm,
                     template = spec.chatTemplate,
-                    traditionalChinese = cfg.traditionalChinese,
-                    toTraditional = { converter?.convert(it) ?: it },
+                    targetLanguage = SummaryLanguage.fromId(cfg.summaryLanguage).promptName,
+                    convert = { converter?.convert(it) ?: it },
                 ).summarize(transcript, cfg.summaryPrompt)
                     .flowOn(Dispatchers.Default)
                     .collect { events.emit(it) }
@@ -426,9 +428,12 @@ class TranscriptionService : LifecycleService() {
     private suspend fun runSummarizeOnly(transcript: String) {
         val cfg = TranscriptionConfig.Holder.config
         val models = ModelManager(this)
-        val converter = if (cfg.traditionalChinese) OpenCcConverter.get(this) else null
-        summarize(transcript, cfg, models, converter)
+        summarize(transcript, cfg, models, summaryConverter(cfg))
     }
+
+    /** OpenCC s2tw converter, built only when the chosen summary language is Traditional Chinese. */
+    private fun summaryConverter(cfg: TranscriptionConfig): OpenCcConverter? =
+        if (SummaryLanguage.fromId(cfg.summaryLanguage).convertsToTraditional) OpenCcConverter.get(this) else null
 
     /** Small thread budget — phone big-core count, not all cores (cf. num_vcpus). */
     private fun asrThreads(): Int =

@@ -23,8 +23,8 @@ VoxSum 把音訊 — 檔案、Podcast 單集或 YouTube 連結 — 轉成標註�
 而且全部在**手機上**完成。語音辨識、語者分離與 LLM 摘要皆於本機執行；無伺服器、無帳號、無雲端。
 本專案為 [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak) 的裝置端移植版。
 
-> 已在 Pixel 6 端到端驗證——四種語音辨識後端（SenseVoice、Moonshine、x-asr Zipformer zh-en、Qwen3）
-> 與三款 Gemma 摘要模型（3 1B、4 E2B、4 E4B）皆於裝置端執行：VAD 分段 ASR → 語者分離 → 摘要，
+> 已在 Pixel 6 端到端驗證——三種語音辨識後端（SenseVoice、x-asr Zipformer zh-en、Qwen3-ASR）
+> 與兩款摘要模型（Gemma 4 E2B、Gemma 4 E4B）皆於裝置端執行：VAD 分段 ASR → 語者分離 → 摘要，
 > 並搭配與逐字稿同步的播放器。以 **APK** 形式於 [Releases](https://github.com/vieenrose/VoxSumDroid/releases) 發佈。
 
 ## 為什麼選擇 VoxSum
@@ -37,27 +37,29 @@ VoxSum 把音訊 — 檔案、Podcast 單集或 YouTube 連結 — 轉成標註�
 
 ## 螢幕截圖
 
-| 首頁 | 加入來源 | 逐字稿 | 摘要 |
+| 首頁 | 逐字稿 | 摘要 | 摘要語言 |
 | :--: | :--: | :--: | :--: |
-| <img src="docs/screenshots/01-home-zhtw.png" width="200" alt="首頁"> | <img src="docs/screenshots/02-add-source-zhtw.png" width="200" alt="加入來源"> | <img src="docs/screenshots/03-transcript-zhtw.png" width="200" alt="逐字稿"> | <img src="docs/screenshots/04-summary-zhtw.png" width="200" alt="摘要"> |
+| <img src="docs/screenshots/01-home-zhtw.png" width="200" alt="首頁"> | <img src="docs/screenshots/03-transcript-zhtw.png" width="200" alt="逐字稿"> | <img src="docs/screenshots/04-summary-zhtw.png" width="200" alt="摘要"> | <img src="docs/screenshots/05-summary-language-zhtw.png" width="200" alt="摘要語言"> |
 
 ## 功能特色
 
 **擷取**
-- **四種語音辨識後端**，每次執行可自選 —— SenseVoice（多語言：中／英／日／韓／粵）、Moonshine（英語、快速）、Zipformer zh-en（含標點、大小寫）、Qwen3-ASR（高準確度）。
+- **三種語音辨識後端**，每次執行可自選 —— SenseVoice（多語言：中／英／日／韓／粵）、Zipformer zh-en（含標點、大小寫，預設）、Qwen3-ASR（高準確度）。
 - **即時錄音** —— 錄製會議並邊說邊轉錄；逐句串流出現，停止後再執行語者分離與摘要。
 - **Podcast 與 YouTube** —— 搜尋並下載 Podcast 單集（iTunes + RSS），或貼上 YouTube 連結（以 NewPipeExtractor 解析）直接進入流程。
 
 **理解**
 - **串流轉錄** —— 偵測到語音即逐句顯示（Silero VAD）。
 - **語者分離** —— 每句以 CAM++（中＋英）嵌入搭配自適應分群，並提供彩色時間軸、各語者色票與統計面板。fp16 嵌入模型由裝置端實測選定 —— 在中／英語上比舊基準約快 1.5 倍且更準確（[權重與基準測試](https://huggingface.co/Luigi/campplus-zh-en-onnx)）。
-- **裝置端摘要** —— 透過 llama.cpp 執行本機 GGUF 模型，產生標題與 Markdown 摘要。可選 Gemma 系列（皆為 QAT）：Gemma 3 1B、Gemma 4 E2B／E4B。
+- **裝置端摘要** —— 透過 llama.cpp 執行本機 GGUF 模型，產生標題與摘要。兩款可選模型：**Gemma 4 E2B**（預設——多語言＋中日韓 QAT，約 2.2 GB）與 **Gemma 4 E4B**（QAT，品質更高，約 3.2 GB）。
 
 **運用**
 - **與逐字稿同步的播放器**，如音樂播放器般固定於底部 —— 點任一句即可跳轉，作用中該句自動高亮，且轉錄進行中即可播放。
-- **行內編輯** —— 可直接編輯句子文字與重新命名語者。
-- **匯出** —— 逐字稿匯出為 SRT／VTT／TXT／JSON，摘要匯出為 Markdown／純文字。
-- **三語（English／繁體中文／Français）** —— UI 全面在地化，並可選擇繁體中文（OpenCC `s2tw`）輸出逐字稿與摘要。
+- **行內編輯** —— 可直接編輯句子文字、標題與摘要，並重新命名語者。
+- **一鍵複製** —— 單擊即可將整段摘要複製到剪貼簿。
+- **摘要語言** —— 自選摘要與標題的語言：*與逐字稿相同*，或 English／Français／繁體中文／简体中文／日本語／한국어。預設為您的裝置語言（「以您的語言摘要」）；繁體中文再以 OpenCC `s2tw` 精修。
+- **自描述 `.ogg` 工作階段** —— 將整個工作階段存成單一 OGG/Opus 檔（附自動產生的封面）：可在任何播放器播放，而 VoxSum 會讀取其中內嵌的精確逐字稿以重新開啟與編輯。
+- **三語（English／繁體中文／Français）** —— UI 全面在地化。
 
 ## 運作方式
 

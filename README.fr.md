@@ -25,10 +25,10 @@ Reconnaissance vocale, séparation des locuteurs et résumé par LLM s'exécuten
 serveur, pas de compte, pas de cloud. C'est un portage sur appareil de
 [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak).
 
-> Vérifié de bout en bout sur un Pixel 6 — les quatre moteurs de reconnaissance (SenseVoice,
-> Moonshine, x-asr Zipformer zh-en, Qwen3) et les trois modèles de résumé Gemma (3 1B, 4 E2B, 4 E4B)
-> s'exécutent sur l'appareil : reconnaissance segmentée par VAD → diarisation → résumé, avec un
-> lecteur synchronisé à la transcription. Distribué sous forme d'**APK** via
+> Vérifié de bout en bout sur un Pixel 6 — les trois moteurs de reconnaissance (SenseVoice, x-asr
+> Zipformer zh-en, Qwen3-ASR) et les deux modèles de résumé (Gemma 4 E2B, Gemma 4 E4B) s'exécutent sur
+> l'appareil : reconnaissance segmentée par VAD → diarisation → résumé, avec un lecteur synchronisé à
+> la transcription. Distribué sous forme d'**APK** via
 > [Releases](https://github.com/vieenrose/VoxSumDroid/releases).
 
 ## Pourquoi VoxSum
@@ -41,28 +41,29 @@ Pas seulement une appli, mais une autre posture sur la transcription — **vos m
 
 ## Captures d'écran
 
-| Accueil | Ajouter une source | Transcription | Résumé |
+| Accueil | Transcription | Résumé | Langue du résumé |
 | :--: | :--: | :--: | :--: |
-| <img src="docs/screenshots/01-home.png" width="200" alt="Accueil"> | <img src="docs/screenshots/02-add-source.png" width="200" alt="Ajouter une source"> | <img src="docs/screenshots/03-transcript.png" width="200" alt="Transcription"> | <img src="docs/screenshots/04-summary.png" width="200" alt="Résumé"> |
+| <img src="docs/screenshots/01-home.png" width="200" alt="Accueil"> | <img src="docs/screenshots/03-transcript.png" width="200" alt="Transcription"> | <img src="docs/screenshots/04-summary.png" width="200" alt="Résumé"> | <img src="docs/screenshots/05-summary-language.png" width="200" alt="Sélecteur de langue du résumé"> |
 
 ## Fonctionnalités
 
 **Capturer**
-- **Quatre moteurs de reconnaissance**, sélectionnables à chaque exécution — SenseVoice (multilingue : zh / en / ja / ko / yue), Moonshine (anglais, rapide), Zipformer zh-en (ponctué, avec casse), Qwen3-ASR (haute précision).
+- **Trois moteurs de reconnaissance**, sélectionnables à chaque exécution — SenseVoice (multilingue : zh / en / ja / ko / yue), Zipformer zh-en (ponctué, avec casse — par défaut), Qwen3-ASR (haute précision).
 - **Enregistrement en direct** — enregistrez une réunion et transcrivez à mesure que vous parlez ; les énoncés apparaissent en flux, puis la diarisation et le résumé s'exécutent à l'arrêt.
 - **Podcast et YouTube** — recherchez et téléchargez un épisode de podcast (iTunes + RSS), ou collez un lien YouTube (résolu via NewPipeExtractor) directement dans le pipeline.
 
 **Comprendre**
 - **Transcription en flux** — les énoncés apparaissent au fur et à mesure que la parole est détectée (Silero VAD).
 - **Diarisation des locuteurs** — empreintes CAM++ (zh+en) par énoncé + regroupement adaptatif, avec une frise colorée, des pastilles par locuteur et un panneau de statistiques. L'empreinte fp16 a été choisie par étalonnage sur l'appareil — ~1,5× plus rapide et plus précise en mandarin/anglais que la référence précédente ([poids + étalonnage](https://huggingface.co/Luigi/campplus-zh-en-onnx)).
-- **Résumé sur l'appareil** — un modèle GGUF local via llama.cpp produit un titre + un résumé en markdown. Gamme Gemma sélectionnable (toutes QAT) : Gemma 3 1B, Gemma 4 E2B / E4B.
+- **Résumé sur l'appareil** — un modèle GGUF local via llama.cpp produit un titre + un résumé. Deux modèles sélectionnables : **Gemma 4 E2B** (par défaut — multilingue + CJK QAT, ~2,2 Go) et **Gemma 4 E4B** (QAT, qualité supérieure, ~3,2 Go).
 
 **Exploiter**
 - **Lecteur synchronisé à la transcription**, ancré en bas comme un lecteur de musique — touchez une ligne pour vous y rendre, la ligne active se surligne automatiquement, et la lecture fonctionne pendant que la transcription est en cours.
-- **Édition en ligne** — modifiez le texte des énoncés, le titre, le résumé et renommez les locuteurs sur place.
-- **Exports** — transcription en SRT / VTT / TXT / JSON, résumé en Markdown / texte brut.
-- **Trilingue (English / 繁體中文 / Français)** — interface entièrement localisée, plus une sortie optionnelle en chinois traditionnel (OpenCC `s2tw`) pour la transcription et le résumé.
-- **Session `.ogg` autodescriptive** — enregistrez/partagez toute la session dans un seul fichier OGG/Opus : il se lit dans n'importe quel lecteur, tandis que VoxSum récupère la transcription exacte intégrée pour la rouvrir et la modifier.
+- **Édition en ligne** — modifiez le texte des énoncés, le titre et le résumé, et renommez les locuteurs sur place.
+- **Copie en un geste** — copiez tout le résumé dans le presse-papiers d'une seule touche.
+- **Langue du résumé** — choisissez la langue du résumé + titre : *Comme la transcription*, ou English / Français / 繁體中文 / 简体中文 / 日本語 / 한국어. Par défaut la langue de votre appareil (« résumer dans votre langue ») ; le chinois traditionnel est affiné via OpenCC `s2tw`.
+- **Session `.ogg` autodescriptive** — enregistrez/partagez toute la session dans un seul fichier OGG/Opus (avec une pochette générée) : il se lit dans n'importe quel lecteur, tandis que VoxSum récupère la transcription exacte intégrée pour la rouvrir et la modifier.
+- **Trilingue (English / 繁體中文 / Français)** — interface entièrement localisée.
 
 ## Comment ça marche
 
@@ -83,15 +84,14 @@ première utilisation (vérifiés par SHA-256) depuis les sources ci-dessous.
 | :-- | :-- | :-- |
 | ASR — **par défaut** | Transducteur Zipformer zh-en, ponctué + casse mixte (`x-asr`) | [csukuangfj2/…zh-en-punct-int8-2026-06-03](https://huggingface.co/csukuangfj2/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03) · [k2-fsa/icefall](https://github.com/k2-fsa/icefall) · [sherpa-onnx asr-models](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
 | ASR — multilingue | SenseVoice (zh / en / ja / ko / yue) | [FunAudioLLM/SenseVoice](https://github.com/FunAudioLLM/SenseVoice) · [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
-| ASR — anglais, rapide | Moonshine tiny | [usefulsensors/moonshine](https://github.com/usefulsensors/moonshine) |
 | ASR — haute précision | Qwen3-ASR 0.6B | [QwenLM](https://huggingface.co/Qwen) · [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
 | Détection d'activité vocale | Silero VAD | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) |
 | Empreinte de locuteur (diarisation) | CAM++ zh+en, fp16 | [Luigi/campplus-zh-en-onnx](https://huggingface.co/Luigi/campplus-zh-en-onnx) · en amont [modelscope/3D-Speaker](https://github.com/modelscope/3D-Speaker) |
-| LLM de résumé | Gemma 3 / 4 (GGUF) | [Google Gemma](https://huggingface.co/google) (dépôts ci-dessous) |
+| LLM de résumé | Gemma 4 E2B / E4B (GGUF) | [unsloth](https://huggingface.co/unsloth) · en amont [Google Gemma](https://huggingface.co/google) |
 
 **LLM de résumé** (GGUF QAT — entraînés en tenant compte de la quantisation), sélectionnables dans les Paramètres — en amont [Google Gemma](https://huggingface.co/google) :
-- **Gemma 3 1B** *(par défaut)* — [bartowski/google_gemma-3-1b-it-qat-GGUF](https://huggingface.co/bartowski/google_gemma-3-1b-it-qat-GGUF)
-- Gemma 4 E2B / E4B — [unsloth/gemma-4-E2B-it-qat-mobile-GGUF](https://huggingface.co/unsloth/gemma-4-E2B-it-qat-mobile-GGUF) · [unsloth/gemma-4-E4B-it-qat-mobile-GGUF](https://huggingface.co/unsloth/gemma-4-E4B-it-qat-mobile-GGUF)
+- **Gemma 4 E2B** *(par défaut)* — multilingue + CJK, ~2,2 Go — [unsloth/gemma-4-E2B-it-qat-mobile-GGUF](https://huggingface.co/unsloth/gemma-4-E2B-it-qat-mobile-GGUF)
+- **Gemma 4 E4B** — qualité supérieure, ~3,2 Go — [unsloth/gemma-4-E4B-it-qat-mobile-GGUF](https://huggingface.co/unsloth/gemma-4-E4B-it-qat-mobile-GGUF)
 
 **Moteurs d'inférence :** [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ASR / VAD / empreinte de
 locuteur, via ONNX Runtime) et [llama.cpp](https://github.com/ggml-org/llama.cpp) (LLM). La détection
@@ -101,10 +101,10 @@ des noms de locuteurs réutilise le LLM de résumé sélectionné.
 
 | Aspect | Implémentation | Licence |
 | :-- | :-- | :-- |
-| ASR | sherpa-onnx `OfflineRecognizer` (SenseVoice / Moonshine / Zipformer / Qwen3) | Apache-2.0 |
+| ASR | sherpa-onnx `OfflineRecognizer` (SenseVoice / Zipformer / Qwen3) | Apache-2.0 |
 | VAD | sherpa-onnx `Vad` (Silero) | Apache-2.0 |
 | Diarisation | sherpa-onnx `SpeakerEmbeddingExtractor` (CAM++ zh+en, fp16) + regroupement adaptatif | Apache-2.0 |
-| Résumé | llama.cpp + Gemma 3 / 4 (GGUF) | Gemma Terms |
+| Résumé | llama.cpp + Gemma 4 E2B / E4B (GGUF) | Gemma Terms |
 | Conversion zh-TW | OpenCC (`s2tw`), inclus | Apache-2.0 |
 | YouTube | NewPipeExtractor | GPL-3.0 |
 | Décodage audio | Android MediaCodec | plateforme |

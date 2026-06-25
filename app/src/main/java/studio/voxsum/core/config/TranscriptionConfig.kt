@@ -22,9 +22,12 @@ data class TranscriptionConfig(
     val clusterThreshold: Float = 0.8f,       // 0.1..1.0
 
     // --- Summarization ---
-    val llmModelId: String = "qwen3.5-2b",
+    val llmModelId: String = "gemma-4-e2b-it-qat",
     val summaryPrompt: String = "Summarize the key points of this transcript.",
-    val traditionalChinese: Boolean = true,   // OpenCC s2tw on Chinese output (Increment 6)
+    // Target language of the summary/title (a [SummaryLanguage] id). "auto" = match the transcript.
+    // ConfigStore derives a locale-based default on first run (migrates the legacy traditionalChinese
+    // flag for existing installs). "zh-Hant" applies OpenCC s2tw to the transcript + summary.
+    val summaryLanguage: String = "auto",
 ) {
     object Holder {
         @Volatile var config: TranscriptionConfig = TranscriptionConfig()
