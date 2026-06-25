@@ -165,6 +165,8 @@ class TranscriptionService : LifecycleService() {
                 .collect { e ->
                     when (e) {
                         is TranscriptEvent.Utterance -> {
+                            // s2tw runs after cleanTranscript joined spaced CJK, so OpenCC sees
+                            // contiguous text for correct phrase matching (clean-then-convert is intentional).
                             val u = converter?.let { e.copy(text = it.convert(e.text)) } ?: e
                             utterances += u
                             events.emit(u)
@@ -213,6 +215,8 @@ class TranscriptionService : LifecycleService() {
                 .collect { e ->
                     when (e) {
                         is TranscriptEvent.Utterance -> {
+                            // s2tw runs after cleanTranscript joined spaced CJK, so OpenCC sees
+                            // contiguous text for correct phrase matching (clean-then-convert is intentional).
                             val u = converter?.let { e.copy(text = it.convert(e.text)) } ?: e
                             utterances += u
                             events.emit(u)

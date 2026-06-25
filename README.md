@@ -24,8 +24,10 @@ transcript and a concise summary, with everything running **on the phone**. Spee
 speaker separation, and LLM summarization all execute locally; no server, no account, no cloud.
 It is an on-device port of [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak).
 
-> Verified end-to-end on a Pixel 6: VAD-segmented ASR → diarization → summarization, with a
-> transcript-synced player. Distributed as an **APK** via [Releases](https://github.com/vieenrose/VoxSumDroid/releases).
+> Verified end-to-end on a Pixel 6 — all four ASR backends (SenseVoice, Moonshine, x-asr Zipformer
+> zh-en, Qwen3) and all three Gemma summarizers (3 1B, 4 E2B, 4 E4B) run on-device: VAD-segmented ASR
+> → diarization → summarization, with a transcript-synced player. Distributed as an **APK** via
+> [Releases](https://github.com/vieenrose/VoxSumDroid/releases).
 
 ## Why VoxSum
 
@@ -44,7 +46,7 @@ Not just an app, but a different stance on transcription — **your words stay y
 ## Features
 
 **Capture**
-- **Four ASR backends**, selectable per run — SenseVoice (multilingual: zh / en / ja / ko / yue), Moonshine (English, fast), Zipformer zh-en, Qwen3-ASR (high accuracy).
+- **Four ASR backends**, selectable per run — SenseVoice (multilingual: zh / en / ja / ko / yue), Moonshine (English, fast), Zipformer zh-en (punctuated, cased), Qwen3-ASR (high accuracy).
 - **Live recording** — record a meeting and transcribe as you speak; utterances stream in, then diarization and summary run when you stop.
 - **Podcast & YouTube** — search and download a podcast episode (iTunes + RSS), or paste a YouTube link (resolved via NewPipeExtractor) straight into the pipeline.
 
@@ -75,7 +77,7 @@ Every model runs **on-device**. None are bundled in the APK — they download on
 
 | Role | Model | Source |
 | :-- | :-- | :-- |
-| ASR — **default** | Zipformer zh-en transducer (`x-asr`) | [k2-fsa/icefall](https://github.com/k2-fsa/icefall) · [sherpa-onnx asr-models](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
+| ASR — **default** | Zipformer zh-en transducer, punctuated + mixed-case (`x-asr`) | [csukuangfj2/…zh-en-punct-int8-2026-06-03](https://huggingface.co/csukuangfj2/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03) · [k2-fsa/icefall](https://github.com/k2-fsa/icefall) · [sherpa-onnx asr-models](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
 | ASR — multilingual | SenseVoice (zh / en / ja / ko / yue) | [FunAudioLLM/SenseVoice](https://github.com/FunAudioLLM/SenseVoice) · [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
 | ASR — English, fast | Moonshine tiny | [usefulsensors/moonshine](https://github.com/usefulsensors/moonshine) |
 | ASR — high accuracy | Qwen3-ASR 0.6B | [QwenLM](https://huggingface.co/Qwen) · [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |

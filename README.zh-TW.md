@@ -23,8 +23,9 @@ VoxSum 把音訊 — 檔案、Podcast 單集或 YouTube 連結 — 轉成標註�
 而且全部在**手機上**完成。語音辨識、語者分離與 LLM 摘要皆於本機執行；無伺服器、無帳號、無雲端。
 本專案為 [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak) 的裝置端移植版。
 
-> 已在 Pixel 6 端到端驗證：VAD 分段 ASR → 語者分離 → 摘要，並搭配與逐字稿同步的播放器。
-> 以 **APK** 形式於 [Releases](https://github.com/vieenrose/VoxSumDroid/releases) 發佈。
+> 已在 Pixel 6 端到端驗證——四種語音辨識後端（SenseVoice、Moonshine、x-asr Zipformer zh-en、Qwen3）
+> 與三款 Gemma 摘要模型（3 1B、4 E2B、4 E4B）皆於裝置端執行：VAD 分段 ASR → 語者分離 → 摘要，
+> 並搭配與逐字稿同步的播放器。以 **APK** 形式於 [Releases](https://github.com/vieenrose/VoxSumDroid/releases) 發佈。
 
 ## 為什麼選擇 VoxSum
 
@@ -43,7 +44,7 @@ VoxSum 把音訊 — 檔案、Podcast 單集或 YouTube 連結 — 轉成標註�
 ## 功能特色
 
 **擷取**
-- **四種語音辨識後端**，每次執行可自選 —— SenseVoice（多語言：中／英／日／韓／粵）、Moonshine（英語、快速）、Zipformer zh-en、Qwen3-ASR（高準確度）。
+- **四種語音辨識後端**，每次執行可自選 —— SenseVoice（多語言：中／英／日／韓／粵）、Moonshine（英語、快速）、Zipformer zh-en（含標點、大小寫）、Qwen3-ASR（高準確度）。
 - **即時錄音** —— 錄製會議並邊說邊轉錄；逐句串流出現，停止後再執行語者分離與摘要。
 - **Podcast 與 YouTube** —— 搜尋並下載 Podcast 單集（iTunes + RSS），或貼上 YouTube 連結（以 NewPipeExtractor 解析）直接進入流程。
 

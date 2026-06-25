@@ -60,16 +60,49 @@ class AsrEngine(
     // Monotonic utterance counter, shared by the file + live entry points (one engine, one run).
     private val index = intArrayOf(0)
 
+    // The x-asr offline punct zipformer's encoder underflows a conv shape (ConstantOfShape: negative
+    // size) on inputs shorter than ~2.6s, crashing OfflineRecognizer.decode. VAD segments are often
+    // shorter, so for x-asr only, zero-pad sub-threshold segments before decode — trailing silence is
+    // ignored by the recognizer. 0 = no padding (other backends handle short input fine).
+    private val minDecodeSamples = if (backend == AsrBackend.XASR) X_ASR_MIN_DECODE_SAMPLES else 0
+
+    // Compiled once per engine. zh-en decode-output normalization (see cleanTranscript).
+    private val reRepeatCjk = Regex("([\\u4e00-\\u9fa5])\\1{2,}")
+    private val reSpaceBetweenCjk = Regex("(?<=[\\u4e00-\\u9fa5])\\s+(?=[\\u4e00-\\u9fa5])")
+    private val reSpaceBeforePunct = Regex("\\s+([，。、？！；：,.?!;:%])")
+    private val reSpaceAfterCjkPunct = Regex("([，。、？！；：])\\s+(?=[\\u4e00-\\u9fa5])")
+
+    /**
+     * Mirror of src/asr.py::clean_transcript, extended with the X-ASR deployment's spacing rules.
+     * The zh-en transducer (x-asr) emits each CJK token with a `▁`-derived leading space and keeps
+     * spaces around punctuation, so raw sherpa text reads "礼拜二 ， 第二种". Strip U+FFFD, collapse a
+     * CJK char repeated 3+ times (ASR stutter), drop spaces between Chinese characters, and tighten
+     * CJK/ASCII punctuation. English word spacing ("today is") is preserved; no-op for pure-English
+     * output (Moonshine).
+     */
+    private fun cleanTranscript(text: String): String {
+        var t = text.replace("�", "")
+        t = reRepeatCjk.replace(t) { it.groupValues[1] }
+        t = reSpaceBetweenCjk.replace(t, "")
+        t = reSpaceBeforePunct.replace(t, "$1")
+        t = reSpaceAfterCjkPunct.replace(t, "$1")
+        return t
+    }
+
     /** Pull every ready segment out of the VAD queue and decode it, numbering from [index]. */
     private fun drain(): List<TranscriptEvent.Utterance> {
         val fresh = ArrayList<TranscriptEvent.Utterance>()
         while (!vad.empty()) {
             val seg = vad.front()
             val stream = recognizer.createStream()
-            stream.acceptWaveform(seg.samples, SAMPLE_RATE)
+            // Pad only the samples fed to the recognizer; seg.samples.size still drives utterance timing.
+            val decodeSamples =
+                if (seg.samples.size < minDecodeSamples) seg.samples.copyOf(minDecodeSamples)
+                else seg.samples
+            stream.acceptWaveform(decodeSamples, SAMPLE_RATE)
             recognizer.decode(stream)
             val result = recognizer.getResult(stream)
-            val text = result.text.trim()
+            val text = cleanTranscript(result.text).trim()
             stream.release()
             vad.pop()
             if (text.isNotEmpty()) {
@@ -140,6 +173,10 @@ class AsrEngine(
     private companion object {
         const val SAMPLE_RATE = 16_000
         const val WINDOW = 512 // Silero VAD window size
+
+        // ~3.0s at 16 kHz (T≈298 fbank frames), comfortably above the x-asr encoder's ~256-frame
+        // minimum (below which its conv shape underflows). See minDecodeSamples / drain().
+        const val X_ASR_MIN_DECODE_SAMPLES = 48_000
 
         /** Populate the right sub-config per backend; the decode path is backend-agnostic. */
         fun buildModelConfig(

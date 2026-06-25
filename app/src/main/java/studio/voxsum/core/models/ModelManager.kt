@@ -77,17 +77,20 @@ class ModelManager(context: Context) {
                 )
             },
         ),
+        // The "punct" variant (matches the web app's xasr_models): mixed-case English +
+        // punctuation baked into the BPE vocab. The older zh-en-2023-11-22 zipformer emitted
+        // ALL-CAPS, unpunctuated English — wrong model for a readable transcript.
         AsrBackend.XASR to AsrModelSpec(
-            dir = "sherpa-onnx-zipformer-zh-en-2023-11-22",
-            url = "$REL/sherpa-onnx-zipformer-zh-en-2023-11-22.tar.bz2",
-            sha256 = "0c3f2b9c884335a6931b8ccee6ede30e8dd3f89efc289ff64cd79d530a3bcf91",
-            sentinels = listOf("encoder-epoch-34-avg-19.int8.onnx", "decoder-epoch-34-avg-19.onnx",
-                "joiner-epoch-34-avg-19.int8.onnx", "tokens.txt"),
+            dir = "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03",
+            url = "$REL/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03.tar.bz2",
+            sha256 = "1bd1687be051d4656d75462a28b919eecb914e8714e6eaa7e92a30112ace2a68",
+            sentinels = listOf("encoder-epoch-99-avg-1.int8.onnx", "decoder-epoch-99-avg-1.onnx",
+                "joiner-epoch-99-avg-1.int8.onnx", "tokens.txt"),
             buildFiles = { d ->
                 AsrModelFiles(
-                    encoder = File(d, "encoder-epoch-34-avg-19.int8.onnx").path,
-                    decoder = File(d, "decoder-epoch-34-avg-19.onnx").path,
-                    joiner = File(d, "joiner-epoch-34-avg-19.int8.onnx").path,
+                    encoder = File(d, "encoder-epoch-99-avg-1.int8.onnx").path,
+                    decoder = File(d, "decoder-epoch-99-avg-1.onnx").path,
+                    joiner = File(d, "joiner-epoch-99-avg-1.int8.onnx").path,
                     tokens = File(d, "tokens.txt").path,
                 )
             },
@@ -134,6 +137,12 @@ class ModelManager(context: Context) {
                 onProgress(1f)
             }
             check(asrReady(backend)) { "ASR model files missing after provisioning ($backend)" }
+            // Only after the new model verifies present (above): reclaim the superseded x-asr dir —
+            // mirrors ensureDiarizationModels' legacyEmbeddings reclaim. Gated on the check so a
+            // failed/partial download never deletes a still-working older model.
+            if (backend == AsrBackend.XASR) {
+                LEGACY_ASR_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
+            }
         }
 
     // --- LLM: selectable per LlmSpec; each model coexists on disk under its own filename. ---
@@ -254,6 +263,11 @@ class ModelManager(context: Context) {
         // Mirrors models/manifest.json. All FOSS-licensed. LLM specs live in LlmRegistry.
         private const val REL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
         const val SENSE_VOICE_DIR = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
+
+        // Superseded ASR model dirs to reclaim on upgrade. The old x-asr zipformer (~160 MB)
+        // emitted ALL-CAPS, unpunctuated English and was replaced by the punct variant; since the
+        // new dir name differs, the old folder would otherwise linger forever on existing installs.
+        private val LEGACY_ASR_DIRS = listOf("sherpa-onnx-zipformer-zh-en-2023-11-22")
 
         private const val SENSE_VOICE_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" +
