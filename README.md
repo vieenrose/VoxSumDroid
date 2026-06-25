@@ -15,7 +15,7 @@
   <img alt="Offline" src="https://img.shields.io/badge/network-not%20required-success">
 </p>
 
-<p align="center"><a href="README.zh-TW.md">繁體中文說明 →</a></p>
+<p align="center"><a href="README.zh-TW.md">繁體中文說明 →</a> · <a href="README.fr.md">Français →</a></p>
 
 ---
 
@@ -59,7 +59,7 @@ Not just an app, but a different stance on transcription — **your words stay y
 - **Transcript-synced player**, docked at the bottom like a music player — tap any line to seek, the active line auto-highlights, and playback works while transcription is still running.
 - **Inline editing** — edit utterance text and rename speakers in place.
 - **Exports** — transcript to SRT / VTT / TXT / JSON, summary to Markdown / plain text.
-- **Bilingual (English / 繁體中文)** — fully localized UI plus optional Traditional Chinese (OpenCC `s2tw`) output for the transcript and summary.
+- **Trilingual (English / 繁體中文 / Français)** — fully localized UI plus optional Traditional Chinese (OpenCC `s2tw`) output for the transcript and summary.
 
 ## How it works
 

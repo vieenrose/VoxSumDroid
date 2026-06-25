@@ -15,7 +15,7 @@
   <img alt="Offline" src="https://img.shields.io/badge/%E7%84%A1%E9%9C%80%E7%B6%B2%E8%B7%AF-success-success">
 </p>
 
-<p align="center"><a href="README.md">English →</a></p>
+<p align="center"><a href="README.md">English →</a> · <a href="README.fr.md">Français →</a></p>
 
 ---
 
@@ -57,7 +57,7 @@ VoxSum 把音訊 — 檔案、Podcast 單集或 YouTube 連結 — 轉成標註�
 - **與逐字稿同步的播放器**，如音樂播放器般固定於底部 —— 點任一句即可跳轉，作用中該句自動高亮，且轉錄進行中即可播放。
 - **行內編輯** —— 可直接編輯句子文字與重新命名語者。
 - **匯出** —— 逐字稿匯出為 SRT／VTT／TXT／JSON，摘要匯出為 Markdown／純文字。
-- **雙語（English／繁體中文）** —— UI 全面在地化，並可選擇繁體中文（OpenCC `s2tw`）輸出逐字稿與摘要。
+- **三語（English／繁體中文／Français）** —— UI 全面在地化，並可選擇繁體中文（OpenCC `s2tw`）輸出逐字稿與摘要。
 
 ## 運作方式
 
