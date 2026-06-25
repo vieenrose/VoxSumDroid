@@ -73,7 +73,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 
     // sherpa-onnx ships its Kotlin API under com.k2fsa.sherpa.onnx. For the F-Droid
     // source build we add those .kt files as a source set pointing at the submodule

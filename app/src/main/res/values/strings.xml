@@ -60,6 +60,9 @@
     <string name="settings_summary_options">Summary Options</string>
     <string name="settings_traditional_chinese">Traditional Chinese output</string>
     <string name="settings_summary_prompt">Summary prompt</string>
+    <string name="settings_about">About</string>
+    <string name="about_license">Free &amp; open source · GPL-3.0</string>
+    <string name="about_components">Open-source components</string>
 
     <!-- Model option card -->
     <string name="model_downloaded">downloaded</string>

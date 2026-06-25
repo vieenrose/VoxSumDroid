@@ -60,6 +60,9 @@
     <string name="settings_summary_options">摘要選項</string>
     <string name="settings_traditional_chinese">輸出繁體中文</string>
     <string name="settings_summary_prompt">摘要提示詞</string>
+    <string name="settings_about">關於</string>
+    <string name="about_license">自由開放原始碼 · GPL-3.0</string>
+    <string name="about_components">開放原始碼元件</string>
 
     <!-- Model option card -->
     <string name="model_downloaded">已下載</string>

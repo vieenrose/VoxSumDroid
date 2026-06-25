@@ -1,13 +1,17 @@
 package studio.voxsum.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -23,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import studio.voxsum.BuildConfig
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.TranscriptionConfig
@@ -152,8 +157,63 @@ fun SettingsContent(
             modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
             minLines = 2,
         )
+
+        // (6) About — version, license, and open-source components.
+        Section(stringResource(R.string.settings_about))
+        AboutContent()
     }
 }
+
+/** Version + GPL notice + the open-source components and their licenses + repo link. */
+@Composable
+private fun AboutContent() {
+    val uriHandler = LocalUriHandler.current
+    Text(
+        "VoxSum v${BuildConfig.VERSION_NAME}",
+        style = MaterialTheme.typography.bodyMedium,
+        color = VoxSumPalette.Slate200,
+        fontWeight = FontWeight.SemiBold,
+    )
+    Text(
+        stringResource(R.string.about_license),
+        style = MaterialTheme.typography.bodySmall,
+        color = VoxSumPalette.Slate400,
+    )
+    Spacer(Modifier.height(10.dp))
+    Text(
+        stringResource(R.string.about_components),
+        style = MaterialTheme.typography.labelSmall,
+        color = VoxSumPalette.Slate400,
+    )
+    Column(Modifier.padding(top = 4.dp)) {
+        COMPONENT_LICENSES.forEach { (name, license) ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Text(name, style = MaterialTheme.typography.bodySmall,
+                    color = VoxSumPalette.Slate200, modifier = Modifier.weight(1f))
+                Text(license, style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "github.com/vieenrose/VoxSumDroid",
+        style = MaterialTheme.typography.bodySmall,
+        color = VoxSumPalette.Sky,
+        modifier = Modifier
+            .clickable { uriHandler.openUri("https://github.com/vieenrose/VoxSumDroid") }
+            .padding(vertical = 4.dp),
+    )
+}
+
+private val COMPONENT_LICENSES = listOf(
+    "sherpa-onnx (ASR · VAD · diarization)" to "Apache-2.0",
+    "llama.cpp (summarization)" to "MIT",
+    "Gemma models" to "Gemma Terms",
+    "CAM++ speaker embedding" to "Apache-2.0",
+    "OpenCC (zh-TW)" to "Apache-2.0",
+    "NewPipeExtractor (YouTube)" to "GPL-3.0",
+    "Jetpack Compose" to "Apache-2.0",
+)
 
 @Composable
 private fun Section(title: String) {
