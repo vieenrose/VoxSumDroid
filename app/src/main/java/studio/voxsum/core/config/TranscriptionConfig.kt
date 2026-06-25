@@ -7,7 +7,7 @@ package studio.voxsum.core.config
  */
 data class TranscriptionConfig(
     // --- ASR ---
-    val asrBackend: String = "x-asr",         // x-asr (default, like the web app) | sensevoice | moonshine | qwen3
+    val asrBackend: String = "x-asr",         // x-asr (default, like the web app) | sensevoice | qwen3
     val asrModelId: String = "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03",
     val language: String = "",                // SenseVoice: ""=auto, zh/en/ja/ko/yue
     val useItn: Boolean = true,               // inverse text normalization
@@ -22,7 +22,7 @@ data class TranscriptionConfig(
     val clusterThreshold: Float = 0.8f,       // 0.1..1.0
 
     // --- Summarization ---
-    val llmModelId: String = "gemma-3-1b-it-qat-q4",
+    val llmModelId: String = "qwen3.5-2b",
     val summaryPrompt: String = "Summarize the key points of this transcript.",
     val traditionalChinese: Boolean = true,   // OpenCC s2tw on Chinese output (Increment 6)
 ) {

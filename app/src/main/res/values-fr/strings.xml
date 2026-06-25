@@ -6,9 +6,6 @@
     <string name="cd_settings">Paramètres</string>
     <string name="cd_export">Exporter</string>
     <string name="badge_on_device">Sur l\'appareil</string>
-    <string name="export_transcript">Transcription · %1$s</string>
-    <string name="export_summary_md">Résumé · Markdown</string>
-    <string name="export_summary_txt">Résumé · Texte</string>
 
     <!-- Empty / home state -->
     <string name="empty_status">Choisissez un fichier audio pour commencer.</string>
@@ -158,6 +155,8 @@
     <string name="session_save_failed">Impossible d\'enregistrer la session</string>
     <string name="session_open_failed">Impossible d\'ouvrir la session</string>
     <string name="session_share_failed">Impossible de partager la session</string>
+    <string name="summary_copied">Résumé copié</string>
+    <string name="cd_copy_summary">Copier le résumé</string>
     <string name="exporting">Exportation de la session…</string>
     <string name="exporting_hint">Se poursuit en arrière-plan — vous pouvez continuer à utiliser l\'application</string>
     <string name="cover_menu">Couverture…</string>

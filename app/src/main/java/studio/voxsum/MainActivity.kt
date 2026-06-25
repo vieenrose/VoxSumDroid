@@ -45,6 +45,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Forward5
 import androidx.compose.material.icons.filled.Pause
@@ -134,7 +135,6 @@ import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.cover.CoverGenerator
 import studio.voxsum.core.events.TranscriptEvent
-import studio.voxsum.core.export.TranscriptExport
 import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.SpeakerNamer
 import studio.voxsum.core.models.LlmRegistry
@@ -471,25 +471,6 @@ private fun TranscribeScreen(
         if (isRecording) { isRecording = false; onStopRecording() } else onStop()
     }
 
-    // --- Export via SAF; one launcher, target chosen on button press. ---
-    var pending by remember { mutableStateOf<PendingExport>(PendingExport.Transcript(TranscriptExport.Format.SRT)) }
-    val exporter = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream")
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val text = when (val p = pending) {
-                is PendingExport.Transcript -> TranscriptExport.export(p.format, utterances.toList())
-                PendingExport.SummaryMd -> TranscriptExport.summaryMarkdown(summary.orEmpty(), title)
-                PendingExport.SummaryTxt -> TranscriptExport.summaryPlain(summary.orEmpty(), title)
-            }
-            val ok = runCatching {
-                context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
-            }.isSuccess
-            if (ok) scope.launch {
-                snackbarHostState.showSnackbar(context.getString(R.string.session_saved_as, documentLabel(context, uri)))
-            }
-        }
-    }
 
     // --- Cover card: pure-Canvas thumbnail (gradient + waveform + title + speaker palette). ---
     // Render a cover PREVIEW (for the dialog) from the current metadata + [seed]. The authoritative
@@ -742,7 +723,12 @@ private fun TranscribeScreen(
                 SummaryCard(s, llmDisplay, editingSummary,
                     onBeginEdit = { editingSummary = true },
                     onSave = { summary = it; editingSummary = false },
-                    onCancel = { editingSummary = false })
+                    onCancel = { editingSummary = false },
+                    onCopy = {
+                        val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                        cm?.setPrimaryClip(android.content.ClipData.newPlainText("VoxSum summary", s))
+                        scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.summary_copied)) }
+                    })
             }
             if (stats.perSpeaker.isNotEmpty()) SpeakerStatsPanel(stats = stats)
         }
@@ -762,7 +748,6 @@ private fun TranscribeScreen(
                 running = running,
                 progress = progress,
                 transcriptAvailable = utterances.isNotEmpty(),
-                summaryAvailable = summary != null,
                 showSourceActions = !isEmptyState,
                 isRecording = isRecording,
                 recSeconds = recSeconds,
@@ -776,9 +761,6 @@ private fun TranscribeScreen(
                 isDetecting = isDetecting,
                 onReDetect = { detectNames() },
                 onSettings = { showConfigSheet = true },
-                onExportTranscript = { f -> pending = PendingExport.Transcript(f); exporter.launch("transcript${f.ext}") },
-                onExportSummaryMarkdown = { pending = PendingExport.SummaryMd; exporter.launch("summary.md") },
-                onExportSummaryText = { pending = PendingExport.SummaryTxt; exporter.launch("summary.txt") },
                 onCoverPreview = {
                     scope.launch { coverBusy = true; renderCoverPreview(coverSeed); coverBusy = false; coverEnabled = true; showCoverDialog = true }
                 },
@@ -1063,7 +1045,7 @@ private fun TitleCard(
 @Composable
 private fun SummaryCard(
     summary: String, llm: String, isEditing: Boolean,
-    onBeginEdit: () -> Unit, onSave: (String) -> Unit, onCancel: () -> Unit,
+    onBeginEdit: () -> Unit, onSave: (String) -> Unit, onCancel: () -> Unit, onCopy: () -> Unit,
 ) {
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1074,7 +1056,14 @@ private fun SummaryCard(
                 color = VoxSumPalette.Slate200,
                 modifier = Modifier.weight(1f),
             )
-            if (!isEditing) EditPencil(onBeginEdit)
+            if (!isEditing) {
+                // One-tap copy to clipboard (the summary export was removed — the .ogg is the editor).
+                IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.cd_copy_summary),
+                        tint = VoxSumPalette.Slate400, modifier = Modifier.size(16.dp))
+                }
+                EditPencil(onBeginEdit)
+            }
         }
         Text("via $llm", style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
         Spacer(Modifier.height(8.dp))
@@ -1102,13 +1091,6 @@ private fun EditPencil(onClick: () -> Unit) {
             modifier = Modifier.size(16.dp),
         )
     }
-}
-
-/** What the SAF export launcher should write when it returns. */
-private sealed interface PendingExport {
-    data class Transcript(val format: TranscriptExport.Format) : PendingExport
-    data object SummaryMd : PendingExport
-    data object SummaryTxt : PendingExport
 }
 
 private fun fmt(sec: Double): String {

@@ -2,7 +2,6 @@ package studio.voxsum.core.asr
 
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
-import com.k2fsa.sherpa.onnx.OfflineMoonshineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineQwen3AsrModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
@@ -189,13 +188,6 @@ class AsrEngine(
             AsrBackend.SENSEVOICE -> OfflineModelConfig(
                 senseVoice = OfflineSenseVoiceModelConfig(
                     model = f.model, language = language, useInverseTextNormalization = useItn,
-                ),
-                tokens = f.tokens, numThreads = numThreads, provider = "cpu",
-            )
-            AsrBackend.MOONSHINE -> OfflineModelConfig(
-                moonshine = OfflineMoonshineModelConfig(
-                    preprocessor = f.preprocessor, encoder = f.encoder,
-                    uncachedDecoder = f.uncachedDecoder, cachedDecoder = f.cachedDecoder,
                 ),
                 tokens = f.tokens, numThreads = numThreads, provider = "cpu",
             )

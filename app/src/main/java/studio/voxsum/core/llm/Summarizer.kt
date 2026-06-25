@@ -27,13 +27,20 @@ class Summarizer(
 ) {
 
     fun summarize(transcript: String, userPrompt: String): Flow<TranscriptEvent> = flow {
+        // State the output language explicitly: Gemma replies in English from an English instruction
+        // even on a Chinese transcript. With s2tw on, force Traditional Chinese; otherwise tell it to
+        // match the transcript's language (OpenCC only converts Simplified→Traditional, it can't
+        // translate an English summary).
+        val langClause = if (traditionalChinese) " Write it in Traditional Chinese (繁體中文)."
+            else " Write it in the same language as the transcript."
+        val instr = userPrompt + langClause
         val chunks = chunk(transcript)
         emit(TranscriptEvent.Status("Summarizing ${chunks.size} chunk(s)…"))
 
         val partials = ArrayList<String>(chunks.size)
         for ((i, c) in chunks.withIndex()) {
             val sb = StringBuilder()
-            llm.generate(wrap(MAP_TEMPLATE.format(userPrompt, c)), maxTokens = 256) { sb.append(it) }
+            llm.generate(wrap(MAP_TEMPLATE.format(instr, c)), maxTokens = 256) { sb.append(it) }
             partials += sb.toString().trim()
             emit(TranscriptEvent.Partial(sb.toString().trim()))   // partials stay raw (intermediate)
             emit(TranscriptEvent.Progress((i + 1f) / chunks.size))
@@ -45,7 +52,7 @@ class Summarizer(
             finalSb.append(partials[0])
         } else {
             llm.generate(
-                wrap(REDUCE_TEMPLATE.format(userPrompt, partials.joinToString("\n\n"))),
+                wrap(REDUCE_TEMPLATE.format(instr, partials.joinToString("\n\n"))),
                 maxTokens = 400,
             ) { finalSb.append(it) }
         }
@@ -53,7 +60,7 @@ class Summarizer(
         emit(TranscriptEvent.SummaryComplete(finalSummary))
 
         val title = StringBuilder()
-        llm.generate(wrap(TITLE_TEMPLATE.format(finalSummary)), maxTokens = 24) { title.append(it) }
+        llm.generate(wrap(TITLE_TEMPLATE.format(langClause, finalSummary)), maxTokens = 24) { title.append(it) }
         emit(TranscriptEvent.Title(maybeTw(cleanTitle(title.toString()))))
     }
 
@@ -65,7 +72,7 @@ class Summarizer(
      * the first real candidate, and strip list numbering, markdown, quotes, and "Title:".
      */
     private fun cleanTitle(raw: String): String {
-        val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val lines = stripThink(raw).lines().map { it.trim() }.filter { it.isNotBlank() }
         val candidate = lines.firstOrNull { line ->
             !line.endsWith(":") &&
                 !line.matches(Regex("(?i)^(here|sure|okay|ok|option|options|below|these|certainly).*"))
@@ -84,8 +91,11 @@ class Summarizer(
      * summary…:"), unwrap bold/italic/code spans, strip heading marks, and normalize list
      * bullets — Compose renders raw text, so leftover markdown shows as literal asterisks.
      */
+    /** Drop any <think>…</think> reasoning block a thinking-capable model (e.g. Qwen3.5) might emit. */
+    private fun stripThink(s: String): String = s.replace(Regex("(?s)<think>.*?</think>"), "").trim()
+
     private fun cleanSummary(raw: String): String {
-        val lines = raw.trim().lines().toMutableList()
+        val lines = stripThink(raw).lines().toMutableList()
         // Drop a leading conversational lead-in / header (e.g. "Here's a summary…:",
         // "Key points:"). Any first line ending in a colon is a preamble, not content —
         // robust to curly vs straight apostrophes. Then drop a now-leading blank line.
@@ -110,6 +120,10 @@ class Summarizer(
         // Gemma 4 uses a different turn format (per its chat_template.jinja): a plain user
         // turn with no system/thinking block. <bos> is auto-added by the tokenizer.
         ChatTemplate.GEMMA4 -> "<|turn>user\n$user<turn|>\n<|turn>model\n"
+        // Qwen3/Qwen3.5 ChatML. Append the empty <think></think> block their template emits for
+        // non-thinking mode, so the model answers directly (a summary, not a reasoning trace).
+        ChatTemplate.QWEN3 -> "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
+            "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
     }
 
     /** Naive char-window chunker; replace with a sentence-aware splitter in Phase 2. */
@@ -139,7 +153,7 @@ class Summarizer(
                 "points. Output only the bullet points — no headings, no multiple versions, no preamble.\n\n" +
                 "Partial summaries:\n%s\n\nSummary:"
         const val TITLE_TEMPLATE =
-            "Write ONE short title (at most 8 words) for the summary below. " +
+            "Write ONE short title (at most 8 words) for the summary below.%s " +
                 "Output only the title text — no quotes, no list, no preamble.\n\nSummary:\n%s\n\nTitle:"
     }
 }

@@ -61,22 +61,6 @@ class ModelManager(context: Context) {
             sentinels = listOf("model.int8.onnx", "tokens.txt"),
             buildFiles = { d -> AsrModelFiles(model = File(d, "model.int8.onnx").path, tokens = File(d, "tokens.txt").path) },
         ),
-        AsrBackend.MOONSHINE to AsrModelSpec(
-            dir = "sherpa-onnx-moonshine-tiny-en-int8",
-            url = "$REL/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
-            sha256 = "d5fe6ec4334fef36255b2a4010412cad4c007e33103fec62fb5d17cad88086f2",
-            sentinels = listOf("preprocess.onnx", "encode.int8.onnx", "uncached_decode.int8.onnx",
-                "cached_decode.int8.onnx", "tokens.txt"),
-            buildFiles = { d ->
-                AsrModelFiles(
-                    preprocessor = File(d, "preprocess.onnx").path,
-                    encoder = File(d, "encode.int8.onnx").path,
-                    uncachedDecoder = File(d, "uncached_decode.int8.onnx").path,
-                    cachedDecoder = File(d, "cached_decode.int8.onnx").path,
-                    tokens = File(d, "tokens.txt").path,
-                )
-            },
-        ),
         // The "punct" variant (matches the web app's xasr_models): mixed-case English +
         // punctuation baked into the BPE vocab. The older zh-en-2023-11-22 zipformer emitted
         // ALL-CAPS, unpunctuated English — wrong model for a readable transcript.
