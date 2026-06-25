@@ -58,6 +58,8 @@ fun VoxSumTopBar(
     onExportTranscript: (TranscriptExport.Format) -> Unit,
     onExportSummaryMarkdown: () -> Unit,
     onExportSummaryText: () -> Unit,
+    onSaveSession: () -> Unit,
+    onShareSession: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
         Box(
@@ -98,6 +100,7 @@ fun VoxSumTopBar(
                 ExportMenu(
                     transcriptAvailable, summaryAvailable,
                     onExportTranscript, onExportSummaryMarkdown, onExportSummaryText,
+                    onSaveSession, onShareSession,
                 )
             }
         }
@@ -148,6 +151,8 @@ private fun ExportMenu(
     onExportTranscript: (TranscriptExport.Format) -> Unit,
     onExportSummaryMarkdown: () -> Unit,
     onExportSummaryText: () -> Unit,
+    onSaveSession: () -> Unit,
+    onShareSession: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
@@ -179,6 +184,17 @@ private fun ExportMenu(
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.export_summary_txt)) },
                     onClick = { open = false; onExportSummaryText() },
+                )
+            }
+            if (transcriptAvailable) {
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.session_save)) },
+                    onClick = { open = false; onSaveSession() },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.session_share)) },
+                    onClick = { open = false; onShareSession() },
                 )
             }
         }

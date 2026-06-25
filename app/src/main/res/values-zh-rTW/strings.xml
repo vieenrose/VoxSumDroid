@@ -141,4 +141,17 @@
     <string name="update_later">稍後</string>
     <string name="update_downloading">正在下載更新…</string>
     <string name="update_download_failed">更新下載失敗</string>
+
+    <!-- Session as a self-describing .ogg + share -->
+    <string name="source_session">開啟工作階段（.ogg）</string>
+    <string name="source_session_desc">重新載入已儲存的 .ogg 以繼續編輯逐字稿</string>
+    <string name="session_save">儲存工作階段（.ogg）</string>
+    <string name="session_share">分享工作階段（.ogg）</string>
+    <string name="session_saved">工作階段已儲存</string>
+    <string name="session_saved_as">已儲存 %1$s</string>
+    <string name="session_saved_partial">已儲存 %1$s — 逐字稿太大無法內嵌；僅含音訊與摘要</string>
+    <string name="session_save_failed">無法儲存工作階段</string>
+    <string name="session_open_failed">無法開啟工作階段</string>
+    <string name="session_share_failed">無法分享工作階段</string>
+    <string name="status_session_loaded">已載入工作階段 — %d 行</string>
 </resources>

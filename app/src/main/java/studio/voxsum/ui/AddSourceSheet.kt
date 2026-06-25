@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.SmartDisplay
@@ -38,6 +39,7 @@ fun AddSourceSheet(
     onRecord: () -> Unit,
     onPodcast: () -> Unit,
     onYouTube: () -> Unit,
+    onOpenSession: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -58,6 +60,7 @@ fun AddSourceSheet(
             SourceRow(Icons.Filled.Mic, stringResource(R.string.source_record), stringResource(R.string.source_record_desc)) { onDismiss(); onRecord() }
             SourceRow(Icons.Filled.Podcasts, stringResource(R.string.source_podcast), stringResource(R.string.source_podcast_desc)) { onDismiss(); onPodcast() }
             SourceRow(Icons.Filled.SmartDisplay, stringResource(R.string.source_youtube), stringResource(R.string.source_youtube_desc)) { onDismiss(); onYouTube() }
+            SourceRow(Icons.Filled.FolderZip, stringResource(R.string.source_session), stringResource(R.string.source_session_desc)) { onDismiss(); onOpenSession() }
         }
     }
 }

@@ -96,6 +96,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -111,6 +112,7 @@ import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.SpeakerNamer
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
+import studio.voxsum.core.session.VoxsumSession
 import studio.voxsum.core.update.UpdateChecker
 import studio.voxsum.core.update.UpdateInfo
 import studio.voxsum.core.update.UpdateInstaller
@@ -179,6 +181,13 @@ private fun computeNormalizeGainMb(context: android.content.Context, uri: Uri): 
         (2000.0 * kotlin.math.log10(gain)).toInt()        // mB = 100 × 20·log10(gain)
     } ?: 0
 }.getOrDefault(0)
+
+/** Human-facing name of a SAF document (post-conflict, so it reflects any "(1)" the system added). */
+private fun documentLabel(context: android.content.Context, uri: Uri): String =
+    runCatching {
+        context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { if (it.moveToFirst()) it.getString(0) else null }
+    }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: uri.toString()
 
 class MainActivity : ComponentActivity() {
 
@@ -276,6 +285,8 @@ private fun TranscribeScreen(
     val speakerNames = remember { mutableStateMapOf<Int, SpeakerName>() }
     var editingIndex by remember { mutableIntStateOf(-1) }
     var editingSpeakerId by remember { mutableStateOf<Int?>(null) }
+    var editingTitle by remember { mutableStateOf(false) }
+    var editingSummary by remember { mutableStateOf(false) }
     var isDetecting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -326,6 +337,7 @@ private fun TranscribeScreen(
     fun launchAudio(uri: Uri) {
         TranscriptionConfig.Holder.config = config   // apply settings to this run
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
+        editingTitle = false; editingSummary = false
         title = null; summary = null; isPlaying = false
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
@@ -345,6 +357,7 @@ private fun TranscribeScreen(
     }
     fun beginRecording() {
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
+        editingTitle = false; editingSummary = false
         title = null; summary = null; isPlaying = false
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
@@ -379,9 +392,86 @@ private fun TranscribeScreen(
                 PendingExport.SummaryMd -> TranscriptExport.summaryMarkdown(summary.orEmpty(), title)
                 PendingExport.SummaryTxt -> TranscriptExport.summaryPlain(summary.orEmpty(), title)
             }
-            runCatching {
+            val ok = runCatching {
                 context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
+            }.isSuccess
+            if (ok) scope.launch {
+                snackbarHostState.showSnackbar(context.getString(R.string.session_saved_as, documentLabel(context, uri)))
             }
+        }
+    }
+
+    // --- Session as a self-describing .ogg: Save (SAF), Open (SAF → recover), Share (one .ogg). ---
+    val sessionSaver = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(VoxsumSession.MIME)
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val utts = utterances.toList(); val names = speakerNames.toMap()
+        val sum = summary; val ttl = title; val au = audioUri; val cfg = config
+        scope.launch {
+            val outcome = runCatching {
+                withContext(Dispatchers.IO) {
+                    val os = context.contentResolver.openOutputStream(uri)
+                        ?: return@withContext VoxsumSession.SaveOutcome.FAILED
+                    VoxsumSession.save(context, os, au, utts, names, sum, ttl, cfg.asrModelId, cfg.llmModelId)
+                }
+            }.getOrDefault(VoxsumSession.SaveOutcome.FAILED)
+            // Report exactly where it landed (SAF de-dupes names on conflict), and warn honestly if
+            // the transcript was too large to embed (audio + summary saved, but not reopenable).
+            val msg = when (outcome) {
+                VoxsumSession.SaveOutcome.FULL -> context.getString(R.string.session_saved_as, documentLabel(context, uri))
+                VoxsumSession.SaveOutcome.PARTIAL -> context.getString(R.string.session_saved_partial, documentLabel(context, uri))
+                VoxsumSession.SaveOutcome.FAILED -> context.getString(R.string.session_save_failed)
+            }
+            snackbarHostState.showSnackbar(msg)
+        }
+    }
+    val sessionOpener = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val loaded = runCatching { VoxsumSession.open(context, uri) }.getOrNull()
+            if (loaded == null) {
+                snackbarHostState.showSnackbar(context.getString(R.string.session_open_failed)); return@launch
+            }
+            if (!loaded.recovered) {
+                // A plain .ogg with no embedded session → just transcribe it as a normal source.
+                launchAudio(Uri.fromFile(loaded.audio)); return@launch
+            }
+            utterances.clear(); utterances.addAll(loaded.utterances)
+            speakerNames.clear(); loaded.speakerNames.forEach { (k, v) -> speakerNames[k] = v }
+            editingIndex = -1; editingSpeakerId = null
+            title = loaded.title; summary = loaded.summary
+            isPlaying = false; running = false; transcriptReady = true; progress = 0f
+            audioUri = Uri.fromFile(loaded.audio)
+            status = context.getString(R.string.status_session_loaded, loaded.utterances.size)
+        }
+    }
+    fun shareSession() {
+        val utts = utterances.toList(); val names = speakerNames.toMap()
+        val sum = summary; val ttl = title; val au = audioUri; val cfg = config
+        scope.launch {
+            val uri = runCatching {
+                withContext(Dispatchers.IO) {
+                    val dir = File(context.cacheDir, "shared").apply { mkdirs() }
+                    dir.listFiles()?.forEach { it.delete() }
+                    VoxsumSession.buildSessionOgg(
+                        context, dir, au, utts, names, sum, ttl, cfg.asrModelId, cfg.llmModelId,
+                        VoxsumSession.suggestFileName(ttl),
+                    )?.let { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", it.file) }
+                }
+            }.getOrNull()
+            if (uri == null) {
+                snackbarHostState.showSnackbar(context.getString(R.string.session_share_failed)); return@launch
+            }
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = VoxsumSession.MIME
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, ttl ?: context.getString(R.string.app_name))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.session_share))) }
         }
     }
 
@@ -502,6 +592,8 @@ private fun TranscribeScreen(
                 onExportTranscript = { f -> pending = PendingExport.Transcript(f); exporter.launch("transcript${f.ext}") },
                 onExportSummaryMarkdown = { pending = PendingExport.SummaryMd; exporter.launch("summary.md") },
                 onExportSummaryText = { pending = PendingExport.SummaryTxt; exporter.launch("summary.txt") },
+                onSaveSession = { sessionSaver.launch(VoxsumSession.suggestFileName(title)) },
+                onShareSession = { shareSession() },
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -619,8 +711,22 @@ private fun TranscribeScreen(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    title?.let { t -> item { TitleCard(t, llmDisplay) } }
-                    summary?.let { s -> item { SummaryCard(s, llmDisplay) } }
+                    title?.let { t ->
+                        item {
+                            TitleCard(t, llmDisplay, editingTitle,
+                                onBeginEdit = { editingTitle = true },
+                                onSave = { title = it; editingTitle = false },
+                                onCancel = { editingTitle = false })
+                        }
+                    }
+                    summary?.let { s ->
+                        item {
+                            SummaryCard(s, llmDisplay, editingSummary,
+                                onBeginEdit = { editingSummary = true },
+                                onSave = { summary = it; editingSummary = false },
+                                onCancel = { editingSummary = false })
+                        }
+                    }
                     if (stats.perSpeaker.isNotEmpty()) {
                         item {
                             SpeakerStatsPanel(stats = stats)
@@ -678,6 +784,7 @@ private fun TranscribeScreen(
             onRecord = { requestRecord() },
             onPodcast = { showPodcastSheet = true },
             onYouTube = { showYouTubeSheet = true },
+            onOpenSession = { sessionOpener.launch(arrayOf("audio/ogg", "application/ogg", "*/*")) },
             onDismiss = { showAddSourceSheet = false },
         )
     }
@@ -695,31 +802,71 @@ private fun TranscribeScreen(
 
 /** Generated-title card with model attribution. */
 @Composable
-private fun TitleCard(title: String, llm: String) {
+private fun TitleCard(
+    title: String, llm: String, isEditing: Boolean,
+    onBeginEdit: () -> Unit, onSave: (String) -> Unit, onCancel: () -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = VoxSumPalette.Slate200,
-        )
-        Text("via $llm", style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
+        if (isEditing) {
+            UtteranceTextEditor(initial = title, onSave = onSave, onCancel = onCancel, minLines = 1)
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = VoxSumPalette.Slate200,
+                    modifier = Modifier.weight(1f).clickable { onBeginEdit() },
+                )
+                EditPencil(onBeginEdit)
+            }
+            Text("via $llm", style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
+        }
     }
 }
 
 /** Summary card with model attribution (export is in the top-bar menu). */
 @Composable
-private fun SummaryCard(summary: String, llm: String) {
+private fun SummaryCard(
+    summary: String, llm: String, isEditing: Boolean,
+    onBeginEdit: () -> Unit, onSave: (String) -> Unit, onCancel: () -> Unit,
+) {
     SectionCard {
-        Text(
-            stringResource(R.string.card_summary),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = VoxSumPalette.Slate200,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.card_summary),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = VoxSumPalette.Slate200,
+                modifier = Modifier.weight(1f),
+            )
+            if (!isEditing) EditPencil(onBeginEdit)
+        }
         Text("via $llm", style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
         Spacer(Modifier.height(8.dp))
-        Text(renderMarkdown(summary), style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Slate200)
+        if (isEditing) {
+            UtteranceTextEditor(initial = summary, onSave = onSave, onCancel = onCancel, minLines = 4)
+        } else {
+            Text(
+                renderMarkdown(summary),
+                style = MaterialTheme.typography.bodyMedium,
+                color = VoxSumPalette.Slate200,
+                modifier = Modifier.fillMaxWidth().clickable { onBeginEdit() },
+            )
+        }
+    }
+}
+
+/** Small pencil affordance reused by the title/summary cards (matches the utterance-row edit icon). */
+@Composable
+private fun EditPencil(onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(28.dp)) {
+        Icon(
+            Icons.Filled.Edit,
+            contentDescription = stringResource(R.string.cd_edit),
+            tint = VoxSumPalette.Slate400,
+            modifier = Modifier.size(16.dp),
+        )
     }
 }
 
@@ -963,7 +1110,7 @@ private fun UtteranceRow(
 }
 
 @Composable
-private fun UtteranceTextEditor(initial: String, onSave: (String) -> Unit, onCancel: () -> Unit) {
+private fun UtteranceTextEditor(initial: String, onSave: (String) -> Unit, onCancel: () -> Unit, minLines: Int = 2) {
     var text by remember(initial) { mutableStateOf(initial) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
@@ -974,7 +1121,7 @@ private fun UtteranceTextEditor(initial: String, onSave: (String) -> Unit, onCan
             modifier = Modifier.fillMaxWidth().focusRequester(focus),
             textStyle = MaterialTheme.typography.bodyMedium,
             colors = voxSumTextFieldColors(),
-            minLines = 2,
+            minLines = minLines,
         )
         Row(Modifier.padding(top = 4.dp)) {
             Button(
