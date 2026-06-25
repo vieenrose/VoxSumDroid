@@ -27,13 +27,20 @@ class Summarizer(
 ) {
 
     fun summarize(transcript: String, userPrompt: String): Flow<TranscriptEvent> = flow {
+        // State the output language explicitly: Gemma replies in English from an English instruction
+        // even on a Chinese transcript. With s2tw on, force Traditional Chinese; otherwise tell it to
+        // match the transcript's language (OpenCC only converts Simplified→Traditional, it can't
+        // translate an English summary).
+        val langClause = if (traditionalChinese) " Write it in Traditional Chinese (繁體中文)."
+            else " Write it in the same language as the transcript."
+        val instr = userPrompt + langClause
         val chunks = chunk(transcript)
         emit(TranscriptEvent.Status("Summarizing ${chunks.size} chunk(s)…"))
 
         val partials = ArrayList<String>(chunks.size)
         for ((i, c) in chunks.withIndex()) {
             val sb = StringBuilder()
-            llm.generate(wrap(MAP_TEMPLATE.format(userPrompt, c)), maxTokens = 256) { sb.append(it) }
+            llm.generate(wrap(MAP_TEMPLATE.format(instr, c)), maxTokens = 256) { sb.append(it) }
             partials += sb.toString().trim()
             emit(TranscriptEvent.Partial(sb.toString().trim()))   // partials stay raw (intermediate)
             emit(TranscriptEvent.Progress((i + 1f) / chunks.size))
@@ -45,7 +52,7 @@ class Summarizer(
             finalSb.append(partials[0])
         } else {
             llm.generate(
-                wrap(REDUCE_TEMPLATE.format(userPrompt, partials.joinToString("\n\n"))),
+                wrap(REDUCE_TEMPLATE.format(instr, partials.joinToString("\n\n"))),
                 maxTokens = 400,
             ) { finalSb.append(it) }
         }
@@ -53,7 +60,7 @@ class Summarizer(
         emit(TranscriptEvent.SummaryComplete(finalSummary))
 
         val title = StringBuilder()
-        llm.generate(wrap(TITLE_TEMPLATE.format(finalSummary)), maxTokens = 24) { title.append(it) }
+        llm.generate(wrap(TITLE_TEMPLATE.format(langClause, finalSummary)), maxTokens = 24) { title.append(it) }
         emit(TranscriptEvent.Title(maybeTw(cleanTitle(title.toString()))))
     }
 
@@ -139,7 +146,7 @@ class Summarizer(
                 "points. Output only the bullet points — no headings, no multiple versions, no preamble.\n\n" +
                 "Partial summaries:\n%s\n\nSummary:"
         const val TITLE_TEMPLATE =
-            "Write ONE short title (at most 8 words) for the summary below. " +
+            "Write ONE short title (at most 8 words) for the summary below.%s " +
                 "Output only the title text — no quotes, no list, no preamble.\n\nSummary:\n%s\n\nTitle:"
     }
 }
