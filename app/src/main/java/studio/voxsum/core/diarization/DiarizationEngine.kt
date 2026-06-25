@@ -17,6 +17,13 @@ import studio.voxsum.core.events.TranscriptEvent
  * short-talk speakers are merged away, and each utterance is labelled directly by its cluster —
  * no segment/overlap mismatch.
  *
+ * As a final pass, an utterance whose leading or trailing stretch belongs to a *different* known
+ * voice (e.g. a soundbite the VAD merged onto a neighbour's turn) is split at the ASR token whose
+ * timestamp crosses the boundary — but only when that stretch genuinely resembles the other voice
+ * (absolute + relative distance gates), so a long monologue is never fragmented by embedding noise.
+ * On these embeddings a cross-lingual switch (e.g. an English clip inside a Chinese voice-over) is
+ * usually below that confidence bar and is conservatively left intact rather than mis-split.
+ *
  * One instance owns native resources; call [close].
  */
 class DiarizationEngine(
@@ -33,7 +40,10 @@ class DiarizationEngine(
 
     /**
      * Tag each utterance with a speaker id. Returns the tagged utterances and the detected
-     * speaker count (0 if there was nothing to diarize).
+     * speaker count (0 if there was nothing to diarize). When an utterance bundles two speakers
+     * (e.g. an English soundbite spliced into a Chinese voice-over), it is split at the token
+     * whose timestamp crosses the speaker-change boundary, so the result list may be longer than
+     * the input and is re-indexed 0..n-1 in time order.
      */
     fun assignSpeakers(
         pcm16k: FloatArray,
@@ -49,16 +59,31 @@ class DiarizationEngine(
 
         // 3. Merge spurious short-duration speakers into their nearest neighbour.
         labels = mergeWeakSpeakers(labels, utterances, embs)
+        val k = (labels.maxOrNull() ?: -1) + 1
 
-        val tagged = utterances.mapIndexed { i, u -> u.copy(speaker = labels[i]) }
-        val count = (labels.maxOrNull() ?: -1) + 1
+        // 4. Within-utterance refinement: with ≥2 known speakers, re-scan each utterance for a
+        //    sustained stretch of a *different* speaker and split it there. Needs the global
+        //    centroids as the reference voices.
+        val refined = if (k >= 2) {
+            val cents = centroids(labels, embs, k)
+            utterances.indices.flatMap { i -> splitUtterance(pcm16k, utterances[i], labels[i], cents) }
+        } else {
+            utterances.mapIndexed { i, u -> u.copy(speaker = labels[i]) }
+        }
+
+        // 5. Re-index 0..n-1 in time order (splits inserted new lines).
+        val tagged = refined.mapIndexed { i, u -> u.copy(index = i) }
+        val count = (tagged.mapNotNull { it.speaker }.maxOrNull() ?: -1) + 1
         return tagged to count
     }
 
-    private fun embedUtterance(pcm: FloatArray, u: TranscriptEvent.Utterance): FloatArray {
-        var a = (u.startSec * SAMPLE_RATE).toInt().coerceIn(0, pcm.size)
-        var b = (u.endSec * SAMPLE_RATE).toInt().coerceIn(a, pcm.size)
-        // Give the embedding model a minimum window — very short slices yield noisy vectors.
+    private fun embedUtterance(pcm: FloatArray, u: TranscriptEvent.Utterance): FloatArray =
+        embedRange(pcm, u.startSec, u.endSec)
+
+    /** Embed a [startSec, endSec) slice, widened to [MIN_SAMPLES] so short windows aren't noisy. */
+    private fun embedRange(pcm: FloatArray, startSec: Double, endSec: Double): FloatArray {
+        var a = (startSec * SAMPLE_RATE).toInt().coerceIn(0, pcm.size)
+        var b = (endSec * SAMPLE_RATE).toInt().coerceIn(a, pcm.size)
         if (b - a < MIN_SAMPLES) {
             val mid = (a + b) / 2
             a = (mid - MIN_SAMPLES / 2).coerceIn(0, pcm.size)
@@ -174,12 +199,154 @@ class DiarizationEngine(
         }
     }
 
+    // --- within-utterance speaker-change split -------------------------------------------
+
+    /**
+     * If [u] contains a sustained stretch (≥ [MIN_SEG_SEC]) of a voice other than its overall
+     * label [base], split it at the token boundaries into per-speaker sub-utterances. Falls back
+     * to a single [base]-labelled utterance when token timestamps are missing, the utterance is
+     * too short, or no confident change is found.
+     */
+    private fun splitUtterance(
+        pcm: FloatArray,
+        u: TranscriptEvent.Utterance,
+        base: Int,
+        cents: Array<FloatArray>,
+    ): List<TranscriptEvent.Utterance> {
+        val dur = u.endSec - u.startSec
+        val toks = u.tokens
+        val times = u.tokenTimes
+        if (toks == null || times == null || toks.size != times.size || dur < 2 * MIN_SEG_SEC) {
+            return listOf(u.copy(speaker = base))
+        }
+        // Drop SenseVoice meta tokens (<|lang|>, <|emotion|>, …); keep real word/char pieces.
+        val pieces = ArrayList<String>(); val ptimes = ArrayList<Double>()
+        for (i in toks.indices) if (!isMeta(toks[i])) { pieces.add(toks[i]); ptimes.add(times[i]) }
+        if (pieces.size < 2) return listOf(u.copy(speaker = base))
+
+        // Label a sliding window across the utterance by its nearest reference voice.
+        val winLabel = ArrayList<Int>(); val winCenter = ArrayList<Double>()
+        var w = 0.0
+        while (true) {
+            val ws = u.startSec + w
+            val we = (ws + WIN_SEC).coerceAtMost(u.endSec)
+            winLabel.add(nearestVoice(embedRange(pcm, ws, we), cents, base))
+            winCenter.add(((ws + we) / 2 - u.startSec).coerceIn(0.0, dur))
+            if (we >= u.endSec) break
+            w += HOP_SEC
+        }
+        val lab = smooth(winLabel)
+
+        // Collapse windows into contiguous same-label runs (time ranges relative to u.start).
+        val segs = ArrayList<Seg>()
+        for (i in lab.indices) {
+            val s = if (i == 0) 0.0 else (winCenter[i - 1] + winCenter[i]) / 2
+            val e = if (i == lab.size - 1) dur else (winCenter[i] + winCenter[i + 1]) / 2
+            if (segs.isNotEmpty() && segs.last().label == lab[i]) segs.last().end = e
+            else segs.add(Seg(lab[i], s, e))
+        }
+        // Absorb runs shorter than MIN_SEG_SEC into a neighbour, then re-coalesce same labels.
+        var i = 0
+        while (segs.size > 1 && i < segs.size) {
+            if (segs[i].end - segs[i].start < MIN_SEG_SEC) {
+                if (i > 0) { segs[i - 1].end = segs[i].end } else { segs[i + 1].start = segs[i].start }
+                segs.removeAt(i); i = 0
+            } else i++
+        }
+        // Conservative: only the leading/trailing run may differ from the base voice. An interior
+        // flip on a long monologue is almost always embedding noise, not a real speaker change, so
+        // fold interior runs back into the base before re-coalescing.
+        val bounded = ArrayList<Seg>()
+        for (j in segs.indices) {
+            val lbl = if (j == 0 || j == segs.size - 1) segs[j].label else base
+            if (bounded.isNotEmpty() && bounded.last().label == lbl) bounded.last().end = segs[j].end
+            else bounded.add(Seg(lbl, segs[j].start, segs[j].end))
+        }
+        val runs = ArrayList<Seg>()
+        for (s in bounded) {
+            if (runs.isNotEmpty() && runs.last().label == s.label) runs.last().end = s.end
+            else runs.add(Seg(s.label, s.start, s.end))
+        }
+
+        if (runs.size < 2) return listOf(u.copy(speaker = base))
+
+        // Assign each token to the run whose time range holds it, then rebuild per-run lines.
+        val bySeg = Array(runs.size) { ArrayList<Int>() }
+        for (t in ptimes.indices) {
+            var si = runs.indexOfFirst { ptimes[t] >= it.start && ptimes[t] < it.end }
+            if (si < 0) si = runs.size - 1
+            bySeg[si].add(t)
+        }
+        val parts = runs.mapIndexed { si, s ->
+            val idx = bySeg[si]
+            val text = detok(idx.map { pieces[it] })
+            if (text.isBlank()) return listOf(u.copy(speaker = base))   // don't emit empty lines
+            u.copy(
+                text = text,
+                startSec = u.startSec + s.start,
+                endSec = u.startSec + s.end,
+                speaker = s.label,
+                tokens = idx.map { pieces[it] },
+                tokenTimes = idx.map { ptimes[it] - s.start },
+            )
+        }
+        return if (parts.size >= 2) parts else listOf(u.copy(speaker = base))
+    }
+
+    private class Seg(val label: Int, var start: Double, var end: Double)
+
+    /**
+     * Nearest reference voice to [e]. Stays on the utterance's overall label [base] unless another
+     * voice is BOTH clearly closer (by [SPLIT_MARGIN]) AND an absolute match ([ABS_GATE]). The
+     * absolute gate is essential: on these embeddings a window of Chinese speech is often merely
+     * "less far" from an English centroid without actually resembling it, which would spuriously
+     * fragment a long monologue.
+     */
+    private fun nearestVoice(e: FloatArray, cents: Array<FloatArray>, base: Int): Int {
+        if (e.isEmpty()) return base
+        val baseD = cosineDistance(e, cents[base])
+        var bestC = base; var bestD = baseD
+        for (c in cents.indices) {
+            val d = cosineDistance(e, cents[c])
+            if (d < bestD) { bestD = d; bestC = c }
+        }
+        return if (bestC != base && baseD - bestD >= SPLIT_MARGIN && bestD < ABS_GATE) bestC else base
+    }
+
     override fun close() = extractor.release()
 
     private companion object {
         const val SAMPLE_RATE = 16_000
         const val MIN_SAMPLES = SAMPLE_RATE / 2          // 0.5s minimum embedding window
         const val MIN_SPEAKER_SEC = 1.5                  // below this total talk time => merged away
+        const val WIN_SEC = 1.5                          // sliding window for within-utterance scan
+        const val HOP_SEC = 0.5                          // window hop
+        const val MIN_SEG_SEC = 1.5                      // shortest sub-utterance a split may yield
+        const val SPLIT_MARGIN = 0.08                    // a window must be this much closer to switch off base
+        const val ABS_GATE = 0.55                        // …and within this absolute cosine distance of it
+
+        /** Majority filter (width 3) to drop single-window flips before run detection. */
+        fun smooth(seq: List<Int>): IntArray {
+            if (seq.size < 3) return seq.toIntArray()
+            return IntArray(seq.size) { i ->
+                if (i == 0 || i == seq.size - 1) seq[i]
+                else listOf(seq[i - 1], seq[i], seq[i + 1])
+                    .groupingBy { it }.eachCount().maxByOrNull { it.value }!!.key
+            }
+        }
+
+        /** SentencePiece detokenization: '▁' marks a leading space, bare pieces concatenate. */
+        fun detok(pieces: List<String>): String {
+            val sb = StringBuilder()
+            for (p in pieces) {
+                if (p.startsWith('▁')) { sb.append(' '); sb.append(p.substring(1)) } else sb.append(p)
+            }
+            return sb.toString().replace(Regex("\\s+"), " ").trim()
+        }
+
+        /** SenseVoice prepends meta tokens like <|en|>, <|NEUTRAL|>, <|Speech|>, <|woitn|>. */
+        fun isMeta(piece: String): Boolean =
+            piece.startsWith("<|") || (piece.startsWith("<") && piece.endsWith(">"))
 
         fun l2normalize(v: FloatArray): FloatArray {
             var s = 0.0

@@ -68,7 +68,8 @@ class AsrEngine(
             val stream = recognizer.createStream()
             stream.acceptWaveform(seg.samples, SAMPLE_RATE)
             recognizer.decode(stream)
-            val text = recognizer.getResult(stream).text.trim()
+            val result = recognizer.getResult(stream)
+            val text = result.text.trim()
             stream.release()
             vad.pop()
             if (text.isNotEmpty()) {
@@ -77,6 +78,8 @@ class AsrEngine(
                     text = text,
                     startSec = seg.start.toDouble() / SAMPLE_RATE,
                     endSec = (seg.start + seg.samples.size).toDouble() / SAMPLE_RATE,
+                    tokens = result.tokens.toList(),
+                    tokenTimes = result.timestamps.map { it.toDouble() },
                 )
             }
         }

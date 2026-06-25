@@ -693,6 +693,9 @@ private fun PlayerBar(
                 colors = voxSumSliderColors(),
                 modifier = Modifier.weight(1f),
             )
+            // Keep the slider thumb off the screen edge so it lines up with the seek bar /
+            // time labels above instead of sitting flush against the right inset.
+            Spacer(Modifier.width(8.dp))
         }
     }
 }
@@ -807,7 +810,10 @@ private fun UtteranceRow(
             Text(
                 utt.text,
                 style = MaterialTheme.typography.bodyMedium,
-                color = utt.speaker?.let { Color(speakerColor(it)) } ?: Color.Unspecified,
+                // Neutral high-contrast body text; the speaker colour lives on the chip only.
+                // (Tinting whole paragraphs to the speaker colour made the red speaker hard to
+                // read on the dark background.)
+                color = VoxSumPalette.Slate200,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onSeek(utt.startSec) }

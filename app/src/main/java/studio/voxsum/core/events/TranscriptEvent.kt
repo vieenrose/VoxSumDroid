@@ -23,6 +23,11 @@ sealed interface TranscriptEvent {
         val startSec: Double,
         val endSec: Double,
         val speaker: Int? = null,   // filled by diarization pass
+        // Per-token text + timestamps (seconds, relative to startSec) from the ASR result.
+        // Used by diarization to split an utterance that bundles two speakers at the token
+        // whose time crosses the speaker-change boundary. Null when the backend omits them.
+        val tokens: List<String>? = null,
+        val tokenTimes: List<Double>? = null,
     ) : TranscriptEvent
 
     /** 0.0..1.0 progress over the audio (mirrors "progress"). */
