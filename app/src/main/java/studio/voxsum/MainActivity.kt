@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
+import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -132,6 +133,47 @@ import studio.voxsum.ui.theme.voxSumTextFieldColors
  * transcript with a synced player (tap an utterance to seek, active line highlighted) and
  * export buttons (SRT/VTT/TXT/JSON via SAF).
  */
+// Loudness normalization for playback: bring a recording's RMS toward a target, but never
+// past a peak ceiling, and never beyond a max gain (so near-silence isn't amplified to noise).
+// Boost-only — already-loud sources are left alone. Applied per-track via LoudnessEnhancer.
+private const val NORMALIZE_TARGET_RMS = 0.12   // ≈ -18 dBFS, a comfortable listening level
+private const val NORMALIZE_PEAK_CEIL = 0.97    // keep boosted peaks below clipping
+private const val NORMALIZE_MAX_GAIN = 16.0     // ≈ +24 dB ceiling
+
+/**
+ * Measure a mono 16-bit WAV at [uri] and return the normalization gain in millibels: the gain
+ * that lifts its RMS to [NORMALIZE_TARGET_RMS], capped by the peak ceiling and max gain. Returns
+ * 0 for non-WAV sources (compressed podcast/YouTube audio) or on any error, so they're untouched.
+ * eg. a quiet recording at -34 dBFS RMS → ~+16 dB; an already-loud one → ~0.
+ */
+private fun computeNormalizeGainMb(context: android.content.Context, uri: Uri): Int = runCatching {
+    context.contentResolver.openInputStream(uri)?.use { ins ->
+        val header = ByteArray(44)
+        if (ins.read(header) < 44) return@use 0
+        fun tag(off: Int) = String(header, off, 4, Charsets.US_ASCII)
+        val bits = (header[34].toInt() and 0xFF) or ((header[35].toInt() and 0xFF) shl 8)
+        if (tag(0) != "RIFF" || tag(8) != "WAVE" || bits != 16) return@use 0
+        var peak = 0.0; var sumSq = 0.0; var n = 0L
+        val buf = ByteArray(1 shl 16)
+        while (true) {
+            val r = ins.read(buf); if (r < 0) break
+            var i = 0
+            while (i + 1 < r) {
+                val s = (buf[i].toInt() and 0xFF) or (buf[i + 1].toInt() shl 8)   // signed LE16
+                val f = s / 32768.0
+                val a = if (f < 0) -f else f; if (a > peak) peak = a
+                sumSq += f * f; n++; i += 2
+            }
+        }
+        if (n == 0L || peak <= 0.0) return@use 0
+        val rms = kotlin.math.sqrt(sumSq / n)
+        if (rms <= 1e-6) return@use 0
+        val gain = minOf(NORMALIZE_TARGET_RMS / rms, NORMALIZE_PEAK_CEIL / peak, NORMALIZE_MAX_GAIN)
+            .coerceAtLeast(1.0)
+        (2000.0 * kotlin.math.log10(gain)).toInt()        // mB = 100 × 20·log10(gain)
+    } ?: 0
+}.getOrDefault(0)
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -222,6 +264,7 @@ private fun TranscribeScreen(
 
     // --- Synced player (android MediaPlayer; no extra dep). ---
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
+    var enhancer by remember { mutableStateOf<LoudnessEnhancer?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableIntStateOf(0) }
     var durationMs by remember { mutableIntStateOf(0) }
@@ -230,6 +273,7 @@ private fun TranscribeScreen(
     var dragMs by remember { mutableStateOf<Int?>(null) }
     val listState = rememberLazyListState()
     DisposableEffect(audioUri) {
+        enhancer?.release(); enhancer = null
         player?.release(); player = null
         durationMs = 0; positionMs = 0; dragMs = null
         audioUri?.let { uri ->
@@ -237,9 +281,21 @@ private fun TranscribeScreen(
                 runCatching { setDataSource(context, uri); prepare() }.onSuccess { durationMs = duration }
                 setVolume(volume, volume)
                 setOnCompletionListener { isPlaying = false }
+                // Loudness normalization: starts at 0; a side-effect below measures the track and
+                // sets the per-file gain that lifts a quiet recording to a comfortable level.
+                runCatching {
+                    enhancer = LoudnessEnhancer(audioSessionId).apply { enabled = true }
+                }
             }
         }
-        onDispose { player?.release(); player = null }
+        onDispose { enhancer?.release(); enhancer = null; player?.release(); player = null }
+    }
+    // Measure the loaded track off the main thread and apply its normalization gain.
+    LaunchedEffect(audioUri, enhancer) {
+        val e = enhancer ?: return@LaunchedEffect
+        val uri = audioUri ?: return@LaunchedEffect
+        val gainMb = withContext(Dispatchers.IO) { computeNormalizeGainMb(context, uri) }
+        runCatching { e.setTargetGain(gainMb) }
     }
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
@@ -482,6 +538,10 @@ private fun TranscribeScreen(
                     recSeconds = recSeconds,
                     onAddSource = { showAddSourceSheet = true },
                     onStop = { handleStop() },
+                    // Re-run on the loaded source with current settings (only for file-based
+                    // sources — a live recording has no original to re-feed until it's saved).
+                    canReRun = !running && audioUri != null && utterances.isNotEmpty(),
+                    onReRun = { audioUri?.let { launchAudio(it) } },
                 )
             }
 

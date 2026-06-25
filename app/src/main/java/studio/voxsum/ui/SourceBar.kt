@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -38,6 +39,8 @@ fun SourceBar(
     recSeconds: Int,
     onAddSource: () -> Unit,
     onStop: () -> Unit,
+    canReRun: Boolean = false,
+    onReRun: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     FlowRow(
@@ -59,6 +62,20 @@ fun SourceBar(
             if (isRecording) RecordingPulse(recSeconds)
         } else {
             GradientButton(stringResource(R.string.add_audio), Icons.Filled.Add, onClick = onAddSource)
+            // Re-run the pipeline on the loaded audio with the current settings (e.g. after
+            // switching the ASR or summary model) — there was no other way to apply a change.
+            if (canReRun) {
+                FilledTonalButton(
+                    onClick = onReRun,
+                    colors = voxSumFilledTonalColors(
+                        container = VoxSumPalette.Sky.copy(alpha = 0.18f),
+                        content = VoxSumPalette.Sky,
+                    ),
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.re_transcribe))
+                }
+            }
         }
     }
 }
