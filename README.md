@@ -119,11 +119,10 @@ bundled — they download once, SHA-256-verified, on first use; after that the a
 
 ### Updates
 
-If you added the **F-Droid repo**, your F-Droid client updates the app automatically — nothing else
-to do. If you **sideloaded the APK**, the app checks GitHub Releases at most once a day and shows an
-in-app "Update available" banner; tapping **Update** downloads the signed APK and hands it to the
-system installer (you grant "install unknown apps" once). The update check is the only periodic
-network call, GitHub-only, with no telemetry, and is skipped silently when offline.
+The app checks GitHub Releases at most once a day and shows an in-app "Update available" banner;
+tapping **Update** downloads the signed APK and hands it to the system installer (you grant
+"install unknown apps" once). The update check is the only periodic network call, GitHub-only, with
+no telemetry, and is skipped silently when offline.
 
 ## Build from source
 

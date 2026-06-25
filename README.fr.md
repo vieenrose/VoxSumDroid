@@ -123,13 +123,11 @@ vérifiés par SHA-256, à la première utilisation ; ensuite l'appli est entiè
 
 ### Mises à jour
 
-Si vous avez ajouté le **dépôt F-Droid**, votre client F-Droid met à jour l'appli automatiquement —
-rien d'autre à faire. Si vous avez **chargé l'APK latéralement**, l'appli vérifie les Releases GitHub
-au plus une fois par jour et affiche une bannière « Mise à jour disponible » ; toucher **Mettre à
-jour** télécharge l'APK signé et le confie à l'installateur système (vous accordez une fois
-« installer des applis inconnues »). Vous pouvez aussi lancer une vérification manuelle depuis
-Paramètres → À propos. Cette vérification est le seul appel réseau périodique, uniquement vers GitHub,
-sans télémétrie, et ignorée silencieusement hors ligne.
+L'appli vérifie les Releases GitHub au plus une fois par jour et affiche une bannière « Mise à jour
+disponible » ; toucher **Mettre à jour** télécharge l'APK signé et le confie à l'installateur système
+(vous accordez une fois « installer des applis inconnues »). Vous pouvez aussi lancer une vérification
+manuelle depuis Paramètres → À propos. Cette vérification est le seul appel réseau périodique,
+uniquement vers GitHub, sans télémétrie, et ignorée silencieusement hors ligne.
 
 ## Compiler depuis les sources
 
