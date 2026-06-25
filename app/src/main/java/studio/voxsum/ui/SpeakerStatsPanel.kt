@@ -13,7 +13,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import studio.voxsum.R
 import studio.voxsum.data.DiarizationStats
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.voxSumFilledTonalColors
@@ -36,7 +39,7 @@ fun SpeakerStatsPanel(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "${stats.totalSpeakers} " + if (stats.totalSpeakers == 1) "speaker" else "speakers",
+            pluralStringResource(R.plurals.speaker_count, stats.totalSpeakers, stats.totalSpeakers),
             style = MaterialTheme.typography.bodyMedium,
             color = VoxSumPalette.Slate400,
         )
@@ -51,9 +54,9 @@ fun SpeakerStatsPanel(
         ) {
             if (isDetecting) {
                 CircularProgressIndicator(Modifier.size(16.dp), color = VoxSumPalette.Sky, strokeWidth = 2.dp)
-                Spacer(Modifier.width(8.dp)); Text("Detecting…")
+                Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.detecting))
             } else {
-                Text("Detect speaker names")
+                Text(stringResource(R.string.detect_speaker_names))
             }
         }
     }

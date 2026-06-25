@@ -89,6 +89,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -97,6 +98,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TranscriptionConfig
@@ -109,7 +111,6 @@ import studio.voxsum.core.models.ModelManager
 import studio.voxsum.data.SpeakerName
 import studio.voxsum.data.computeDiarizationStats
 import studio.voxsum.data.speakerColor
-import studio.voxsum.data.speakerLabel
 import studio.voxsum.service.TranscriptionService
 import studio.voxsum.ui.AddSourceSheet
 import studio.voxsum.ui.ConfigSheet
@@ -194,7 +195,7 @@ private fun TranscribeScreen(
     onStopRecording: () -> Unit,
 ) {
     val context = LocalContext.current
-    var status by remember { mutableStateOf("Pick an audio file to begin.") }
+    var status by remember { mutableStateOf(context.getString(R.string.empty_status)) }
     var title by remember { mutableStateOf<String?>(null) }
     var summary by remember { mutableStateOf<String?>(null) }
     var audioUri by remember { mutableStateOf<Uri?>(null) }
@@ -254,7 +255,7 @@ private fun TranscribeScreen(
         title = null; summary = null; isPlaying = false
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
-        running = true; progress = 0f; status = "Starting…"; audioUri = uri; onPicked(uri)
+        running = true; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri)
     }
 
     val picker = rememberLauncherForActivityResult(
@@ -275,13 +276,13 @@ private fun TranscribeScreen(
         showAddSourceSheet = false; showYouTubeSheet = false
         TranscriptionConfig.Holder.config = config
         audioUri = null; running = true; isRecording = true; progress = 0f
-        status = "Recording…"; onRecord()
+        status = context.getString(R.string.status_recording); onRecord()
     }
     val recordPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) beginRecording()
-        else scope.launch { snackbarHostState.showSnackbar("Microphone permission is required to record") }
+        else scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.mic_permission_required)) }
     }
     fun requestRecord() {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
@@ -315,7 +316,7 @@ private fun TranscribeScreen(
             when (e) {
                 is TranscriptEvent.Status -> status = e.message
                 is TranscriptEvent.Utterance -> utterances.add(e)
-                is TranscriptEvent.Progress -> { progress = e.fraction; status = "Transcribing ${(e.fraction * 100).toInt()}%" }
+                is TranscriptEvent.Progress -> { progress = e.fraction; status = context.getString(R.string.status_transcribing, (e.fraction * 100).toInt()) }
                 is TranscriptEvent.Complete -> {
                     // Preserve any in-flight text edits (merge by index); speaker-name map is
                     // separate and untouched by the rebuild.
@@ -325,15 +326,16 @@ private fun TranscribeScreen(
                     }
                     utterances.clear(); utterances.addAll(merged)
                     editingIndex = -1; editingSpeakerId = null
-                    status = "Transcript: ${merged.size} lines" +
-                        (e.speakerCount?.let { ", $it speakers" } ?: "")
+                    status = e.speakerCount?.let {
+                        context.getString(R.string.status_transcript_lines_speakers, merged.size, it)
+                    } ?: context.getString(R.string.status_transcript_lines, merged.size)
                 }
                 is TranscriptEvent.Title -> title = e.title
                 is TranscriptEvent.RecordingSaved -> { audioUri = Uri.parse(e.uri); isRecording = false }
-                is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = "Done"; running = false }
+                is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false }
                 is TranscriptEvent.Failed -> {
-                    status = "Error: ${e.error}"; running = false
-                    scope.launch { snackbarHostState.showSnackbar("Error: ${e.error}") }
+                    status = context.getString(R.string.status_error, e.error); running = false
+                    scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.status_error, e.error)) }
                 }
                 else -> Unit
             }
@@ -360,7 +362,7 @@ private fun TranscribeScreen(
         val snapshot = utterances.toList()
         scope.launch {
             isDetecting = true
-            status = "Detecting speaker names…"
+            status = context.getString(R.string.status_detecting_names)
             val result = runCatching {
                 withContext(Dispatchers.Default) {
                     val models = ModelManager(context)
@@ -370,9 +372,9 @@ private fun TranscribeScreen(
                         SpeakerNamer(llm).detect(snapshot)
                     }
                 }
-            }.getOrElse { status = "Name detection failed: ${it.message}"; emptyMap() }
+            }.getOrElse { status = context.getString(R.string.status_name_detection_failed, it.message); emptyMap() }
             result.forEach { (id, n) -> if (speakerNames[id]?.confidence != "user") speakerNames[id] = n }
-            if (result.isNotEmpty()) status = "Detected ${result.size} speaker name(s)"
+            if (result.isNotEmpty()) status = context.getString(R.string.status_detected_names, result.size)
             isDetecting = false
         }
     }
@@ -580,7 +582,7 @@ private fun TitleCard(title: String, llm: String) {
 private fun SummaryCard(summary: String, llm: String) {
     SectionCard {
         Text(
-            "Summary",
+            stringResource(R.string.card_summary),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             color = VoxSumPalette.Slate200,
@@ -666,7 +668,7 @@ private fun PlayerBar(
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { onSkip(-5000) }) {
-                Icon(Icons.Filled.Replay5, contentDescription = "back 5 seconds", tint = VoxSumPalette.Slate200)
+                Icon(Icons.Filled.Replay5, contentDescription = stringResource(R.string.cd_back5), tint = VoxSumPalette.Slate200)
             }
             Box(
                 Modifier
@@ -678,18 +680,18 @@ private fun PlayerBar(
             ) {
                 Icon(
                     if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "pause" else "play",
+                    contentDescription = if (isPlaying) stringResource(R.string.cd_pause) else stringResource(R.string.cd_play),
                     tint = VoxSumPalette.Slate900,
                 )
             }
             IconButton(onClick = { onSkip(5000) }) {
-                Icon(Icons.Filled.Forward5, contentDescription = "forward 5 seconds", tint = VoxSumPalette.Slate200)
+                Icon(Icons.Filled.Forward5, contentDescription = stringResource(R.string.cd_forward5), tint = VoxSumPalette.Slate200)
             }
             Spacer(Modifier.width(12.dp))
             IconButton(onClick = onToggleMute) {
                 Icon(
                     if (muted || volume == 0f) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
-                    contentDescription = if (muted) "unmute" else "mute",
+                    contentDescription = if (muted) stringResource(R.string.cd_unmute) else stringResource(R.string.cd_mute),
                     tint = VoxSumPalette.Slate400,
                 )
             }
@@ -792,7 +794,7 @@ private fun UtteranceRow(
             utt.speaker?.let { sid ->
                 SpeakerTag(
                     speakerId = sid,
-                    label = speakerLabel(sid, speakerNames)!!,
+                    label = speakerNames[sid]?.name ?: stringResource(R.string.speaker_n, sid + 1),
                     editing = editingSpeakerId == sid,
                     onTap = { onBeginSpeakerEdit(sid) },
                     onCommit = { onCommitSpeakerName(sid, it) },
@@ -804,7 +806,7 @@ private fun UtteranceRow(
                 IconButton(onClick = onBeginEdit, modifier = Modifier.size(28.dp)) {
                     Icon(
                         Icons.Filled.Edit,
-                        contentDescription = "edit",
+                        contentDescription = stringResource(R.string.cd_edit),
                         tint = VoxSumPalette.Slate400,
                         modifier = Modifier.size(16.dp),
                     )
@@ -849,8 +851,8 @@ private fun UtteranceTextEditor(initial: String, onSave: (String) -> Unit, onCan
                 onClick = { onSave(text.trim()) },
                 enabled = text.trim().isNotEmpty(),
                 modifier = Modifier.padding(end = 6.dp),
-            ) { Text("Save") }
-            OutlinedButton(onClick = onCancel) { Text("Cancel") }
+            ) { Text(stringResource(R.string.save)) }
+            OutlinedButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) }
         }
     }
 }

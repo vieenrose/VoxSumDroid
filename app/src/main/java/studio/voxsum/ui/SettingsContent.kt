@@ -19,9 +19,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
@@ -46,12 +48,18 @@ fun SettingsContent(
 ) {
     Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // (1) ASR engine — rich selectable cards.
-        Section("ASR Engine")
+        Section(stringResource(R.string.settings_asr_engine))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             AsrBackend.entries.forEach { b ->
+                val taglineRes = when (b) {
+                    AsrBackend.SENSEVOICE -> R.string.asr_tagline_sensevoice
+                    AsrBackend.MOONSHINE -> R.string.asr_tagline_moonshine
+                    AsrBackend.XASR -> R.string.asr_tagline_xasr
+                    AsrBackend.QWEN3 -> R.string.asr_tagline_qwen3
+                }
                 ModelOptionCard(
                     title = b.shortName,
-                    subtitle = b.tagline,
+                    subtitle = stringResource(taglineRes),
                     selected = config.asrBackend == b.id,
                     downloaded = b.id in readyAsr,
                     enabled = enabled,
@@ -61,14 +69,14 @@ fun SettingsContent(
         }
 
         // (2) Summary model (LLM) — promoted to #2, with size + RAM hint.
-        Section("Summary Model")
+        Section(stringResource(R.string.settings_summary_model))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             LlmRegistry.ALL.forEach { spec ->
                 val mb = spec.sizeBytes / 1_000_000
                 val ram = when {
-                    spec.sizeBytes < 1_500_000_000L -> "low RAM"
-                    spec.sizeBytes < 3_500_000_000L -> "needs ~4 GB RAM"
-                    else -> "needs ~6 GB RAM"
+                    spec.sizeBytes < 1_500_000_000L -> stringResource(R.string.settings_low_ram)
+                    spec.sizeBytes < 3_500_000_000L -> stringResource(R.string.settings_needs_4gb)
+                    else -> stringResource(R.string.settings_needs_6gb)
                 }
                 ModelOptionCard(
                     title = spec.displayName,
@@ -82,9 +90,9 @@ fun SettingsContent(
         }
 
         // (3) Recognition detail — language + ITN (SenseVoice only) + VAD.
-        Section("Recognition")
+        Section(stringResource(R.string.settings_recognition))
         if (config.asrBackend == AsrBackend.SENSEVOICE.id) {
-            LabeledRow("Language") {
+            LabeledRow(stringResource(R.string.settings_language)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     TranscriptionConfig.LANGUAGES.forEach { (code, label) ->
                         FilterChip(
@@ -101,21 +109,22 @@ fun SettingsContent(
                     }
                 }
             }
-            SwitchRow("Inverse text normalization", config.useItn, enabled) {
+            SwitchRow(stringResource(R.string.settings_itn), config.useItn, enabled) {
                 onChange(config.copy(useItn = it))
             }
         }
-        SliderRow("VAD threshold", config.vadThreshold, 0.1f, 0.9f, enabled) {
+        SliderRow(stringResource(R.string.settings_vad_threshold), config.vadThreshold, 0.1f, 0.9f, enabled) {
             onChange(config.copy(vadThreshold = it))
         }
 
         // (4) Diarization.
-        Section("Diarization")
-        SwitchRow("Identify speakers", config.diarizationEnabled, enabled) {
+        Section(stringResource(R.string.settings_diarization))
+        SwitchRow(stringResource(R.string.settings_identify_speakers), config.diarizationEnabled, enabled) {
             onChange(config.copy(diarizationEnabled = it))
         }
         if (config.diarizationEnabled) {
-            LabeledRow("Speakers (${if (config.numSpeakers < 0) "auto" else config.numSpeakers})") {
+            val speakersVal = if (config.numSpeakers < 0) stringResource(R.string.settings_auto) else config.numSpeakers.toString()
+            LabeledRow(stringResource(R.string.settings_speakers, speakersVal)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AssistChip(enabled = enabled, onClick = {
                         onChange(config.copy(numSpeakers = (config.numSpeakers - 1).coerceAtLeast(-1)))
@@ -125,20 +134,20 @@ fun SettingsContent(
                     }, label = { Text("+") })
                 }
             }
-            SliderRow("Cluster threshold", config.clusterThreshold, 0.1f, 1.0f, enabled) {
+            SliderRow(stringResource(R.string.settings_cluster_threshold), config.clusterThreshold, 0.1f, 1.0f, enabled) {
                 onChange(config.copy(clusterThreshold = it))
             }
         }
 
         // (5) Summary options.
-        Section("Summary Options")
-        SwitchRow("Traditional Chinese output", config.traditionalChinese, enabled) {
+        Section(stringResource(R.string.settings_summary_options))
+        SwitchRow(stringResource(R.string.settings_traditional_chinese), config.traditionalChinese, enabled) {
             onChange(config.copy(traditionalChinese = it))
         }
         OutlinedTextField(
             value = config.summaryPrompt,
             onValueChange = { onChange(config.copy(summaryPrompt = it)) },
-            label = { Text("Summary prompt") },
+            label = { Text(stringResource(R.string.settings_summary_prompt)) },
             enabled = enabled,
             modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
             minLines = 2,

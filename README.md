@@ -4,6 +4,8 @@
 
 # VoxSum for Android
 
+**[繁體中文說明 →](README.zh-TW.md)**
+
 Fully **offline**, on-device port of [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak) —
 transcribe, diarize, and summarize audio entirely on your phone. No server, no account, no cloud.
 Pick an audio file (or a podcast episode), and everything — speech recognition, speaker
@@ -12,6 +14,14 @@ separation, and LLM summarization — runs locally on the device.
 > **Status: working.** The full pipeline runs end-to-end on real hardware (verified on a
 > Pixel 6): VAD-segmented ASR → diarization → summarization, with a transcript-synced audio
 > player. Distribution is via **APK** (see [Releases](https://github.com/vieenrose/VoxSumDroid/releases)).
+
+## Why VoxSum — your words stay yours
+
+Not just an app, but a different philosophy for transcription: **give the power back to the user.**
+
+| 🛡️ Private by design | ✈️ Works offline | 💰 No subscription |
+|---|---|---|
+| Audio **never leaves your device** — every step runs locally, so confidential recordings can't leak to a cloud. For lawyers, doctors, journalists, and executives. | No network needed once models are present — on a plane, a train, or anywhere with no signal, your productivity never stops. | Own it outright — no metered usage, no recurring fees. For students, creators, and anyone on a budget. |
 
 ## Download
 
@@ -36,9 +46,10 @@ browser/file manager. The ASR/diarization/LLM models are **not** bundled — the
   - **Qwen3-ASR** (large, high accuracy)
 - **Live recording** — record a meeting and **transcribe as you speak**: the mic streams straight into the VAD/ASR loop so utterances appear in real time, then diarization + summary run when you stop (the recording is saved to a WAV and playable in the synced player).
 - **VAD-segmented streaming transcription** — utterances appear incrementally as speech is detected (Silero VAD), not in one blocking batch.
-- **Speaker diarization** — pyannote segmentation + 3D-Speaker embeddings + clustering, with a color-coded **timeline strip**, per-speaker pill chips, and a speaker-statistics panel (talk time, segment counts).
+- **Speaker diarization** — per-utterance **CAM++ (zh+en) speaker embeddings** + adaptive clustering, with a color-coded **timeline strip**, per-speaker pill chips, and a speaker-statistics panel. The embedding model was chosen by on-device benchmarking: fp16 CAM++ is ~1.5× faster and more accurate on Mandarin/English than the previous eres2net baseline ([weights + benchmark](https://huggingface.co/Luigi/campplus-zh-en-onnx)).
 - **On-device summarization** — local GGUF LLM via llama.cpp, map-reduce over the transcript to produce a title + summary (markdown-rendered). The original app's **Gemma lineup** is selectable: Gemma 3 270M, Gemma 3 1B (default), Gemma 3n E2B, Gemma 3n E4B, Gemma 4 E2B, Gemma 4 E4B — each with its correct chat template (Gemma 3/3n use `<start_of_turn>`, Gemma 4 uses `<|turn>`). The E2B/E4B variants need a high-RAM device.
 - **Traditional Chinese (zh-TW) output** — optional OpenCC `s2tw` conversion applied to the transcript, title, and summary (e.g. 平台 → 平臺), all on-device.
+- **Bilingual interface (English / 繁體中文)** — the whole UI is localized; pick the app language in Android's per-app language settings, or it follows the system locale.
 - **Transcript-synced audio player** — tap any utterance to seek, active line auto-highlights, ±5 s skip, volume/mute, and **playback works *while* transcription is still running**.
 - **Inline editing** — edit utterance text and rename speakers directly in the transcript.
 - **Exports** — transcript to **SRT / VTT / TXT / JSON**; summary to **Markdown / plain text** (via the system file picker).
@@ -52,7 +63,7 @@ browser/file manager. The ASR/diarization/LLM models are **not** bundled — the
 |---|---|---|
 | ASR | sherpa-onnx `OfflineRecognizer` (SenseVoice / Moonshine / Zipformer / Qwen3) | Apache-2.0 |
 | VAD | sherpa-onnx `Vad` (Silero) | Apache-2.0 |
-| Diarization | sherpa-onnx `OfflineSpeakerDiarization` (pyannote seg + 3D-Speaker emb) | Apache-2.0 |
+| Diarization | sherpa-onnx `SpeakerEmbeddingExtractor` (CAM++ zh+en, fp16) + adaptive clustering | Apache-2.0 |
 | Summarization | llama.cpp + Gemma 3 / 3n / 4 (GGUF) | Gemma Terms |
 | zh-TW conversion | OpenCC (`s2tw`) dictionaries, bundled | Apache-2.0 |
 | YouTube extraction | NewPipeExtractor (via JitPack) | GPL-3.0 |

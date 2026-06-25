@@ -29,6 +29,7 @@ import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.core.text.OpenCcConverter
+import studio.voxsum.R
 import java.io.File
 
 /**
@@ -113,9 +114,9 @@ class TranscriptionService : LifecycleService() {
         val models = ModelManager(this)
         val backend = AsrBackend.fromId(cfg.asrBackend)
         if (!models.asrReady(backend)) {
-            events.emit(TranscriptEvent.Status("Downloading models (first run)…"))
+            events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_models)))
             models.ensureAsrModels(backend) { frac ->
-                updateNotification("Downloading models… ${(frac * 100).toInt()}%")
+                updateNotification(getString(R.string.svc_downloading_models_pct, (frac * 100).toInt()))
             }
         }
 
@@ -166,9 +167,9 @@ class TranscriptionService : LifecycleService() {
         val models = ModelManager(this)
         val backend = AsrBackend.fromId(cfg.asrBackend)
         if (!models.asrReady(backend)) {
-            events.emit(TranscriptEvent.Status("Downloading models (first run)…"))
+            events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_models)))
             models.ensureAsrModels(backend) { frac ->
-                updateNotification("Downloading models… ${(frac * 100).toInt()}%")
+                updateNotification(getString(R.string.svc_downloading_models_pct, (frac * 100).toInt()))
             }
         }
         val converter = if (cfg.traditionalChinese) OpenCcConverter.get(this) else null
@@ -227,12 +228,12 @@ class TranscriptionService : LifecycleService() {
         var tagged: List<TranscriptEvent.Utterance> = utterances
         if (cfg.diarizationEnabled) {
             if (!models.diarizationReady()) {
-                events.emit(TranscriptEvent.Status("Downloading diarization models…"))
+                events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_diarization)))
                 models.ensureDiarizationModels { frac ->
                     updateNotification("Diarization model… ${(frac * 100).toInt()}%")
                 }
             }
-            events.emit(TranscriptEvent.Status("Identifying speakers…"))
+            events.emit(TranscriptEvent.Status(getString(R.string.svc_identifying_speakers)))
             DiarizationEngine(
                 embeddingModel = models.embeddingModel.absolutePath,
                 numThreads = asrThreads(),
@@ -250,12 +251,12 @@ class TranscriptionService : LifecycleService() {
         // --- Summarization phase. ---
         val spec = LlmRegistry.byId(cfg.llmModelId)
         if (!models.llmReady(spec)) {
-            events.emit(TranscriptEvent.Status("Downloading ${spec.displayName}…"))
+            events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
             models.ensureLlmModel(spec) { frac ->
-                updateNotification("Summarization model… ${(frac * 100).toInt()}%")
+                updateNotification(getString(R.string.svc_summarization_model_pct, (frac * 100).toInt()))
             }
         }
-        updateNotification("Summarizing…")
+        updateNotification(getString(R.string.svc_summarizing))
         val transcript = tagged.joinToString("\n") { it.text }
         LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
             activeLlm = llm

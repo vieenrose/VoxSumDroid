@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VoxSum</string>
+
+    <!-- Top bar -->
+    <string name="cd_settings">設定</string>
+    <string name="cd_export">匯出</string>
+    <string name="badge_on_device">裝置端處理</string>
+    <string name="export_transcript">逐字稿 · %1$s</string>
+    <string name="export_summary_md">摘要 · Markdown</string>
+    <string name="export_summary_txt">摘要 · 純文字</string>
+
+    <!-- Empty / home state -->
+    <string name="empty_status">請選擇音訊檔案以開始。</string>
+    <string name="empty_headline">完全離線轉錄與摘要</string>
+    <string name="empty_subtitle">加入音訊檔案、錄製會議，或貼上 YouTube 連結以開始。</string>
+    <!-- Value pillars on the home screen -->
+    <string name="pillar_private_title">隱私至上</string>
+    <string name="pillar_private_desc">音訊永不離開您的裝置</string>
+    <string name="pillar_offline_title">離線運作</string>
+    <string name="pillar_offline_desc">在飛機、高鐵或任何無網路環境皆可使用</string>
+    <string name="pillar_cost_title">無需訂閱</string>
+    <string name="pillar_cost_desc">一次擁有，無雲端費用</string>
+
+    <!-- Source bar / add-source sheet -->
+    <string name="add_audio">加入音訊</string>
+    <string name="pick_audio">選擇音訊…</string>
+    <string name="stop">停止</string>
+    <string name="cd_stop_recording">停止錄音</string>
+    <string name="cd_recording">錄音中</string>
+    <string name="source_audio_file">音訊檔案</string>
+    <string name="source_audio_file_desc">從裝置選擇檔案</string>
+    <string name="source_record">錄音</string>
+    <string name="source_record_desc">即時擷取並轉錄</string>
+    <string name="source_podcast">Podcast</string>
+    <string name="source_podcast_desc">搜尋並下載單集</string>
+    <string name="source_youtube">YouTube</string>
+    <string name="source_youtube_desc">貼上影片連結</string>
+
+    <!-- Settings -->
+    <string name="settings_title">設定</string>
+    <string name="settings_asr_engine">語音辨識引擎</string>
+    <string name="settings_summary_model">摘要模型</string>
+    <string name="settings_low_ram">低記憶體</string>
+    <string name="settings_needs_4gb">需要約 4 GB RAM</string>
+    <string name="settings_needs_6gb">需要約 6 GB RAM</string>
+    <string name="settings_speakers">語者數（%1$s）</string>
+    <string name="settings_auto">自動</string>
+    <string name="asr_tagline_sensevoice">多語言</string>
+    <string name="asr_tagline_moonshine">英語、快速</string>
+    <string name="asr_tagline_xasr">中英 transducer</string>
+    <string name="asr_tagline_qwen3">大型、較慢</string>
+    <string name="settings_recognition">辨識</string>
+    <string name="settings_language">語言</string>
+    <string name="settings_itn">反向文字正規化</string>
+    <string name="settings_vad_threshold">語音偵測門檻</string>
+    <string name="settings_diarization">語者分段</string>
+    <string name="settings_identify_speakers">辨識語者</string>
+    <string name="settings_cluster_threshold">分群門檻</string>
+    <string name="settings_summary_options">摘要選項</string>
+    <string name="settings_traditional_chinese">輸出繁體中文</string>
+    <string name="settings_summary_prompt">摘要提示詞</string>
+
+    <!-- Model option card -->
+    <string name="model_downloaded">已下載</string>
+    <string name="model_will_download">首次使用時下載</string>
+
+    <!-- Podcast -->
+    <string name="podcast_transcribe">轉錄</string>
+    <string name="podcast_search_hint">搜尋 Podcast</string>
+    <string name="podcast_search">搜尋</string>
+
+    <!-- YouTube -->
+    <string name="youtube_fetch_failed">無法取得此影片</string>
+    <string name="youtube_no_videos">找不到影片</string>
+    <string name="youtube_search_failed">搜尋失敗</string>
+    <string name="youtube_search_hint">搜尋影片或貼上連結</string>
+    <string name="youtube_go">前往</string>
+    <string name="youtube_search">搜尋</string>
+    <string name="youtube_working">處理中…</string>
+
+    <!-- Transcript / cards / speaker stats -->
+    <string name="card_summary">摘要</string>
+    <string name="card_title">標題</string>
+    <string name="speaker_n">語者 %d</string>
+    <string name="detect_speaker_names">偵測語者名稱</string>
+    <string name="detecting">偵測中…</string>
+    <plurals name="speaker_count">
+        <item quantity="other">%d 位語者</item>
+    </plurals>
+
+    <!-- Player controls (content descriptions) -->
+    <string name="cd_back5">倒退 5 秒</string>
+    <string name="cd_forward5">快進 5 秒</string>
+    <string name="cd_play">播放</string>
+    <string name="cd_pause">暫停</string>
+    <string name="cd_mute">靜音</string>
+    <string name="cd_unmute">取消靜音</string>
+    <string name="cd_edit">編輯</string>
+    <string name="save">儲存</string>
+    <string name="cancel">取消</string>
+
+    <!-- Status messages -->
+    <string name="status_starting">啟動中…</string>
+    <string name="status_recording">錄音中…</string>
+    <string name="status_done">完成</string>
+    <string name="status_transcribing">轉錄中 %d%%</string>
+    <string name="status_transcript_lines">逐字稿：%d 行</string>
+    <string name="status_transcript_lines_speakers">逐字稿：%1$d 行，%2$d 位語者</string>
+    <string name="status_detecting_names">偵測語者名稱中…</string>
+    <string name="status_detected_names">已偵測 %d 個語者名稱</string>
+    <string name="status_name_detection_failed">名稱偵測失敗：%1$s</string>
+    <string name="status_error">錯誤：%1$s</string>
+    <string name="mic_permission_required">錄音需要麥克風權限</string>
+
+    <!-- Foreground-service notifications -->
+    <string name="svc_downloading_models">正在下載模型（首次執行）…</string>
+    <string name="svc_downloading_models_pct">正在下載模型… %d%%</string>
+    <string name="svc_downloading_diarization">正在下載語者分段模型…</string>
+    <string name="svc_downloading_named">正在下載 %1$s…</string>
+    <string name="svc_summarization_model_pct">摘要模型… %d%%</string>
+    <string name="svc_summarizing">摘要中…</string>
+    <string name="svc_identifying_speakers">辨識語者中…</string>
+</resources>

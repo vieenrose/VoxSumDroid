@@ -28,8 +28,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import studio.voxsum.R
 import studio.voxsum.online.Episode
 import studio.voxsum.online.Podcast
 import studio.voxsum.online.PodcastSeries
@@ -61,14 +63,14 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("Search podcasts") },
+                label = { Text(stringResource(R.string.podcast_search_hint)) },
                 singleLine = true,
                 colors = voxSumTextFieldColors(),
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))
             GradientButton(
-                "Search",
+                stringResource(R.string.podcast_search),
                 enabled = query.isNotBlank() && !busy,
                 onClick = {
                     scope.launch {
@@ -87,7 +89,7 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        error?.let { Text("Error: $it", color = VoxSumPalette.Red) }
+        error?.let { Text(stringResource(R.string.status_error, it), color = VoxSumPalette.Red) }
 
         val sel = selected
         if (sel == null) {
@@ -125,7 +127,7 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
                             }
                         }
                         Spacer(Modifier.width(8.dp))
-                        GradientButton("Transcribe", enabled = !busy, onClick = {
+                        GradientButton(stringResource(R.string.podcast_transcribe), enabled = !busy, onClick = {
                             scope.launch {
                                 busy = true; error = null
                                 val uri = runCatching {

@@ -21,8 +21,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import studio.voxsum.R
 import studio.voxsum.ui.theme.VoxSumPalette
 
 /**
@@ -46,16 +48,16 @@ fun AddSourceSheet(
     ) {
         Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
             Text(
-                "Add audio",
+                stringResource(R.string.add_audio),
                 style = MaterialTheme.typography.titleLarge,
                 color = VoxSumPalette.Slate200,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
             )
-            SourceRow(Icons.Filled.FolderOpen, "Audio file", "Pick a file from your device") { onDismiss(); onPickFile() }
-            SourceRow(Icons.Filled.Mic, "Record", "Capture & transcribe live") { onDismiss(); onRecord() }
-            SourceRow(Icons.Filled.Podcasts, "Podcast", "Search & download an episode") { onDismiss(); onPodcast() }
-            SourceRow(Icons.Filled.SmartDisplay, "YouTube", "Paste a video link") { onDismiss(); onYouTube() }
+            SourceRow(Icons.Filled.FolderOpen, stringResource(R.string.source_audio_file), stringResource(R.string.source_audio_file_desc)) { onDismiss(); onPickFile() }
+            SourceRow(Icons.Filled.Mic, stringResource(R.string.source_record), stringResource(R.string.source_record_desc)) { onDismiss(); onRecord() }
+            SourceRow(Icons.Filled.Podcasts, stringResource(R.string.source_podcast), stringResource(R.string.source_podcast_desc)) { onDismiss(); onPodcast() }
+            SourceRow(Icons.Filled.SmartDisplay, stringResource(R.string.source_youtube), stringResource(R.string.source_youtube_desc)) { onDismiss(); onYouTube() }
         }
     }
 }

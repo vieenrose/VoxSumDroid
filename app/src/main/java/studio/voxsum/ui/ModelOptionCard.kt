@@ -18,7 +18,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import studio.voxsum.R
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.voxSumRadioColors
 
@@ -54,7 +56,7 @@ fun ModelOptionCard(
             }
             Icon(
                 imageVector = if (downloaded) Icons.Filled.CheckCircle else Icons.Filled.Download,
-                contentDescription = if (downloaded) "downloaded" else "will download on first use",
+                contentDescription = if (downloaded) stringResource(R.string.model_downloaded) else stringResource(R.string.model_will_download),
                 tint = if (downloaded) VoxSumPalette.Success else VoxSumPalette.Slate400,
                 modifier = Modifier.size(18.dp),
             )

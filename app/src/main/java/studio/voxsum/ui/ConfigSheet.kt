@@ -18,10 +18,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
@@ -69,7 +71,7 @@ fun ConfigSheet(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text(
-                "Settings",
+                stringResource(R.string.settings_title),
                 style = MaterialTheme.typography.titleLarge,
                 color = VoxSumPalette.Slate200,
                 fontWeight = FontWeight.Bold,

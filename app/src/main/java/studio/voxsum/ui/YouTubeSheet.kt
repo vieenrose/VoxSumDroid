@@ -30,12 +30,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
 import kotlinx.coroutines.launch
+import studio.voxsum.R
 import studio.voxsum.online.YouTube
 import studio.voxsum.ui.components.GradientButton
 import studio.voxsum.ui.theme.VoxSumPalette
@@ -62,7 +64,7 @@ fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
         scope.launch {
             runCatching { YouTube.download(context, YouTube.resolve(url)) {} }
                 .onSuccess { uri -> busy = false; onAudioReady(uri) }
-                .onFailure { busy = false; error = it.message ?: "Couldn't fetch this video" }
+                .onFailure { busy = false; error = it.message ?: context.getString(R.string.youtube_fetch_failed) }
         }
     }
     fun go() {
@@ -72,8 +74,8 @@ fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
         busy = true; error = null; results = emptyList()
         scope.launch {
             runCatching { YouTube.search(q) }
-                .onSuccess { busy = false; results = it; if (it.isEmpty()) error = "No videos found" }
-                .onFailure { busy = false; error = it.message ?: "Search failed" }
+                .onSuccess { busy = false; results = it; if (it.isEmpty()) error = context.getString(R.string.youtube_no_videos) }
+                .onFailure { busy = false; error = it.message ?: context.getString(R.string.youtube_search_failed) }
         }
     }
 
@@ -86,13 +88,13 @@ fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("YouTube", style = MaterialTheme.typography.titleLarge,
+            Text(stringResource(R.string.source_youtube), style = MaterialTheme.typography.titleLarge,
                 color = VoxSumPalette.Slate200, fontWeight = FontWeight.Bold)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it; error = null },
-                    label = { Text("Search videos or paste a link") },
+                    label = { Text(stringResource(R.string.youtube_search_hint)) },
                     singleLine = true,
                     enabled = !busy,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -101,7 +103,7 @@ fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
                 )
                 Spacer(Modifier.width(8.dp))
                 GradientButton(
-                    if (YouTube.looksLikeUrl(query)) "Go" else "Search",
+                    if (YouTube.looksLikeUrl(query)) stringResource(R.string.youtube_go) else stringResource(R.string.youtube_search),
                     enabled = query.isNotBlank() && !busy,
                     onClick = { go() },
                 )
@@ -111,7 +113,7 @@ fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
                     color = VoxSumPalette.Sky, trackColor = VoxSumPalette.Slate700,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("Working…", style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+                Text(stringResource(R.string.youtube_working), style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
             }
             error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Red) }
 

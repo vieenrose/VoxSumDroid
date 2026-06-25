@@ -19,7 +19,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import studio.voxsum.R
 import studio.voxsum.ui.components.GradientButton
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.voxSumFilledTonalColors
@@ -52,11 +54,11 @@ fun SourceBar(
                 ),
             ) {
                 Icon(Icons.Filled.Stop, contentDescription = null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp)); Text(if (isRecording) "Stop recording" else "Stop")
+                Spacer(Modifier.width(6.dp)); Text(if (isRecording) stringResource(R.string.cd_stop_recording) else stringResource(R.string.stop))
             }
             if (isRecording) RecordingPulse(recSeconds)
         } else {
-            GradientButton("Add audio", Icons.Filled.Add, onClick = onAddSource)
+            GradientButton(stringResource(R.string.add_audio), Icons.Filled.Add, onClick = onAddSource)
         }
     }
 }
@@ -66,7 +68,7 @@ private fun RecordingPulse(seconds: Int) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
             Icons.Filled.FiberManualRecord,
-            contentDescription = "recording",
+            contentDescription = stringResource(R.string.cd_recording),
             tint = VoxSumPalette.Red,
             modifier = Modifier.size(14.dp),
         )
