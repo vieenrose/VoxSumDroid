@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -21,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -35,6 +35,7 @@ import studio.voxsum.R
 import studio.voxsum.online.Episode
 import studio.voxsum.online.Podcast
 import studio.voxsum.online.PodcastSeries
+import studio.voxsum.ui.components.DownloadStatusBar
 import studio.voxsum.ui.components.GradientButton
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.voxSumTextFieldColors
@@ -53,6 +54,8 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
     var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
     var selected by remember { mutableStateOf<PodcastSeries?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var statusRes by remember { mutableIntStateOf(R.string.dl_searching) }
+    var progress by remember { mutableStateOf<Float?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
     Column(
@@ -75,6 +78,7 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
                 onClick = {
                     scope.launch {
                         busy = true; error = null; selected = null; episodes = emptyList()
+                        progress = null; statusRes = R.string.dl_searching
                         series = runCatching { Podcast.searchSeries(query) }
                             .getOrElse { error = it.message; emptyList() }
                         busy = false
@@ -83,11 +87,7 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
             )
         }
         if (busy) {
-            LinearProgressIndicator(
-                color = VoxSumPalette.Sky,
-                trackColor = VoxSumPalette.Slate700,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            DownloadStatusBar(statusRes, progress)
         }
         error?.let { Text(stringResource(R.string.status_error, it), color = VoxSumPalette.Red) }
 
@@ -97,6 +97,7 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
                 RowCard(onClick = {
                     scope.launch {
                         busy = true; error = null; selected = s
+                        progress = null; statusRes = R.string.dl_loading_episodes
                         episodes = runCatching { Podcast.fetchEpisodes(s.feedUrl) }
                             .getOrElse { error = it.message; emptyList() }
                         busy = false
@@ -130,8 +131,9 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
                         GradientButton(stringResource(R.string.podcast_transcribe), enabled = !busy, onClick = {
                             scope.launch {
                                 busy = true; error = null
+                                progress = null; statusRes = R.string.dl_downloading
                                 val uri = runCatching {
-                                    Podcast.downloadEpisode(context, e, onProgress = { })
+                                    Podcast.downloadEpisode(context, e, onProgress = { progress = it })
                                 }.getOrElse { error = it.message; null }
                                 busy = false
                                 uri?.let(onEpisodeReady)

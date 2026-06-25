@@ -82,6 +82,12 @@
     <string name="youtube_search">搜尋</string>
     <string name="youtube_working">處理中…</string>
 
+    <!-- Download / fetch progress -->
+    <string name="dl_searching">搜尋中…</string>
+    <string name="dl_resolving">解析影片中…</string>
+    <string name="dl_loading_episodes">載入單集中…</string>
+    <string name="dl_downloading">下載中…</string>
+
     <!-- Transcript / cards / speaker stats -->
     <string name="card_summary">摘要</string>
     <string name="card_title">標題</string>

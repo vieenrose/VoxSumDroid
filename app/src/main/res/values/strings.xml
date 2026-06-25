@@ -82,6 +82,12 @@
     <string name="youtube_search">Search</string>
     <string name="youtube_working">Working…</string>
 
+    <!-- Download / fetch progress -->
+    <string name="dl_searching">Searching…</string>
+    <string name="dl_resolving">Resolving video…</string>
+    <string name="dl_loading_episodes">Loading episodes…</string>
+    <string name="dl_downloading">Downloading…</string>
+
     <!-- Transcript / cards / speaker stats -->
     <string name="card_summary">Summary</string>
     <string name="card_title">Title</string>

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -23,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -39,6 +39,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import kotlinx.coroutines.launch
 import studio.voxsum.R
 import studio.voxsum.online.YouTube
+import studio.voxsum.ui.components.DownloadStatusBar
 import studio.voxsum.ui.components.GradientButton
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.voxSumTextFieldColors
@@ -57,12 +58,18 @@ fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<YouTube.YouTubeVideo>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
+    var statusRes by remember { mutableIntStateOf(R.string.dl_searching) }
+    var progress by remember { mutableStateOf<Float?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
     fun transcribe(url: String) {
-        busy = true; error = null
+        busy = true; error = null; progress = null; statusRes = R.string.dl_resolving
         scope.launch {
-            runCatching { YouTube.download(context, YouTube.resolve(url)) {} }
+            runCatching {
+                val audio = YouTube.resolve(url)
+                statusRes = R.string.dl_downloading        // resolved → now streaming the audio
+                YouTube.download(context, audio) { p -> progress = p }
+            }
                 .onSuccess { uri -> busy = false; onAudioReady(uri) }
                 .onFailure { busy = false; error = it.message ?: context.getString(R.string.youtube_fetch_failed) }
         }
@@ -71,7 +78,7 @@ fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
         val q = query.trim()
         if (q.isEmpty()) return
         if (YouTube.looksLikeUrl(q)) { transcribe(q); return }
-        busy = true; error = null; results = emptyList()
+        busy = true; error = null; results = emptyList(); progress = null; statusRes = R.string.dl_searching
         scope.launch {
             runCatching { YouTube.search(q) }
                 .onSuccess { busy = false; results = it; if (it.isEmpty()) error = context.getString(R.string.youtube_no_videos) }
@@ -109,11 +116,7 @@ fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
                 )
             }
             if (busy) {
-                LinearProgressIndicator(
-                    color = VoxSumPalette.Sky, trackColor = VoxSumPalette.Slate700,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(stringResource(R.string.youtube_working), style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+                DownloadStatusBar(statusRes, progress)
             }
             error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Red) }
 
