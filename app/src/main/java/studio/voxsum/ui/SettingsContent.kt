@@ -70,7 +70,6 @@ fun SettingsContent(
             AsrBackend.entries.forEach { b ->
                 val taglineRes = when (b) {
                     AsrBackend.SENSEVOICE -> R.string.asr_tagline_sensevoice
-                    AsrBackend.MOONSHINE -> R.string.asr_tagline_moonshine
                     AsrBackend.XASR -> R.string.asr_tagline_xasr
                     AsrBackend.QWEN3 -> R.string.asr_tagline_qwen3
                 }

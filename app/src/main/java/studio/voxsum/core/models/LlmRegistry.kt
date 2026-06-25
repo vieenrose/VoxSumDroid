@@ -26,23 +26,17 @@ enum class ChatTemplate { CHATML, GEMMA, GEMMA4 }
  * device.
  */
 object LlmRegistry {
-    const val DEFAULT_ID = "gemma-3-1b-it-qat-q4"
+    const val DEFAULT_ID = "gemma-4-e2b-it-qat"
 
     private const val HF = "https://huggingface.co"
 
     val ALL: List<LlmSpec> = listOf(
-        // Dropped: Gemma 3 270M (too weak) and the Gemma 3n series (superseded by Gemma 4 E2B/E4B).
+        // Gemma 3 1B was dropped: it's English-only/text-only (multilingual + CJK start at Gemma 4
+        // E2B), so it produced poor Chinese summaries. Gemma 3 270M / 3n were dropped earlier.
         // All models are QAT (quantization-aware trained) GGUFs — better quality at low bit-width.
         LlmSpec(
-            id = "gemma-3-1b-it-qat-q4",
-            displayName = "Gemma 3 1B (recommended)",
-            url = "$HF/bartowski/google_gemma-3-1b-it-qat-GGUF/resolve/main/google_gemma-3-1b-it-qat-Q4_0.gguf",
-            sha256 = "", sizeBytes = 721_000_000L,
-            fileName = "gemma-3-1b-it-q4.gguf", chatTemplate = ChatTemplate.GEMMA, shortName = "Gemma 3 1B",
-        ),
-        LlmSpec(
             id = "gemma-4-e2b-it-qat",
-            displayName = "Gemma 4 E2B (QAT)",
+            displayName = "Gemma 4 E2B (recommended)",
             url = "$HF/unsloth/gemma-4-E2B-it-qat-mobile-GGUF/resolve/main/gemma-4-E2B-it-qat-UD-Q2_K_XL.gguf",
             sha256 = "", sizeBytes = 2_186_000_000L,
             fileName = "gemma-4-e2b-it-qat.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E2B",
