@@ -326,9 +326,10 @@ private fun TranscribeScreen(
     var coverBitmap by remember { mutableStateOf<Bitmap?>(null) }     // preview shown in the dialog
     var showCoverDialog by remember { mutableStateOf(false) }
     var coverBusy by remember { mutableStateOf(false) }
-    // True while a session .ogg is being built/written — a blocking overlay keeps the user on-screen
-    // (the foregrounded app won't be killed) and signals that leaving now would truncate the file.
+    // True while a session .ogg is being built/written (in the foreground service, so it finishes
+    // even if the app is closed). The overlay just shows progress. lastSaveUri labels the result.
     var exporting by remember { mutableStateOf(false) }
+    var lastSaveUri by remember { mutableStateOf<Uri?>(null) }
 
     // --- Synced player (android MediaPlayer; no extra dep). ---
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
@@ -482,33 +483,20 @@ private fun TranscribeScreen(
     val sessionSaver = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(VoxsumSession.MIME)
     ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val utts = utterances.toList(); val names = speakerNames.toMap()
-        val sum = summary; val ttl = title; val au = audioUri; val cfg = config
-        scope.launch {
-            exporting = true
-            try {
-                runCatching { ensureCover() }   // cover is optional — never let it block the save
-                val cb = coverBlock; val cs = coverSig
-                val outcome = runCatching {
-                    withContext(Dispatchers.IO) {
-                        val os = context.contentResolver.openOutputStream(uri)
-                            ?: return@withContext VoxsumSession.SaveOutcome.FAILED
-                        VoxsumSession.save(context, os, au, utts, names, sum, ttl, cfg.asrModelId, cfg.llmModelId, cb, cs)
-                    }
-                }.getOrDefault(VoxsumSession.SaveOutcome.FAILED)
-                // Report exactly where it landed (SAF de-dupes names on conflict), and warn honestly if
-                // the transcript was too large to embed (audio + summary saved, but not reopenable).
-                val msg = when (outcome) {
-                    VoxsumSession.SaveOutcome.FULL -> context.getString(R.string.session_saved_as, documentLabel(context, uri))
-                    VoxsumSession.SaveOutcome.PARTIAL -> context.getString(R.string.session_saved_partial, documentLabel(context, uri))
-                    VoxsumSession.SaveOutcome.FAILED -> context.getString(R.string.session_save_failed)
-                }
-                snackbarHostState.showSnackbar(msg)
-            } finally {
-                exporting = false
-            }
-        }
+        if (uri == null) { exporting = false; return@rememberLauncherForActivityResult }
+        // Hand the build+write to the foreground service so it finishes even if the app is closed
+        // (the cover was already generated before the picker opened). Overlay clears on ExportDone.
+        lastSaveUri = uri
+        TranscriptionService.pendingExport = TranscriptionService.ExportRequest(
+            share = false, saveUri = uri, audioUri = audioUri,
+            utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
+            summary = summary, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
+            coverBlock = coverBlock, coverSig = coverSig, fileName = VoxsumSession.suggestFileName(title),
+        )
+        exporting = true
+        ContextCompat.startForegroundService(
+            context, Intent(context, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_EXPORT),
+        )
     }
     val sessionOpener = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -543,36 +531,19 @@ private fun TranscribeScreen(
         }
     }
     fun shareSession() {
-        val utts = utterances.toList(); val names = speakerNames.toMap()
-        val sum = summary; val ttl = title; val au = audioUri; val cfg = config
         scope.launch {
             exporting = true
-            try {
-                runCatching { ensureCover() }   // cover is optional — never let it block the build
-                val cb = coverBlock; val cs = coverSig
-                val uri = runCatching {
-                    withContext(Dispatchers.IO) {
-                        val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-                        dir.listFiles()?.forEach { it.delete() }
-                        VoxsumSession.buildSessionOgg(
-                            context, dir, au, utts, names, sum, ttl, cfg.asrModelId, cfg.llmModelId,
-                            coverBlock = cb, coverSig = cs, fileName = VoxsumSession.suggestFileName(ttl),
-                        )?.let { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", it.file) }
-                    }
-                }.getOrNull()
-                if (uri == null) {
-                    snackbarHostState.showSnackbar(context.getString(R.string.session_share_failed)); return@launch
-                }
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = VoxsumSession.MIME
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    putExtra(Intent.EXTRA_SUBJECT, ttl ?: context.getString(R.string.app_name))
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.session_share))) }
-            } finally {
-                exporting = false
-            }
+            runCatching { ensureCover() }   // cover is optional — generated before the build starts
+            // Build in the foreground service; the share chooser fires when ExportDone arrives.
+            TranscriptionService.pendingExport = TranscriptionService.ExportRequest(
+                share = true, saveUri = null, audioUri = audioUri,
+                utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
+                summary = summary, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
+                coverBlock = coverBlock, coverSig = coverSig, fileName = VoxsumSession.suggestFileName(title),
+            )
+            ContextCompat.startForegroundService(
+                context, Intent(context, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_EXPORT),
+            )
         }
     }
 
@@ -602,6 +573,33 @@ private fun TranscribeScreen(
                 is TranscriptEvent.Failed -> {
                     status = context.getString(R.string.status_error, e.error); running = false
                     scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.status_error, e.error)) }
+                }
+                is TranscriptEvent.ExportDone -> {
+                    exporting = false
+                    if (e.share) {
+                        val shareUri = e.sharePath.takeIf { it.isNotEmpty() }?.let {
+                            runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(it)) }.getOrNull()
+                        }
+                        if (shareUri == null) {
+                            scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.session_share_failed)) }
+                        } else {
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = VoxsumSession.MIME
+                                putExtra(Intent.EXTRA_STREAM, shareUri)
+                                putExtra(Intent.EXTRA_SUBJECT, title ?: context.getString(R.string.app_name))
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.session_share))) }
+                        }
+                    } else {
+                        val label = lastSaveUri?.let { documentLabel(context, it) } ?: ""
+                        val msg = when (e.outcome) {
+                            "FULL" -> context.getString(R.string.session_saved_as, label)
+                            "PARTIAL" -> context.getString(R.string.session_saved_partial, label)
+                            else -> context.getString(R.string.session_save_failed)
+                        }
+                        scope.launch { snackbarHostState.showSnackbar(msg) }
+                    }
                 }
                 else -> Unit
             }
@@ -769,7 +767,11 @@ private fun TranscribeScreen(
                 onCoverPreview = {
                     scope.launch { coverBusy = true; ensureCover(); coverBusy = false; showCoverDialog = true }
                 },
-                onSaveSession = { sessionSaver.launch(VoxsumSession.suggestFileName(title)) },
+                onSaveSession = {
+                    // Generate the cover BEFORE the picker creates the (empty) file, so cover work
+                    // can't leave a 0-byte file; the picker callback then hands the write to the service.
+                    scope.launch { exporting = true; runCatching { ensureCover() }; sessionSaver.launch(VoxsumSession.suggestFileName(title)) }
+                },
                 onShareSession = { shareSession() },
             )
         },
@@ -942,7 +944,7 @@ private fun TranscribeScreen(
             onDismiss = { showCoverDialog = false },
         )
     }
-    if (exporting) ExportingOverlay()
+    if (exporting) ExportingOverlay(onDismiss = { exporting = false })
     BackHandler(showConfigSheet || showPodcastSheet || showAddSourceSheet || showYouTubeSheet) {
         showConfigSheet = false; showPodcastSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
@@ -950,15 +952,15 @@ private fun TranscribeScreen(
 }
 
 /**
- * Blocking "Exporting…" overlay shown while a session .ogg is built/written. It's non-dismissable so
- * the user waits (and keeps the app foregrounded — a backgrounded app holding the models can be
- * killed, which would truncate the file to 0 bytes). Building a multi-hour session takes seconds.
+ * "Exporting…" overlay shown while a session .ogg is built/written. The work runs in the foreground
+ * service, so it finishes even if the app is closed — the overlay is therefore dismissable (tap away
+ * / back) and the export keeps going; the result arrives via a snackbar (save) or share chooser.
  */
 @Composable
-private fun ExportingOverlay() {
+private fun ExportingOverlay(onDismiss: () -> Unit) {
     Dialog(
-        onDismissRequest = {},
-        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true),
     ) {
         Surface(shape = RoundedCornerShape(16.dp), color = VoxSumPalette.PanelSurface, tonalElevation = 6.dp) {
             Row(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {

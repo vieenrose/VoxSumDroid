@@ -31,7 +31,9 @@ import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
+import studio.voxsum.core.session.VoxsumSession
 import studio.voxsum.core.text.OpenCcConverter
+import studio.voxsum.data.SpeakerName
 import studio.voxsum.R
 import java.io.File
 
@@ -57,11 +59,35 @@ class TranscriptionService : LifecycleService() {
         // Gracefully end live recording and continue into diarization/summary (vs ACTION_STOP,
         // which cancels the whole job).
         const val ACTION_STOP_RECORDING = "studio.voxsum.STOP_RECORDING"
+        // Build/write a session .ogg in the foreground service so it completes even if the user
+        // leaves/closes the app mid-export (the SAF document is created empty up front; a UI-scoped
+        // build that got interrupted left a 0-byte file). Request passed via [pendingExport] —
+        // utterances can be large, so it rides an in-memory holder, not Intent extras.
+        const val ACTION_EXPORT = "studio.voxsum.EXPORT"
+
+        @Volatile var pendingExport: ExportRequest? = null
 
         // Process-wide event bus the UI subscribes to. replay=0: UI must be collecting.
         val events = MutableSharedFlow<TranscriptEvent>(extraBufferCapacity = 256)
         val eventStream = events.asSharedFlow()
     }
+
+    /** A pending session export, handed to the service via [pendingExport] (utterances can be large,
+     *  so it rides an in-memory holder rather than Intent extras). */
+    data class ExportRequest(
+        val share: Boolean,           // true → build to cache for sharing; false → write to [saveUri]
+        val saveUri: Uri?,
+        val audioUri: Uri?,
+        val utterances: List<TranscriptEvent.Utterance>,
+        val speakerNames: Map<Int, SpeakerName>,
+        val summary: String?,
+        val title: String?,
+        val asrModelId: String?,
+        val llmModelId: String?,
+        val coverBlock: String?,
+        val coverSig: String?,
+        val fileName: String,
+    )
 
     private var pipelineJob: Job? = null
     // Held so a stop request can break the native generate loop promptly (it ignores
@@ -83,6 +109,10 @@ class TranscriptionService : LifecycleService() {
             // End recording but let the job carry on into diarization/summary.
             ACTION_STOP_RECORDING -> {
                 stopRecordingRequested = true
+                return START_NOT_STICKY
+            }
+            ACTION_EXPORT -> {
+                runExport(pendingExport.also { pendingExport = null })
                 return START_NOT_STICKY
             }
         }
@@ -124,6 +154,72 @@ class TranscriptionService : LifecycleService() {
         previousLlm?.cancel()
         previousJob?.cancel()
         return START_NOT_STICKY
+    }
+
+    /**
+     * Build + write a session .ogg here in the foreground service, so leaving/closing the app
+     * (or Android killing it under model-memory pressure) can no longer truncate the SAF document
+     * to 0 bytes. Emits [TranscriptEvent.ExportDone] for the UI (snackbar / share chooser) and a
+     * result notification so a backgrounded user still sees the outcome. Runs independently of the
+     * transcription [pipelineJob] (shared foreground notification; common case is export-when-idle).
+     */
+    private fun runExport(req: ExportRequest?) {
+        if (req == null) return
+        startForegroundTyped(recording = false, getString(R.string.exporting))
+        lifecycleScope.launch(Dispatchers.IO) {
+            val done = runCatching {
+                if (req.share) {
+                    val dir = File(cacheDir, "shared").apply { mkdirs() }
+                    dir.listFiles()?.forEach { it.delete() }
+                    val built = VoxsumSession.buildSessionOgg(
+                        this@TranscriptionService, dir, req.audioUri, req.utterances, req.speakerNames,
+                        req.summary, req.title, req.asrModelId, req.llmModelId, req.coverBlock, req.coverSig, req.fileName,
+                    )
+                    if (built != null)
+                        TranscriptEvent.ExportDone(true, if (built.transcriptEmbedded) "FULL" else "PARTIAL", built.file.absolutePath)
+                    else TranscriptEvent.ExportDone(true, "FAILED")
+                } else {
+                    val outcome = req.saveUri?.let { uri ->
+                        contentResolver.openOutputStream(uri)?.let { os ->
+                            VoxsumSession.save(
+                                this@TranscriptionService, os, req.audioUri, req.utterances, req.speakerNames,
+                                req.summary, req.title, req.asrModelId, req.llmModelId, req.coverBlock, req.coverSig,
+                            )
+                        }
+                    } ?: VoxsumSession.SaveOutcome.FAILED
+                    TranscriptEvent.ExportDone(false, outcome.name)
+                }
+            }.getOrElse {
+                if (it is CancellationException) throw it
+                TranscriptEvent.ExportDone(req.share, "FAILED")
+            }
+            events.emit(done)
+            notifyExportResult(done)
+            // Leave a running transcription's foreground intact; otherwise we're done.
+            if (pipelineJob == null) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+        }
+    }
+
+    /** A dismissable result notification (separate id from the foreground one) so a user who left
+     *  the app still learns the save finished. Share fires an in-app chooser, so it needs none. */
+    private fun notifyExportResult(done: TranscriptEvent.ExportDone) {
+        if (done.share) return
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "VoxSum pipeline", NotificationManager.IMPORTANCE_LOW)
+            )
+        }
+        val text = if (done.outcome == "FAILED") getString(R.string.session_save_failed) else getString(R.string.session_saved)
+        nm.notify(
+            NOTIF_ID + 1,
+            Notification.Builder(this, CHANNEL_ID)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setAutoCancel(true)
+                .build(),
+        )
     }
 
     /**

@@ -159,7 +159,7 @@
     <string name="session_open_failed">Impossible d\'ouvrir la session</string>
     <string name="session_share_failed">Impossible de partager la session</string>
     <string name="exporting">Exportation de la session…</string>
-    <string name="exporting_hint">Gardez l\'application ouverte jusqu\'à la fin</string>
+    <string name="exporting_hint">Se poursuit en arrière-plan — vous pouvez continuer à utiliser l\'application</string>
     <string name="cover_menu">Couverture…</string>
     <string name="cover_title">Couverture de la session</string>
     <string name="cover_none">Aucune couverture</string>

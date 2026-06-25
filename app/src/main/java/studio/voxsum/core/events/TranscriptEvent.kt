@@ -47,5 +47,12 @@ sealed interface TranscriptEvent {
     /** Live recording finished and the captured WAV was written — the UI loads it for playback. */
     data class RecordingSaved(val uri: String) : TranscriptEvent
 
+    /**
+     * A session export (run in the foreground service so it survives the app closing) finished.
+     * [share] = built for sharing ([sharePath] set) vs saved to a SAF target; [outcome] is
+     * FULL / PARTIAL / FAILED (matches SaveOutcome).
+     */
+    data class ExportDone(val share: Boolean, val outcome: String, val sharePath: String = "") : TranscriptEvent
+
     data class Failed(val error: String) : TranscriptEvent
 }
