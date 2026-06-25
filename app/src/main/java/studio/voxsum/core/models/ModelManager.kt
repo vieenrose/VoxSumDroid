@@ -31,7 +31,15 @@ class ModelManager(context: Context) {
     val tokens: File get() = File(senseVoiceDir, "tokens.txt")
     val vadModel: File get() = File(modelsDir, "silero_vad.onnx")
 
-    val embeddingModel: File get() = File(modelsDir, "speaker_embedding.onnx")
+    // CAM++ zh+en (3D-Speaker), fp16 — replaced eres2net_base after on-device benchmarking on a
+    // Pixel 6: fp16 was the fastest (~70 ms/utt, ~1.5x faster than CAM++ fp32, ~3.5x faster than
+    // eres2net), half the size of fp32, with accuracy indistinguishable from fp32 (int8 was both
+    // slower and less accurate on this ARM CPU). Hosted on HF since it is a custom conversion.
+    // New filename forces a fresh download on existing installs (the downloader skips if present).
+    val embeddingModel: File get() = File(modelsDir, "campplus_zh_en_fp16.onnx")
+    // Older embeddings to reclaim on upgrade: eres2net_base and the interim CAM++ fp32.
+    private val legacyEmbeddings: List<File> get() =
+        listOf(File(modelsDir, "speaker_embedding.onnx"), File(modelsDir, "campplus_zh_en.onnx"))
 
     fun asrReady(): Boolean = senseVoiceModel.exists() && tokens.exists() && vadModel.exists()
     // Diarization is per-utterance embedding + clustering, so only the speaker-embedding
@@ -166,11 +174,13 @@ class ModelManager(context: Context) {
     suspend fun ensureLlmModel(onProgress: (Float) -> Unit) =
         ensureLlmModel(LlmRegistry.byId(LlmRegistry.DEFAULT_ID), onProgress)
 
-    /** Ensure the diarization model (3D-Speaker eres2net embedding) — Phase 3. */
+    /** Ensure the diarization model (3D-Speaker CAM++ zh+en fp16 embedding) — Phase 3. */
     suspend fun ensureDiarizationModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         if (!embeddingModel.exists()) {
             download(EMB_URL, embeddingModel, EMB_SHA) { onProgress(it) }
         }
+        // Reclaim superseded embeddings (eres2net ~38 MB, CAM++ fp32 ~27 MB) once fp16 is in place.
+        legacyEmbeddings.forEach { if (it.exists()) it.delete() }
         check(diarizationReady()) { "Diarization model missing after provisioning" }
     }
 
@@ -251,13 +261,13 @@ class ModelManager(context: Context) {
         private const val VAD_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
 
+        // CAM++ zh+en fp16 (custom conversion, benchmarked best on-device) hosted on HF.
         private const val EMB_URL =
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/" +
-                "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
+            "https://huggingface.co/Luigi/campplus-zh-en-onnx/resolve/main/campplus_zh_en_fp16.onnx"
 
         // SHA-256 pins for the exact release artifacts above (verified after download).
         private const val VAD_SHA = "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
         private const val SENSE_VOICE_SHA = "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e"
-        private const val EMB_SHA = "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b"
+        private const val EMB_SHA = "62eb2d79d363c1fd5ee093a4b0dcb5470d5ad3b7452612b67cce9b89f36c8ef3"
     }
 }
