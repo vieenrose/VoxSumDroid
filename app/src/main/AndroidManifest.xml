@@ -2,11 +2,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- INTERNET is used ONLY for first-run model download and (optional) podcast RSS.
-         The transcription + summarization pipeline is fully offline once models are present.
-         F-Droid: this combination earns no anti-feature on its own, but the optional
-         podcast/YouTube features are gated behind a build flag (see flavors / SPIKE.md). -->
+    <!-- INTERNET is used ONLY for first-run model download, (optional) podcast RSS, and the
+         once/day GitHub release check. The transcription + summarization pipeline is fully offline
+         once models are present. F-Droid: this combination earns no anti-feature on its own, but the
+         optional podcast/YouTube features are gated behind a build flag (see flavors / SPIKE.md). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- In-app update: download the signed release APK and hand it to the system installer
+         (user confirms; same keystore => in-place update). Note: this is an anti-feature on the
+         official f-droid.org repo (Route A) — fine for the self-hosted repo + GitHub APKs. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -43,5 +47,16 @@
             android:name=".service.TranscriptionService"
             android:exported="false"
             android:foregroundServiceType="dataSync|microphone" />
+
+        <!-- Serves the downloaded update APK to the system installer (cache/updates only). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

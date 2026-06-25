@@ -64,6 +64,12 @@ https://<owner>.github.io/<repo>/repo
 Add that URL in F-Droid: **Settings → Repositories → +**. The app then installs and
 auto-updates like any F-Droid app.
 
+> **Two update paths.** F-Droid-client users auto-update through the client (above). Users who
+> sideload the raw GitHub APK instead get an **in-app updater**: it checks GitHub Releases once/day
+> and offers a one-tap download + system-installer update (needs the `REQUEST_INSTALL_PACKAGES`
+> grant). That permission is an anti-feature on official f-droid.org — see the note in
+> `metadata/studio.voxsum.yml`; a future Route A build must strip the updater via an `fdroid` flavor.
+
 ## Local dry-run
 
 ```bash

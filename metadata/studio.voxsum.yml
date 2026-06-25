@@ -39,6 +39,10 @@ UpdateCheckMode: Tags
 CurrentVersion: "0.1.0"
 CurrentVersionCode: 1
 
-# AntiFeatures: none for the default offline build. Models are FOSS (Apache-2.0 / MIT),
-# SHA-256-pinned, and downloaded at first run from upstream release pages (or side-loaded).
-# If the optional podcast/YouTube flavor is added later, declare NonFreeNet on that flavor.
+# AntiFeatures for the GitHub/self-hosted build: the in-app updater uses REQUEST_INSTALL_PACKAGES
+# to download + install the signed APK (this is the "UpstreamNonFree"/self-update behaviour F-Droid
+# flags). For an official f-droid.org (Route A) submission, the updater must be removed via a
+# dedicated `fdroid` product flavor (not yet implemented) — the F-Droid client provides updates
+# there, so the in-app updater is redundant. Models are FOSS (Apache-2.0 / MIT), SHA-256-pinned, and
+# downloaded at first run from upstream release pages (or side-loaded). If the optional
+# podcast/YouTube flavor is added later, declare NonFreeNet on that flavor.

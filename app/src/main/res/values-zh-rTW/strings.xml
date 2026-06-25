@@ -134,4 +134,11 @@
     <string name="svc_summarization_model_pct">摘要模型… %d%%</string>
     <string name="svc_summarizing">摘要中…</string>
     <string name="svc_identifying_speakers">辨識語者中…</string>
+
+    <!-- In-app update -->
+    <string name="update_available">有可用更新 — %1$s</string>
+    <string name="update_now">更新</string>
+    <string name="update_later">稍後</string>
+    <string name="update_downloading">正在下載更新…</string>
+    <string name="update_download_failed">更新下載失敗</string>
 </resources>

@@ -100,6 +100,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.ConfigStore
@@ -110,6 +111,9 @@ import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.SpeakerNamer
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
+import studio.voxsum.core.update.UpdateChecker
+import studio.voxsum.core.update.UpdateInfo
+import studio.voxsum.core.update.UpdateInstaller
 import studio.voxsum.data.SpeakerName
 import studio.voxsum.data.computeDiarizationStats
 import studio.voxsum.data.speakerColor
@@ -120,6 +124,7 @@ import studio.voxsum.ui.EmptyState
 import studio.voxsum.ui.PodcastSheet
 import studio.voxsum.ui.ReRunActions
 import studio.voxsum.ui.SourceBar
+import studio.voxsum.ui.UpdateBanner
 import studio.voxsum.ui.renderMarkdown
 import studio.voxsum.ui.SpeakerStatsPanel
 import studio.voxsum.ui.VoxSumTopBar
@@ -259,6 +264,13 @@ private fun TranscribeScreen(
     var showYouTubeSheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val utterances = remember { mutableStateListOf<TranscriptEvent.Utterance>() }
+
+    // --- Update notifier: once/day GitHub release check → dismissible banner → download+install. ---
+    var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+    var updateDismissed by remember { mutableStateOf(false) }
+    var updateProgress by remember { mutableStateOf<Float?>(null) }   // non-null while downloading
+    var updateApk by remember { mutableStateOf<File?>(null) }         // cached so a perms-retry skips re-download
+    LaunchedEffect(Unit) { updateInfo = runCatching { UpdateChecker.check(context) }.getOrNull() }
 
     // --- Inline editing (mirrors the web app): id->name overrides + which row/speaker is open. ---
     val speakerNames = remember { mutableStateMapOf<Int, SpeakerName>() }
@@ -549,6 +561,29 @@ private fun TranscribeScreen(
             // SourceBar would duplicate "Pick audio…" — show it only once there's content.
             val isEmptyState = utterances.isEmpty() && !running && player == null
             Spacer(Modifier.height(10.dp))
+            updateInfo?.takeIf { !updateDismissed }?.let { info ->
+                UpdateBanner(
+                    versionTag = info.tag,
+                    notes = info.notes,
+                    progress = updateProgress,
+                    onUpdate = {
+                        scope.launch {
+                            val apk = updateApk ?: run {
+                                updateProgress = 0f
+                                val f = runCatching {
+                                    UpdateInstaller.download(context, info.apkUrl) { updateProgress = it }
+                                }.getOrNull()
+                                updateProgress = null
+                                f?.also { updateApk = it }
+                            }
+                            if (apk == null) snackbarHostState.showSnackbar(context.getString(R.string.update_download_failed))
+                            else UpdateInstaller.install(context, apk)
+                        }
+                    },
+                    onDismiss = { updateDismissed = true },
+                )
+                Spacer(Modifier.height(8.dp))
+            }
             if (!isEmptyState) {
                 SourceBar(
                     running = running,
