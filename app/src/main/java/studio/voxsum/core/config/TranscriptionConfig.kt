@@ -22,7 +22,7 @@ data class TranscriptionConfig(
     val clusterThreshold: Float = 0.8f,       // 0.1..1.0
 
     // --- Summarization ---
-    val llmModelId: String = "gemma-4-e2b-it-qat",
+    val llmModelId: String = "qwen3.5-2b",
     val summaryPrompt: String = "Summarize the key points of this transcript.",
     val traditionalChinese: Boolean = true,   // OpenCC s2tw on Chinese output (Increment 6)
 ) {

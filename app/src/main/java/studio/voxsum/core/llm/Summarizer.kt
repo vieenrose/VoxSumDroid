@@ -72,7 +72,7 @@ class Summarizer(
      * the first real candidate, and strip list numbering, markdown, quotes, and "Title:".
      */
     private fun cleanTitle(raw: String): String {
-        val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val lines = stripThink(raw).lines().map { it.trim() }.filter { it.isNotBlank() }
         val candidate = lines.firstOrNull { line ->
             !line.endsWith(":") &&
                 !line.matches(Regex("(?i)^(here|sure|okay|ok|option|options|below|these|certainly).*"))
@@ -91,8 +91,11 @@ class Summarizer(
      * summary…:"), unwrap bold/italic/code spans, strip heading marks, and normalize list
      * bullets — Compose renders raw text, so leftover markdown shows as literal asterisks.
      */
+    /** Drop any <think>…</think> reasoning block a thinking-capable model (e.g. Qwen3.5) might emit. */
+    private fun stripThink(s: String): String = s.replace(Regex("(?s)<think>.*?</think>"), "").trim()
+
     private fun cleanSummary(raw: String): String {
-        val lines = raw.trim().lines().toMutableList()
+        val lines = stripThink(raw).lines().toMutableList()
         // Drop a leading conversational lead-in / header (e.g. "Here's a summary…:",
         // "Key points:"). Any first line ending in a colon is a preamble, not content —
         // robust to curly vs straight apostrophes. Then drop a now-leading blank line.
@@ -117,6 +120,10 @@ class Summarizer(
         // Gemma 4 uses a different turn format (per its chat_template.jinja): a plain user
         // turn with no system/thinking block. <bos> is auto-added by the tokenizer.
         ChatTemplate.GEMMA4 -> "<|turn>user\n$user<turn|>\n<|turn>model\n"
+        // Qwen3/Qwen3.5 ChatML. Append the empty <think></think> block their template emits for
+        // non-thinking mode, so the model answers directly (a summary, not a reasoning trace).
+        ChatTemplate.QWEN3 -> "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
+            "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
     }
 
     /** Naive char-window chunker; replace with a sentence-aware splitter in Phase 2. */
