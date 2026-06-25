@@ -551,21 +551,20 @@ private fun TranscribeScreen(
                     recSeconds = recSeconds,
                     onAddSource = { showAddSourceSheet = true },
                     onStop = { handleStop() },
+                    // The "Re-run" menu sits in the same row as Add audio, same gradient style.
+                    // It self-hides until there's a transcript to re-run.
+                    trailing = {
+                        ReRunActions(
+                            canReTranscribe = audioUri != null && utterances.isNotEmpty(),
+                            onReTranscribe = { audioUri?.let { launchAudio(it) } },
+                            canReSummarize = utterances.isNotEmpty(),
+                            onReSummarize = { reSummarize() },
+                            canReDetect = stats.perSpeaker.isNotEmpty(),
+                            isDetecting = isDetecting,
+                            onReDetect = { detectNames() },
+                        )
+                    },
                 )
-                // Re-run actions on an existing transcript (apply a settings change without
-                // starting over). Hidden while a run is in progress.
-                if (!running && utterances.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    ReRunActions(
-                        canReTranscribe = audioUri != null,
-                        onReTranscribe = { audioUri?.let { launchAudio(it) } },
-                        canReSummarize = true,
-                        onReSummarize = { reSummarize() },
-                        canReDetect = stats.perSpeaker.isNotEmpty(),
-                        isDetecting = isDetecting,
-                        onReDetect = { detectNames() },
-                    )
-                }
             }
 
             if (isEmptyState) {

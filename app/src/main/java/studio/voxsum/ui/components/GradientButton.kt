@@ -29,6 +29,7 @@ import studio.voxsum.ui.theme.VoxSumPalette
 fun GradientButton(
     text: String,
     icon: ImageVector? = null,
+    trailingIcon: ImageVector? = null,
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
@@ -53,6 +54,10 @@ fun GradientButton(
                 Spacer(Modifier.width(8.dp))
             }
             Text(text, color = VoxSumPalette.Slate900, fontWeight = FontWeight.SemiBold)
+            if (trailingIcon != null) {
+                Spacer(Modifier.width(4.dp))
+                Icon(trailingIcon, contentDescription = null, tint = VoxSumPalette.Slate900, modifier = Modifier.size(18.dp))
+            }
         }
     }
 }

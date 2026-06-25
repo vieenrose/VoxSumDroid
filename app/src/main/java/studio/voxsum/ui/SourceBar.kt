@@ -39,6 +39,7 @@ fun SourceBar(
     onAddSource: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
+    trailing: @Composable () -> Unit = {},
 ) {
     FlowRow(
         modifier = modifier.fillMaxWidth(),
@@ -59,6 +60,7 @@ fun SourceBar(
             if (isRecording) RecordingPulse(recSeconds)
         } else {
             GradientButton(stringResource(R.string.add_audio), Icons.Filled.Add, onClick = onAddSource)
+            trailing()   // e.g. the "Re-run" menu — same row, same style as Add audio
         }
     }
 }
