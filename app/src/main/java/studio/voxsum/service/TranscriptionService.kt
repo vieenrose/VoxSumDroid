@@ -87,12 +87,15 @@ class TranscriptionService : LifecycleService() {
         val recording = intent?.action == ACTION_RECORD
         val summarizeOnly = intent?.action == ACTION_SUMMARIZE
         stopRecordingRequested = false
+        val previousJob = pipelineJob
+        val previousLlm = activeLlm
         startForegroundTyped(recording, "Preparing…")
         val uri = intent?.getStringExtra(EXTRA_AUDIO_URI)
         val transcript = intent?.getStringExtra(EXTRA_TRANSCRIPT)
         // Run the whole pipeline off the main thread — the MediaCodec decode is a long
         // blocking call that would otherwise ANR the UI (lifecycleScope defaults to Main).
-        pipelineJob = lifecycleScope.launch(Dispatchers.Default) {
+        var job: Job? = null
+        job = lifecycleScope.launch(Dispatchers.Default) {
             runCatching {
                 when {
                     summarizeOnly -> runSummarizeOnly(transcript.orEmpty())
@@ -105,9 +108,18 @@ class TranscriptionService : LifecycleService() {
                         events.emit(TranscriptEvent.Failed(e.message ?: "pipeline error"))
                     }
                 }
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            // Only tear down if still the active job — a newer run may have superseded this one.
+            if (pipelineJob === job) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
         }
+        pipelineJob = job
+        // Now that the new job is the active one, supersede any in-flight run (e.g. Re-summarize
+        // while the first summary is still streaming). Done after the reassignment so the old job's
+        // teardown sees it is no longer current and leaves the new run's foreground alone.
+        previousLlm?.cancel()
+        previousJob?.cancel()
         return START_NOT_STICKY
     }
 

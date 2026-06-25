@@ -244,6 +244,10 @@ private fun TranscribeScreen(
     var summary by remember { mutableStateOf<String?>(null) }
     var audioUri by remember { mutableStateOf<Uri?>(null) }
     var running by remember { mutableStateOf(false) }
+    // True once a final transcript exists (the Complete event, after diarization). The Re-run menu
+    // keys off this rather than !running, so it's available while the summary is still streaming
+    // (cancel-and-re-summarize). Reset when a fresh transcription starts.
+    var transcriptReady by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     // Load the user's persisted settings (survives restarts) and seed the process-wide Holder.
     var config by remember {
@@ -313,7 +317,7 @@ private fun TranscribeScreen(
         title = null; summary = null; isPlaying = false
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
-        running = true; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri)
+        running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri)
     }
 
     val picker = rememberLauncherForActivityResult(
@@ -333,7 +337,7 @@ private fun TranscribeScreen(
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         TranscriptionConfig.Holder.config = config
-        audioUri = null; running = true; isRecording = true; progress = 0f
+        audioUri = null; running = true; transcriptReady = false; isRecording = true; progress = 0f
         status = context.getString(R.string.status_recording); onRecord()
     }
     val recordPermission = rememberLauncherForActivityResult(
@@ -384,6 +388,7 @@ private fun TranscribeScreen(
                     }
                     utterances.clear(); utterances.addAll(merged)
                     editingIndex = -1; editingSpeakerId = null
+                    transcriptReady = true   // final transcript exists → Re-run becomes available
                     status = e.speakerCount?.let {
                         context.getString(R.string.status_transcript_lines_speakers, merged.size, it)
                     } ?: context.getString(R.string.status_transcript_lines, merged.size)
@@ -442,7 +447,7 @@ private fun TranscribeScreen(
         if (running || utterances.isEmpty()) return
         TranscriptionConfig.Holder.config = config
         title = null; summary = null
-        running = true; progress = 0f; status = context.getString(R.string.status_starting)
+        running = true; progress = 0f; status = context.getString(R.string.status_starting)   // transcript persists
         val intent = Intent(context, TranscriptionService::class.java)
             .setAction(TranscriptionService.ACTION_SUMMARIZE)
             .putExtra(TranscriptionService.EXTRA_TRANSCRIPT, utterances.joinToString("\n") { it.text })
@@ -555,11 +560,11 @@ private fun TranscribeScreen(
                     // It self-hides until there's a transcript to re-run.
                     trailing = {
                         ReRunActions(
-                            canReTranscribe = audioUri != null && utterances.isNotEmpty(),
+                            canReTranscribe = transcriptReady && audioUri != null,
                             onReTranscribe = { audioUri?.let { launchAudio(it) } },
-                            canReSummarize = utterances.isNotEmpty(),
+                            canReSummarize = transcriptReady,
                             onReSummarize = { reSummarize() },
-                            canReDetect = stats.perSpeaker.isNotEmpty(),
+                            canReDetect = transcriptReady && stats.perSpeaker.isNotEmpty(),
                             isDetecting = isDetecting,
                             onReDetect = { detectNames() },
                         )

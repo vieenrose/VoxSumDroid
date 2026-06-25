@@ -60,8 +60,10 @@ fun SourceBar(
             if (isRecording) RecordingPulse(recSeconds)
         } else {
             GradientButton(stringResource(R.string.add_audio), Icons.Filled.Add, onClick = onAddSource)
-            trailing()   // e.g. the "Re-run" menu — same row, same style as Add audio
         }
+        // The "Re-run" menu (same row, same style). Outside the if/else so it stays visible while
+        // a summary is still streaming — it self-hides until there's a transcript.
+        trailing()
     }
 }
 
