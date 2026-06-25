@@ -3,6 +3,9 @@ package studio.voxsum
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
@@ -15,14 +18,18 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,8 +38,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
@@ -45,9 +55,11 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,6 +71,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -83,6 +96,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.pointer.pointerInput
@@ -90,11 +104,22 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
@@ -104,8 +129,11 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
+import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TranscriptionConfig
+import studio.voxsum.core.cover.CoverArt
+import studio.voxsum.core.cover.CoverGenerator
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.export.TranscriptExport
 import studio.voxsum.core.llm.LlmEngine
@@ -124,8 +152,6 @@ import studio.voxsum.ui.AddSourceSheet
 import studio.voxsum.ui.ConfigSheet
 import studio.voxsum.ui.EmptyState
 import studio.voxsum.ui.PodcastSheet
-import studio.voxsum.ui.ReRunActions
-import studio.voxsum.ui.SourceBar
 import studio.voxsum.ui.UpdateBanner
 import studio.voxsum.ui.renderMarkdown
 import studio.voxsum.ui.SpeakerStatsPanel
@@ -290,6 +316,20 @@ private fun TranscribeScreen(
     var isDetecting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    // --- Session cover card: auto-(re)generated only when first-time, or when the card-relevant
+    // metadata (title + speaker palette + audio) differs from what's embedded in the saved .ogg. ---
+    var coverBlock by remember { mutableStateOf<String?>(null) }      // ready METADATA_BLOCK_PICTURE value
+    var coverSig by remember { mutableStateOf<String?>(null) }        // signature the current cover was built from
+    var coverSkippedSig by remember { mutableStateOf<String?>(null) } // metadata the user chose to leave coverless
+    var coverSeed by remember { mutableIntStateOf(0) }
+    var coverPeaks by remember { mutableStateOf<FloatArray?>(null) }  // cached waveform thumbnail per audio
+    var coverBitmap by remember { mutableStateOf<Bitmap?>(null) }     // preview shown in the dialog
+    var showCoverDialog by remember { mutableStateOf(false) }
+    var coverBusy by remember { mutableStateOf(false) }
+    // True while a session .ogg is being built/written — a blocking overlay keeps the user on-screen
+    // (the foregrounded app won't be killed) and signals that leaving now would truncate the file.
+    var exporting by remember { mutableStateOf(false) }
+
     // --- Synced player (android MediaPlayer; no extra dep). ---
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
     var enhancer by remember { mutableStateOf<LoudnessEnhancer?>(null) }
@@ -339,6 +379,7 @@ private fun TranscribeScreen(
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         editingTitle = false; editingSummary = false
         title = null; summary = null; isPlaying = false
+        coverBlock = null; coverSig = null; coverSkippedSig = null; coverSeed = 0; coverPeaks = null; coverBitmap = null
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri)
@@ -359,6 +400,7 @@ private fun TranscribeScreen(
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         editingTitle = false; editingSummary = false
         title = null; summary = null; isPlaying = false
+        coverBlock = null; coverSig = null; coverSkippedSig = null; coverSeed = 0; coverPeaks = null; coverBitmap = null
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         TranscriptionConfig.Holder.config = config
@@ -401,6 +443,41 @@ private fun TranscribeScreen(
         }
     }
 
+    // --- Cover card: pure-Canvas thumbnail (gradient + waveform + title + speaker palette). ---
+    fun cardSpeakerColors(): List<Int> =
+        utterances.mapNotNull { it.speaker }.distinct().sorted().map { speakerColor(it).toInt() }
+
+    // Signature of exactly what the card draws, so the cover is reused unless one of these changes.
+    fun currentCoverSig(): String =
+        CoverArt.signature(title, cardSpeakerColors(), audioUri?.toString().orEmpty())
+
+    // (Re)build the cover bitmap + embeddable block for [sig] with [seed]; heavy work off the main thread.
+    suspend fun buildCover(sig: String, seed: Int) {
+        val peaks = coverPeaks ?: withContext(Dispatchers.IO) {
+            audioUri?.let { AudioDecoder.waveformPeaks(context, it) } ?: FloatArray(0)
+        }.also { coverPeaks = it }
+        val cols = cardSpeakerColors()
+        val ttl = title
+        val (bmp, jpeg) = withContext(Dispatchers.Default) {
+            val b = CoverGenerator.render(ttl, peaks, cols, seed)
+            b to CoverGenerator.toJpeg(b)
+        }
+        coverBitmap = bmp
+        coverBlock = CoverArt.encode(jpeg, bmp.width, bmp.height)
+        coverSig = sig
+        coverSkippedSig = null
+    }
+
+    // Ensure a cover exists for the current metadata: regenerate on first-time / metadata change,
+    // reuse an up-to-date one, and respect an explicit "remove" for this exact metadata.
+    suspend fun ensureCover() {
+        if (utterances.isEmpty()) return
+        val sig = currentCoverSig()
+        if (coverBlock != null && coverSig == sig) return
+        if (coverSkippedSig == sig) return
+        buildCover(sig, coverSeed)
+    }
+
     // --- Session as a self-describing .ogg: Save (SAF), Open (SAF → recover), Share (one .ogg). ---
     val sessionSaver = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(VoxsumSession.MIME)
@@ -409,21 +486,28 @@ private fun TranscribeScreen(
         val utts = utterances.toList(); val names = speakerNames.toMap()
         val sum = summary; val ttl = title; val au = audioUri; val cfg = config
         scope.launch {
-            val outcome = runCatching {
-                withContext(Dispatchers.IO) {
-                    val os = context.contentResolver.openOutputStream(uri)
-                        ?: return@withContext VoxsumSession.SaveOutcome.FAILED
-                    VoxsumSession.save(context, os, au, utts, names, sum, ttl, cfg.asrModelId, cfg.llmModelId)
+            exporting = true
+            try {
+                runCatching { ensureCover() }   // cover is optional — never let it block the save
+                val cb = coverBlock; val cs = coverSig
+                val outcome = runCatching {
+                    withContext(Dispatchers.IO) {
+                        val os = context.contentResolver.openOutputStream(uri)
+                            ?: return@withContext VoxsumSession.SaveOutcome.FAILED
+                        VoxsumSession.save(context, os, au, utts, names, sum, ttl, cfg.asrModelId, cfg.llmModelId, cb, cs)
+                    }
+                }.getOrDefault(VoxsumSession.SaveOutcome.FAILED)
+                // Report exactly where it landed (SAF de-dupes names on conflict), and warn honestly if
+                // the transcript was too large to embed (audio + summary saved, but not reopenable).
+                val msg = when (outcome) {
+                    VoxsumSession.SaveOutcome.FULL -> context.getString(R.string.session_saved_as, documentLabel(context, uri))
+                    VoxsumSession.SaveOutcome.PARTIAL -> context.getString(R.string.session_saved_partial, documentLabel(context, uri))
+                    VoxsumSession.SaveOutcome.FAILED -> context.getString(R.string.session_save_failed)
                 }
-            }.getOrDefault(VoxsumSession.SaveOutcome.FAILED)
-            // Report exactly where it landed (SAF de-dupes names on conflict), and warn honestly if
-            // the transcript was too large to embed (audio + summary saved, but not reopenable).
-            val msg = when (outcome) {
-                VoxsumSession.SaveOutcome.FULL -> context.getString(R.string.session_saved_as, documentLabel(context, uri))
-                VoxsumSession.SaveOutcome.PARTIAL -> context.getString(R.string.session_saved_partial, documentLabel(context, uri))
-                VoxsumSession.SaveOutcome.FAILED -> context.getString(R.string.session_save_failed)
+                snackbarHostState.showSnackbar(msg)
+            } finally {
+                exporting = false
             }
-            snackbarHostState.showSnackbar(msg)
         }
     }
     val sessionOpener = rememberLauncherForActivityResult(
@@ -443,6 +527,16 @@ private fun TranscribeScreen(
             speakerNames.clear(); loaded.speakerNames.forEach { (k, v) -> speakerNames[k] = v }
             editingIndex = -1; editingSpeakerId = null
             title = loaded.title; summary = loaded.summary
+            // Restore the embedded cover + its signature so it's only regenerated if the user later
+            // edits the title/speakers (i.e. the card metadata diverges from what the .ogg stored).
+            coverSkippedSig = null; coverSeed = 0; coverPeaks = null
+            val cj = loaded.coverJpeg
+            val bmp = cj?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull() }
+            if (cj != null && bmp != null) {
+                coverBitmap = bmp; coverBlock = CoverArt.encode(cj, bmp.width, bmp.height); coverSig = loaded.coverSig
+            } else {
+                coverBitmap = null; coverBlock = null; coverSig = null
+            }
             isPlaying = false; running = false; transcriptReady = true; progress = 0f
             audioUri = Uri.fromFile(loaded.audio)
             status = context.getString(R.string.status_session_loaded, loaded.utterances.size)
@@ -452,26 +546,33 @@ private fun TranscribeScreen(
         val utts = utterances.toList(); val names = speakerNames.toMap()
         val sum = summary; val ttl = title; val au = audioUri; val cfg = config
         scope.launch {
-            val uri = runCatching {
-                withContext(Dispatchers.IO) {
-                    val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-                    dir.listFiles()?.forEach { it.delete() }
-                    VoxsumSession.buildSessionOgg(
-                        context, dir, au, utts, names, sum, ttl, cfg.asrModelId, cfg.llmModelId,
-                        VoxsumSession.suggestFileName(ttl),
-                    )?.let { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", it.file) }
+            exporting = true
+            try {
+                runCatching { ensureCover() }   // cover is optional — never let it block the build
+                val cb = coverBlock; val cs = coverSig
+                val uri = runCatching {
+                    withContext(Dispatchers.IO) {
+                        val dir = File(context.cacheDir, "shared").apply { mkdirs() }
+                        dir.listFiles()?.forEach { it.delete() }
+                        VoxsumSession.buildSessionOgg(
+                            context, dir, au, utts, names, sum, ttl, cfg.asrModelId, cfg.llmModelId,
+                            coverBlock = cb, coverSig = cs, fileName = VoxsumSession.suggestFileName(ttl),
+                        )?.let { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", it.file) }
+                    }
+                }.getOrNull()
+                if (uri == null) {
+                    snackbarHostState.showSnackbar(context.getString(R.string.session_share_failed)); return@launch
                 }
-            }.getOrNull()
-            if (uri == null) {
-                snackbarHostState.showSnackbar(context.getString(R.string.session_share_failed)); return@launch
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = VoxsumSession.MIME
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, ttl ?: context.getString(R.string.app_name))
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.session_share))) }
+            } finally {
+                exporting = false
             }
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = VoxsumSession.MIME
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, ttl ?: context.getString(R.string.app_name))
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.session_share))) }
         }
     }
 
@@ -557,9 +658,15 @@ private fun TranscribeScreen(
     }
 
     val stats = computeDiarizationStats(utterances)
-    // Header items rendered before the utterance list (for auto-scroll index math).
-    val headerCount = (if (title != null) 1 else 0) + (if (summary != null) 1 else 0) +
-        (if (stats.perSpeaker.isNotEmpty()) 1 else 0)
+    // Landscape uses a two-pane layout: title/summary/stats move to a left overview pane, so the
+    // transcript list has no header items (in portrait they precede the utterances and shift the
+    // auto-scroll index).
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val hasOverview = title != null || summary != null || stats.perSpeaker.isNotEmpty()
+    // Landscape with something to show → side-by-side overview + transcript panes; otherwise a single
+    // column. The stacked column carries the overview as one header item (which shifts auto-scroll).
+    val twoPane = landscape && hasOverview
+    val headerCount = if (!twoPane && hasOverview) 1 else 0
     LaunchedEffect(activeIndex) {
         if (activeIndex in utterances.indices) {
             runCatching { listState.animateScrollToItem(headerCount + activeIndex, scrollOffset = -200) }
@@ -577,6 +684,61 @@ private fun TranscribeScreen(
         }
     }
 
+    // The utterance list — shared by the portrait (single column) and landscape (right pane) layouts.
+    val transcriptItems: LazyListScope.() -> Unit = {
+        items(count = utterances.size, key = { utterances[it].index }) { idx ->
+            val u = utterances[idx]
+            UtteranceRow(
+                utt = u,
+                active = idx == activeIndex,
+                isEditing = editingIndex == idx,
+                speakerNames = speakerNames,
+                editingSpeakerId = editingSpeakerId,
+                onSeek = { sec ->
+                    player?.let { p ->
+                        p.seekTo((sec * 1000).toInt()); if (!isPlaying) { p.start(); isPlaying = true }
+                    }
+                },
+                onBeginEdit = { editingIndex = idx; editingSpeakerId = null },
+                onSaveText = { newText ->
+                    if (newText.isNotEmpty()) { utterances[idx] = u.copy(text = newText); editingIndex = -1 }
+                },
+                onCancelEdit = { editingIndex = -1 },
+                onBeginSpeakerEdit = { sid -> editingSpeakerId = sid; editingIndex = -1 },
+                onCommitSpeakerName = { sid, name ->
+                    if (name.isBlank()) speakerNames.remove(sid)
+                    else speakerNames[sid] = SpeakerName(name, confidence = "user")
+                    editingSpeakerId = null
+                },
+                onCancelSpeakerEdit = { editingSpeakerId = null },
+            )
+        }
+    }
+
+    // Title / summary / speaker-stats overview — one header item in portrait, the left pane in
+    // landscape. Self-spaces its cards so both call sites get consistent gaps.
+    val overviewCards: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            title?.let { t ->
+                TitleCard(t, llmDisplay, editingTitle,
+                    onBeginEdit = { editingTitle = true },
+                    onSave = { title = it; editingTitle = false },
+                    onCancel = { editingTitle = false })
+            }
+            summary?.let { s ->
+                SummaryCard(s, llmDisplay, editingSummary,
+                    onBeginEdit = { editingSummary = true },
+                    onSave = { summary = it; editingSummary = false },
+                    onCancel = { editingSummary = false })
+            }
+            if (stats.perSpeaker.isNotEmpty()) SpeakerStatsPanel(stats = stats)
+        }
+    }
+
+    // Blank slate → the EmptyState hero carries the primary "Add audio" CTA, so the top bar hides
+    // its source actions to avoid duplicating it; they appear once there's content / a run.
+    val isEmptyState = utterances.isEmpty() && !running && player == null
+
     Scaffold(
         modifier = Modifier.fillMaxSize().background(VoxSumPalette.Slate900Grad),
         containerColor = Color.Transparent,
@@ -588,10 +750,25 @@ private fun TranscribeScreen(
                 progress = progress,
                 transcriptAvailable = utterances.isNotEmpty(),
                 summaryAvailable = summary != null,
+                showSourceActions = !isEmptyState,
+                isRecording = isRecording,
+                recSeconds = recSeconds,
+                onAddSource = { showAddSourceSheet = true },
+                onStop = { handleStop() },
+                canReTranscribe = transcriptReady && audioUri != null,
+                onReTranscribe = { audioUri?.let { launchAudio(it) } },
+                canReSummarize = transcriptReady,
+                onReSummarize = { reSummarize() },
+                canReDetect = transcriptReady && stats.perSpeaker.isNotEmpty(),
+                isDetecting = isDetecting,
+                onReDetect = { detectNames() },
                 onSettings = { showConfigSheet = true },
                 onExportTranscript = { f -> pending = PendingExport.Transcript(f); exporter.launch("transcript${f.ext}") },
                 onExportSummaryMarkdown = { pending = PendingExport.SummaryMd; exporter.launch("summary.md") },
                 onExportSummaryText = { pending = PendingExport.SummaryTxt; exporter.launch("summary.txt") },
+                onCoverPreview = {
+                    scope.launch { coverBusy = true; ensureCover(); coverBusy = false; showCoverDialog = true }
+                },
                 onSaveSession = { sessionSaver.launch(VoxsumSession.suggestFileName(title)) },
                 onShareSession = { shareSession() },
             )
@@ -637,6 +814,7 @@ private fun TranscribeScreen(
                                 val v = if (muted) 0f else volume.coerceAtLeast(0.05f).also { volume = it }
                                 player?.setVolume(v, v)
                             },
+                            compact = landscape,
                         )
                     }
                 }
@@ -649,9 +827,6 @@ private fun TranscribeScreen(
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
         ) {
-            // On the blank slate the EmptyState hero carries the primary CTA, so the compact
-            // SourceBar would duplicate "Pick audio…" — show it only once there's content.
-            val isEmptyState = utterances.isEmpty() && !running && player == null
             Spacer(Modifier.height(10.dp))
             updateInfo?.takeIf { !updateDismissed }?.let { info ->
                 UpdateBanner(
@@ -676,34 +851,37 @@ private fun TranscribeScreen(
                 )
                 Spacer(Modifier.height(8.dp))
             }
-            if (!isEmptyState) {
-                SourceBar(
-                    running = running,
-                    isRecording = isRecording,
-                    recSeconds = recSeconds,
-                    onAddSource = { showAddSourceSheet = true },
-                    onStop = { handleStop() },
-                    // The "Re-run" menu sits in the same row as Add audio, same gradient style.
-                    // It self-hides until there's a transcript to re-run.
-                    trailing = {
-                        ReRunActions(
-                            canReTranscribe = transcriptReady && audioUri != null,
-                            onReTranscribe = { audioUri?.let { launchAudio(it) } },
-                            canReSummarize = transcriptReady,
-                            onReSummarize = { reSummarize() },
-                            canReDetect = transcriptReady && stats.perSpeaker.isNotEmpty(),
-                            isDetecting = isDetecting,
-                            onReDetect = { detectNames() },
-                        )
-                    },
-                )
-            }
+            // Add audio / Stop / Re-run now live in the top bar (top = functions, middle = text,
+            // bottom = player), so the content area is just the empty state or the transcript.
 
             if (isEmptyState) {
                 EmptyState(
                     onAddSource = { showAddSourceSheet = true },
                     modifier = Modifier.weight(1f),
                 )
+            } else if (twoPane) {
+                // Landscape: two panes — the overview (title/summary/stats) on the left scrolls
+                // independently of the transcript on the right, so the wide screen isn't wasted and
+                // you don't have to scroll past the summary to read the transcript.
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    Column(
+                        Modifier
+                            .weight(0.40f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        overviewCards()
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.weight(0.60f).fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        content = transcriptItems,
+                    )
+                }
             } else {
                 Spacer(Modifier.height(8.dp))
                 LazyColumn(
@@ -711,54 +889,8 @@ private fun TranscribeScreen(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    title?.let { t ->
-                        item {
-                            TitleCard(t, llmDisplay, editingTitle,
-                                onBeginEdit = { editingTitle = true },
-                                onSave = { title = it; editingTitle = false },
-                                onCancel = { editingTitle = false })
-                        }
-                    }
-                    summary?.let { s ->
-                        item {
-                            SummaryCard(s, llmDisplay, editingSummary,
-                                onBeginEdit = { editingSummary = true },
-                                onSave = { summary = it; editingSummary = false },
-                                onCancel = { editingSummary = false })
-                        }
-                    }
-                    if (stats.perSpeaker.isNotEmpty()) {
-                        item {
-                            SpeakerStatsPanel(stats = stats)
-                        }
-                    }
-                    items(count = utterances.size, key = { utterances[it].index }) { idx ->
-                        val u = utterances[idx]
-                        UtteranceRow(
-                            utt = u,
-                            active = idx == activeIndex,
-                            isEditing = editingIndex == idx,
-                            speakerNames = speakerNames,
-                            editingSpeakerId = editingSpeakerId,
-                            onSeek = { sec ->
-                                player?.let { p ->
-                                    p.seekTo((sec * 1000).toInt()); if (!isPlaying) { p.start(); isPlaying = true }
-                                }
-                            },
-                            onBeginEdit = { editingIndex = idx; editingSpeakerId = null },
-                            onSaveText = { newText ->
-                                if (newText.isNotEmpty()) { utterances[idx] = u.copy(text = newText); editingIndex = -1 }
-                            },
-                            onCancelEdit = { editingIndex = -1 },
-                            onBeginSpeakerEdit = { sid -> editingSpeakerId = sid; editingIndex = -1 },
-                            onCommitSpeakerName = { sid, name ->
-                                if (name.isBlank()) speakerNames.remove(sid)
-                                else speakerNames[sid] = SpeakerName(name, confidence = "user")
-                                editingSpeakerId = null
-                            },
-                            onCancelSpeakerEdit = { editingSpeakerId = null },
-                        )
-                    }
+                    if (hasOverview) item { overviewCards() }
+                    transcriptItems(this)
                 }
             }
         }
@@ -796,10 +928,97 @@ private fun TranscribeScreen(
             onDismiss = { showYouTubeSheet = false },
         )
     }
+    if (showCoverDialog) {
+        CoverDialog(
+            bitmap = coverBitmap,
+            busy = coverBusy,
+            onRegenerate = {
+                coverSeed++
+                scope.launch { coverBusy = true; buildCover(currentCoverSig(), coverSeed); coverBusy = false }
+            },
+            onRemove = {
+                coverSkippedSig = currentCoverSig(); coverBlock = null; coverBitmap = null; showCoverDialog = false
+            },
+            onDismiss = { showCoverDialog = false },
+        )
+    }
+    if (exporting) ExportingOverlay()
     BackHandler(showConfigSheet || showPodcastSheet || showAddSourceSheet || showYouTubeSheet) {
         showConfigSheet = false; showPodcastSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
     }
+}
+
+/**
+ * Blocking "Exporting…" overlay shown while a session .ogg is built/written. It's non-dismissable so
+ * the user waits (and keeps the app foregrounded — a backgrounded app holding the models can be
+ * killed, which would truncate the file to 0 bytes). Building a multi-hour session takes seconds.
+ */
+@Composable
+private fun ExportingOverlay() {
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    ) {
+        Surface(shape = RoundedCornerShape(16.dp), color = VoxSumPalette.PanelSurface, tonalElevation = 6.dp) {
+            Row(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
+                Spacer(Modifier.width(16.dp))
+                Column {
+                    Text(stringResource(R.string.exporting), color = VoxSumPalette.Slate200, style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.exporting_hint), color = VoxSumPalette.Slate400, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Cover preview: shows the generated card and lets the user accept it (Use), get a different look
+ * (Regenerate — reshuffles the seed for the same metadata), or drop it (Remove). The cover is also
+ * auto-(re)generated on Save/Share, so this dialog is an optional override, not a required step.
+ */
+@Composable
+private fun CoverDialog(
+    bitmap: Bitmap?,
+    busy: Boolean,
+    onRegenerate: () -> Unit,
+    onRemove: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.cover_title)) },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = stringResource(R.string.cover_title),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(12.dp)),
+                    )
+                } else {
+                    Text(stringResource(R.string.cover_none))
+                }
+                if (busy) {
+                    Spacer(Modifier.height(12.dp))
+                    CircularProgressIndicator()
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onRegenerate, enabled = !busy) { Text(stringResource(R.string.cover_regenerate)) }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onRemove, enabled = !busy && bitmap != null) { Text(stringResource(R.string.cover_remove)) }
+                TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.cover_use)) }
+            }
+        },
+    )
 }
 
 /** Generated-title card with model attribution. */
@@ -919,39 +1138,34 @@ private fun PlayerBar(
     onSkip: (Int) -> Unit,
     onVolume: (Float) -> Unit,
     onToggleMute: () -> Unit,
+    compact: Boolean = false,
 ) {
     val shownMs = dragMs ?: positionMs
-    val dur = durationMs.coerceAtLeast(1)
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    // Two slim rows: the seek bar IS the speaker timeline (one merged scrubber), then a centered
+    // transport with the times at the edges and volume tucked behind a popup.
+    val stripH = if (compact) 16.dp else 22.dp
+    val playSize = if (compact) 38.dp else 44.dp
+    val btnSize = if (compact) 34.dp else 40.dp
+    Column(Modifier.fillMaxWidth().padding(vertical = if (compact) 2.dp else 4.dp)) {
         TimelineStrip(
             utterances = utterances,
             durationMs = durationMs,
             activeIndex = activeIndex,
             progressMs = shownMs,
             onSeekTo = onSeekTo,
-            modifier = Modifier.fillMaxWidth().height(28.dp),
+            onDragChange = onDragChange,
+            modifier = Modifier.fillMaxWidth().height(stripH),
         )
-        Spacer(Modifier.height(6.dp))
-        Slider(
-            value = shownMs.toFloat().coerceIn(0f, dur.toFloat()),
-            valueRange = 0f..dur.toFloat(),
-            onValueChange = { onDragChange(it.toInt()) },
-            onValueChangeFinished = { dragMs?.let { onSeekTo(it) }; onDragChange(null) },
-            colors = voxSumSliderColors(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(fmtMs(shownMs), style = MaterialTheme.typography.labelSmall)
-            Text(fmtMs(durationMs), style = MaterialTheme.typography.labelSmall)
-        }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(if (compact) 2.dp else 4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { onSkip(-5000) }) {
+            Text(fmtMs(shownMs), style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = { onSkip(-5000) }, modifier = Modifier.size(btnSize)) {
                 Icon(Icons.Filled.Replay5, contentDescription = stringResource(R.string.cd_back5), tint = VoxSumPalette.Slate200)
             }
             Box(
                 Modifier
-                    .size(48.dp)
+                    .size(playSize)
                     .clip(CircleShape)
                     .background(VoxSumPalette.BrandGradient)
                     .clickable(onClick = onPlayPause),
@@ -963,27 +1177,76 @@ private fun PlayerBar(
                     tint = VoxSumPalette.Slate900,
                 )
             }
-            IconButton(onClick = { onSkip(5000) }) {
+            IconButton(onClick = { onSkip(5000) }, modifier = Modifier.size(btnSize)) {
                 Icon(Icons.Filled.Forward5, contentDescription = stringResource(R.string.cd_forward5), tint = VoxSumPalette.Slate200)
             }
-            Spacer(Modifier.width(12.dp))
-            IconButton(onClick = onToggleMute) {
-                Icon(
-                    if (muted || volume == 0f) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
-                    contentDescription = if (muted) stringResource(R.string.cd_unmute) else stringResource(R.string.cd_mute),
-                    tint = VoxSumPalette.Slate400,
-                )
+            Spacer(Modifier.weight(1f))
+            VolumeControl(volume = volume, muted = muted, onVolume = onVolume, onToggleMute = onToggleMute, btnSize = btnSize)
+            Spacer(Modifier.width(6.dp))
+            Text(fmtMs(durationMs), style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
+        }
+    }
+}
+
+/** Volume behind a tap-to-open popup (a horizontal slider above the speaker icon), so the player bar
+ *  doesn't reserve a permanent row/strip for a control that's rarely touched. */
+@Composable
+private fun VolumeControl(
+    volume: Float,
+    muted: Boolean,
+    onVolume: (Float) -> Unit,
+    onToggleMute: () -> Unit,
+    btnSize: Dp,
+) {
+    var open by remember { mutableStateOf(false) }
+    val muteIcon = if (muted || volume == 0f) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp
+    val above = remember {
+        object : PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: IntRect,
+                windowSize: IntSize,
+                layoutDirection: LayoutDirection,
+                popupContentSize: IntSize,
+            ): IntOffset {
+                val x = (anchorBounds.right - popupContentSize.width).coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
+                val y = (anchorBounds.top - popupContentSize.height).coerceAtLeast(0)
+                return IntOffset(x, y)
             }
-            Slider(
-                value = if (muted) 0f else volume,
-                valueRange = 0f..1f,
-                onValueChange = onVolume,
-                colors = voxSumSliderColors(),
-                modifier = Modifier.weight(1f),
-            )
-            // Keep the slider thumb off the screen edge so it lines up with the seek bar /
-            // time labels above instead of sitting flush against the right inset.
-            Spacer(Modifier.width(8.dp))
+        }
+    }
+    Box {
+        IconButton(onClick = { open = true }, modifier = Modifier.size(btnSize)) {
+            Icon(muteIcon, contentDescription = stringResource(R.string.cd_mute), tint = VoxSumPalette.Slate400)
+        }
+        if (open) {
+            Popup(
+                popupPositionProvider = above,
+                onDismissRequest = { open = false },
+                properties = PopupProperties(focusable = true),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = VoxSumPalette.Slate800,
+                    tonalElevation = 6.dp,
+                    shadowElevation = 8.dp,
+                ) {
+                    Row(
+                        Modifier.padding(start = 4.dp, end = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = onToggleMute, modifier = Modifier.size(40.dp)) {
+                            Icon(muteIcon, contentDescription = if (muted) stringResource(R.string.cd_unmute) else stringResource(R.string.cd_mute), tint = VoxSumPalette.Slate200)
+                        }
+                        Slider(
+                            value = if (muted) 0f else volume,
+                            valueRange = 0f..1f,
+                            onValueChange = onVolume,
+                            colors = voxSumSliderColors(),
+                            modifier = Modifier.width(150.dp),
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -995,12 +1258,13 @@ private fun TimelineStrip(
     activeIndex: Int,
     progressMs: Int,
     onSeekTo: (Int) -> Unit,
+    onDragChange: (Int?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val durSec = (durationMs / 1000.0).coerceAtLeast(0.001)
     Canvas(
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(VoxSumPalette.Slate800)
             .pointerInput(durationMs) {
                 detectTapGestures { offset ->
@@ -1008,6 +1272,17 @@ private fun TimelineStrip(
                         onSeekTo(((offset.x / size.width).coerceIn(0f, 1f) * durationMs).toInt())
                     }
                 }
+            }
+            .pointerInput(durationMs) {
+                // Drag the playhead to scrub; report live position, commit on release.
+                var pos = 0
+                fun at(x: Float) = ((x / size.width).coerceIn(0f, 1f) * durationMs).toInt()
+                detectHorizontalDragGestures(
+                    onDragStart = { o -> if (size.width > 0 && durationMs > 0) { pos = at(o.x); onDragChange(pos) } },
+                    onHorizontalDrag = { change, _ -> if (size.width > 0 && durationMs > 0) { pos = at(change.position.x); onDragChange(pos) } },
+                    onDragEnd = { if (durationMs > 0) onSeekTo(pos); onDragChange(null) },
+                    onDragCancel = { onDragChange(null) },
+                )
             },
     ) {
         if (durationMs <= 0) return@Canvas
@@ -1035,8 +1310,11 @@ private fun TimelineStrip(
                 )
             }
         }
+        // Playhead: a thin white line + a Sky thumb, so the strip reads as the scrubber.
         val cx = (progressMs.toFloat() / durationMs).coerceIn(0f, 1f) * w
-        drawLine(VoxSumPalette.Sky, Offset(cx, 0f), Offset(cx, h), strokeWidth = 3f)
+        drawLine(Color.White, Offset(cx, 0f), Offset(cx, h), strokeWidth = 2f)
+        drawCircle(VoxSumPalette.Sky, radius = h * 0.42f, center = Offset(cx, h / 2f))
+        drawCircle(Color.White, radius = h * 0.42f, center = Offset(cx, h / 2f), style = Stroke(width = 2f))
     }
 }
 

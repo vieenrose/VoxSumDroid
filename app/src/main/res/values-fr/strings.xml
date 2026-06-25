@@ -39,7 +39,7 @@
     <string name="source_podcast">Podcast</string>
     <string name="source_podcast_desc">Rechercher et télécharger un épisode</string>
     <string name="source_youtube">YouTube</string>
-    <string name="source_youtube_desc">Coller un lien vidéo</string>
+    <string name="source_youtube_desc">Rechercher par mot-clé ou coller un lien</string>
 
     <!-- Settings -->
     <string name="settings_title">Paramètres</string>
@@ -158,5 +158,13 @@
     <string name="session_save_failed">Impossible d\'enregistrer la session</string>
     <string name="session_open_failed">Impossible d\'ouvrir la session</string>
     <string name="session_share_failed">Impossible de partager la session</string>
+    <string name="exporting">Exportation de la session…</string>
+    <string name="exporting_hint">Gardez l\'application ouverte jusqu\'à la fin</string>
+    <string name="cover_menu">Couverture…</string>
+    <string name="cover_title">Couverture de la session</string>
+    <string name="cover_none">Aucune couverture</string>
+    <string name="cover_regenerate">Régénérer</string>
+    <string name="cover_remove">Retirer</string>
+    <string name="cover_use">Utiliser</string>
     <string name="status_session_loaded">Session chargée — %d lignes</string>
 </resources>

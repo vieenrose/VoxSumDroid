@@ -10,6 +10,7 @@ import org.json.JSONObject
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioTranscoder
 import studio.voxsum.core.audio.OggOpusTags
+import studio.voxsum.core.cover.CoverArt
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.data.SpeakerName
 import java.io.ByteArrayOutputStream
@@ -43,6 +44,8 @@ object VoxsumSession {
         val asrModelId: String?,
         val llmModelId: String?,
         val recovered: Boolean,   // false => plain .ogg with no embedded session
+        val coverJpeg: ByteArray? = null,   // embedded cover art (METADATA_BLOCK_PICTURE), if any
+        val coverSig: String? = null,       // signature the embedded cover was built from
     )
 
     /** Outcome of a save: FULL = transcript embedded; PARTIAL = audio+summary only (blob too big); FAILED. */
@@ -68,6 +71,8 @@ object VoxsumSession {
         title: String?,
         asrModelId: String?,
         llmModelId: String?,
+        coverBlock: String? = null,   // ready METADATA_BLOCK_PICTURE value (see CoverArt.encode)
+        coverSig: String? = null,     // signature stored in the blob so the cover only regenerates on change
         fileName: String = "session.$EXT",
     ): Built? = withContext(Dispatchers.IO) {
         if (audioUri == null) return@withContext null
@@ -88,10 +93,11 @@ object VoxsumSession {
             return@withContext null
         }
         val comments = LinkedHashMap<String, String>()
-        comments[FIELD] = encodeSession(utterances, speakerNames, summary, title, asrModelId, llmModelId)
+        comments[FIELD] = encodeSession(utterances, speakerNames, summary, title, asrModelId, llmModelId, coverSig)
         title?.takeIf { it.isNotBlank() }?.let { comments["TITLE"] = it.replace('\n', ' ').trim() }
         summary?.takeIf { it.isNotBlank() }?.let { comments["DESCRIPTION"] = it.trim() }
         lrc(utterances).takeIf { it.isNotBlank() }?.let { comments["LYRICS"] = it }
+        coverBlock?.let { comments[CoverArt.FIELD] = it }   // cover art any player can show
         val tagged = File(dir, fileName)
         // OpusTags is now multi-page, so the comments fit at any size — keep VOXSUM (precise reimport)
         // AND LYRICS (so ordinary audio players display the synced transcript). The fallback below is
@@ -99,7 +105,9 @@ object VoxsumSession {
         val embedded: Boolean = if (OggOpusTags.write(plain, tagged, comments)) {
             true
         } else {
-            val lite = comments.filterKeys { it != FIELD && it != "LYRICS" }
+            // Genuine-error fallback: drop the heavy/optional fields (transcript, lyrics, cover),
+            // keep a playable ogg with just TITLE/DESCRIPTION.
+            val lite = comments.filterKeys { it != FIELD && it != "LYRICS" && it != CoverArt.FIELD }
             if (lite.isEmpty() || !OggOpusTags.write(plain, tagged, lite)) plain.copyTo(tagged, overwrite = true)
             false
         }
@@ -112,10 +120,11 @@ object VoxsumSession {
         context: Context, out: OutputStream, audioUri: Uri?,
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
         summary: String?, title: String?, asrModelId: String?, llmModelId: String?,
+        coverBlock: String? = null, coverSig: String? = null,
     ): SaveOutcome = withContext(Dispatchers.IO) {
         out.use { o ->
             val dir = File(context.cacheDir, "voxsum_save").apply { mkdirs() }
-            val built = buildSessionOgg(context, dir, audioUri, utterances, speakerNames, summary, title, asrModelId, llmModelId)
+            val built = buildSessionOgg(context, dir, audioUri, utterances, speakerNames, summary, title, asrModelId, llmModelId, coverBlock, coverSig)
                 ?: return@use SaveOutcome.FAILED
             built.file.inputStream().use { it.copyTo(o) }
             built.file.delete()
@@ -134,14 +143,16 @@ object VoxsumSession {
         val audio = File(dir, "session.ogg")
         context.contentResolver.openInputStream(src)?.use { ins -> audio.outputStream().use { ins.copyTo(it) } }
             ?: error("Could not open file")
+        // Cover art (if present) is recovered regardless of whether a full session blob exists.
+        val coverJpeg = OggOpusTags.read(audio, CoverArt.FIELD)?.let { CoverArt.decode(it) }
         val blob = OggOpusTags.read(audio, FIELD)
         if (blob == null || blob.length > MAX_BLOB_CHARS) {
             // No embedded session (or an implausibly large blob) — load as plain audio.
-            return@withContext Loaded(audio, emptyList(), emptyMap(), null, null, null, null, recovered = false)
+            return@withContext Loaded(audio, emptyList(), emptyMap(), null, null, null, null, recovered = false, coverJpeg = coverJpeg)
         }
         val json = runCatching { JSONObject(gunzip(Base64.decode(blob, Base64.NO_WRAP)).toString(Charsets.UTF_8)) }
             .getOrElse { error("Session metadata is corrupt") }
-        parseManifest(json, audio)
+        parseManifest(json, audio, coverJpeg)
     }
 
     private val SAFE_NAME = Regex("[^\\p{L}\\p{N}._-]")        // keep letters (incl. CJK), digits, . _ -
@@ -169,7 +180,7 @@ object VoxsumSession {
 
     private fun encodeSession(
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
-        summary: String?, title: String?, asrModelId: String?, llmModelId: String?,
+        summary: String?, title: String?, asrModelId: String?, llmModelId: String?, coverSig: String? = null,
     ): String {
         val root = JSONObject()
         root.put("voxsum_version", VERSION)
@@ -177,6 +188,7 @@ object VoxsumSession {
         summary?.let { root.put("summary", it) }
         asrModelId?.let { root.put("asr_model", it) }
         llmModelId?.let { root.put("llm_model", it) }
+        coverSig?.let { root.put("cover_sig", it) }
         val names = JSONObject()
         speakerNames.forEach { (id, n) ->
             names.put(id.toString(), JSONObject().apply {
@@ -199,7 +211,7 @@ object VoxsumSession {
         return Base64.encodeToString(gzip(root.toString().toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
     }
 
-    private fun parseManifest(m: JSONObject, audio: File): Loaded {
+    private fun parseManifest(m: JSONObject, audio: File, coverJpeg: ByteArray? = null): Loaded {
         val utts = ArrayList<TranscriptEvent.Utterance>()
         val arr = m.optJSONArray("utterances") ?: JSONArray()
         for (i in 0 until arr.length()) {
@@ -236,6 +248,8 @@ object VoxsumSession {
             asrModelId = m.optString("asr_model", "").ifEmpty { null },
             llmModelId = m.optString("llm_model", "").ifEmpty { null },
             recovered = true,
+            coverJpeg = coverJpeg,
+            coverSig = m.optString("cover_sig", "").ifEmpty { null },
         )
     }
 

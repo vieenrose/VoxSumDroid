@@ -39,7 +39,7 @@
     <string name="source_podcast">Podcast</string>
     <string name="source_podcast_desc">搜尋並下載單集</string>
     <string name="source_youtube">YouTube</string>
-    <string name="source_youtube_desc">貼上影片連結</string>
+    <string name="source_youtube_desc">以關鍵字搜尋或貼上影片連結</string>
 
     <!-- Settings -->
     <string name="settings_title">設定</string>
@@ -157,5 +157,13 @@
     <string name="session_save_failed">無法儲存工作階段</string>
     <string name="session_open_failed">無法開啟工作階段</string>
     <string name="session_share_failed">無法分享工作階段</string>
+    <string name="exporting">正在匯出工作階段…</string>
+    <string name="exporting_hint">請保持應用程式開啟直到完成</string>
+    <string name="cover_menu">封面…</string>
+    <string name="cover_title">工作階段封面</string>
+    <string name="cover_none">無封面</string>
+    <string name="cover_regenerate">重新產生</string>
+    <string name="cover_remove">移除</string>
+    <string name="cover_use">使用</string>
     <string name="status_session_loaded">已載入工作階段 — %d 行</string>
 </resources>

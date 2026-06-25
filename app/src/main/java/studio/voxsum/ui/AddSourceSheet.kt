@@ -4,6 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FolderZip
@@ -48,7 +50,8 @@ fun AddSourceSheet(
         sheetState = sheetState,
         containerColor = VoxSumPalette.Slate800,
     ) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+        // Scrollable so every source stays reachable on a short (landscape) viewport.
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             Text(
                 stringResource(R.string.add_audio),
                 style = MaterialTheme.typography.titleLarge,

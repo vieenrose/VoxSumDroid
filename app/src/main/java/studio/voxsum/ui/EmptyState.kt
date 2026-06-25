@@ -22,11 +22,13 @@ import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -42,45 +44,82 @@ import studio.voxsum.ui.theme.VoxSumPalette
  */
 @Composable
 fun EmptyState(onAddSource: () -> Unit, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-    ) {
-        Icon(
-            Icons.Filled.GraphicEq,
-            contentDescription = null,
-            tint = VoxSumPalette.Sky,
-            modifier = Modifier.size(64.dp),
-        )
-        Text(
-            stringResource(R.string.empty_headline),
-            style = MaterialTheme.typography.titleMedium,
-            color = VoxSumPalette.Slate200,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            stringResource(R.string.empty_subtitle),
-            style = MaterialTheme.typography.bodyMedium,
-            color = VoxSumPalette.Slate400,
-            textAlign = TextAlign.Center,
-        )
-
-        // The three pillars of the product — the reason this app exists.
-        Column(
-            Modifier.widthIn(max = 360.dp).fillMaxWidth().padding(top = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    if (landscape) {
+        // Wide + short: put the hero/CTA beside the pillars instead of stacking, so it fits the
+        // short viewport without scrolling and uses the horizontal space.
+        Row(
+            modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(40.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Pillar(Icons.Filled.Lock, R.string.pillar_private_title, R.string.pillar_private_desc)
-            Pillar(Icons.Filled.CloudOff, R.string.pillar_offline_title, R.string.pillar_offline_desc)
-            Pillar(Icons.Filled.Savings, R.string.pillar_cost_title, R.string.pillar_cost_desc)
+            Column(
+                Modifier.weight(1f).widthIn(max = 380.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Hero(iconSize = 56)
+                GradientButton(stringResource(R.string.add_audio), Icons.Filled.Add, onClick = onAddSource)
+            }
+            Column(
+                Modifier.weight(1f).widthIn(max = 380.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Pillars()
+            }
         }
-
-        GradientButton(stringResource(R.string.add_audio), Icons.Filled.Add, onClick = onAddSource)
+    } else {
+        Column(
+            modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        ) {
+            Hero(iconSize = 64)
+            // The three pillars of the product — the reason this app exists.
+            Column(
+                Modifier.widthIn(max = 360.dp).fillMaxWidth().padding(top = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Pillars()
+            }
+            GradientButton(stringResource(R.string.add_audio), Icons.Filled.Add, onClick = onAddSource)
+        }
     }
+}
+
+@Composable
+private fun Hero(iconSize: Int) {
+    Icon(
+        Icons.Filled.GraphicEq,
+        contentDescription = null,
+        tint = VoxSumPalette.Sky,
+        modifier = Modifier.size(iconSize.dp),
+    )
+    Text(
+        stringResource(R.string.empty_headline),
+        style = MaterialTheme.typography.titleMedium,
+        color = VoxSumPalette.Slate200,
+        textAlign = TextAlign.Center,
+    )
+    Text(
+        stringResource(R.string.empty_subtitle),
+        style = MaterialTheme.typography.bodyMedium,
+        color = VoxSumPalette.Slate400,
+        textAlign = TextAlign.Center,
+    )
+}
+
+@Composable
+private fun Pillars() {
+    Pillar(Icons.Filled.Lock, R.string.pillar_private_title, R.string.pillar_private_desc)
+    Pillar(Icons.Filled.CloudOff, R.string.pillar_offline_title, R.string.pillar_offline_desc)
+    Pillar(Icons.Filled.Savings, R.string.pillar_cost_title, R.string.pillar_cost_desc)
 }
 
 @Composable

@@ -39,7 +39,7 @@
     <string name="source_podcast">Podcast</string>
     <string name="source_podcast_desc">Search &amp; download an episode</string>
     <string name="source_youtube">YouTube</string>
-    <string name="source_youtube_desc">Paste a video link</string>
+    <string name="source_youtube_desc">Search by keyword or paste a link</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>
@@ -158,5 +158,13 @@
     <string name="session_save_failed">Couldn\'t save session</string>
     <string name="session_open_failed">Couldn\'t open session</string>
     <string name="session_share_failed">Couldn\'t share session</string>
+    <string name="exporting">Exporting session…</string>
+    <string name="exporting_hint">Keep the app open until this finishes</string>
+    <string name="cover_menu">Cover…</string>
+    <string name="cover_title">Session cover</string>
+    <string name="cover_none">No cover</string>
+    <string name="cover_regenerate">Regenerate</string>
+    <string name="cover_remove">Remove</string>
+    <string name="cover_use">Use</string>
     <string name="status_session_loaded">Loaded session — %d lines</string>
 </resources>
