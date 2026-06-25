@@ -55,6 +55,47 @@ object AudioDecoder {
     }
 
     /**
+     * Chunk-fed waveform peak accumulator: feed it the [decodeToWav16k] callback blocks and it
+     * produces [bars] normalized peaks at the end — so the cover's waveform is computed during the
+     * export's existing decode (no second pass over multi-hour audio).
+     */
+    class PeakAccumulator(private val bars: Int = 96, private val binSamples: Int = SAMPLE_RATE / 4) {
+        private var coarse = FloatArray(2048)
+        private var nCoarse = 0
+        private var cur = 0f
+        private var n = 0
+        fun add(block: FloatArray, len: Int) {
+            var i = 0
+            while (i < len) {
+                val a = if (block[i] < 0f) -block[i] else block[i]
+                if (a > cur) cur = a
+                if (++n >= binSamples) { push(cur); cur = 0f; n = 0 }
+                i++
+            }
+        }
+        private fun push(v: Float) {
+            if (nCoarse == coarse.size) coarse = coarse.copyOf(coarse.size * 2)
+            coarse[nCoarse++] = v
+        }
+        fun peaks(): FloatArray {
+            if (n > 0) { push(cur); cur = 0f; n = 0 }
+            if (nCoarse == 0 || bars <= 0) return FloatArray(0)
+            val out = FloatArray(bars)
+            val per = nCoarse.toDouble() / bars
+            var peak = 0f
+            for (i in 0 until bars) {
+                val a = (i * per).toInt().coerceIn(0, nCoarse - 1)
+                val b = ((i + 1) * per).toInt().coerceIn(a + 1, nCoarse)
+                var m = 0f; var j = a
+                while (j < b) { if (coarse[j] > m) m = coarse[j]; j++ }
+                out[i] = m; if (m > peak) peak = m
+            }
+            if (peak > 0f) for (i in out.indices) out[i] /= peak
+            return out
+        }
+    }
+
+    /**
      * STREAMING waveform peaks for the cover card: scan the whole file and return [bars] normalized
      * peak amplitudes in [0,1]. Accumulates max-abs into fixed ~0.25 s coarse bins (≈0.9 MB for a
      * 6 h file), then downsamples — so it never holds the full waveform. Returns an empty array on

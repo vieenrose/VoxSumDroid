@@ -84,8 +84,8 @@ class TranscriptionService : LifecycleService() {
         val title: String?,
         val asrModelId: String?,
         val llmModelId: String?,
-        val coverBlock: String?,
-        val coverSig: String?,
+        val coverEnabled: Boolean,
+        val coverSeed: Int,
         val fileName: String,
     )
 
@@ -173,7 +173,7 @@ class TranscriptionService : LifecycleService() {
                     dir.listFiles()?.forEach { it.delete() }
                     val built = VoxsumSession.buildSessionOgg(
                         this@TranscriptionService, dir, req.audioUri, req.utterances, req.speakerNames,
-                        req.summary, req.title, req.asrModelId, req.llmModelId, req.coverBlock, req.coverSig, req.fileName,
+                        req.summary, req.title, req.asrModelId, req.llmModelId, req.coverEnabled, req.coverSeed, req.fileName,
                     )
                     if (built != null)
                         TranscriptEvent.ExportDone(true, if (built.transcriptEmbedded) "FULL" else "PARTIAL", built.file.absolutePath)
@@ -183,7 +183,7 @@ class TranscriptionService : LifecycleService() {
                         contentResolver.openOutputStream(uri)?.let { os ->
                             VoxsumSession.save(
                                 this@TranscriptionService, os, req.audioUri, req.utterances, req.speakerNames,
-                                req.summary, req.title, req.asrModelId, req.llmModelId, req.coverBlock, req.coverSig,
+                                req.summary, req.title, req.asrModelId, req.llmModelId, req.coverEnabled, req.coverSeed,
                             )
                         }
                     } ?: VoxsumSession.SaveOutcome.FAILED

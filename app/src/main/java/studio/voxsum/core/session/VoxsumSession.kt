@@ -11,8 +11,10 @@ import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioTranscoder
 import studio.voxsum.core.audio.OggOpusTags
 import studio.voxsum.core.cover.CoverArt
+import studio.voxsum.core.cover.CoverGenerator
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.data.SpeakerName
+import studio.voxsum.data.speakerColor
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.OutputStream
@@ -71,17 +73,20 @@ object VoxsumSession {
         title: String?,
         asrModelId: String?,
         llmModelId: String?,
-        coverBlock: String? = null,   // ready METADATA_BLOCK_PICTURE value (see CoverArt.encode)
-        coverSig: String? = null,     // signature stored in the blob so the cover only regenerates on change
+        coverEnabled: Boolean = true,   // auto-generate + embed the cover card (METADATA_BLOCK_PICTURE)
+        coverSeed: Int = 0,             // layout/palette variant (the "Regenerate" seed)
         fileName: String = "session.$EXT",
     ): Built? = withContext(Dispatchers.IO) {
         if (audioUri == null) return@withContext null
         dir.mkdirs()
         // Stream-decode to a 16 kHz mono work WAV, then stream that to OGG/Opus — never the whole
-        // waveform in RAM, so multi-hour sessions encode without OOM.
+        // waveform in RAM, so multi-hour sessions encode without OOM. The cover's waveform is
+        // accumulated DURING this same decode (no second pass), then the card is rendered + embedded.
         val workWav = File(dir, ".audio_tmp.wav")
-        val decoded = runCatching { AudioDecoder.decodeToWav16k(context, audioUri, workWav) { _, _ -> } }
-            .getOrElse { android.util.Log.w("voxsum-ogg", "decode failed", it); null }
+        val peaks = AudioDecoder.PeakAccumulator()
+        val decoded = runCatching {
+            AudioDecoder.decodeToWav16k(context, audioUri, workWav) { block, len -> if (coverEnabled) peaks.add(block, len) }
+        }.getOrElse { android.util.Log.w("voxsum-ogg", "decode failed", it); null }
         if (decoded == null || decoded <= 0L) { workWav.delete(); return@withContext null }
         // Dot-prefixed temp name so it can never collide with a suggestFileName() output (which is
         // trimmed of leading dots), avoiding deleting the very file we return in the share flow.
@@ -92,8 +97,15 @@ object VoxsumSession {
             android.util.Log.w("voxsum-ogg", "wav->ogg transcode returned false")
             return@withContext null
         }
+        // Render the cover from this session's current metadata (title + speaker palette + waveform),
+        // so it's always in sync with the .ogg — regenerated whenever the session is (re)saved.
+        val coverBlock: String? = if (coverEnabled && utterances.isNotEmpty()) runCatching {
+            val cols = utterances.mapNotNull { it.speaker }.distinct().sorted().map { speakerColor(it).toInt() }
+            val bmp = CoverGenerator.render(title, peaks.peaks(), cols, coverSeed)
+            CoverArt.encode(CoverGenerator.toJpeg(bmp), bmp.width, bmp.height)
+        }.getOrNull() else null
         val comments = LinkedHashMap<String, String>()
-        comments[FIELD] = encodeSession(utterances, speakerNames, summary, title, asrModelId, llmModelId, coverSig)
+        comments[FIELD] = encodeSession(utterances, speakerNames, summary, title, asrModelId, llmModelId)
         title?.takeIf { it.isNotBlank() }?.let { comments["TITLE"] = it.replace('\n', ' ').trim() }
         summary?.takeIf { it.isNotBlank() }?.let { comments["DESCRIPTION"] = it.trim() }
         lrc(utterances).takeIf { it.isNotBlank() }?.let { comments["LYRICS"] = it }
@@ -120,11 +132,11 @@ object VoxsumSession {
         context: Context, out: OutputStream, audioUri: Uri?,
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
         summary: String?, title: String?, asrModelId: String?, llmModelId: String?,
-        coverBlock: String? = null, coverSig: String? = null,
+        coverEnabled: Boolean = true, coverSeed: Int = 0,
     ): SaveOutcome = withContext(Dispatchers.IO) {
         out.use { o ->
             val dir = File(context.cacheDir, "voxsum_save").apply { mkdirs() }
-            val built = buildSessionOgg(context, dir, audioUri, utterances, speakerNames, summary, title, asrModelId, llmModelId, coverBlock, coverSig)
+            val built = buildSessionOgg(context, dir, audioUri, utterances, speakerNames, summary, title, asrModelId, llmModelId, coverEnabled, coverSeed)
                 ?: return@use SaveOutcome.FAILED
             built.file.inputStream().use { it.copyTo(o) }
             built.file.delete()
@@ -180,7 +192,7 @@ object VoxsumSession {
 
     private fun encodeSession(
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
-        summary: String?, title: String?, asrModelId: String?, llmModelId: String?, coverSig: String? = null,
+        summary: String?, title: String?, asrModelId: String?, llmModelId: String?,
     ): String {
         val root = JSONObject()
         root.put("voxsum_version", VERSION)
@@ -188,7 +200,6 @@ object VoxsumSession {
         summary?.let { root.put("summary", it) }
         asrModelId?.let { root.put("asr_model", it) }
         llmModelId?.let { root.put("llm_model", it) }
-        coverSig?.let { root.put("cover_sig", it) }
         val names = JSONObject()
         speakerNames.forEach { (id, n) ->
             names.put(id.toString(), JSONObject().apply {

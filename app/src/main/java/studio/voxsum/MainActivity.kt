@@ -132,7 +132,6 @@ import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TranscriptionConfig
-import studio.voxsum.core.cover.CoverArt
 import studio.voxsum.core.cover.CoverGenerator
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.export.TranscriptExport
@@ -316,13 +315,11 @@ private fun TranscribeScreen(
     var isDetecting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    // --- Session cover card: auto-(re)generated only when first-time, or when the card-relevant
-    // metadata (title + speaker palette + audio) differs from what's embedded in the saved .ogg. ---
-    var coverBlock by remember { mutableStateOf<String?>(null) }      // ready METADATA_BLOCK_PICTURE value
-    var coverSig by remember { mutableStateOf<String?>(null) }        // signature the current cover was built from
-    var coverSkippedSig by remember { mutableStateOf<String?>(null) } // metadata the user chose to leave coverless
+    // The cover auto-embeds on every save/share (generated in the export service from current
+    // metadata). The dialog just previews it and lets the user pick a variant (seed) or turn it off.
+    var coverEnabled by remember { mutableStateOf(true) }
     var coverSeed by remember { mutableIntStateOf(0) }
-    var coverPeaks by remember { mutableStateOf<FloatArray?>(null) }  // cached waveform thumbnail per audio
+    var coverPeaks by remember { mutableStateOf<FloatArray?>(null) }  // cached waveform thumbnail for the preview
     var coverBitmap by remember { mutableStateOf<Bitmap?>(null) }     // preview shown in the dialog
     var showCoverDialog by remember { mutableStateOf(false) }
     var coverBusy by remember { mutableStateOf(false) }
@@ -346,15 +343,27 @@ private fun TranscribeScreen(
         player?.release(); player = null
         durationMs = 0; positionMs = 0; dragMs = null
         audioUri?.let { uri ->
-            player = MediaPlayer().apply {
-                runCatching { setDataSource(context, uri); prepare() }.onSuccess { durationMs = duration }
-                setVolume(volume, volume)
-                setOnCompletionListener { isPlaying = false }
+            val mp = MediaPlayer()
+            val prepared = runCatching { mp.setDataSource(context, uri); mp.prepare() }.isSuccess
+            if (!prepared) {
+                // Bad/unreadable source → release it and leave player null, so the null-guarded
+                // start()/seek() calls are no-ops instead of hitting an unprepared player (error -38).
+                mp.release()
+            } else {
+                durationMs = mp.duration
+                mp.setVolume(volume, volume)
+                mp.setOnCompletionListener { isPlaying = false }
+                // A mid-stream decode error otherwise drops the player into ERROR state, where every
+                // later start() fails with -38 ("can't play anymore"). Recover by re-preparing it.
+                mp.setOnErrorListener { p, _, _ ->
+                    isPlaying = false
+                    runCatching { p.reset(); p.setDataSource(context, uri); p.prepare(); durationMs = p.duration }
+                    true
+                }
                 // Loudness normalization: starts at 0; a side-effect below measures the track and
                 // sets the per-file gain that lifts a quiet recording to a comfortable level.
-                runCatching {
-                    enhancer = LoudnessEnhancer(audioSessionId).apply { enabled = true }
-                }
+                runCatching { enhancer = LoudnessEnhancer(mp.audioSessionId).apply { enabled = true } }
+                player = mp
             }
         }
         onDispose { enhancer?.release(); enhancer = null; player?.release(); player = null }
@@ -380,7 +389,7 @@ private fun TranscribeScreen(
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         editingTitle = false; editingSummary = false
         title = null; summary = null; isPlaying = false
-        coverBlock = null; coverSig = null; coverSkippedSig = null; coverSeed = 0; coverPeaks = null; coverBitmap = null
+        coverEnabled = true; coverSeed = 0; coverPeaks = null; coverBitmap = null
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri)
@@ -401,7 +410,7 @@ private fun TranscribeScreen(
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         editingTitle = false; editingSummary = false
         title = null; summary = null; isPlaying = false
-        coverBlock = null; coverSig = null; coverSkippedSig = null; coverSeed = 0; coverPeaks = null; coverBitmap = null
+        coverEnabled = true; coverSeed = 0; coverPeaks = null; coverBitmap = null
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         TranscriptionConfig.Holder.config = config
@@ -445,38 +454,16 @@ private fun TranscribeScreen(
     }
 
     // --- Cover card: pure-Canvas thumbnail (gradient + waveform + title + speaker palette). ---
-    fun cardSpeakerColors(): List<Int> =
-        utterances.mapNotNull { it.speaker }.distinct().sorted().map { speakerColor(it).toInt() }
-
-    // Signature of exactly what the card draws, so the cover is reused unless one of these changes.
-    fun currentCoverSig(): String =
-        CoverArt.signature(title, cardSpeakerColors(), audioUri?.toString().orEmpty())
-
-    // (Re)build the cover bitmap + embeddable block for [sig] with [seed]; heavy work off the main thread.
-    suspend fun buildCover(sig: String, seed: Int) {
+    // Render a cover PREVIEW (for the dialog) from the current metadata + [seed]. The authoritative
+    // cover is generated in the export service at save/share time; this just shows what it'll look
+    // like. Heavy work off the main thread; the waveform decode is cached per audio.
+    suspend fun renderCoverPreview(seed: Int) {
         val peaks = coverPeaks ?: withContext(Dispatchers.IO) {
             audioUri?.let { AudioDecoder.waveformPeaks(context, it) } ?: FloatArray(0)
         }.also { coverPeaks = it }
-        val cols = cardSpeakerColors()
+        val cols = utterances.mapNotNull { it.speaker }.distinct().sorted().map { speakerColor(it).toInt() }
         val ttl = title
-        val (bmp, jpeg) = withContext(Dispatchers.Default) {
-            val b = CoverGenerator.render(ttl, peaks, cols, seed)
-            b to CoverGenerator.toJpeg(b)
-        }
-        coverBitmap = bmp
-        coverBlock = CoverArt.encode(jpeg, bmp.width, bmp.height)
-        coverSig = sig
-        coverSkippedSig = null
-    }
-
-    // Ensure a cover exists for the current metadata: regenerate on first-time / metadata change,
-    // reuse an up-to-date one, and respect an explicit "remove" for this exact metadata.
-    suspend fun ensureCover() {
-        if (utterances.isEmpty()) return
-        val sig = currentCoverSig()
-        if (coverBlock != null && coverSig == sig) return
-        if (coverSkippedSig == sig) return
-        buildCover(sig, coverSeed)
+        coverBitmap = withContext(Dispatchers.Default) { CoverGenerator.render(ttl, peaks, cols, seed) }
     }
 
     // --- Session as a self-describing .ogg: Save (SAF), Open (SAF → recover), Share (one .ogg). ---
@@ -491,7 +478,7 @@ private fun TranscribeScreen(
             share = false, saveUri = uri, audioUri = audioUri,
             utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
             summary = summary, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
-            coverBlock = coverBlock, coverSig = coverSig, fileName = VoxsumSession.suggestFileName(title),
+            coverEnabled = coverEnabled, coverSeed = coverSeed, fileName = VoxsumSession.suggestFileName(title),
         )
         exporting = true
         ContextCompat.startForegroundService(
@@ -515,36 +502,30 @@ private fun TranscribeScreen(
             speakerNames.clear(); loaded.speakerNames.forEach { (k, v) -> speakerNames[k] = v }
             editingIndex = -1; editingSpeakerId = null
             title = loaded.title; summary = loaded.summary
-            // Restore the embedded cover + its signature so it's only regenerated if the user later
-            // edits the title/speakers (i.e. the card metadata diverges from what the .ogg stored).
-            coverSkippedSig = null; coverSeed = 0; coverPeaks = null
+            // Show the embedded cover as the preview; it re-embeds (regenerated from current metadata)
+            // on the next save. coverEnabled tracks whether the .ogg had one.
+            coverSeed = 0; coverPeaks = null
             val cj = loaded.coverJpeg
-            val bmp = cj?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull() }
-            if (cj != null && bmp != null) {
-                coverBitmap = bmp; coverBlock = CoverArt.encode(cj, bmp.width, bmp.height); coverSig = loaded.coverSig
-            } else {
-                coverBitmap = null; coverBlock = null; coverSig = null
-            }
+            coverBitmap = cj?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull() }
+            coverEnabled = cj != null
             isPlaying = false; running = false; transcriptReady = true; progress = 0f
             audioUri = Uri.fromFile(loaded.audio)
             status = context.getString(R.string.status_session_loaded, loaded.utterances.size)
         }
     }
     fun shareSession() {
-        scope.launch {
-            exporting = true
-            runCatching { ensureCover() }   // cover is optional — generated before the build starts
-            // Build in the foreground service; the share chooser fires when ExportDone arrives.
-            TranscriptionService.pendingExport = TranscriptionService.ExportRequest(
-                share = true, saveUri = null, audioUri = audioUri,
-                utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
-                summary = summary, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
-                coverBlock = coverBlock, coverSig = coverSig, fileName = VoxsumSession.suggestFileName(title),
-            )
-            ContextCompat.startForegroundService(
-                context, Intent(context, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_EXPORT),
-            )
-        }
+        // No slow cover decode here — the build (incl. its single audio decode) runs in the service.
+        // Any cover the user generated via the "Cover…" dialog rides along as the cached coverBlock.
+        exporting = true
+        TranscriptionService.pendingExport = TranscriptionService.ExportRequest(
+            share = true, saveUri = null, audioUri = audioUri,
+            utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
+            summary = summary, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
+            coverEnabled = coverEnabled, coverSeed = coverSeed, fileName = VoxsumSession.suggestFileName(title),
+        )
+        ContextCompat.startForegroundService(
+            context, Intent(context, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_EXPORT),
+        )
     }
 
     LaunchedEffect(Unit) {
@@ -694,7 +675,7 @@ private fun TranscribeScreen(
                 editingSpeakerId = editingSpeakerId,
                 onSeek = { sec ->
                     player?.let { p ->
-                        p.seekTo((sec * 1000).toInt()); if (!isPlaying) { p.start(); isPlaying = true }
+                        runCatching { p.seekTo((sec * 1000).toInt()); if (!isPlaying) { p.start(); isPlaying = true } }
                     }
                 },
                 onBeginEdit = { editingIndex = idx; editingSpeakerId = null },
@@ -765,13 +746,10 @@ private fun TranscribeScreen(
                 onExportSummaryMarkdown = { pending = PendingExport.SummaryMd; exporter.launch("summary.md") },
                 onExportSummaryText = { pending = PendingExport.SummaryTxt; exporter.launch("summary.txt") },
                 onCoverPreview = {
-                    scope.launch { coverBusy = true; ensureCover(); coverBusy = false; showCoverDialog = true }
+                    scope.launch { coverBusy = true; renderCoverPreview(coverSeed); coverBusy = false; coverEnabled = true; showCoverDialog = true }
                 },
-                onSaveSession = {
-                    // Generate the cover BEFORE the picker creates the (empty) file, so cover work
-                    // can't leave a 0-byte file; the picker callback then hands the write to the service.
-                    scope.launch { exporting = true; runCatching { ensureCover() }; sessionSaver.launch(VoxsumSession.suggestFileName(title)) }
-                },
+                // No pre-decode here; the picker callback hands the build+write to the service.
+                onSaveSession = { sessionSaver.launch(VoxsumSession.suggestFileName(title)) },
                 onShareSession = { shareSession() },
             )
         },
@@ -783,9 +761,8 @@ private fun TranscribeScreen(
                 fun doSeek(ms: Int) {
                     val p = player ?: return
                     val clamped = ms.coerceIn(0, durationMs)
-                    runCatching { p.seekTo(clamped) }
                     positionMs = clamped
-                    if (!isPlaying) { p.start(); isPlaying = true }
+                    runCatching { p.seekTo(clamped); if (!isPlaying) { p.start(); isPlaying = true } }
                 }
                 Surface(color = VoxSumPalette.PanelSurface, tonalElevation = 3.dp) {
                     Column(
@@ -805,7 +782,8 @@ private fun TranscribeScreen(
                             activeIndex = activeIndex,
                             onPlayPause = {
                                 val p = player ?: return@PlayerBar
-                                if (isPlaying) { p.pause(); isPlaying = false } else { p.start(); isPlaying = true }
+                                if (isPlaying) { runCatching { p.pause() }; isPlaying = false }
+                                else runCatching { p.start() }.onSuccess { isPlaying = true }
                             },
                             onSeekTo = { doSeek(it) },
                             onDragChange = { dragMs = it },
@@ -936,10 +914,10 @@ private fun TranscribeScreen(
             busy = coverBusy,
             onRegenerate = {
                 coverSeed++
-                scope.launch { coverBusy = true; buildCover(currentCoverSig(), coverSeed); coverBusy = false }
+                scope.launch { coverBusy = true; renderCoverPreview(coverSeed); coverBusy = false }
             },
             onRemove = {
-                coverSkippedSig = currentCoverSig(); coverBlock = null; coverBitmap = null; showCoverDialog = false
+                coverEnabled = false; coverBitmap = null; showCoverDialog = false
             },
             onDismiss = { showCoverDialog = false },
         )
