@@ -11,6 +11,7 @@
 
 #include <jni.h>
 #include <android/log.h>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <atomic>
@@ -50,6 +51,61 @@ std::string pieceOf(const llama_vocab* vocab, llama_token tok) {
     const int n = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, /*special=*/true);
     if (n < 0) return std::string();
     return std::string(buf, n);
+}
+
+// Largest prefix of `s` ending on a UTF-8 codepoint boundary — excludes a trailing *incomplete*
+// multibyte sequence. llama_token_to_piece splits a multibyte char (common for CJK byte-level BPE)
+// across token callbacks; handing JNI a half sequence aborts the VM ("input is not valid Modified
+// UTF-8: illegal continuation byte"). We buffer the remainder until the next token completes it.
+size_t completeUtf8Prefix(const std::string& s) {
+    const size_t n = s.size();
+    size_t i = n;
+    int cont = 0;
+    while (i > 0 && ((unsigned char) s[i - 1] & 0xC0) == 0x80 && cont < 4) { --i; ++cont; }
+    if (i == 0) return n;                  // no lead byte in view → emit as-is, don't stall
+    const unsigned char lead = (unsigned char) s[i - 1];
+    size_t need;
+    if      ((lead & 0x80) == 0x00) need = 1;
+    else if ((lead & 0xE0) == 0xC0) need = 2;
+    else if ((lead & 0xF0) == 0xE0) need = 3;
+    else if ((lead & 0xF8) == 0xF0) need = 4;
+    else return n;                         // invalid lead → emit as-is
+    const size_t have = n - (i - 1);
+    return have >= need ? n : (i - 1);     // hold back only an incomplete final codepoint
+}
+
+// Build a Java String from valid UTF-8 bytes via UTF-16 (NewString), sidestepping JNI's Modified
+// UTF-8 (NewStringUTF rejects standard 4-byte/supplementary sequences). Defensive: skips stray bytes.
+jstring toJavaString(JNIEnv* env, const char* s, size_t n) {
+    std::u16string u16;
+    u16.reserve(n);
+    size_t i = 0;
+    while (i < n) {
+        const unsigned char c = (unsigned char) s[i];
+        uint32_t cp; size_t len;
+        if      (c < 0x80)           { cp = c;        len = 1; }
+        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; len = 2; }
+        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; len = 3; }
+        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; len = 4; }
+        else { ++i; continue; }
+        if (i + len > n) break;
+        bool ok = true;
+        for (size_t k = 1; k < len; ++k) {
+            const unsigned char cc = (unsigned char) s[i + k];
+            if ((cc & 0xC0) != 0x80) { ok = false; break; }
+            cp = (cp << 6) | (cc & 0x3Fu);
+        }
+        if (!ok) { ++i; continue; }
+        i += len;
+        if (cp <= 0xFFFF) {
+            u16.push_back((char16_t) cp);
+        } else {
+            cp -= 0x10000;
+            u16.push_back((char16_t) (0xD800u + (cp >> 10)));
+            u16.push_back((char16_t) (0xDC00u + (cp & 0x3FFu)));
+        }
+    }
+    return env->NewString(reinterpret_cast<const jchar*>(u16.data()), (jsize) u16.size());
 }
 
 } // namespace
@@ -96,6 +152,12 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
     if (!h) return env->NewStringUTF("");
     h->cancel = false;
 
+    // Each generate() is an independent completion — clear the KV cache so positions restart at 0.
+    // Otherwise llama_decode auto-continues from the previous call's n_past; across many calls on one
+    // loaded model (multi-chunk map + reduce + title, or several summaries) n_past crosses n_ctx and
+    // llama_decode fails, returning an empty string.
+    llama_memory_clear(llama_get_memory(h->ctx), /*data=*/true);
+
     const llama_vocab* vocab = llama_model_get_vocab(h->model);
 
     jclass cbClass = env->GetObjectClass(onToken);
@@ -117,6 +179,7 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     std::string out;
+    std::string pending;   // tail bytes not yet emitted — may end mid-codepoint until the next token
     // KV-cache fill level. Starts at 0; the prompt batch advances it to tokens.size() after
     // the first decode. (Pre-seeding it with tokens.size() double-counted the prompt, which
     // capped the usable context at ~n_ctx/2 and silently truncated longer/denser prompts.)
@@ -136,9 +199,16 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
         const std::string piece = pieceOf(vocab, id);
         out += piece;
 
-        jstring jPiece = env->NewStringUTF(piece.c_str());
-        env->CallVoidMethod(onToken, emit, jPiece);
-        env->DeleteLocalRef(jPiece);            // avoid local-ref overflow over long runs
+        // Emit only whole UTF-8 codepoints; hold an incomplete trailing sequence for the next token
+        // (a CJK char often spans two tokens). Prevents the JNI Modified-UTF-8 abort on split chars.
+        pending += piece;
+        const size_t cut = completeUtf8Prefix(pending);
+        if (cut > 0) {
+            jstring jPiece = toJavaString(env, pending.data(), cut);
+            env->CallVoidMethod(onToken, emit, jPiece);
+            env->DeleteLocalRef(jPiece);        // avoid local-ref overflow over long runs
+            pending.erase(0, cut);
+        }
 
         // Next step decodes just the new token; positions advance via the KV cache.
         static thread_local llama_token one;    // keep storage alive past this scope
@@ -147,7 +217,9 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
     }
 
     llama_sampler_free(smpl);
-    return env->NewStringUTF(out.c_str());
+    // Return the full text, dropping any trailing half-codepoint (e.g. stopped at maxTokens
+    // mid-char) so the returned String is always valid — same content the callbacks streamed.
+    return toJavaString(env, out.data(), completeUtf8Prefix(out));
 }
 
 JNIEXPORT void JNICALL
