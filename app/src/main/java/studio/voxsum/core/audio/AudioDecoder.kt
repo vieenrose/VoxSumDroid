@@ -5,6 +5,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -32,6 +33,29 @@ object AudioDecoder {
      * (feed VAD chunk-by-chunk) is a Phase 1+ optimization noted in SPIKE.md.
      */
     fun decodeToPcm16k(context: Context, uri: Uri): FloatArray {
+        // Pre-size to ~3 min at 16 kHz to avoid early doublings; grows as needed.
+        val out = FloatList(SAMPLE_RATE * 180)
+        decode(context, uri, out)
+        return out.toArray()
+    }
+
+    /**
+     * STREAMING decode: write the decoded 16 kHz mono PCM to [dest] as a WAV and call [onChunk] with
+     * each block of samples — memory scales with one block, not the recording length. Returns the
+     * total sample count. This is the multi-hour-safe path (the full-buffer [decodeToPcm16k] OOMs
+     * past ~2 h); use it + a [WavSlicer] for diarization instead of holding the whole waveform.
+     */
+    fun decodeToWav16k(context: Context, uri: Uri, dest: File, onChunk: (FloatArray, Int) -> Unit): Long {
+        WavWriter(dest).use { writer ->
+            val sink = ChunkingSink(writer, onChunk)
+            decode(context, uri, sink)
+            sink.flush()
+            return writer.sampleCount()
+        }
+    }
+
+    /** Shared setup + decode loop; resampled mono 16 kHz samples are pushed into [sink]. */
+    private fun decode(context: Context, uri: Uri, sink: PcmSink) {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         try {
@@ -49,11 +73,8 @@ object AudioDecoder {
                 it.configure(inFormat, null, null, 0)
                 it.start()
             }
-
-            // Resample to 16 kHz DURING decode so we only ever hold the (small) 16 kHz mono
-            // result — never the full source-rate waveform. A 15-min file at 44.1 kHz would
-            // otherwise need ~160 MB+ for the source array alone and OOM.
-            return decodeResampledMono(extractor, codec, srcChannels, srcRate)
+            // Resample to 16 kHz DURING decode so we never hold the full source-rate waveform.
+            decodeResampledMono(extractor, codec, srcChannels, srcRate, sink)
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
@@ -76,10 +97,9 @@ object AudioDecoder {
         codec: MediaCodec,
         channels: Int,
         srcRate: Int,
-    ): FloatArray {
-        // Pre-size to ~3 min at 16 kHz to avoid early doublings; grows as needed.
-        val out = FloatList(SAMPLE_RATE * 180)
-        val resampler = Resampler(srcRate, SAMPLE_RATE, out)
+        sink: PcmSink,
+    ) {
+        val resampler = Resampler(srcRate, SAMPLE_RATE, sink)
         val bufferInfo = MediaCodec.BufferInfo()
         var sawInputEos = false
         var sawOutputEos = false
@@ -118,22 +138,40 @@ object AudioDecoder {
                 if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) sawOutputEos = true
             }
         }
-        return out.toArray()
     }
+
+    /** Where the decoder/resampler pushes finished 16 kHz mono samples. */
+    private interface PcmSink { fun add(v: Float) }
 
     /**
      * Primitive (unboxed) growable float buffer. ArrayList<Float> boxed every sample into a
      * ~24-byte heap object — a few minutes of audio = hundreds of MB → OOM. This stores raw
-     * floats (4 bytes each).
+     * floats (4 bytes each). Only used by the full-buffer [decodeToPcm16k].
      */
-    private class FloatList(initial: Int) {
+    private class FloatList(initial: Int) : PcmSink {
         private var a = FloatArray(if (initial < 16) 16 else initial)
         private var n = 0
-        fun add(v: Float) {
+        override fun add(v: Float) {
             if (n == a.size) a = a.copyOf(a.size * 2)
             a[n++] = v
         }
         fun toArray(): FloatArray = a.copyOf(n)
+    }
+
+    /** Buffers samples into fixed blocks, writing each to the WAV file and handing it to [onChunk]. */
+    private class ChunkingSink(private val writer: WavWriter, private val onChunk: (FloatArray, Int) -> Unit) : PcmSink {
+        private val block = FloatArray(4096)
+        private var n = 0
+        override fun add(v: Float) {
+            block[n++] = v
+            if (n == block.size) flush()
+        }
+        fun flush() {
+            if (n == 0) return
+            writer.write(block, n)
+            onChunk(block, n)
+            n = 0
+        }
     }
 
     /**
@@ -141,7 +179,7 @@ object AudioDecoder {
      * samples into [out] as soon as the two source samples bracketing each output position
      * are available — so the full source-rate waveform is never materialized.
      */
-    private class Resampler(srcRate: Int, dstRate: Int, private val out: FloatList) {
+    private class Resampler(srcRate: Int, dstRate: Int, private val out: PcmSink) {
         private val step = srcRate.toDouble() / dstRate // source samples per output sample
         private var srcIndex = -1                        // absolute index of the latest sample
         private var prev = 0f                            // sample at srcIndex - 1

@@ -72,13 +72,19 @@ object VoxsumSession {
     ): Built? = withContext(Dispatchers.IO) {
         if (audioUri == null) return@withContext null
         dir.mkdirs()
-        val pcm = runCatching { AudioDecoder.decodeToPcm16k(context, audioUri) }
-            .getOrElse { android.util.Log.w("voxsum-ogg", "decode failed", it); null } ?: return@withContext null
+        // Stream-decode to a 16 kHz mono work WAV, then stream that to OGG/Opus — never the whole
+        // waveform in RAM, so multi-hour sessions encode without OOM.
+        val workWav = File(dir, ".audio_tmp.wav")
+        val decoded = runCatching { AudioDecoder.decodeToWav16k(context, audioUri, workWav) { _, _ -> } }
+            .getOrElse { android.util.Log.w("voxsum-ogg", "decode failed", it); null }
+        if (decoded == null || decoded <= 0L) { workWav.delete(); return@withContext null }
         // Dot-prefixed temp name so it can never collide with a suggestFileName() output (which is
         // trimmed of leading dots), avoiding deleting the very file we return in the share flow.
         val plain = File(dir, ".audio_tmp.ogg")
-        if (!AudioTranscoder.pcm16kToOggOpus(pcm, plain)) {
-            android.util.Log.w("voxsum-ogg", "pcm->ogg transcode returned false (${pcm.size} samples)")
+        val transcoded = AudioTranscoder.wavToOggOpus(workWav, plain)
+        workWav.delete()
+        if (!transcoded) {
+            android.util.Log.w("voxsum-ogg", "wav->ogg transcode returned false")
             return@withContext null
         }
         val comments = LinkedHashMap<String, String>()

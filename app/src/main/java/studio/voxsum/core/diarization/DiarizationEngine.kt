@@ -45,14 +45,32 @@ class DiarizationEngine(
      * whose timestamp crosses the speaker-change boundary, so the result list may be longer than
      * the input and is re-indexed 0..n-1 in time order.
      */
+    // Audio source for embeddings, set per assignSpeakers() call: read [fromSample, toSample) as
+    // 16 kHz mono floats. Backed by a WavSlicer so multi-hour audio never lives in RAM.
+    private var samples: (Long, Long) -> FloatArray = { _, _ -> FloatArray(0) }
+    private var totalSamples: Long = 0
+
+    /** Backward-compatible full-buffer entry point (tests / short clips). */
     fun assignSpeakers(
         pcm16k: FloatArray,
         utterances: List<TranscriptEvent.Utterance>,
+    ): Pair<List<TranscriptEvent.Utterance>, Int> = assignSpeakers(
+        { a, b -> pcm16k.copyOfRange(a.toInt().coerceIn(0, pcm16k.size), b.toInt().coerceIn(0, pcm16k.size)) },
+        pcm16k.size.toLong(),
+        utterances,
+    )
+
+    fun assignSpeakers(
+        samples: (Long, Long) -> FloatArray,
+        totalSamples: Long,
+        utterances: List<TranscriptEvent.Utterance>,
     ): Pair<List<TranscriptEvent.Utterance>, Int> {
+        this.samples = samples
+        this.totalSamples = totalSamples
         if (utterances.isEmpty()) return utterances to 0
 
         // 1. One L2-normalized embedding per utterance.
-        val embs = Array(utterances.size) { i -> embedUtterance(pcm16k, utterances[i]) }
+        val embs = Array(utterances.size) { i -> embedUtterance(utterances[i]) }
 
         // 2. Adaptive clustering → a speaker label per utterance.
         var labels = cluster(embs)
@@ -66,7 +84,7 @@ class DiarizationEngine(
         //    centroids as the reference voices.
         val refined = if (k >= 2) {
             val cents = centroids(labels, embs, k)
-            utterances.indices.flatMap { i -> splitUtterance(pcm16k, utterances[i], labels[i], cents) }
+            utterances.indices.flatMap { i -> splitUtterance(utterances[i], labels[i], cents) }
         } else {
             utterances.mapIndexed { i, u -> u.copy(speaker = labels[i]) }
         }
@@ -77,21 +95,23 @@ class DiarizationEngine(
         return tagged to count
     }
 
-    private fun embedUtterance(pcm: FloatArray, u: TranscriptEvent.Utterance): FloatArray =
-        embedRange(pcm, u.startSec, u.endSec)
+    private fun embedUtterance(u: TranscriptEvent.Utterance): FloatArray =
+        embedRange(u.startSec, u.endSec)
 
-    /** Embed a [startSec, endSec) slice, widened to [MIN_SAMPLES] so short windows aren't noisy. */
-    private fun embedRange(pcm: FloatArray, startSec: Double, endSec: Double): FloatArray {
-        var a = (startSec * SAMPLE_RATE).toInt().coerceIn(0, pcm.size)
-        var b = (endSec * SAMPLE_RATE).toInt().coerceIn(a, pcm.size)
+    /** Embed a [startSec, endSec) slice, widened to [MIN_SAMPLES] so short windows aren't noisy.
+     *  Reads the slice from the per-call sample source (WAV-backed) — never the whole waveform. */
+    private fun embedRange(startSec: Double, endSec: Double): FloatArray {
+        val total = totalSamples
+        var a = (startSec * SAMPLE_RATE).toLong().coerceIn(0, total)
+        var b = (endSec * SAMPLE_RATE).toLong().coerceIn(a, total)
         if (b - a < MIN_SAMPLES) {
             val mid = (a + b) / 2
-            a = (mid - MIN_SAMPLES / 2).coerceIn(0, pcm.size)
-            b = (mid + MIN_SAMPLES / 2).coerceIn(a, pcm.size)
+            a = (mid - MIN_SAMPLES / 2).coerceIn(0, total)
+            b = (mid + MIN_SAMPLES / 2).coerceIn(a, total)
         }
         if (b <= a) return FloatArray(0)
         val stream = extractor.createStream()
-        stream.acceptWaveform(pcm.copyOfRange(a, b), SAMPLE_RATE)
+        stream.acceptWaveform(samples(a, b), SAMPLE_RATE)
         stream.inputFinished()
         val e = runCatching { extractor.compute(stream) }.getOrDefault(FloatArray(0))
         stream.release()
@@ -208,7 +228,6 @@ class DiarizationEngine(
      * too short, or no confident change is found.
      */
     private fun splitUtterance(
-        pcm: FloatArray,
         u: TranscriptEvent.Utterance,
         base: Int,
         cents: Array<FloatArray>,
@@ -230,7 +249,7 @@ class DiarizationEngine(
         while (true) {
             val ws = u.startSec + w
             val we = (ws + WIN_SEC).coerceAtMost(u.endSec)
-            winLabel.add(nearestVoice(embedRange(pcm, ws, we), cents, base))
+            winLabel.add(nearestVoice(embedRange(ws, we), cents, base))
             winCenter.add(((ws + we) / 2 - u.startSec).coerceIn(0.0, dur))
             if (we >= u.endSec) break
             w += HOP_SEC

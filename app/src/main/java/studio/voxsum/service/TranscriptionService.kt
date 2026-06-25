@@ -13,14 +13,17 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioRecorder
+import studio.voxsum.core.audio.WavSlicer
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
@@ -143,11 +146,18 @@ class TranscriptionService : LifecycleService() {
         }
 
         events.emit(TranscriptEvent.Status("Decoding audio…"))
-        val pcm = AudioDecoder.decodeToPcm16k(this, uri)
-
         // OpenCC s2tw: like the web app, convert Simplified→Traditional on every utterance
         // (and later the summary/title). Built once, reused.
         val converter = if (cfg.traditionalChinese) OpenCcConverter.get(this) else null
+
+        // Stream-decode the source to a 16 kHz mono work WAV while feeding the live VAD/ASR — never
+        // the whole waveform in RAM. The WAV is the player + diarization source (16 kHz mono).
+        val wav = File(File(filesDir, "audio").apply { mkdirs() }, "decoded_${System.currentTimeMillis()}.wav")
+        val chunks = channelFlow {
+            AudioDecoder.decodeToWav16k(this@TranscriptionService, uri, wav) { block, len ->
+                trySendBlocking(block.copyOf(len))
+            }
+        }.flowOn(Dispatchers.IO)
 
         // --- ASR phase: collect utterances while streaming them to the UI. ---
         val utterances = ArrayList<TranscriptEvent.Utterance>()
@@ -160,7 +170,7 @@ class TranscriptionService : LifecycleService() {
             useItn = cfg.useItn,
             vadThreshold = cfg.vadThreshold,
         ).use { asr ->
-            asr.transcribe(pcm)
+            asr.transcribeLive(chunks)
                 .flowOn(Dispatchers.Default)
                 .collect { e ->
                     when (e) {
@@ -171,14 +181,18 @@ class TranscriptionService : LifecycleService() {
                             utterances += u
                             events.emit(u)
                         }
-                        is TranscriptEvent.Complete -> Unit  // service emits the final Complete
                         else -> events.emit(e)
                     }
                 }
         } // ASR native resources freed here, before the LLM is loaded.
 
-        if (utterances.isEmpty()) return
-        finishPipeline(pcm, utterances, cfg, models, converter)
+        // The decoded 16 kHz WAV is the player source now (per the streaming design).
+        events.emit(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
+        if (utterances.isEmpty()) {
+            events.emit(TranscriptEvent.Complete(emptyList(), speakerCount = null))
+            return
+        }
+        finishPipeline(wav, utterances, cfg, models, converter)
     }
 
     /**
@@ -198,6 +212,7 @@ class TranscriptionService : LifecycleService() {
         }
         val converter = if (cfg.traditionalChinese) OpenCcConverter.get(this) else null
         val recorder = AudioRecorder()
+        val wav = File(File(filesDir, "audio").apply { mkdirs() }, "recording_${System.currentTimeMillis()}.wav")
         val utterances = ArrayList<TranscriptEvent.Utterance>()
 
         updateNotification("Recording…")
@@ -210,7 +225,7 @@ class TranscriptionService : LifecycleService() {
             useItn = cfg.useItn,
             vadThreshold = cfg.vadThreshold,
         ).use { asr ->
-            asr.transcribeLive(recorder.record { stopRecordingRequested })
+            asr.transcribeLive(recorder.record(wav) { stopRecordingRequested })
                 .flowOn(Dispatchers.Default)
                 .collect { e ->
                     when (e) {
@@ -226,25 +241,22 @@ class TranscriptionService : LifecycleService() {
                 }
         } // ASR + mic released here, before diarization/LLM load.
 
-        val pcm = recorder.samples()
-        // Drop the microphone foreground type for the CPU-bound finish.
+        // Drop the microphone foreground type for the CPU-bound finish. The WAV is already on disk.
         startForegroundTyped(recording = false, text = "Processing…")
-        if (pcm.isEmpty()) { events.emit(TranscriptEvent.Failed("No audio recorded")); return }
-
-        val wav = File(File(filesDir, "audio").apply { mkdirs() }, "recording_${System.currentTimeMillis()}.wav")
-        recorder.writeWav(wav)
+        if (recorder.totalSamples == 0L) { events.emit(TranscriptEvent.Failed("No audio recorded")); return }
         events.emit(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
 
         if (utterances.isEmpty()) {
             events.emit(TranscriptEvent.Complete(emptyList(), speakerCount = null))
             return
         }
-        finishPipeline(pcm, utterances, cfg, models, converter)
+        finishPipeline(wav, utterances, cfg, models, converter)
     }
 
-    /** Diarization (optional) + summarization — shared by the file and recording paths. */
+    /** Diarization (optional) + summarization — shared by the file and recording paths. The audio
+     *  is the on-disk 16 kHz WAV; diarization reads each utterance's slice from it (bounded memory). */
     private suspend fun finishPipeline(
-        pcm: FloatArray,
+        wav: File,
         utterances: List<TranscriptEvent.Utterance>,
         cfg: TranscriptionConfig,
         models: ModelManager,
@@ -266,7 +278,9 @@ class TranscriptionService : LifecycleService() {
                 numClusters = cfg.numSpeakers,
                 clusterThreshold = cfg.clusterThreshold,
             ).use { de ->
-                val (t, count) = de.assignSpeakers(pcm, utterances)
+                val (t, count) = WavSlicer(wav).use { slicer ->
+                    de.assignSpeakers(slicer::read, slicer.totalSamples, utterances)
+                }
                 tagged = t
                 events.emit(TranscriptEvent.Complete(t, count))
             } // diarization native resources freed before the LLM loads.

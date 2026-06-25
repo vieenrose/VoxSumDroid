@@ -6,12 +6,13 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.os.Build
 import java.io.File
+import java.io.RandomAccessFile
 
 /**
- * Encodes 16 kHz mono PCM (as produced by [AudioDecoder.decodeToPcm16k] from any source) to an
- * OGG/Opus file — speech becomes a few hundred KB/minute, royalty-free and VLC/player-friendly.
- * Opus natively supports 16 kHz so there is no resampling. Returns false (caller falls back) when it
- * can't: API < 29 (MediaMuxer has no OGG output before Q) or no Opus encoder on the device.
+ * Encodes 16 kHz mono PCM to OGG/Opus — speech becomes a few hundred KB/minute, royalty-free and
+ * VLC/player-friendly. The encoder is fed by a pull-based reader, so a whole-buffer [FloatArray] or
+ * a **streamed WAV file** both work; the WAV path keeps memory bounded for multi-hour audio. Returns
+ * false (caller falls back) when it can't: API < 29 (no OGG muxer) or no Opus encoder on the device.
  */
 object AudioTranscoder {
 
@@ -19,22 +20,6 @@ object AudioTranscoder {
 
     /** Encode mono float samples in [-1,1] at 16 kHz to OGG/Opus at [dest]. */
     fun pcm16kToOggOpus(samples: FloatArray, dest: File): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
-        val query = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, RATE, 1)
-        val encoderName = MediaCodecList(MediaCodecList.REGULAR_CODECS).findEncoderForFormat(query)
-            ?: return false
-        val fmt = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, RATE, 1).apply {
-            setInteger(MediaFormat.KEY_BIT_RATE, 24_000)
-        }
-        return runCatching { encode(samples, fmt, encoderName, dest) }
-            .fold(
-                onSuccess = { true },
-                onFailure = { android.util.Log.w("voxsum-ogg", "Opus encode failed", it); dest.delete(); false },
-            )
-    }
-
-    private fun encode(samples: FloatArray, fmt: MediaFormat, encoderName: String, dest: File) {
-        // float → signed 16-bit little-endian PCM
         val pcm = ByteArray(samples.size * 2)
         var j = 0
         for (f in samples) {
@@ -42,6 +27,39 @@ object AudioTranscoder {
             pcm[j++] = (s and 0xFF).toByte()
             pcm[j++] = ((s shr 8) and 0xFF).toByte()
         }
+        var pos = 0
+        return encodeOgg(dest) { into ->
+            val n = minOf(into.size, pcm.size - pos)
+            if (n <= 0) -1 else { System.arraycopy(pcm, pos, into, 0, n); pos += n; n }
+        }
+    }
+
+    /** Stream a 16 kHz mono 16-bit WAV (our [WavWriter] format) to OGG/Opus — bounded memory. */
+    fun wavToOggOpus(wav: File, dest: File): Boolean =
+        runCatching {
+            RandomAccessFile(wav, "r").use { raf ->
+                raf.seek(44)   // skip the canonical 44-byte header
+                encodeOgg(dest) { into -> raf.read(into).let { if (it <= 0) -1 else it } }
+            }
+        }.getOrElse { android.util.Log.w("voxsum-ogg", "wav→ogg transcode failed", it); dest.delete(); false }
+
+    /** Drive the Opus encoder + OGG muxer, pulling PCM16 via [read] (fills the buffer; -1 at EOF). */
+    private fun encodeOgg(dest: File, read: (ByteArray) -> Int): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val query = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, RATE, 1)
+        val encoderName = MediaCodecList(MediaCodecList.REGULAR_CODECS).findEncoderForFormat(query)
+            ?: return false
+        val fmt = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, RATE, 1).apply {
+            setInteger(MediaFormat.KEY_BIT_RATE, 24_000)
+        }
+        return runCatching { encode(read, fmt, encoderName, dest) }
+            .fold(
+                onSuccess = { true },
+                onFailure = { android.util.Log.w("voxsum-ogg", "Opus encode failed", it); dest.delete(); false },
+            )
+    }
+
+    private fun encode(read: (ByteArray) -> Int, fmt: MediaFormat, encoderName: String, dest: File) {
         val codec = MediaCodec.createByCodecName(encoderName)
         val muxer = MediaMuxer(dest.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_OGG)
         var track = -1
@@ -50,7 +68,6 @@ object AudioTranscoder {
             codec.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             codec.start()
             val info = MediaCodec.BufferInfo()
-            var pos = 0
             var ptsUs = 0L
             var inputDone = false
             while (true) {
@@ -59,15 +76,15 @@ object AudioTranscoder {
                     if (inIdx >= 0) {
                         val buf = codec.getInputBuffer(inIdx)!!
                         buf.clear()
-                        val n = minOf(buf.capacity(), pcm.size - pos)
+                        val arr = ByteArray(buf.capacity())
+                        val n = read(arr)
                         if (n <= 0) {
                             codec.queueInputBuffer(inIdx, 0, 0, ptsUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             inputDone = true
                         } else {
-                            buf.put(pcm, pos, n)
+                            buf.put(arr, 0, n)
                             codec.queueInputBuffer(inIdx, 0, n, ptsUs, 0)
-                            pos += n
-                            ptsUs += (n / 2).toLong() * 1_000_000L / RATE   // 2 bytes/sample, mono
+                            ptsUs += (n.toLong() / 2) * 1_000_000L / RATE   // 2 bytes/sample, mono
                         }
                     }
                 }
@@ -88,8 +105,6 @@ object AudioTranscoder {
                     }
                 }
             }
-            // Empty/degenerate input can reach EOS without a FORMAT_CHANGED → no track written.
-            // Treat that as failure so the caller falls back rather than emitting an invalid .ogg.
             check(muxing) { "no audio was muxed" }
         } finally {
             runCatching { codec.stop() }
