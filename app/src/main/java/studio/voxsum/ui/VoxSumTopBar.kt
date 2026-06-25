@@ -43,7 +43,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import studio.voxsum.R
-import studio.voxsum.core.export.TranscriptExport
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.statusColor
 
@@ -60,7 +59,6 @@ fun VoxSumTopBar(
     running: Boolean,
     progress: Float,
     transcriptAvailable: Boolean,
-    summaryAvailable: Boolean,
     showSourceActions: Boolean,   // false on the blank slate (the hero CTA covers "Add audio" there)
     isRecording: Boolean,
     recSeconds: Int,
@@ -74,9 +72,6 @@ fun VoxSumTopBar(
     isDetecting: Boolean,
     onReDetect: () -> Unit,
     onSettings: () -> Unit,
-    onExportTranscript: (TranscriptExport.Format) -> Unit,
-    onExportSummaryMarkdown: () -> Unit,
-    onExportSummaryText: () -> Unit,
     onCoverPreview: () -> Unit,
     onSaveSession: () -> Unit,
     onShareSession: () -> Unit,
@@ -156,11 +151,7 @@ fun VoxSumTopBar(
                         )
                     }
                 }
-                ExportMenu(
-                    transcriptAvailable, summaryAvailable,
-                    onExportTranscript, onExportSummaryMarkdown, onExportSummaryText,
-                    onCoverPreview, onSaveSession, onShareSession,
-                )
+                ExportMenu(transcriptAvailable, onCoverPreview, onSaveSession, onShareSession)
             }
         }
         if (status.isNotBlank()) {
@@ -245,61 +236,34 @@ private fun ReRunMenu(
 @Composable
 private fun ExportMenu(
     transcriptAvailable: Boolean,
-    summaryAvailable: Boolean,
-    onExportTranscript: (TranscriptExport.Format) -> Unit,
-    onExportSummaryMarkdown: () -> Unit,
-    onExportSummaryText: () -> Unit,
     onCoverPreview: () -> Unit,
     onSaveSession: () -> Unit,
     onShareSession: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { open = true }, enabled = transcriptAvailable || summaryAvailable) {
+        IconButton(onClick = { open = true }, enabled = transcriptAvailable) {
             Icon(
                 Icons.Filled.MoreVert,
                 contentDescription = stringResource(R.string.cd_export),
-                tint = if (transcriptAvailable || summaryAvailable) VoxSumPalette.OnBrand else VoxSumPalette.OnBrandFaint,
+                tint = if (transcriptAvailable) VoxSumPalette.OnBrand else VoxSumPalette.OnBrandFaint,
             )
         }
+        // The session .ogg is the single editable artifact (transcript + summary + speakers + cover
+        // all ride inside it), so there are no separate transcript/summary exports — only Cover / Save / Share.
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            if (transcriptAvailable) {
-                listOf(
-                    TranscriptExport.Format.SRT, TranscriptExport.Format.VTT,
-                    TranscriptExport.Format.TXT, TranscriptExport.Format.JSON,
-                ).forEach { f ->
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.export_transcript, f.name)) },
-                        onClick = { open = false; onExportTranscript(f) },
-                    )
-                }
-            }
-            if (summaryAvailable) {
-                if (transcriptAvailable) HorizontalDivider()
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.export_summary_md)) },
-                    onClick = { open = false; onExportSummaryMarkdown() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.export_summary_txt)) },
-                    onClick = { open = false; onExportSummaryText() },
-                )
-            }
-            if (transcriptAvailable) {
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.cover_menu)) },
-                    onClick = { open = false; onCoverPreview() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.session_save)) },
-                    onClick = { open = false; onSaveSession() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.session_share)) },
-                    onClick = { open = false; onShareSession() },
-                )
-            }
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.cover_menu)) },
+                onClick = { open = false; onCoverPreview() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.session_save)) },
+                onClick = { open = false; onSaveSession() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.session_share)) },
+                onClick = { open = false; onShareSession() },
+            )
         }
     }
 }

@@ -6,9 +6,6 @@
     <string name="cd_settings">設定</string>
     <string name="cd_export">匯出</string>
     <string name="badge_on_device">裝置端處理</string>
-    <string name="export_transcript">逐字稿 · %1$s</string>
-    <string name="export_summary_md">摘要 · Markdown</string>
-    <string name="export_summary_txt">摘要 · 純文字</string>
 
     <!-- Empty / home state -->
     <string name="empty_status">請選擇音訊檔案以開始。</string>
@@ -157,6 +154,8 @@
     <string name="session_save_failed">無法儲存工作階段</string>
     <string name="session_open_failed">無法開啟工作階段</string>
     <string name="session_share_failed">無法分享工作階段</string>
+    <string name="summary_copied">已複製摘要</string>
+    <string name="cd_copy_summary">複製摘要</string>
     <string name="exporting">正在匯出工作階段…</string>
     <string name="exporting_hint">將在背景繼續完成，您可以繼續使用應用程式</string>
     <string name="cover_menu">封面…</string>
