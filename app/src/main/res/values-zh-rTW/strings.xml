@@ -25,6 +25,8 @@
     <!-- Source bar / add-source sheet -->
     <string name="add_audio">加入音訊</string>
     <string name="re_transcribe">重新轉錄</string>
+    <string name="re_summarize">重新摘要</string>
+    <string name="re_detect_names">重新偵測名稱</string>
     <string name="pick_audio">選擇音訊…</string>
     <string name="stop">停止</string>
     <string name="cd_stop_recording">停止錄音</string>

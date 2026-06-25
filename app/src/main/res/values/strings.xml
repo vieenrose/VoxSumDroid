@@ -25,6 +25,8 @@
     <!-- Source bar / add-source sheet -->
     <string name="add_audio">Add audio</string>
     <string name="re_transcribe">Re-transcribe</string>
+    <string name="re_summarize">Re-summarize</string>
+    <string name="re_detect_names">Re-detect names</string>
     <string name="pick_audio">Pick audio…</string>
     <string name="stop">Stop</string>
     <string name="cd_stop_recording">Stop recording</string>

@@ -118,6 +118,7 @@ import studio.voxsum.ui.AddSourceSheet
 import studio.voxsum.ui.ConfigSheet
 import studio.voxsum.ui.EmptyState
 import studio.voxsum.ui.PodcastSheet
+import studio.voxsum.ui.ReRunActions
 import studio.voxsum.ui.SourceBar
 import studio.voxsum.ui.renderMarkdown
 import studio.voxsum.ui.SpeakerStatsPanel
@@ -436,6 +437,18 @@ private fun TranscribeScreen(
         }
     }
 
+    // Re-run only summarization on the current transcript with the current settings (no re-ASR).
+    fun reSummarize() {
+        if (running || utterances.isEmpty()) return
+        TranscriptionConfig.Holder.config = config
+        title = null; summary = null
+        running = true; progress = 0f; status = context.getString(R.string.status_starting)
+        val intent = Intent(context, TranscriptionService::class.java)
+            .setAction(TranscriptionService.ACTION_SUMMARIZE)
+            .putExtra(TranscriptionService.EXTRA_TRANSCRIPT, utterances.joinToString("\n") { it.text })
+        ContextCompat.startForegroundService(context, intent)
+    }
+
     val stats = computeDiarizationStats(utterances)
     // Header items rendered before the utterance list (for auto-scroll index math).
     val headerCount = (if (title != null) 1 else 0) + (if (summary != null) 1 else 0) +
@@ -538,11 +551,21 @@ private fun TranscribeScreen(
                     recSeconds = recSeconds,
                     onAddSource = { showAddSourceSheet = true },
                     onStop = { handleStop() },
-                    // Re-run on the loaded source with current settings (only for file-based
-                    // sources — a live recording has no original to re-feed until it's saved).
-                    canReRun = !running && audioUri != null && utterances.isNotEmpty(),
-                    onReRun = { audioUri?.let { launchAudio(it) } },
                 )
+                // Re-run actions on an existing transcript (apply a settings change without
+                // starting over). Hidden while a run is in progress.
+                if (!running && utterances.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    ReRunActions(
+                        canReTranscribe = audioUri != null,
+                        onReTranscribe = { audioUri?.let { launchAudio(it) } },
+                        canReSummarize = true,
+                        onReSummarize = { reSummarize() },
+                        canReDetect = stats.perSpeaker.isNotEmpty(),
+                        isDetecting = isDetecting,
+                        onReDetect = { detectNames() },
+                    )
+                }
             }
 
             if (isEmptyState) {
@@ -561,11 +584,7 @@ private fun TranscribeScreen(
                     summary?.let { s -> item { SummaryCard(s, llmDisplay) } }
                     if (stats.perSpeaker.isNotEmpty()) {
                         item {
-                            SpeakerStatsPanel(
-                                stats = stats,
-                                isDetecting = isDetecting,
-                                onDetectNames = { detectNames() },
-                            )
+                            SpeakerStatsPanel(stats = stats)
                         }
                     }
                     items(count = utterances.size, key = { utterances[it].index }) { idx ->

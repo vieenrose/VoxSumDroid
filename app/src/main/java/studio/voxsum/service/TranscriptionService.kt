@@ -47,8 +47,10 @@ class TranscriptionService : LifecycleService() {
         private const val CHANNEL_ID = "voxsum_pipeline"
         private const val NOTIF_ID = 1
         const val EXTRA_AUDIO_URI = "audio_uri"
+        const val EXTRA_TRANSCRIPT = "transcript"
         const val ACTION_STOP = "studio.voxsum.STOP"
         const val ACTION_RECORD = "studio.voxsum.RECORD"
+        const val ACTION_SUMMARIZE = "studio.voxsum.SUMMARIZE"
         // Gracefully end live recording and continue into diarization/summary (vs ACTION_STOP,
         // which cancels the whole job).
         const val ACTION_STOP_RECORDING = "studio.voxsum.STOP_RECORDING"
@@ -83,13 +85,21 @@ class TranscriptionService : LifecycleService() {
         }
 
         val recording = intent?.action == ACTION_RECORD
+        val summarizeOnly = intent?.action == ACTION_SUMMARIZE
         stopRecordingRequested = false
         startForegroundTyped(recording, "Preparing…")
         val uri = intent?.getStringExtra(EXTRA_AUDIO_URI)
+        val transcript = intent?.getStringExtra(EXTRA_TRANSCRIPT)
         // Run the whole pipeline off the main thread — the MediaCodec decode is a long
         // blocking call that would otherwise ANR the UI (lifecycleScope defaults to Main).
         pipelineJob = lifecycleScope.launch(Dispatchers.Default) {
-            runCatching { if (recording) runRecordingPipeline() else runPipeline(uri) }
+            runCatching {
+                when {
+                    summarizeOnly -> runSummarizeOnly(transcript.orEmpty())
+                    recording -> runRecordingPipeline()
+                    else -> runPipeline(uri)
+                }
+            }
                 .onFailure { e ->
                     if (e !is CancellationException) {
                         events.emit(TranscriptEvent.Failed(e.message ?: "pipeline error"))
@@ -248,7 +258,19 @@ class TranscriptionService : LifecycleService() {
             events.emit(TranscriptEvent.Complete(utterances, speakerCount = null))
         }
 
-        // --- Summarization phase. ---
+        summarize(tagged.joinToString("\n") { it.text }, cfg, models, converter)
+    }
+
+    /**
+     * Load the LLM and stream a title + summary for [transcript]. Shared by the full pipeline and
+     * the standalone re-summarize action ([ACTION_SUMMARIZE]).
+     */
+    private suspend fun summarize(
+        transcript: String,
+        cfg: TranscriptionConfig,
+        models: ModelManager,
+        converter: OpenCcConverter?,
+    ) {
         val spec = LlmRegistry.byId(cfg.llmModelId)
         if (!models.llmReady(spec)) {
             events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
@@ -257,7 +279,6 @@ class TranscriptionService : LifecycleService() {
             }
         }
         updateNotification(getString(R.string.svc_summarizing))
-        val transcript = tagged.joinToString("\n") { it.text }
         LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
             activeLlm = llm
             try {
@@ -273,6 +294,14 @@ class TranscriptionService : LifecycleService() {
                 activeLlm = null
             }
         }
+    }
+
+    /** Re-summarize an existing transcript with the current settings (no re-decode / re-ASR). */
+    private suspend fun runSummarizeOnly(transcript: String) {
+        val cfg = TranscriptionConfig.Holder.config
+        val models = ModelManager(this)
+        val converter = if (cfg.traditionalChinese) OpenCcConverter.get(this) else null
+        summarize(transcript, cfg, models, converter)
     }
 
     /** Small thread budget — phone big-core count, not all cores (cf. num_vcpus). */
