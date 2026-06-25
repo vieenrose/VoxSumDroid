@@ -115,19 +115,34 @@ Tout le code natif est **compilé depuis les sources** (sous-modules sous `nativ
 
 ## Installation
 
-Téléchargez le dernier APK signé depuis la
-[**page Releases**](https://github.com/vieenrose/VoxSumDroid/releases/latest) et installez-le par
-chargement latéral (Android peut demander l'autorisation d'installer depuis votre navigateur ou
-gestionnaire de fichiers). Les modèles ne sont **pas** inclus — ils sont téléchargés une seule fois,
-vérifiés par SHA-256, à la première utilisation ; ensuite l'appli est entièrement hors ligne.
+Les modèles ne sont **pas** inclus — ils sont téléchargés une seule fois, vérifiés par SHA-256, à la
+première utilisation ; ensuite l'appli est entièrement hors ligne. Deux façons d'installer :
+
+**Via F-Droid (recommandé — mises à jour automatiques).** Ajoutez ce dépôt auto-hébergé à votre client
+F-Droid (**Paramètres → Dépôts → ➕**), puis installez VoxSum depuis celui-ci :
+
+```
+https://vieenrose.github.io/VoxSumDroid/repo?fingerprint=c9fe46eb7d87d4fa4e2340a73f78a602eafbab655cbe7c7cb4ead5ab7a00b088
+```
+
+<img src="docs/screenshots/fdroid-repo-qr.png" width="150" alt="QR du dépôt F-Droid"> &nbsp; *(ou scannez pour ajouter le dépôt)*
+
+C'est un dépôt auto-hébergé (pas le store officiel f-droid.org), donc l'ajouter est une étape unique —
+ensuite les mises à jour arrivent automatiquement.
+
+**Charger l'APK latéralement.** Téléchargez le dernier APK signé depuis la
+[**page Releases**](https://github.com/vieenrose/VoxSumDroid/releases/latest) et installez-le (Android
+peut demander l'autorisation d'installer depuis votre navigateur ou gestionnaire de fichiers).
 
 ### Mises à jour
 
-L'appli vérifie les Releases GitHub au plus une fois par jour et affiche une bannière « Mise à jour
-disponible » ; toucher **Mettre à jour** télécharge l'APK signé et le confie à l'installateur système
-(vous accordez une fois « installer des applis inconnues »). Vous pouvez aussi lancer une vérification
-manuelle depuis Paramètres → À propos. Cette vérification est le seul appel réseau périodique,
-uniquement vers GitHub, sans télémétrie, et ignorée silencieusement hors ligne.
+Si vous avez ajouté le **dépôt F-Droid**, votre client F-Droid met à jour l'appli automatiquement. Si
+vous avez **chargé l'APK latéralement**, l'appli vérifie les Releases GitHub au plus une fois par jour
+et affiche une bannière « Mise à jour disponible » ; toucher **Mettre à jour** télécharge l'APK signé
+et le confie à l'installateur système (vous accordez une fois « installer des applis inconnues »). Vous
+pouvez aussi lancer une vérification manuelle depuis Paramètres → À propos. Cette vérification est le
+seul appel réseau périodique, uniquement vers GitHub, sans télémétrie, et ignorée silencieusement hors
+ligne.
 
 ## Compiler depuis les sources
 

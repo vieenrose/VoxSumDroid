@@ -15,8 +15,8 @@ android {
         applicationId = "studio.voxsum"
         minSdk = 26          // MediaCodec PCM-float output + reasonable native perf
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.4.1"
+        versionCode = 13
+        versionName = "0.4.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {

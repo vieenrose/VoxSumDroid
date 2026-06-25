@@ -75,14 +75,27 @@ VoxSum 把音訊 — 檔案、Podcast 單集或 YouTube 連結 — 轉成標註�
 
 ## 安裝
 
-從 [**Releases 頁面**](https://github.com/vieenrose/VoxSumDroid/releases/latest) 下載最新的已簽署 APK 後側載安裝。
-模型**不**內建，會在首次使用時下載一次（並經 SHA-256 驗證），之後即可完全離線使用。
+模型**不**內建，會在首次使用時下載一次（並經 SHA-256 驗證），之後即可完全離線使用。兩種安裝方式：
+
+**透過 F-Droid（推薦——自動更新）。** 在 F-Droid 用戶端中加入此自架軟體庫（**設定 → 軟體庫 → ➕**），
+即可從中安裝 VoxSum：
+
+```
+https://vieenrose.github.io/VoxSumDroid/repo?fingerprint=c9fe46eb7d87d4fa4e2340a73f78a602eafbab655cbe7c7cb4ead5ab7a00b088
+```
+
+<img src="docs/screenshots/fdroid-repo-qr.png" width="150" alt="F-Droid 軟體庫 QR"> &nbsp; *（或掃描以加入軟體庫）*
+
+這是自架軟體庫（非官方 f-droid.org 商店），加入為一次性步驟；之後更新即會自動送達。
+
+**側載 APK。** 從 [**Releases 頁面**](https://github.com/vieenrose/VoxSumDroid/releases/latest) 下載最新的已簽署 APK 後安裝（Android 可能要求授權從瀏覽器或檔案管理器安裝）。
 
 ### 更新
 
-App 每天最多檢查一次 GitHub Releases，並顯示「有可用更新」橫幅；點選**更新**即會下載已簽署的 APK
-並交給系統安裝程式（僅需授權一次「安裝不明應用程式」）。此更新檢查是唯一的週期性網路請求，
-僅連線 GitHub、無任何遙測，且離線時自動略過。
+若您已加入 **F-Droid 軟體庫**，F-Droid 用戶端會自動更新本 App。若您是**側載 APK**，App 每天最多檢查一次
+GitHub Releases，並顯示「有可用更新」橫幅；點選**更新**即會下載已簽署的 APK 並交給系統安裝程式
+（僅需授權一次「安裝不明應用程式」）。此更新檢查是唯一的週期性網路請求，僅連線 GitHub、無任何遙測，
+且離線時自動略過。
 
 ## 從原始碼建置
 

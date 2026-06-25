@@ -112,17 +112,32 @@ is committed.
 
 ## Install
 
-Download the latest signed APK from the
-[**Releases page**](https://github.com/vieenrose/VoxSumDroid/releases/latest) and sideload it
-(Android may ask permission to install from your browser or file manager). Models are **not**
-bundled — they download once, SHA-256-verified, on first use; after that the app is fully offline.
+Models are **not** bundled — they download once, SHA-256-verified, on first use; after that the app
+is fully offline. Two ways to install:
+
+**Via F-Droid (recommended — automatic updates).** Add this self-hosted repo to your F-Droid client
+(**Settings → Repositories → ➕**), then install VoxSum from it:
+
+```
+https://vieenrose.github.io/VoxSumDroid/repo?fingerprint=c9fe46eb7d87d4fa4e2340a73f78a602eafbab655cbe7c7cb4ead5ab7a00b088
+```
+
+<img src="docs/screenshots/fdroid-repo-qr.png" width="150" alt="F-Droid repo QR"> &nbsp; *(or scan to add the repo)*
+
+It's a self-hosted repo, not the official f-droid.org store, so adding it is a one-time step — after
+that, updates arrive automatically.
+
+**Sideload the APK.** Download the latest signed APK from the
+[**Releases page**](https://github.com/vieenrose/VoxSumDroid/releases/latest) and install it (Android
+may ask permission to install from your browser or file manager).
 
 ### Updates
 
-The app checks GitHub Releases at most once a day and shows an in-app "Update available" banner;
-tapping **Update** downloads the signed APK and hands it to the system installer (you grant
-"install unknown apps" once). The update check is the only periodic network call, GitHub-only, with
-no telemetry, and is skipped silently when offline.
+If you added the **F-Droid repo**, your F-Droid client updates the app automatically. If you
+**sideloaded the APK**, the app checks GitHub Releases at most once a day and shows an in-app
+"Update available" banner; tapping **Update** downloads the signed APK and hands it to the system
+installer (you grant "install unknown apps" once). The update check is the only periodic network
+call, GitHub-only, with no telemetry, and is skipped silently when offline.
 
 ## Build from source
 
