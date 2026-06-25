@@ -51,7 +51,7 @@ Not just an app, but a different stance on transcription — **your words stay y
 **Understand**
 - **Streaming transcription** — utterances appear incrementally as speech is detected (Silero VAD).
 - **Speaker diarization** — per-utterance CAM++ (zh+en) embeddings + adaptive clustering, with a colour-coded timeline, per-speaker chips, and a stats panel. The fp16 embedding was chosen by on-device benchmarking — ~1.5× faster and more accurate on Mandarin/English than the previous baseline ([weights + benchmark](https://huggingface.co/Luigi/campplus-zh-en-onnx)).
-- **On-device summarization** — a local GGUF model via llama.cpp produces a title + markdown summary. Selectable Gemma lineup: Gemma 3 1B, Gemma 3n (E2B / E4B), Gemma 4 (E2B / E4B).
+- **On-device summarization** — a local GGUF model via llama.cpp produces a title + markdown summary. Selectable Gemma lineup (all QAT): Gemma 3 1B, Gemma 4 E2B / E4B.
 
 **Work with it**
 - **Transcript-synced player**, docked at the bottom like a music player — tap any line to seek, the active line auto-highlights, and playback works while transcription is still running.
@@ -83,10 +83,9 @@ Every model runs **on-device**. None are bundled in the APK — they download on
 | Speaker embedding (diarization) | CAM++ zh+en, fp16 | [Luigi/campplus-zh-en-onnx](https://huggingface.co/Luigi/campplus-zh-en-onnx) · upstream [modelscope/3D-Speaker](https://github.com/modelscope/3D-Speaker) |
 | Summarization LLM | Gemma 3 / 3n / 4 (GGUF) | [Google Gemma](https://huggingface.co/google) (repos below) |
 
-**Summarization LLMs** (GGUF), selectable in Settings — upstream [Google Gemma](https://huggingface.co/google):
+**Summarization LLMs** (QAT GGUF — quantization-aware trained), selectable in Settings — upstream [Google Gemma](https://huggingface.co/google):
 - **Gemma 3 1B** *(default)* — [bartowski/google_gemma-3-1b-it-qat-GGUF](https://huggingface.co/bartowski/google_gemma-3-1b-it-qat-GGUF)
-- Gemma 3n E2B / E4B — [unsloth/gemma-3n-E2B-it-GGUF](https://huggingface.co/unsloth/gemma-3n-E2B-it-GGUF) · [unsloth/gemma-3n-E4B-it-GGUF](https://huggingface.co/unsloth/gemma-3n-E4B-it-GGUF)
-- Gemma 4 E2B / E4B — [unsloth/gemma-4-E2B-it-GGUF](https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF) · [unsloth/gemma-4-E4B-it-GGUF](https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF)
+- Gemma 4 E2B / E4B — [unsloth/gemma-4-E2B-it-qat-mobile-GGUF](https://huggingface.co/unsloth/gemma-4-E2B-it-qat-mobile-GGUF) · [unsloth/gemma-4-E4B-it-qat-mobile-GGUF](https://huggingface.co/unsloth/gemma-4-E4B-it-qat-mobile-GGUF)
 
 **Inference engines:** [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ASR / VAD / speaker
 embedding, via ONNX Runtime) and [llama.cpp](https://github.com/ggml-org/llama.cpp) (LLM).

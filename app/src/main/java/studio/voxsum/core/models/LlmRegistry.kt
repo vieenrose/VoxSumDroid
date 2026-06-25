@@ -31,7 +31,8 @@ object LlmRegistry {
     private const val HF = "https://huggingface.co"
 
     val ALL: List<LlmSpec> = listOf(
-        // Gemma 3 270M was dropped — too weak for coherent summaries.
+        // Dropped: Gemma 3 270M (too weak) and the Gemma 3n series (superseded by Gemma 4 E2B/E4B).
+        // All models are QAT (quantization-aware trained) GGUFs — better quality at low bit-width.
         LlmSpec(
             id = "gemma-3-1b-it-qat-q4",
             displayName = "Gemma 3 1B (recommended)",
@@ -40,32 +41,18 @@ object LlmRegistry {
             fileName = "gemma-3-1b-it-q4.gguf", chatTemplate = ChatTemplate.GEMMA, shortName = "Gemma 3 1B",
         ),
         LlmSpec(
-            id = "gemma-3n-e2b-it-q4",
-            displayName = "Gemma 3n E2B (better)",
-            url = "$HF/unsloth/gemma-3n-E2B-it-GGUF/resolve/main/gemma-3n-E2B-it-Q4_0.gguf",
-            sha256 = "", sizeBytes = 2_965_000_000L,
-            fileName = "gemma-3n-e2b-it-q4.gguf", chatTemplate = ChatTemplate.GEMMA, shortName = "Gemma 3n E2B",
+            id = "gemma-4-e2b-it-qat",
+            displayName = "Gemma 4 E2B (QAT)",
+            url = "$HF/unsloth/gemma-4-E2B-it-qat-mobile-GGUF/resolve/main/gemma-4-E2B-it-qat-UD-Q2_K_XL.gguf",
+            sha256 = "", sizeBytes = 2_186_000_000L,
+            fileName = "gemma-4-e2b-it-qat.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E2B",
         ),
         LlmSpec(
-            id = "gemma-3n-e4b-it-q4",
-            displayName = "Gemma 3n E4B (high-RAM)",
-            url = "$HF/unsloth/gemma-3n-E4B-it-GGUF/resolve/main/gemma-3n-E4B-it-Q4_0.gguf",
-            sha256 = "", sizeBytes = 4_395_000_000L,
-            fileName = "gemma-3n-e4b-it-q4.gguf", chatTemplate = ChatTemplate.GEMMA, shortName = "Gemma 3n E4B",
-        ),
-        LlmSpec(
-            id = "gemma-4-e2b-it-q4",
-            displayName = "Gemma 4 E2B (newer, high-RAM)",
-            url = "$HF/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_0.gguf",
-            sha256 = "", sizeBytes = 3_041_000_000L,
-            fileName = "gemma-4-e2b-it-q4.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E2B",
-        ),
-        LlmSpec(
-            id = "gemma-4-e4b-it-q4",
-            displayName = "Gemma 4 E4B (newer, high-RAM)",
-            url = "$HF/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf",
-            sha256 = "", sizeBytes = 4_836_000_000L,
-            fileName = "gemma-4-e4b-it-q4.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E4B",
+            id = "gemma-4-e4b-it-qat",
+            displayName = "Gemma 4 E4B (QAT)",
+            url = "$HF/unsloth/gemma-4-E4B-it-qat-mobile-GGUF/resolve/main/gemma-4-E4B-it-qat-UD-Q2_K_XL.gguf",
+            sha256 = "", sizeBytes = 3_220_000_000L,
+            fileName = "gemma-4-e4b-it-qat.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E4B",
         ),
     )
 
