@@ -472,10 +472,17 @@ private fun TranscribeScreen(
             }
 
             if (isEmptyState) {
-                EmptyState(onAddSource = { showAddSourceSheet = true })
+                EmptyState(
+                    onAddSource = { showAddSourceSheet = true },
+                    modifier = Modifier.weight(1f),
+                )
             } else {
                 Spacer(Modifier.height(8.dp))
-                LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     title?.let { t -> item { TitleCard(t, llmDisplay) } }
                     summary?.let { s -> item { SummaryCard(s, llmDisplay) } }
                     if (stats.perSpeaker.isNotEmpty()) {

@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.GraphicEq
@@ -19,13 +21,20 @@ import androidx.compose.ui.unit.dp
 import studio.voxsum.ui.components.GradientButton
 import studio.voxsum.ui.theme.VoxSumPalette
 
-/** Blank-slate hero — one clear call to action. */
+/**
+ * Blank-slate hero — one clear call to action. Centred when there is room, but scrollable so the
+ * "Add audio" button is never clipped on a short viewport (e.g. landscape). [modifier] should give
+ * it the remaining height (weight) from the parent column.
+ */
 @Composable
-fun EmptyState(onAddSource: () -> Unit) {
+fun EmptyState(onAddSource: () -> Unit, modifier: Modifier = Modifier) {
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp),
+        modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
     ) {
         Icon(
             Icons.Filled.GraphicEq,
