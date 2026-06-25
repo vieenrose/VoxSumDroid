@@ -54,6 +54,18 @@ object AudioDecoder {
         }
     }
 
+    /**
+     * STREAMING waveform peaks for the cover card: scan the whole file and return [bars] normalized
+     * peak amplitudes in [0,1]. Accumulates max-abs into fixed ~0.25 s coarse bins (≈0.9 MB for a
+     * 6 h file), then downsamples — so it never holds the full waveform. Returns an empty array on
+     * decode failure (the card simply renders without a waveform).
+     */
+    fun waveformPeaks(context: Context, uri: Uri, bars: Int = 96): FloatArray {
+        val sink = PeakSink(SAMPLE_RATE / 4)
+        runCatching { decode(context, uri, sink) }.onFailure { return FloatArray(0) }
+        return sink.downsample(bars)
+    }
+
     /** Shared setup + decode loop; resampled mono 16 kHz samples are pushed into [sink]. */
     private fun decode(context: Context, uri: Uri, sink: PcmSink) {
         val extractor = MediaExtractor()
@@ -171,6 +183,40 @@ object AudioDecoder {
             writer.write(block, n)
             onChunk(block, n)
             n = 0
+        }
+    }
+
+    /**
+     * Accumulates max-abs amplitude into fixed [binSamples]-wide coarse bins, then [downsample]s the
+     * bins to N normalized peaks — a bounded-memory waveform thumbnail for the cover card.
+     */
+    private class PeakSink(private val binSamples: Int) : PcmSink {
+        private val coarse = FloatList(4096)
+        private var cur = 0f
+        private var n = 0
+        override fun add(v: Float) {
+            val a = if (v < 0f) -v else v
+            if (a > cur) cur = a
+            if (++n >= binSamples) { coarse.add(cur); cur = 0f; n = 0 }
+        }
+        fun downsample(bars: Int): FloatArray {
+            if (n > 0) { coarse.add(cur); cur = 0f; n = 0 }       // flush partial tail bin
+            val src = coarse.toArray()
+            if (src.isEmpty() || bars <= 0) return FloatArray(0)
+            val out = FloatArray(bars)
+            val per = src.size.toDouble() / bars
+            var peak = 0f
+            for (i in 0 until bars) {
+                val a = (i * per).toInt().coerceIn(0, src.size - 1)
+                val b = ((i + 1) * per).toInt().coerceIn(a + 1, src.size)
+                var m = 0f
+                var j = a
+                while (j < b) { if (src[j] > m) m = src[j]; j++ }
+                out[i] = m
+                if (m > peak) peak = m
+            }
+            if (peak > 0f) for (i in out.indices) out[i] /= peak
+            return out
         }
     }
 
