@@ -354,8 +354,12 @@ private fun TranscribeScreen(
             // A mid-stream decode error otherwise leaves the player in ERROR state, where every later
             // start() fails with native error -38 ("played, stopped, can't play anymore").
             mp.setOnErrorListener { p, _, _ ->
+                val resumeAt = positionMs   // recover at the current position, not 0
                 isPlaying = false
-                runCatching { p.reset(); p.setDataSource(context, uri); p.prepare(); durationMs = p.duration }
+                runCatching {
+                    p.reset(); p.setDataSource(context, uri); p.prepare(); durationMs = p.duration
+                    p.seekTo(resumeAt.coerceIn(0, durationMs))
+                }
                 true
             }
             // Loudness normalization: starts at 0; a side-effect below measures the track and
@@ -380,9 +384,12 @@ private fun TranscribeScreen(
         val uri = audioUri ?: return
         val started = runCatching { seekMs?.let { p.seekTo(it.coerceIn(0, durationMs)) }; p.start() }.isSuccess
         if (started) { isPlaying = true; buffering = false; return }
+        // Recovery re-prepares the player; resume at the requested point, or the current position —
+        // never restart from 0.
+        val resumeAt = seekMs ?: positionMs
         isPlaying = runCatching {
             p.reset(); p.setDataSource(context, uri); p.prepare(); durationMs = p.duration
-            seekMs?.let { p.seekTo(it.coerceIn(0, durationMs)) }
+            p.seekTo(resumeAt.coerceIn(0, durationMs))
             p.start(); true
         }.getOrDefault(false)
         if (isPlaying) buffering = false
@@ -402,9 +409,11 @@ private fun TranscribeScreen(
             val advancing = pos != lastPos && runCatching { player?.isPlaying == true }.getOrDefault(false)
             if (!atEnd && !advancing) {
                 frozen++
-                buffering = frozen >= 3                        // ~450 ms frozen → show buffering
-                if (frozen >= 3) runCatching { player?.start() }   // keep nudging; resumes when refilled
-                if (frozen == 16) resumeOrRecover(pos)             // ~2.4 s hard stall → one re-prepare
+                buffering = frozen >= 3                        // ~450 ms frozen → show buffering, then WAIT
+                // Underrun = the player is starved while the pipeline decodes; it resumes in place
+                // once the CPU/buffer catches up, like a streaming player. Only resume it if it
+                // actually paused — never reset/re-prepare here (that would jump the cursor to 0).
+                if (frozen >= 3) runCatching { if (player?.isPlaying == false) player?.start() }
             } else { frozen = 0; buffering = false }
             lastPos = pos
             delay(150)
