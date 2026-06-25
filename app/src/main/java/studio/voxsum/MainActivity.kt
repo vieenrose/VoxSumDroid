@@ -337,6 +337,7 @@ private fun TranscribeScreen(
     var volume by remember { mutableFloatStateOf(1f) }
     var muted by remember { mutableStateOf(false) }
     var dragMs by remember { mutableStateOf<Int?>(null) }
+    var buffering by remember { mutableStateOf(false) }   // underrun: waiting for the buffer to refill
     val listState = rememberLazyListState()
     DisposableEffect(audioUri) {
         enhancer?.release(); enhancer = null
@@ -344,27 +345,23 @@ private fun TranscribeScreen(
         durationMs = 0; positionMs = 0; dragMs = null
         audioUri?.let { uri ->
             val mp = MediaPlayer()
-            val prepared = runCatching { mp.setDataSource(context, uri); mp.prepare() }.isSuccess
-            if (!prepared) {
-                // Bad/unreadable source → release it and leave player null, so the null-guarded
-                // start()/seek() calls are no-ops instead of hitting an unprepared player (error -38).
-                mp.release()
-            } else {
-                durationMs = mp.duration
-                mp.setVolume(volume, volume)
-                mp.setOnCompletionListener { isPlaying = false }
-                // A mid-stream decode error otherwise drops the player into ERROR state, where every
-                // later start() fails with -38 ("can't play anymore"). Recover by re-preparing it.
-                mp.setOnErrorListener { p, _, _ ->
-                    isPlaying = false
-                    runCatching { p.reset(); p.setDataSource(context, uri); p.prepare(); durationMs = p.duration }
-                    true
-                }
-                // Loudness normalization: starts at 0; a side-effect below measures the track and
-                // sets the per-file gain that lifts a quiet recording to a comfortable level.
-                runCatching { enhancer = LoudnessEnhancer(mp.audioSessionId).apply { enabled = true } }
-                player = mp
+            // prepare() can fail if the pipeline is still decoding the same audio (codec/CPU
+            // contention). Keep the player anyway — [resumeOrRecover] re-prepares it on the next
+            // play tap (once the decode frees the codec), so it self-heals instead of staying dead.
+            runCatching { mp.setDataSource(context, uri); mp.prepare() }.onSuccess { durationMs = mp.duration }
+            mp.setVolume(volume, volume)
+            mp.setOnCompletionListener { isPlaying = false }
+            // A mid-stream decode error otherwise leaves the player in ERROR state, where every later
+            // start() fails with native error -38 ("played, stopped, can't play anymore").
+            mp.setOnErrorListener { p, _, _ ->
+                isPlaying = false
+                runCatching { p.reset(); p.setDataSource(context, uri); p.prepare(); durationMs = p.duration }
+                true
             }
+            // Loudness normalization: starts at 0; a side-effect below measures the track and
+            // sets the per-file gain that lifts a quiet recording to a comfortable level.
+            runCatching { enhancer = LoudnessEnhancer(mp.audioSessionId).apply { enabled = true } }
+            player = mp
         }
         onDispose { enhancer?.release(); enhancer = null; player?.release(); player = null }
     }
@@ -375,12 +372,44 @@ private fun TranscribeScreen(
         val gainMb = withContext(Dispatchers.IO) { computeNormalizeGainMb(context, uri) }
         runCatching { e.setTargetGain(gainMb) }
     }
+    // Robustly (re)start playback. If start() fails — the player errored or stalled while the pipeline
+    // was decoding the same audio (codec/CPU contention, buffer underrun) — reset + re-prepare and
+    // retry, so playback self-heals instead of staying stuck.
+    fun resumeOrRecover(seekMs: Int?) {
+        val p = player ?: return
+        val uri = audioUri ?: return
+        val started = runCatching { seekMs?.let { p.seekTo(it.coerceIn(0, durationMs)) }; p.start() }.isSuccess
+        if (started) { isPlaying = true; buffering = false; return }
+        isPlaying = runCatching {
+            p.reset(); p.setDataSource(context, uri); p.prepare(); durationMs = p.duration
+            seekMs?.let { p.seekTo(it.coerceIn(0, durationMs)) }
+            p.start(); true
+        }.getOrDefault(false)
+        if (isPlaying) buffering = false
+    }
     LaunchedEffect(isPlaying) {
+        // Poll the position and watch for stalls: while we intend to play, if the player isn't
+        // advancing (a buffer underrun under decode/CPU contention freezes it), show "buffering" and
+        // keep gently retrying start() — so it resumes when the buffer refills, like a streaming
+        // player — with one re-prepare on a hard stall. Never stays stuck.
+        var lastPos = -1
+        var frozen = 0
         while (isPlaying) {
-            positionMs = player?.currentPosition ?: 0
-            if (durationMs == 0) durationMs = player?.duration ?: 0
+            val pos = runCatching { player?.currentPosition ?: 0 }.getOrDefault(positionMs)
+            positionMs = pos
+            if (durationMs == 0) durationMs = runCatching { player?.duration ?: 0 }.getOrDefault(0)
+            val atEnd = durationMs > 0 && pos >= durationMs - 250
+            val advancing = pos != lastPos && runCatching { player?.isPlaying == true }.getOrDefault(false)
+            if (!atEnd && !advancing) {
+                frozen++
+                buffering = frozen >= 3                        // ~450 ms frozen → show buffering
+                if (frozen >= 3) runCatching { player?.start() }   // keep nudging; resumes when refilled
+                if (frozen == 16) resumeOrRecover(pos)             // ~2.4 s hard stall → one re-prepare
+            } else { frozen = 0; buffering = false }
+            lastPos = pos
             delay(150)
         }
+        buffering = false
     }
 
     // Start a run from any audio Uri (SAF pick or podcast download): reset session + go.
@@ -673,11 +702,7 @@ private fun TranscribeScreen(
                 isEditing = editingIndex == idx,
                 speakerNames = speakerNames,
                 editingSpeakerId = editingSpeakerId,
-                onSeek = { sec ->
-                    player?.let { p ->
-                        runCatching { p.seekTo((sec * 1000).toInt()); if (!isPlaying) { p.start(); isPlaying = true } }
-                    }
-                },
+                onSeek = { sec -> resumeOrRecover((sec * 1000).toInt()) },
                 onBeginEdit = { editingIndex = idx; editingSpeakerId = null },
                 onSaveText = { newText ->
                     if (newText.isNotEmpty()) { utterances[idx] = u.copy(text = newText); editingIndex = -1 }
@@ -759,10 +784,8 @@ private fun TranscribeScreen(
             // bottom while the transcript scrolls above.
             if (player != null) {
                 fun doSeek(ms: Int) {
-                    val p = player ?: return
-                    val clamped = ms.coerceIn(0, durationMs)
-                    positionMs = clamped
-                    runCatching { p.seekTo(clamped); if (!isPlaying) { p.start(); isPlaying = true } }
+                    positionMs = ms.coerceIn(0, durationMs)
+                    resumeOrRecover(positionMs)
                 }
                 Surface(color = VoxSumPalette.PanelSurface, tonalElevation = 3.dp) {
                     Column(
@@ -782,8 +805,8 @@ private fun TranscribeScreen(
                             activeIndex = activeIndex,
                             onPlayPause = {
                                 val p = player ?: return@PlayerBar
-                                if (isPlaying) { runCatching { p.pause() }; isPlaying = false }
-                                else runCatching { p.start() }.onSuccess { isPlaying = true }
+                                if (isPlaying) { runCatching { p.pause() }; isPlaying = false; buffering = false }
+                                else resumeOrRecover(null)
                             },
                             onSeekTo = { doSeek(it) },
                             onDragChange = { dragMs = it },
@@ -795,6 +818,7 @@ private fun TranscribeScreen(
                                 player?.setVolume(v, v)
                             },
                             compact = landscape,
+                            buffering = buffering,
                         )
                     }
                 }
@@ -1119,6 +1143,7 @@ private fun PlayerBar(
     onVolume: (Float) -> Unit,
     onToggleMute: () -> Unit,
     compact: Boolean = false,
+    buffering: Boolean = false,
 ) {
     val shownMs = dragMs ?: positionMs
     // Two slim rows: the seek bar IS the speaker timeline (one merged scrubber), then a centered
@@ -1156,6 +1181,14 @@ private fun PlayerBar(
                     contentDescription = if (isPlaying) stringResource(R.string.cd_pause) else stringResource(R.string.cd_play),
                     tint = VoxSumPalette.Slate900,
                 )
+                // Underrun: overlay a spinner so it reads as "buffering, will resume" not "frozen".
+                if (buffering) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(playSize),
+                        color = VoxSumPalette.Slate900,
+                        strokeWidth = 2.dp,
+                    )
+                }
             }
             IconButton(onClick = { onSkip(5000) }, modifier = Modifier.size(btnSize)) {
                 Icon(Icons.Filled.Forward5, contentDescription = stringResource(R.string.cd_forward5), tint = VoxSumPalette.Slate200)
