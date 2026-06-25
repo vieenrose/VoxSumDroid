@@ -141,6 +141,10 @@
     <string name="update_later">稍後</string>
     <string name="update_downloading">正在下載更新…</string>
     <string name="update_download_failed">更新下載失敗</string>
+    <string name="update_check">檢查更新</string>
+    <string name="update_checking">檢查中…</string>
+    <string name="update_up_to_date">已是最新版本</string>
+    <string name="update_check_failed">無法檢查更新</string>
 
     <!-- Session as a self-describing .ogg + share -->
     <string name="source_session">開啟工作階段（.ogg）</string>

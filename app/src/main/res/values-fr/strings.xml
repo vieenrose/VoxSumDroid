@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VoxSum</string>
+
+    <!-- Top bar -->
+    <string name="cd_settings">Paramètres</string>
+    <string name="cd_export">Exporter</string>
+    <string name="badge_on_device">Sur l\'appareil</string>
+    <string name="export_transcript">Transcription · %1$s</string>
+    <string name="export_summary_md">Résumé · Markdown</string>
+    <string name="export_summary_txt">Résumé · Texte</string>
+
+    <!-- Empty / home state -->
+    <string name="empty_status">Choisissez un fichier audio pour commencer.</string>
+    <string name="empty_headline">Transcription et résumé, 100 % hors ligne</string>
+    <string name="empty_subtitle">Ajoutez un fichier audio, enregistrez une réunion ou collez un lien YouTube pour commencer.</string>
+    <!-- Value pillars on the home screen -->
+    <string name="pillar_private_title">Confidentiel par conception</string>
+    <string name="pillar_private_desc">L\'audio ne quitte jamais votre appareil</string>
+    <string name="pillar_offline_title">Fonctionne hors ligne</string>
+    <string name="pillar_offline_desc">En avion, en train, partout — sans réseau</string>
+    <string name="pillar_cost_title">Sans abonnement</string>
+    <string name="pillar_cost_desc">À vous pour toujours, sans frais cloud</string>
+
+    <!-- Source bar / add-source sheet -->
+    <string name="add_audio">Ajouter de l\'audio</string>
+    <string name="re_run">Relancer</string>
+    <string name="re_transcribe">Retranscrire</string>
+    <string name="re_summarize">Refaire le résumé</string>
+    <string name="re_detect_names">Redétecter les noms</string>
+    <string name="pick_audio">Choisir un audio…</string>
+    <string name="stop">Arrêter</string>
+    <string name="cd_stop_recording">Arrêter l\'enregistrement</string>
+    <string name="cd_recording">enregistrement</string>
+    <string name="source_audio_file">Fichier audio</string>
+    <string name="source_audio_file_desc">Choisir un fichier sur votre appareil</string>
+    <string name="source_record">Enregistrer</string>
+    <string name="source_record_desc">Capturer et transcrire en direct</string>
+    <string name="source_podcast">Podcast</string>
+    <string name="source_podcast_desc">Rechercher et télécharger un épisode</string>
+    <string name="source_youtube">YouTube</string>
+    <string name="source_youtube_desc">Coller un lien vidéo</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Paramètres</string>
+    <string name="settings_asr_engine">Moteur de reconnaissance</string>
+    <string name="settings_summary_model">Modèle de résumé</string>
+    <string name="settings_low_ram">faible RAM</string>
+    <string name="settings_needs_4gb">~4 Go de RAM requis</string>
+    <string name="settings_needs_6gb">~6 Go de RAM requis</string>
+    <string name="settings_speakers">Locuteurs (%1$s)</string>
+    <string name="settings_auto">auto</string>
+    <string name="asr_tagline_sensevoice">multilingue</string>
+    <string name="asr_tagline_moonshine">anglais, rapide</string>
+    <string name="asr_tagline_xasr">x-asr · zh-en, ponctué</string>
+    <string name="asr_tagline_qwen3">grand, lent</string>
+    <string name="settings_recognition">Reconnaissance</string>
+    <string name="settings_language">Langue</string>
+    <string name="settings_itn">Normalisation inverse du texte</string>
+    <string name="settings_vad_threshold">Seuil VAD</string>
+    <string name="settings_diarization">Diarisation</string>
+    <string name="settings_identify_speakers">Identifier les locuteurs</string>
+    <string name="settings_cluster_threshold">Seuil de regroupement</string>
+    <string name="settings_summary_options">Options de résumé</string>
+    <string name="settings_traditional_chinese">Sortie en chinois traditionnel</string>
+    <string name="settings_summary_prompt">Invite de résumé</string>
+    <string name="settings_about">À propos</string>
+    <string name="about_license">Libre et open source · GPL-3.0</string>
+    <string name="about_components">Composants open source</string>
+
+    <!-- Model option card -->
+    <string name="model_downloaded">téléchargé</string>
+    <string name="model_will_download">téléchargé à la première utilisation</string>
+
+    <!-- Podcast -->
+    <string name="podcast_transcribe">Transcrire</string>
+    <string name="podcast_search_hint">Rechercher des podcasts</string>
+    <string name="podcast_search">Rechercher</string>
+
+    <!-- YouTube -->
+    <string name="youtube_fetch_failed">Impossible de récupérer cette vidéo</string>
+    <string name="youtube_no_videos">Aucune vidéo trouvée</string>
+    <string name="youtube_search_failed">Échec de la recherche</string>
+    <string name="youtube_search_hint">Rechercher des vidéos ou coller un lien</string>
+    <string name="youtube_go">OK</string>
+    <string name="youtube_search">Rechercher</string>
+    <string name="youtube_working">En cours…</string>
+
+    <!-- Download / fetch progress -->
+    <string name="dl_searching">Recherche…</string>
+    <string name="dl_resolving">Résolution de la vidéo…</string>
+    <string name="dl_loading_episodes">Chargement des épisodes…</string>
+    <string name="dl_downloading">Téléchargement…</string>
+
+    <!-- Transcript / cards / speaker stats -->
+    <string name="card_summary">Résumé</string>
+    <string name="card_title">Titre</string>
+    <string name="speaker_n">Locuteur %d</string>
+    <string name="detect_speaker_names">Détecter les noms des locuteurs</string>
+    <string name="detecting">Détection…</string>
+    <plurals name="speaker_count">
+        <item quantity="one">%d locuteur</item>
+        <item quantity="other">%d locuteurs</item>
+    </plurals>
+
+    <!-- Player controls (content descriptions) -->
+    <string name="cd_back5">reculer de 5 secondes</string>
+    <string name="cd_forward5">avancer de 5 secondes</string>
+    <string name="cd_play">lecture</string>
+    <string name="cd_pause">pause</string>
+    <string name="cd_mute">couper le son</string>
+    <string name="cd_unmute">réactiver le son</string>
+    <string name="cd_edit">modifier</string>
+    <string name="save">Enregistrer</string>
+    <string name="cancel">Annuler</string>
+
+    <!-- Status messages -->
+    <string name="status_starting">Démarrage…</string>
+    <string name="status_recording">Enregistrement…</string>
+    <string name="status_done">Terminé</string>
+    <string name="status_transcribing">Transcription %d%%</string>
+    <string name="status_transcript_lines">Transcription : %d lignes</string>
+    <string name="status_transcript_lines_speakers">Transcription : %1$d lignes, %2$d locuteurs</string>
+    <string name="status_detecting_names">Détection des noms des locuteurs…</string>
+    <string name="status_detected_names">%d nom(s) de locuteur détecté(s)</string>
+    <string name="status_name_detection_failed">Échec de la détection des noms : %1$s</string>
+    <string name="status_error">Erreur : %1$s</string>
+    <string name="mic_permission_required">L\'autorisation du microphone est requise pour enregistrer</string>
+
+    <!-- Foreground-service notifications -->
+    <string name="svc_downloading_models">Téléchargement des modèles (première exécution)…</string>
+    <string name="svc_downloading_models_pct">Téléchargement des modèles… %d%%</string>
+    <string name="svc_downloading_diarization">Téléchargement des modèles de diarisation…</string>
+    <string name="svc_downloading_named">Téléchargement de %1$s…</string>
+    <string name="svc_summarization_model_pct">Modèle de résumé… %d%%</string>
+    <string name="svc_summarizing">Résumé en cours…</string>
+    <string name="svc_identifying_speakers">Identification des locuteurs…</string>
+
+    <!-- In-app update -->
+    <string name="update_available">Mise à jour disponible — %1$s</string>
+    <string name="update_now">Mettre à jour</string>
+    <string name="update_later">Plus tard</string>
+    <string name="update_downloading">Téléchargement de la mise à jour…</string>
+    <string name="update_download_failed">Échec du téléchargement de la mise à jour</string>
+    <string name="update_check">Rechercher des mises à jour</string>
+    <string name="update_checking">Vérification…</string>
+    <string name="update_up_to_date">Vous avez la dernière version</string>
+    <string name="update_check_failed">Impossible de rechercher des mises à jour</string>
+
+    <!-- Session as a self-describing .ogg + share -->
+    <string name="source_session">Ouvrir une session (.ogg)</string>
+    <string name="source_session_desc">Recharger un .ogg enregistré pour continuer à modifier la transcription</string>
+    <string name="session_save">Enregistrer la session (.ogg)</string>
+    <string name="session_share">Partager la session (.ogg)</string>
+    <string name="session_saved">Session enregistrée</string>
+    <string name="session_saved_as">Enregistré : %1$s</string>
+    <string name="session_saved_partial">Enregistré : %1$s — transcription trop volumineuse à intégrer ; audio + résumé uniquement</string>
+    <string name="session_save_failed">Impossible d\'enregistrer la session</string>
+    <string name="session_open_failed">Impossible d\'ouvrir la session</string>
+    <string name="session_share_failed">Impossible de partager la session</string>
+    <string name="status_session_loaded">Session chargée — %d lignes</string>
+</resources>

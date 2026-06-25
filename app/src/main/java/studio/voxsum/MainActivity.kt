@@ -770,6 +770,8 @@ private fun TranscribeScreen(
             enabled = !running,
             onChange = { config = it; ConfigStore.save(context, it) },
             onDismiss = { showConfigSheet = false },
+            // Manual "Check for updates" found a newer release → surface the banner, close settings.
+            onUpdateFound = { info -> updateInfo = info; updateDismissed = false; showConfigSheet = false },
         )
     }
     if (showPodcastSheet) {

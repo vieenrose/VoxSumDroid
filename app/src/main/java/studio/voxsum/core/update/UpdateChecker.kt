@@ -49,6 +49,18 @@ object UpdateChecker {
         result.getOrNull()?.takeIf { isNewer(it.version, BuildConfig.VERSION_NAME) }
     }
 
+    /**
+     * Manual ("Check for updates" button) check: ignores the daily throttle. Returns the newer
+     * release, or null when already up-to-date; THROWS on network/parse failure so the caller can
+     * distinguish "you're up to date" from "couldn't reach the server".
+     */
+    suspend fun checkNow(context: Context): UpdateInfo? = withContext(Dispatchers.IO) {
+        val info = fetchLatest()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply()
+        info?.takeIf { isNewer(it.version, BuildConfig.VERSION_NAME) }
+    }
+
     private fun fetchLatest(): UpdateInfo? {
         val conn = (URL(LATEST_API).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000

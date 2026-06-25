@@ -142,6 +142,10 @@
     <string name="update_later">Later</string>
     <string name="update_downloading">Downloading update…</string>
     <string name="update_download_failed">Update download failed</string>
+    <string name="update_check">Check for updates</string>
+    <string name="update_checking">Checking…</string>
+    <string name="update_up_to_date">You\'re on the latest version</string>
+    <string name="update_check_failed">Couldn\'t check for updates</string>
 
     <!-- Session as a self-describing .ogg + share -->
     <string name="source_session">Open session (.ogg)</string>

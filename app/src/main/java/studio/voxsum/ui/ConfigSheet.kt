@@ -42,6 +42,7 @@ fun ConfigSheet(
     enabled: Boolean,
     onChange: (TranscriptionConfig) -> Unit,
     onDismiss: () -> Unit,
+    onUpdateFound: (studio.voxsum.core.update.UpdateInfo) -> Unit = {},
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -77,7 +78,7 @@ fun ConfigSheet(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
-            SettingsContent(config, readyAsr, readyLlm, enabled, onChange)
+            SettingsContent(config, readyAsr, readyLlm, enabled, onChange, onUpdateFound)
         }
     }
 }

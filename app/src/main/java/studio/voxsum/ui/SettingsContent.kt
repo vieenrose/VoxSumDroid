@@ -10,28 +10,39 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import studio.voxsum.BuildConfig
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
+import studio.voxsum.core.update.UpdateChecker
+import studio.voxsum.core.update.UpdateInfo
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.voxSumSliderColors
 import studio.voxsum.ui.theme.voxSumSwitchColors
@@ -50,6 +61,7 @@ fun SettingsContent(
     readyLlm: Set<String>,
     enabled: Boolean = true,
     onChange: (TranscriptionConfig) -> Unit,
+    onUpdateFound: (UpdateInfo) -> Unit = {},
 ) {
     Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // (1) ASR engine — rich selectable cards.
@@ -160,14 +172,17 @@ fun SettingsContent(
 
         // (6) About — version, license, and open-source components.
         Section(stringResource(R.string.settings_about))
-        AboutContent()
+        AboutContent(onUpdateFound)
     }
 }
 
-/** Version + GPL notice + the open-source components and their licenses + repo link. */
+/** Version + GPL notice + a manual update check + the open-source components + repo link. */
 @Composable
-private fun AboutContent() {
+private fun AboutContent(onUpdateFound: (UpdateInfo) -> Unit) {
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var checkState by remember { mutableStateOf<String?>(null) }   // inline status next to the button
     Text(
         "VoxSum v${BuildConfig.VERSION_NAME}",
         style = MaterialTheme.typography.bodyMedium,
@@ -179,6 +194,24 @@ private fun AboutContent() {
         style = MaterialTheme.typography.bodySmall,
         color = VoxSumPalette.Slate400,
     )
+    Spacer(Modifier.height(8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(onClick = {
+            scope.launch {
+                checkState = context.getString(R.string.update_checking)
+                runCatching { UpdateChecker.checkNow(context) }
+                    .onSuccess { info ->
+                        if (info != null) { checkState = null; onUpdateFound(info) }
+                        else checkState = context.getString(R.string.update_up_to_date)
+                    }
+                    .onFailure { checkState = context.getString(R.string.update_check_failed) }
+            }
+        }) { Text(stringResource(R.string.update_check)) }
+        checkState?.let {
+            Spacer(Modifier.width(10.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+        }
+    }
     Spacer(Modifier.height(10.dp))
     Text(
         stringResource(R.string.about_components),
