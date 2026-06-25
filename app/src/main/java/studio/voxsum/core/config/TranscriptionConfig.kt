@@ -7,8 +7,8 @@ package studio.voxsum.core.config
  */
 data class TranscriptionConfig(
     // --- ASR ---
-    val asrBackend: String = "sensevoice",   // sensevoice | moonshine | x-asr | qwen3 (Increment 2)
-    val asrModelId: String = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
+    val asrBackend: String = "x-asr",         // x-asr (default, like the web app) | sensevoice | moonshine | qwen3
+    val asrModelId: String = "sherpa-onnx-zipformer-zh-en-2023-11-22",
     val language: String = "",                // SenseVoice: ""=auto, zh/en/ja/ko/yue
     val useItn: Boolean = true,               // inverse text normalization
     val vadThreshold: Float = 0.5f,           // 0.1..0.9

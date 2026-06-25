@@ -51,7 +51,7 @@ Not just an app, but a different stance on transcription — **your words stay y
 **Understand**
 - **Streaming transcription** — utterances appear incrementally as speech is detected (Silero VAD).
 - **Speaker diarization** — per-utterance CAM++ (zh+en) embeddings + adaptive clustering, with a colour-coded timeline, per-speaker chips, and a stats panel. The fp16 embedding was chosen by on-device benchmarking — ~1.5× faster and more accurate on Mandarin/English than the previous baseline ([weights + benchmark](https://huggingface.co/Luigi/campplus-zh-en-onnx)).
-- **On-device summarization** — a local GGUF model via llama.cpp produces a title + markdown summary. Selectable Gemma lineup: Gemma 3 (270M / 1B), Gemma 3n (E2B / E4B), Gemma 4 (E2B / E4B).
+- **On-device summarization** — a local GGUF model via llama.cpp produces a title + markdown summary. Selectable Gemma lineup: Gemma 3 1B, Gemma 3n (E2B / E4B), Gemma 4 (E2B / E4B).
 
 **Work with it**
 - **Transcript-synced player**, docked at the bottom like a music player — tap any line to seek, the active line auto-highlights, and playback works while transcription is still running.
@@ -67,6 +67,30 @@ audio ─► VAD (Silero) ─► ASR (sherpa-onnx) ─► diarization (CAM++ + c
 
 A thin streaming layer turns each stage's output into incremental UI updates; nothing blocks on
 the full pipeline. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the module map.
+
+## AI models
+
+Every model runs **on-device**. None are bundled in the APK — they download on first use
+(SHA-256-verified) from the sources below.
+
+| Role | Model | Source |
+| :-- | :-- | :-- |
+| ASR — **default** | Zipformer zh-en transducer (`x-asr`) | [k2-fsa/icefall](https://github.com/k2-fsa/icefall) · [sherpa-onnx asr-models](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
+| ASR — multilingual | SenseVoice (zh / en / ja / ko / yue) | [FunAudioLLM/SenseVoice](https://github.com/FunAudioLLM/SenseVoice) · [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
+| ASR — English, fast | Moonshine tiny | [usefulsensors/moonshine](https://github.com/usefulsensors/moonshine) |
+| ASR — high accuracy | Qwen3-ASR 0.6B | [QwenLM](https://huggingface.co/Qwen) · [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
+| Voice activity detection | Silero VAD | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) |
+| Speaker embedding (diarization) | CAM++ zh+en, fp16 | [Luigi/campplus-zh-en-onnx](https://huggingface.co/Luigi/campplus-zh-en-onnx) · upstream [modelscope/3D-Speaker](https://github.com/modelscope/3D-Speaker) |
+| Summarization LLM | Gemma 3 / 3n / 4 (GGUF) | [Google Gemma](https://huggingface.co/google) (repos below) |
+
+**Summarization LLMs** (GGUF), selectable in Settings — upstream [Google Gemma](https://huggingface.co/google):
+- **Gemma 3 1B** *(default)* — [bartowski/google_gemma-3-1b-it-qat-GGUF](https://huggingface.co/bartowski/google_gemma-3-1b-it-qat-GGUF)
+- Gemma 3n E2B / E4B — [unsloth/gemma-3n-E2B-it-GGUF](https://huggingface.co/unsloth/gemma-3n-E2B-it-GGUF) · [unsloth/gemma-3n-E4B-it-GGUF](https://huggingface.co/unsloth/gemma-3n-E4B-it-GGUF)
+- Gemma 4 E2B / E4B — [unsloth/gemma-4-E2B-it-GGUF](https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF) · [unsloth/gemma-4-E4B-it-GGUF](https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF)
+
+**Inference engines:** [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ASR / VAD / speaker
+embedding, via ONNX Runtime) and [llama.cpp](https://github.com/ggml-org/llama.cpp) (LLM).
+The speaker-name detection feature reuses the selected summarization LLM.
 
 ## Tech stack
 

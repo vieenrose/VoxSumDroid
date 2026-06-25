@@ -50,7 +50,7 @@ VoxSum 把音訊 — 檔案、Podcast 單集或 YouTube 連結 — 轉成標註�
 **理解**
 - **串流轉錄** —— 偵測到語音即逐句顯示（Silero VAD）。
 - **語者分離** —— 每句以 CAM++（中＋英）嵌入搭配自適應分群，並提供彩色時間軸、各語者色票與統計面板。fp16 嵌入模型由裝置端實測選定 —— 在中／英語上比舊基準約快 1.5 倍且更準確（[權重與基準測試](https://huggingface.co/Luigi/campplus-zh-en-onnx)）。
-- **裝置端摘要** —— 透過 llama.cpp 執行本機 GGUF 模型，產生標題與 Markdown 摘要。可選 Gemma 系列：Gemma 3（270M／1B）、Gemma 3n（E2B／E4B）、Gemma 4（E2B／E4B）。
+- **裝置端摘要** —— 透過 llama.cpp 執行本機 GGUF 模型，產生標題與 Markdown 摘要。可選 Gemma 系列：Gemma 3 1B、Gemma 3n（E2B／E4B）、Gemma 4（E2B／E4B）。
 
 **運用**
 - **與逐字稿同步的播放器**，如音樂播放器般固定於底部 —— 點任一句即可跳轉，作用中該句自動高亮，且轉錄進行中即可播放。

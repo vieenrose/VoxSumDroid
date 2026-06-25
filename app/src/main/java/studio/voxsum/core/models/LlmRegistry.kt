@@ -31,13 +31,7 @@ object LlmRegistry {
     private const val HF = "https://huggingface.co"
 
     val ALL: List<LlmSpec> = listOf(
-        LlmSpec(
-            id = "gemma-3-270m-it-qat-q8",
-            displayName = "Gemma 3 270M (tiny)",
-            url = "$HF/bartowski/google_gemma-3-270m-it-qat-GGUF/resolve/main/google_gemma-3-270m-it-qat-Q8_0.gguf",
-            sha256 = "", sizeBytes = 291_000_000L,
-            fileName = "gemma-3-270m-it-q8.gguf", chatTemplate = ChatTemplate.GEMMA, shortName = "Gemma 3 270M",
-        ),
+        // Gemma 3 270M was dropped — too weak for coherent summaries.
         LlmSpec(
             id = "gemma-3-1b-it-qat-q4",
             displayName = "Gemma 3 1B (recommended)",

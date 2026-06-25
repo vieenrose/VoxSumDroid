@@ -24,6 +24,7 @@
 
     <!-- Source bar / add-source sheet -->
     <string name="add_audio">加入音訊</string>
+    <string name="re_transcribe">重新轉錄</string>
     <string name="pick_audio">選擇音訊…</string>
     <string name="stop">停止</string>
     <string name="cd_stop_recording">停止錄音</string>
@@ -48,7 +49,7 @@
     <string name="settings_auto">自動</string>
     <string name="asr_tagline_sensevoice">多語言</string>
     <string name="asr_tagline_moonshine">英語、快速</string>
-    <string name="asr_tagline_xasr">中英 transducer</string>
+    <string name="asr_tagline_xasr">x-asr · 中英 transducer</string>
     <string name="asr_tagline_qwen3">大型、較慢</string>
     <string name="settings_recognition">辨識</string>
     <string name="settings_language">語言</string>
