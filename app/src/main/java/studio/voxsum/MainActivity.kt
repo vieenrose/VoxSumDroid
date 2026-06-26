@@ -126,6 +126,8 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import studio.voxsum.R
@@ -339,33 +341,46 @@ private fun TranscribeScreen(
     var dragMs by remember { mutableStateOf<Int?>(null) }
     var buffering by remember { mutableStateOf(false) }   // underrun: waiting for the buffer to refill
     val listState = rememberLazyListState()
+    val playerMutex = remember { Mutex() }
+    // Prepare a MediaPlayer OFF the main thread: setDataSource() on a content:// uri and prepare() are
+    // synchronous blocking calls, and under pipeline codec/CPU contention (the foreground pipeline
+    // decoding the same audio on a 2-core device) they can block for seconds — on the UI thread that is
+    // a freeze / input-dispatch ANR. Serialized via playerMutex so a re-prepare (error or seek recovery)
+    // can't collide with another transition on the same player. Returns whether it ended up prepared;
+    // updates durationMs and optionally seeks.
+    suspend fun preparePlayer(p: MediaPlayer, uri: Uri, seekTo: Int?): Boolean = playerMutex.withLock {
+        runCatching {
+            withContext(Dispatchers.IO) { p.reset(); p.setDataSource(context, uri); p.prepare() }
+            durationMs = p.duration
+            seekTo?.let { p.seekTo(it.coerceIn(0, durationMs)) }
+            true
+        }.getOrDefault(false)
+    }
     DisposableEffect(audioUri) {
         enhancer?.release(); enhancer = null
         player?.release(); player = null
         durationMs = 0; positionMs = 0; dragMs = null
         audioUri?.let { uri ->
             val mp = MediaPlayer()
-            // prepare() can fail if the pipeline is still decoding the same audio (codec/CPU
-            // contention). Keep the player anyway — [resumeOrRecover] re-prepares it on the next
-            // play tap (once the decode frees the codec), so it self-heals instead of staying dead.
-            runCatching { mp.setDataSource(context, uri); mp.prepare() }.onSuccess { durationMs = mp.duration }
             mp.setVolume(volume, volume)
             mp.setOnCompletionListener { isPlaying = false }
             // A mid-stream decode error otherwise leaves the player in ERROR state, where every later
-            // start() fails with native error -38 ("played, stopped, can't play anymore").
+            // start() fails with native error -38 ("played, stopped, can't play anymore"). Re-prepare
+            // off the main thread (serialized), resuming at the current position — never from 0.
             mp.setOnErrorListener { p, _, _ ->
-                val resumeAt = positionMs   // recover at the current position, not 0
+                val resumeAt = positionMs
                 isPlaying = false
-                runCatching {
-                    p.reset(); p.setDataSource(context, uri); p.prepare(); durationMs = p.duration
-                    p.seekTo(resumeAt.coerceIn(0, durationMs))
-                }
+                scope.launch { preparePlayer(p, uri, resumeAt) }
                 true
             }
             // Loudness normalization: starts at 0; a side-effect below measures the track and
             // sets the per-file gain that lifts a quiet recording to a comfortable level.
             runCatching { enhancer = LoudnessEnhancer(mp.audioSessionId).apply { enabled = true } }
             player = mp
+            // prepare() can fail if the pipeline is still decoding the same audio (codec/CPU
+            // contention); the player self-heals on the next play tap via [resumeOrRecover], so a
+            // failed prepare here just leaves durationMs at 0 (no UI block either way).
+            scope.launch { preparePlayer(mp, uri, null) }
         }
         onDispose { enhancer?.release(); enhancer = null; player?.release(); player = null }
     }
@@ -384,15 +399,16 @@ private fun TranscribeScreen(
         val uri = audioUri ?: return
         val started = runCatching { seekMs?.let { p.seekTo(it.coerceIn(0, durationMs)) }; p.start() }.isSuccess
         if (started) { isPlaying = true; buffering = false; return }
-        // Recovery re-prepares the player; resume at the requested point, or the current position —
-        // never restart from 0.
+        // The fast start() failed — the player errored, or isn't prepared yet (initial prepare still
+        // running, or the pipeline was decoding the same audio). Re-prepare OFF the main thread
+        // (serialized via preparePlayer), resuming at the requested point or current position — never
+        // from 0 — and start, so playback self-heals without ever freezing the UI thread.
         val resumeAt = seekMs ?: positionMs
-        isPlaying = runCatching {
-            p.reset(); p.setDataSource(context, uri); p.prepare(); durationMs = p.duration
-            p.seekTo(resumeAt.coerceIn(0, durationMs))
-            p.start(); true
-        }.getOrDefault(false)
-        if (isPlaying) buffering = false
+        scope.launch {
+            if (preparePlayer(p, uri, resumeAt)) {
+                runCatching { p.start() }.onSuccess { isPlaying = true; buffering = false }
+            }
+        }
     }
     LaunchedEffect(isPlaying) {
         // Poll the position and watch for stalls: while we intend to play, if the player isn't
