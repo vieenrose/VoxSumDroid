@@ -140,41 +140,6 @@ class DiarizationEngine(
         return labelsByK[k]
     }
 
-    /**
-     * Agglomerative average-linkage (Lance-Williams). Returns the normalized labels for each k
-     * and mergeDistTo[c] = the inter-cluster distance of the merge that reduced the set to c
-     * clusters (mergeDistTo[n] = 0, since n clusters is the un-merged start).
-     */
-    private fun agglomerative(d: Array<DoubleArray>): Pair<Array<IntArray>, DoubleArray> {
-        val n = d.size
-        val cd = Array(n) { i -> d[i].copyOf() }
-        val size = IntArray(n) { 1 }
-        val active = BooleanArray(n) { true }
-        val rep = IntArray(n) { it }                  // current cluster rep per point
-        val byK = arrayOfNulls<IntArray>(n + 1)
-        val mergeDistTo = DoubleArray(n + 1)
-        byK[n] = normalize(rep)
-        var clusters = n
-        while (clusters > 1) {
-            var bi = -1; var bj = -1; var best = Double.MAX_VALUE
-            for (i in 0 until n) if (active[i]) {
-                for (j in i + 1 until n) if (active[j] && cd[i][j] < best) { best = cd[i][j]; bi = i; bj = j }
-            }
-            val si = size[bi]; val sj = size[bj]
-            for (x in 0 until n) if (active[x] && x != bi && x != bj) {
-                val nd = (si * cd[bi][x] + sj * cd[bj][x]) / (si + sj)
-                cd[bi][x] = nd; cd[x][bi] = nd
-            }
-            size[bi] = si + sj
-            active[bj] = false
-            for (p in 0 until n) if (rep[p] == bj) rep[p] = bi
-            clusters--
-            byK[clusters] = normalize(rep)
-            mergeDistTo[clusters] = best
-        }
-        return Array(n + 1) { k -> byK[k] ?: IntArray(n) } to mergeDistTo
-    }
-
     /** Fold clusters with < [MIN_SPEAKER_SEC] of total talk time into the nearest cluster. */
     private fun mergeWeakSpeakers(
         labels: IntArray,
@@ -334,7 +299,7 @@ class DiarizationEngine(
 
     override fun close() = extractor.release()
 
-    private companion object {
+    companion object {
         const val SAMPLE_RATE = 16_000
         const val MIN_SAMPLES = SAMPLE_RATE / 2          // 0.5s minimum embedding window
         const val MIN_SPEAKER_SEC = 1.5                  // below this total talk time => merged away
@@ -344,8 +309,47 @@ class DiarizationEngine(
         const val SPLIT_MARGIN = 0.08                    // a window must be this much closer to switch off base
         const val ABS_GATE = 0.55                        // …and within this absolute cosine distance of it
 
+        // The clustering math below is pure (no native state); kept here and marked internal so the
+        // dendrogram + distance/normalization logic can be unit-tested directly (see
+        // DiarizationClusteringTest), since the public assignSpeakers() needs the native extractor.
+
+        /**
+         * Agglomerative average-linkage (Lance-Williams). Returns the normalized labels for each k
+         * and mergeDistTo[c] = the inter-cluster distance of the merge that reduced the set to c
+         * clusters (mergeDistTo[n] = 0, since n clusters is the un-merged start).
+         */
+        internal fun agglomerative(d: Array<DoubleArray>): Pair<Array<IntArray>, DoubleArray> {
+            val n = d.size
+            val cd = Array(n) { i -> d[i].copyOf() }
+            val size = IntArray(n) { 1 }
+            val active = BooleanArray(n) { true }
+            val rep = IntArray(n) { it }                  // current cluster rep per point
+            val byK = arrayOfNulls<IntArray>(n + 1)
+            val mergeDistTo = DoubleArray(n + 1)
+            byK[n] = normalize(rep)
+            var clusters = n
+            while (clusters > 1) {
+                var bi = -1; var bj = -1; var best = Double.MAX_VALUE
+                for (i in 0 until n) if (active[i]) {
+                    for (j in i + 1 until n) if (active[j] && cd[i][j] < best) { best = cd[i][j]; bi = i; bj = j }
+                }
+                val si = size[bi]; val sj = size[bj]
+                for (x in 0 until n) if (active[x] && x != bi && x != bj) {
+                    val nd = (si * cd[bi][x] + sj * cd[bj][x]) / (si + sj)
+                    cd[bi][x] = nd; cd[x][bi] = nd
+                }
+                size[bi] = si + sj
+                active[bj] = false
+                for (p in 0 until n) if (rep[p] == bj) rep[p] = bi
+                clusters--
+                byK[clusters] = normalize(rep)
+                mergeDistTo[clusters] = best
+            }
+            return Array(n + 1) { k -> byK[k] ?: IntArray(n) } to mergeDistTo
+        }
+
         /** Majority filter (width 3) to drop single-window flips before run detection. */
-        fun smooth(seq: List<Int>): IntArray {
+        internal fun smooth(seq: List<Int>): IntArray {
             if (seq.size < 3) return seq.toIntArray()
             return IntArray(seq.size) { i ->
                 if (i == 0 || i == seq.size - 1) seq[i]
@@ -355,7 +359,7 @@ class DiarizationEngine(
         }
 
         /** SentencePiece detokenization: '▁' marks a leading space, bare pieces concatenate. */
-        fun detok(pieces: List<String>): String {
+        internal fun detok(pieces: List<String>): String {
             val sb = StringBuilder()
             for (p in pieces) {
                 if (p.startsWith('▁')) { sb.append(' '); sb.append(p.substring(1)) } else sb.append(p)
@@ -364,10 +368,10 @@ class DiarizationEngine(
         }
 
         /** SenseVoice prepends meta tokens like <|en|>, <|NEUTRAL|>, <|Speech|>, <|woitn|>. */
-        fun isMeta(piece: String): Boolean =
+        internal fun isMeta(piece: String): Boolean =
             piece.startsWith("<|") || (piece.startsWith("<") && piece.endsWith(">"))
 
-        fun l2normalize(v: FloatArray): FloatArray {
+        internal fun l2normalize(v: FloatArray): FloatArray {
             var s = 0.0
             for (x in v) s += x.toDouble() * x
             if (s <= 0.0) return v
@@ -376,7 +380,7 @@ class DiarizationEngine(
         }
 
         /** Cosine distance on L2-normalized vectors = 1 - dot. Zero/length-mismatch => far (1). */
-        fun cosineDistance(a: FloatArray, b: FloatArray): Double {
+        internal fun cosineDistance(a: FloatArray, b: FloatArray): Double {
             if (a.isEmpty() || b.isEmpty() || a.size != b.size) return 1.0
             var dot = 0.0
             for (i in a.indices) dot += a[i].toDouble() * b[i]
@@ -384,7 +388,7 @@ class DiarizationEngine(
         }
 
         /** Remap arbitrary cluster reps to contiguous 0..k-1 by first appearance. */
-        fun normalize(rep: IntArray): IntArray {
+        internal fun normalize(rep: IntArray): IntArray {
             val map = HashMap<Int, Int>()
             return IntArray(rep.size) { i -> map.getOrPut(rep[i]) { map.size } }
         }

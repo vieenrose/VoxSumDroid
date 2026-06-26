@@ -65,29 +65,6 @@ class AsrEngine(
     // ignored by the recognizer. 0 = no padding (other backends handle short input fine).
     private val minDecodeSamples = if (backend == AsrBackend.XASR) X_ASR_MIN_DECODE_SAMPLES else 0
 
-    // Compiled once per engine. zh-en decode-output normalization (see cleanTranscript).
-    private val reRepeatCjk = Regex("([\\u4e00-\\u9fa5])\\1{2,}")
-    private val reSpaceBetweenCjk = Regex("(?<=[\\u4e00-\\u9fa5])\\s+(?=[\\u4e00-\\u9fa5])")
-    private val reSpaceBeforePunct = Regex("\\s+([，。、？！；：,.?!;:%])")
-    private val reSpaceAfterCjkPunct = Regex("([，。、？！；：])\\s+(?=[\\u4e00-\\u9fa5])")
-
-    /**
-     * Mirror of src/asr.py::clean_transcript, extended with the X-ASR deployment's spacing rules.
-     * The zh-en transducer (x-asr) emits each CJK token with a `▁`-derived leading space and keeps
-     * spaces around punctuation, so raw sherpa text reads "礼拜二 ， 第二种". Strip U+FFFD, collapse a
-     * CJK char repeated 3+ times (ASR stutter), drop spaces between Chinese characters, and tighten
-     * CJK/ASCII punctuation. English word spacing ("today is") is preserved; no-op for pure-English
-     * output (Moonshine).
-     */
-    private fun cleanTranscript(text: String): String {
-        var t = text.replace("�", "")
-        t = reRepeatCjk.replace(t) { it.groupValues[1] }
-        t = reSpaceBetweenCjk.replace(t, "")
-        t = reSpaceBeforePunct.replace(t, "$1")
-        t = reSpaceAfterCjkPunct.replace(t, "$1")
-        return t
-    }
-
     /** Pull every ready segment out of the VAD queue and decode it, numbering from [index]. */
     private fun drain(): List<TranscriptEvent.Utterance> {
         val fresh = ArrayList<TranscriptEvent.Utterance>()
@@ -169,7 +146,7 @@ class AsrEngine(
         vad.release()
     }
 
-    private companion object {
+    companion object {
         const val SAMPLE_RATE = 16_000
         const val WINDOW = 512 // Silero VAD window size
 
@@ -177,8 +154,31 @@ class AsrEngine(
         // minimum (below which its conv shape underflows). See minDecodeSamples / drain().
         const val X_ASR_MIN_DECODE_SAMPLES = 48_000
 
+        // Compiled once. zh-en decode-output normalization (see cleanTranscript).
+        private val reRepeatCjk = Regex("([\\u4e00-\\u9fa5])\\1{2,}")
+        private val reSpaceBetweenCjk = Regex("(?<=[\\u4e00-\\u9fa5])\\s+(?=[\\u4e00-\\u9fa5])")
+        private val reSpaceBeforePunct = Regex("\\s+([，。、？！；：,.?!;:%])")
+        private val reSpaceAfterCjkPunct = Regex("([，。、？！；：])\\s+(?=[\\u4e00-\\u9fa5])")
+
+        /**
+         * Mirror of src/asr.py::clean_transcript, extended with the X-ASR deployment's spacing rules.
+         * The zh-en transducer (x-asr) emits each CJK token with a `▁`-derived leading space and keeps
+         * spaces around punctuation, so raw sherpa text reads "礼拜二 ， 第二种". Strip U+FFFD, collapse a
+         * CJK char repeated 3+ times (ASR stutter), drop spaces between Chinese characters, and tighten
+         * CJK/ASCII punctuation. English word spacing ("today is") is preserved; no-op for pure-English
+         * output. Exposed for unit tests.
+         */
+        internal fun cleanTranscript(text: String): String {
+            var t = text.replace("�", "")
+            t = reRepeatCjk.replace(t) { it.groupValues[1] }
+            t = reSpaceBetweenCjk.replace(t, "")
+            t = reSpaceBeforePunct.replace(t, "$1")
+            t = reSpaceAfterCjkPunct.replace(t, "$1")
+            return t
+        }
+
         /** Populate the right sub-config per backend; the decode path is backend-agnostic. */
-        fun buildModelConfig(
+        private fun buildModelConfig(
             backend: AsrBackend,
             f: AsrModelFiles,
             numThreads: Int,

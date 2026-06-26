@@ -235,20 +235,6 @@ class ModelManager(context: Context) {
         }
     }
 
-    /** True if [f] looks like a complete GGUF: starts with the "GGUF" magic and is at least 90% of the
-     *  expected size — catches truncated/corrupt downloads without pinning an exact (upstream-mutable) hash. */
-    private fun isValidGguf(f: File, expectedBytes: Long): Boolean {
-        if (expectedBytes > 0 && f.length() < expectedBytes / 10 * 9) return false
-        return runCatching {
-            f.inputStream().use { ins ->
-                val magic = ByteArray(4)
-                ins.read(magic) == 4 &&
-                    magic[0] == 'G'.code.toByte() && magic[1] == 'G'.code.toByte() &&
-                    magic[2] == 'U'.code.toByte() && magic[3] == 'F'.code.toByte()
-            }
-        }.getOrDefault(false)
-    }
-
     private fun sha256Of(f: File): String {
         val md = MessageDigest.getInstance("SHA-256")
         f.inputStream().use { ins ->
@@ -284,6 +270,21 @@ class ModelManager(context: Context) {
         // detect-names path constructs its own ModelManager), so concurrent first-run downloads of the
         // same file can't interleave-corrupt the shared ".part" temp. See download().
         private val downloadLocks = ConcurrentHashMap<String, Mutex>()
+
+        /** True if [f] looks like a complete GGUF: starts with the "GGUF" magic and is at least 90% of
+         *  [expectedBytes] — catches truncated/corrupt downloads without pinning an exact (upstream-
+         *  mutable) hash. Exposed for unit tests; see ensureLlmModel(). */
+        internal fun isValidGguf(f: File, expectedBytes: Long): Boolean {
+            if (expectedBytes > 0 && f.length() < expectedBytes / 10 * 9) return false
+            return runCatching {
+                f.inputStream().use { ins ->
+                    val magic = ByteArray(4)
+                    ins.read(magic) == 4 &&
+                        magic[0] == 'G'.code.toByte() && magic[1] == 'G'.code.toByte() &&
+                        magic[2] == 'U'.code.toByte() && magic[3] == 'F'.code.toByte()
+                }
+            }.getOrDefault(false)
+        }
 
         // Mirrors models/manifest.json. All FOSS-licensed. LLM specs live in LlmRegistry.
         private const val REL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
