@@ -12,6 +12,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
+import studio.voxsum.R
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.service.TranscriptionService
 
@@ -34,8 +35,11 @@ class TranscriptUiTest {
 
     @Test
     fun rendersUtterancesAsEventsArrive() {
-        // Initial state — a single "Add audio" CTA opens the source chooser.
-        compose.onAllNodesWithText("Add audio").onFirst().assertIsDisplayed()
+        // Initial state — a single "Add audio" CTA opens the source chooser. Resolve the label
+        // from resources (not a hard-coded English literal) so the test passes under any UI locale
+        // (the device here runs zh-Hant-TW, where the CTA reads "加入音訊").
+        val addAudio = compose.activity.getString(R.string.add_audio)
+        compose.onAllNodesWithText(addAudio).onFirst().assertIsDisplayed()
 
         // Simulate the pipeline emitting a status then two utterances.
         TranscriptionService.events.tryEmit(TranscriptEvent.Status("Transcribing…"))
