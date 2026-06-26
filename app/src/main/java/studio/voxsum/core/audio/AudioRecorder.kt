@@ -3,6 +3,7 @@ package studio.voxsum.core.audio
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.util.Log
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -52,11 +53,21 @@ class AudioRecorder(private val sampleRate: Int = 16_000) {
         try {
             while (!shouldStop() && currentCoroutineContext().isActive) {
                 val n = rec.read(shorts, 0, shorts.size)
-                if (n > 0) {
-                    val f = FloatArray(n) { shorts[it] / 32768f }
-                    writer.write(f, n)          // stream straight to disk
-                    totalSamples += n
-                    emit(f)                      // and to the live ASR
+                when {
+                    n > 0 -> {
+                        val f = FloatArray(n) { shorts[it] / 32768f }
+                        writer.write(f, n)          // stream straight to disk
+                        totalSamples += n
+                        emit(f)                      // and to the live ASR
+                    }
+                    // A negative count is a persistent AudioRecord error (e.g. ERROR_DEAD_OBJECT
+                    // after the audio server/HAL dies, or the mic device — BT SCO / USB / wired —
+                    // disconnects). Without this break the loop spins at 100% CPU re-calling read()
+                    // and emitting nothing: the live timer freezes, the ASR flow starves, and the
+                    // pipeline never finishes. Break so the finally block releases the recorder and
+                    // closes the WAV; the caller then diarizes/summarizes whatever was captured.
+                    n < 0 -> { Log.w(TAG, "AudioRecord.read error $n; ending capture"); break }
+                    // n == 0: no data this poll — harmless, keep going.
                 }
             }
         } finally {
@@ -68,5 +79,6 @@ class AudioRecorder(private val sampleRate: Int = 16_000) {
 
     private companion object {
         const val BLOCK = 2048 // 4 × Silero VAD window (512); ~128 ms at 16 kHz
+        const val TAG = "AudioRecorder"
     }
 }

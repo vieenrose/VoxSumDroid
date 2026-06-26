@@ -3,6 +3,7 @@ package studio.voxsum
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -54,6 +55,48 @@ class AsrEngineTest {
         Log.i(TAG, "TRANSCRIPT: $transcript")
         assertTrue("expected at least one utterance", utterances.isNotEmpty())
         assertTrue("expected non-empty text", transcript.isNotBlank())
+    }
+
+    /**
+     * Live (streaming) ASR path — the one used while recording from the mic. Feeds the same wav as
+     * mic-sized 2048-sample blocks (exactly what [studio.voxsum.core.audio.AudioRecorder] emits) into
+     * [AsrEngine.transcribeLive] and asserts utterances are recognized. Guards the "recognize while
+     * recording" path, which the file-based [transcribesBundledWav] never exercised.
+     */
+    @Test
+    fun transcribesLiveChunkedWav() = runBlocking {
+        val inst = InstrumentationRegistry.getInstrumentation()
+        val app = inst.targetContext
+        val models = ModelManager(app)
+        if (!models.asrReady()) models.ensureAsrModels { }
+
+        val pcm = readWav16kMono(inst.context.assets.open("en.wav"))
+        // Stream the waveform as 2048-sample mic blocks (~128 ms), the AudioRecorder block size.
+        val chunks = flow {
+            var i = 0
+            while (i < pcm.size) {
+                val end = minOf(i + 2048, pcm.size)
+                emit(pcm.copyOfRange(i, end))
+                i = end
+            }
+        }
+
+        val utterances = mutableListOf<TranscriptEvent.Utterance>()
+        AsrEngine(
+            studio.voxsum.core.asr.AsrBackend.SENSEVOICE,
+            models.asrFiles(studio.voxsum.core.asr.AsrBackend.SENSEVOICE),
+            models.vadModel.absolutePath,
+            numThreads = 4,
+        ).use { asr ->
+            asr.transcribeLive(chunks).collect { e ->
+                if (e is TranscriptEvent.Utterance) utterances.add(e)
+            }
+        }
+
+        val transcript = utterances.joinToString(" ") { it.text }
+        Log.i(TAG, "LIVE TRANSCRIPT: $transcript")
+        assertTrue("expected at least one utterance from the live path", utterances.isNotEmpty())
+        assertTrue("expected non-empty live text", transcript.isNotBlank())
     }
 
     /** Minimal 16-bit PCM WAV reader → mono float [-1,1]. Test wavs are 16 kHz mono. */

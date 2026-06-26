@@ -16,6 +16,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
@@ -65,6 +66,11 @@ class TranscriptionService : LifecycleService() {
         // build that got interrupted left a 0-byte file). Request passed via [pendingExport] —
         // utterances can be large, so it rides an in-memory holder, not Intent extras.
         const val ACTION_EXPORT = "studio.voxsum.EXPORT"
+
+        // Mic-capture backpressure slack: how many recorder blocks (~128 ms each) may queue ahead of
+        // the ASR decode before the mic loop is throttled. ~33 s absorbs slow segment decodes so live
+        // capture never overruns the AudioRecord hardware buffer. See runRecordingPipeline().
+        private const val MIC_BUFFER_BLOCKS = 256
 
         @Volatile var pendingExport: ExportRequest? = null
 
@@ -323,7 +329,19 @@ class TranscriptionService : LifecycleService() {
             useItn = cfg.useItn,
             vadThreshold = cfg.vadThreshold,
         ).use { asr ->
-            asr.transcribeLive(recorder.record(wav) { stopRecordingRequested })
+            // Decouple mic capture from ASR decode. AudioRecorder.record() emits each mic block and
+            // only reads the next one after the collector returns — but the collector here runs the
+            // heavy native VAD + recognizer.decode() inline. A multi-second segment decode would stall
+            // rec.read(), overrunning the AudioRecord hardware buffer (~256 ms) and DROPPING samples →
+            // choppy capture and missed live recognition (exactly "didn't record well / didn't
+            // recognize while recording"). buffer() runs the mic loop in its own coroutine (on IO) so
+            // it keeps draining the mic regardless of decode latency; 256 blocks ≈ 33 s of slack
+            // absorbs decode spikes, and it's bounded so a permanently-behind decoder can't OOM.
+            asr.transcribeLive(
+                recorder.record(wav) { stopRecordingRequested }
+                    .buffer(MIC_BUFFER_BLOCKS)
+                    .flowOn(Dispatchers.IO),
+            )
                 .flowOn(Dispatchers.Default)
                 .collect { e ->
                     when (e) {
