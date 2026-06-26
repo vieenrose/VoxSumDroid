@@ -2,6 +2,8 @@ package studio.voxsum.core.models
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrModelFiles
@@ -12,6 +14,7 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Lazy, first-run model provisioning — Android counterpart of the "download on first use"
@@ -161,6 +164,15 @@ class ModelManager(context: Context) {
         val dest = llmFile(spec)
         if (!dest.exists()) download(spec.url, dest, spec.sha256.ifBlank { null }, onProgress)
         check(dest.exists()) { "LLM model missing after provisioning" }
+        // Integrity guard for the (intentionally unpinned) GGUFs: a truncated or otherwise corrupt
+        // model would be mmap-loaded by llama.cpp and abort the process natively (uncatchable), and the
+        // bad file persists across runs. Cheap, update-tolerant check — GGUF magic + a plausible size —
+        // rather than an exact SHA pin (the mobile-GGUF artifacts get re-quantized upstream). On
+        // failure delete it so the next attempt re-downloads instead of crash-looping.
+        if (!isValidGguf(dest, spec.sizeBytes)) {
+            dest.delete()
+            error("Corrupt GGUF for ${spec.id} (failed integrity check); deleted, will re-download")
+        }
     }
 
     /** No-arg convenience over the default model. */
@@ -182,35 +194,59 @@ class ModelManager(context: Context) {
      * place. A checksum mismatch deletes the temp file and throws — no half-trusted model is
      * ever used. The pins are the FOSS release artifacts' real hashes (see manifest / below).
      */
-    private fun download(url: String, dest: File, sha256: String? = null, onProgress: (Float) -> Unit) {
-        val tmp = File(dest.parentFile, "${dest.name}.part")
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 30_000
-            readTimeout = 30_000
-            instanceFollowRedirects = true
-        }
-        conn.inputStream.use { input ->
-            val total = conn.contentLengthLong.takeIf { it > 0 }
-            tmp.outputStream().use { out ->
-                val buf = ByteArray(1 shl 16)
-                var read = 0L
-                while (true) {
-                    val n = input.read(buf)
-                    if (n < 0) break
-                    out.write(buf, 0, n)
-                    read += n
-                    if (total != null) onProgress((read.toFloat() / total).coerceIn(0f, 1f))
+    private suspend fun download(url: String, dest: File, sha256: String? = null, onProgress: (Float) -> Unit) {
+        // Serialize downloads that target the SAME destination. Two coroutines can race to provision
+        // the same model — e.g. the pipeline's summarize() and a user-triggered "re-detect names" both
+        // call ensureLlmModel for the same GGUF, both see it absent, and both open the shared
+        // "<name>.part" temp file (outputStream() truncates on open), interleaving writes into a corrupt
+        // model that is then committed and crashes llama.cpp on mmap on every load until app data is
+        // cleared. One Mutex per destination + an existence re-check inside it make the loser a no-op.
+        val mutex = downloadLocks.computeIfAbsent(dest.absolutePath) { Mutex() }
+        mutex.withLock {
+            if (dest.exists()) return@withLock
+            val tmp = File(dest.parentFile, "${dest.name}.part")
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 30_000
+                readTimeout = 30_000
+                instanceFollowRedirects = true
+            }
+            conn.inputStream.use { input ->
+                val total = conn.contentLengthLong.takeIf { it > 0 }
+                tmp.outputStream().use { out ->
+                    val buf = ByteArray(1 shl 16)
+                    var read = 0L
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        read += n
+                        if (total != null) onProgress((read.toFloat() / total).coerceIn(0f, 1f))
+                    }
                 }
             }
-        }
-        if (sha256 != null) {
-            val actual = sha256Of(tmp)
-            if (!actual.equals(sha256, ignoreCase = true)) {
-                tmp.delete()
-                error("Checksum mismatch for ${dest.name}: expected $sha256, got $actual")
+            if (sha256 != null) {
+                val actual = sha256Of(tmp)
+                if (!actual.equals(sha256, ignoreCase = true)) {
+                    tmp.delete()
+                    error("Checksum mismatch for ${dest.name}: expected $sha256, got $actual")
+                }
             }
+            check(tmp.renameTo(dest)) { "Could not move ${tmp.name} into place" }
         }
-        check(tmp.renameTo(dest)) { "Could not move ${tmp.name} into place" }
+    }
+
+    /** True if [f] looks like a complete GGUF: starts with the "GGUF" magic and is at least 90% of the
+     *  expected size — catches truncated/corrupt downloads without pinning an exact (upstream-mutable) hash. */
+    private fun isValidGguf(f: File, expectedBytes: Long): Boolean {
+        if (expectedBytes > 0 && f.length() < expectedBytes / 10 * 9) return false
+        return runCatching {
+            f.inputStream().use { ins ->
+                val magic = ByteArray(4)
+                ins.read(magic) == 4 &&
+                    magic[0] == 'G'.code.toByte() && magic[1] == 'G'.code.toByte() &&
+                    magic[2] == 'U'.code.toByte() && magic[3] == 'F'.code.toByte()
+            }
+        }.getOrDefault(false)
     }
 
     private fun sha256Of(f: File): String {
@@ -244,6 +280,11 @@ class ModelManager(context: Context) {
     }
 
     companion object {
+        // Per-destination download locks, shared across ALL ModelManager instances (the UI's
+        // detect-names path constructs its own ModelManager), so concurrent first-run downloads of the
+        // same file can't interleave-corrupt the shared ".part" temp. See download().
+        private val downloadLocks = ConcurrentHashMap<String, Mutex>()
+
         // Mirrors models/manifest.json. All FOSS-licensed. LLM specs live in LlmRegistry.
         private const val REL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
         const val SENSE_VOICE_DIR = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
