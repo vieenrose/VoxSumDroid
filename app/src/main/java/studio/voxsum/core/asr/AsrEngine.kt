@@ -70,26 +70,43 @@ class AsrEngine(
         val fresh = ArrayList<TranscriptEvent.Utterance>()
         while (!vad.empty()) {
             val seg = vad.front()
-            val stream = recognizer.createStream()
-            // Pad only the samples fed to the recognizer; seg.samples.size still drives utterance timing.
-            val decodeSamples =
-                if (seg.samples.size < minDecodeSamples) seg.samples.copyOf(minDecodeSamples)
-                else seg.samples
-            stream.acceptWaveform(decodeSamples, SAMPLE_RATE)
-            recognizer.decode(stream)
-            val result = recognizer.getResult(stream)
-            val text = cleanTranscript(result.text).trim()
-            stream.release()
-            vad.pop()
-            if (text.isNotEmpty()) {
-                fresh += TranscriptEvent.Utterance(
-                    index = index[0]++,
-                    text = text,
-                    startSec = seg.start.toDouble() / SAMPLE_RATE,
-                    endSec = (seg.start + seg.samples.size).toDouble() / SAMPLE_RATE,
-                    tokens = result.tokens.toList(),
-                    tokenTimes = result.timestamps.map { it.toDouble() },
+            // Decode each segment in isolation so one bad segment can't abort the whole transcription.
+            // A quantized recognizer can throw on certain audio (e.g. an ONNX reshape error in the
+            // x-asr encoder seen on some podcast segments); catch it, skip that segment, and continue.
+            // vad.pop() runs in finally so the queue ALWAYS advances — otherwise vad.front() would keep
+            // returning the same failing segment forever.
+            try {
+                val stream = recognizer.createStream()
+                try {
+                    // Pad only the samples fed to the recognizer; seg.samples.size still drives timing.
+                    val decodeSamples =
+                        if (seg.samples.size < minDecodeSamples) seg.samples.copyOf(minDecodeSamples)
+                        else seg.samples
+                    stream.acceptWaveform(decodeSamples, SAMPLE_RATE)
+                    recognizer.decode(stream)
+                    val result = recognizer.getResult(stream)
+                    val text = cleanTranscript(result.text).trim()
+                    if (text.isNotEmpty()) {
+                        fresh += TranscriptEvent.Utterance(
+                            index = index[0]++,
+                            text = text,
+                            startSec = seg.start.toDouble() / SAMPLE_RATE,
+                            endSec = (seg.start + seg.samples.size).toDouble() / SAMPLE_RATE,
+                            tokens = result.tokens.toList(),
+                            tokenTimes = result.timestamps.map { it.toDouble() },
+                        )
+                    }
+                } finally {
+                    runCatching { stream.release() }
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w(
+                    "AsrEngine",
+                    "skipping a ${"%.1f".format(seg.samples.size.toDouble() / SAMPLE_RATE)}s segment that failed to decode",
+                    t,
                 )
+            } finally {
+                vad.pop()
             }
         }
         return fresh
@@ -124,7 +141,9 @@ class AsrEngine(
      * ends. Chunk sizes are arbitrary; a sub-window remainder is carried to the next chunk.
      */
     fun transcribeLive(chunks: Flow<FloatArray>): Flow<TranscriptEvent> = flow {
-        emit(TranscriptEvent.Status("Recording…"))
+        // No phase-label Status here — this path serves BOTH live mic capture and streamed file
+        // decoding, so the caller (service) sets the correct, localized status ("Recording…" vs
+        // "Transcribing…"). Emitting "Recording…" here mislabeled every file/podcast transcription.
         var carry = FloatArray(0)
         chunks.collect { chunk ->
             val data = if (carry.isEmpty()) chunk else carry + chunk

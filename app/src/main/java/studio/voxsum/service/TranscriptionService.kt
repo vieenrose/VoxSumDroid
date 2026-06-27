@@ -271,7 +271,7 @@ class TranscriptionService : LifecycleService() {
             }
         }
 
-        events.emit(TranscriptEvent.Status("Decoding audio…"))
+        events.emit(TranscriptEvent.Status(getString(R.string.svc_transcribing)))
         // OpenCC s2tw: like the web app, convert Simplified→Traditional on every utterance
         // (and later the summary/title) — only when the summary language is Traditional Chinese.
         // Built once, reused.
@@ -342,7 +342,10 @@ class TranscriptionService : LifecycleService() {
         val wav = File(File(filesDir, "audio").apply { mkdirs() }, "recording_${System.currentTimeMillis()}.wav")
         val utterances = ArrayList<TranscriptEvent.Utterance>()
 
-        updateNotification("Recording…")
+        // Set the live-capture status here (the engine no longer emits it), localized; this also
+        // restores it after a model-download status was shown above.
+        events.emit(TranscriptEvent.Status(getString(R.string.status_recording)))
+        updateNotification(getString(R.string.status_recording))
         AsrEngine(
             backend = backend,
             files = models.asrFiles(backend),

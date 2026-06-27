@@ -185,6 +185,7 @@
     <string name="search_next">下一個</string>
     <string name="search_close">關閉搜尋</string>
     <string name="notif_finish_recording">完成</string>
+    <string name="svc_transcribing">轉錄中…</string>
     <string name="svc_extracting_actions">正在擷取行動項目…</string>
     <string name="card_action_items">行動項目</string>
     <string name="re_extract_actions">擷取行動項目</string>

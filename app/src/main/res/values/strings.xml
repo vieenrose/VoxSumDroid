@@ -186,6 +186,7 @@
     <string name="search_next">Next match</string>
     <string name="search_close">Close search</string>
     <string name="notif_finish_recording">Finish</string>
+    <string name="svc_transcribing">Transcribing…</string>
     <string name="svc_extracting_actions">Extracting action items…</string>
     <string name="card_action_items">Action items</string>
     <string name="re_extract_actions">Extract action items</string>
