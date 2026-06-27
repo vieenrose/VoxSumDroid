@@ -80,8 +80,10 @@ Open the **⋮ (Export)** menu in the top bar:
   + a cover) into one `.ogg` that **plays in any music app** and **reopens in VoxSum** with everything
   intact. This is your archive — reopen it any time via *Add audio → Open session*.
 - **Copy / Share transcript** — get the text into any other app.
-- **Save as text / subtitles / Markdown** — `.txt`, `.srt`, `.vtt`, or `.md` for documents, captions,
-  or notes.
+- **Save as text / subtitles / Markdown / PDF** — `.txt`, `.srt`, `.vtt`, `.md`, or a printable `.pdf`
+  for documents, captions, or notes.
+
+Manage downloaded models (and reclaim space) any time under **Settings → Storage**.
 
 Saved and reopened sessions show up under **Recent** on the home screen, one tap to continue.
 

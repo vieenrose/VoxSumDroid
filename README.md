@@ -63,7 +63,7 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 - **Edit anything** — fix a word, rename a speaker, tweak the title or summary, right in place.
 - **Fix the speakers** — move a misattributed line to the right person, or merge two speakers into one.
 - **Copy** the whole summary with one tap.
-- **Export the words** — copy or share the transcript as text, or save **subtitles (`.srt`/`.vtt`)**, plain text, or Markdown for any other app.
+- **Export the words** — copy or share the transcript as text, or save **subtitles (`.srt`/`.vtt`)**, plain text, Markdown, or a printable **PDF** for any other app.
 - **Re-run** the transcription, the summary, or the speaker-name detection whenever you like — e.g. switch the summary language and re-summarize.
 - **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) is packed into a single `.ogg` that **plays in any music app** and **reopens in VoxSum** with everything intact.
 

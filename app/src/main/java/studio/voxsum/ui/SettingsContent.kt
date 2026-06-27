@@ -25,10 +25,19 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import studio.voxsum.core.models.ModelManager
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -204,11 +213,62 @@ fun SettingsContent(
             minLines = 2,
         )
 
-        // (6) About — version, license, and open-source components.
+        // (6) Storage — downloaded models, per-item delete (each re-downloads on next use).
+        Section(stringResource(R.string.settings_storage))
+        StoragePanel(enabled)
+
+        // (7) About — version, license, and open-source components.
         Section(stringResource(R.string.settings_about))
         AboutContent(onUpdateFound)
     }
 }
+
+/** Lists downloaded models with sizes and a per-item delete (re-downloads on next use). */
+@Composable
+private fun StoragePanel(enabled: Boolean) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var models by remember { mutableStateOf<List<ModelManager.StoredModel>>(emptyList()) }
+    var version by remember { mutableIntStateOf(0) }
+    LaunchedEffect(version) {
+        models = withContext(Dispatchers.IO) { ModelManager(context).storedModels() }
+    }
+    if (models.isEmpty()) {
+        Text(stringResource(R.string.storage_none), style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+        return
+    }
+    val fmt = { b: Long -> android.text.format.Formatter.formatShortFileSize(context, b) }
+    Text(
+        stringResource(R.string.storage_total, fmt(models.sumOf { it.bytes })),
+        style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400,
+        modifier = Modifier.padding(bottom = 4.dp),
+    )
+    models.forEach { m ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(kindLabel(m.kind), style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Slate200)
+                Text("${m.name} · ${fmt(m.bytes)}", style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
+            }
+            IconButton(
+                enabled = enabled,
+                onClick = { scope.launch { withContext(Dispatchers.IO) { m.delete() }; version++ } },
+            ) {
+                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.storage_delete), tint = VoxSumPalette.Slate400)
+            }
+        }
+    }
+}
+
+@Composable
+private fun kindLabel(kind: ModelManager.ModelKind): String = stringResource(
+    when (kind) {
+        ModelManager.ModelKind.VAD -> R.string.model_kind_vad
+        ModelManager.ModelKind.SPEAKER -> R.string.model_kind_speaker
+        ModelManager.ModelKind.ASR -> R.string.model_kind_asr
+        ModelManager.ModelKind.LLM -> R.string.model_kind_llm
+        ModelManager.ModelKind.OTHER -> R.string.model_kind_other
+    }
+)
 
 /** Version + GPL notice + a manual update check + the open-source components + repo link. */
 @Composable

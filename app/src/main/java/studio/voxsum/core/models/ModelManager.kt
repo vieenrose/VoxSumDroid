@@ -140,6 +140,38 @@ class ModelManager(context: Context) {
     val llmModel: File get() = llmFile(LlmRegistry.byId(LlmRegistry.DEFAULT_ID))
     fun llmReady(): Boolean = llmReady(LlmRegistry.byId(LlmRegistry.DEFAULT_ID))
 
+    // --- Storage manager: enumerate + delete downloaded models (each re-downloads on next use). ---
+
+    enum class ModelKind { VAD, SPEAKER, ASR, LLM, OTHER }
+
+    /** A model artifact (file or folder) on disk. [delete] reclaims it; it re-downloads on next use. */
+    data class StoredModel(val name: String, val kind: ModelKind, val bytes: Long, private val path: File) {
+        fun delete(): Boolean = if (path.isDirectory) path.deleteRecursively() else path.delete()
+    }
+
+    /** Every model currently on disk under [modelsDir], largest first, with a coarse kind for labels.
+     *  Note: a model in use is memory-mapped, so deleting it just unlinks the name — the running
+     *  inference keeps its open handle and finishes fine; the space frees once it's released. */
+    fun storedModels(): List<StoredModel> =
+        (modelsDir.listFiles()?.toList() ?: emptyList())
+            .map { f -> StoredModel(f.name, kindOf(f.name), dirSize(f), f) }
+            .filter { it.bytes > 0L }
+            .sortedByDescending { it.bytes }
+
+    private fun dirSize(f: File): Long =
+        if (f.isDirectory) (f.listFiles()?.sumOf { dirSize(it) } ?: 0L) else f.length()
+
+    private fun kindOf(name: String): ModelKind {
+        val n = name.lowercase()
+        return when {
+            n.startsWith("silero_vad") || n.contains("vad") -> ModelKind.VAD
+            n.contains("campplus") || n.contains("speaker_embedding") -> ModelKind.SPEAKER
+            n.endsWith(".gguf") || n.contains("gemma") -> ModelKind.LLM
+            n.contains("asr") || n.contains("sense-voice") || n.contains("sensevoice") || n.contains("qwen") || n.startsWith("sherpa") -> ModelKind.ASR
+            else -> ModelKind.OTHER
+        }
+    }
+
     /**
      * Ensure the ASR models are present, downloading what's missing. [onProgress] receives a
      * coarse 0..1 fraction. Safe to call when already present (no-op). Throws on network /

@@ -55,7 +55,7 @@ class VoxSumTopBarTest {
                 onShareSession = { fired["share"] = true },
                 onCopyTranscript = { fired["copytx"] = true }, onShareTranscript = { fired["sharetx"] = true },
                 onExportTxt = { fired["txt"] = true }, onExportSrt = { fired["srt"] = true },
-                onExportVtt = { fired["vtt"] = true }, onExportMarkdown = { fired["md"] = true },
+                onExportVtt = { fired["vtt"] = true }, onExportMarkdown = { fired["md"] = true }, onExportPdf = { fired["pdf"] = true },
             )
         }
         return fired

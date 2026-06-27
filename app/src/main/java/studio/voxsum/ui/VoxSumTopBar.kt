@@ -86,6 +86,7 @@ fun VoxSumTopBar(
     onExportSrt: () -> Unit,
     onExportVtt: () -> Unit,
     onExportMarkdown: () -> Unit,
+    onExportPdf: () -> Unit,
 ) {
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Column(Modifier.fillMaxWidth()) {
@@ -169,7 +170,7 @@ fun VoxSumTopBar(
                 }
                 ExportMenu(
                     transcriptAvailable, onCoverPreview, onSaveSession, onShareSession,
-                    onCopyTranscript, onShareTranscript, onExportTxt, onExportSrt, onExportVtt, onExportMarkdown,
+                    onCopyTranscript, onShareTranscript, onExportTxt, onExportSrt, onExportVtt, onExportMarkdown, onExportPdf,
                 )
             }
         }
@@ -273,6 +274,7 @@ private fun ExportMenu(
     onExportSrt: () -> Unit,
     onExportVtt: () -> Unit,
     onExportMarkdown: () -> Unit,
+    onExportPdf: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
@@ -323,6 +325,10 @@ private fun ExportMenu(
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.export_md)) },
                 onClick = { open = false; onExportMarkdown() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.export_pdf)) },
+                onClick = { open = false; onExportPdf() },
             )
         }
     }

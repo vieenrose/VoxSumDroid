@@ -62,6 +62,15 @@
     <string name="settings_summary_language">摘要語言</string>
     <string name="summary_language_auto">與逐字稿相同</string>
     <string name="settings_summary_prompt">摘要提示詞</string>
+    <string name="settings_storage">儲存空間</string>
+    <string name="storage_total">裝置上的模型：%1$s</string>
+    <string name="storage_none">尚未下載任何模型</string>
+    <string name="storage_delete">刪除模型</string>
+    <string name="model_kind_vad">語音偵測</string>
+    <string name="model_kind_speaker">語者模型</string>
+    <string name="model_kind_asr">轉錄模型</string>
+    <string name="model_kind_llm">摘要模型</string>
+    <string name="model_kind_other">其他</string>
     <string name="settings_about">關於</string>
     <string name="about_license">自由開放原始碼 · GPL-3.0</string>
     <string name="about_components">開放原始碼元件</string>
@@ -168,6 +177,7 @@
     <string name="export_srt">另存字幕（.srt）</string>
     <string name="export_vtt">另存字幕（.vtt）</string>
     <string name="export_md">另存 Markdown（.md）</string>
+    <string name="export_pdf">另存 PDF（.pdf）</string>
     <string name="export_heading_summary">摘要</string>
     <string name="export_heading_transcript">逐字稿</string>
     <string name="transcript_copied">已複製逐字稿</string>

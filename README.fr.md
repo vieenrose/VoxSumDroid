@@ -63,7 +63,7 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 - **Modifiez tout** — corrigez un mot, renommez un intervenant, ajustez le titre ou le résumé, sur place.
 - **Corrigez les intervenants** — déplacez une ligne mal attribuée vers la bonne personne, ou fusionnez deux intervenants.
 - **Copiez** tout le résumé d'un seul geste.
-- **Exportez le texte** — copiez ou partagez la transcription en texte, ou enregistrez des **sous-titres (`.srt`/`.vtt`)**, du texte brut ou du Markdown pour d'autres applis.
+- **Exportez le texte** — copiez ou partagez la transcription en texte, ou enregistrez des **sous-titres (`.srt`/`.vtt`)**, du texte brut, du Markdown ou un **PDF** imprimable pour d'autres applis.
 - **Relancez** la transcription, le résumé ou la détection des noms quand vous voulez — p. ex. changez la langue du résumé puis relancez-le.
 - **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique `.ogg` qui **se lit dans n'importe quelle appli musicale** et **se rouvre dans VoxSum** avec tout intact.
 

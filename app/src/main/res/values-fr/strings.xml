@@ -62,6 +62,15 @@
     <string name="settings_summary_language">Langue du résumé</string>
     <string name="summary_language_auto">Comme la transcription</string>
     <string name="settings_summary_prompt">Invite de résumé</string>
+    <string name="settings_storage">Stockage</string>
+    <string name="storage_total">Modèles sur l\'appareil : %1$s</string>
+    <string name="storage_none">Aucun modèle téléchargé</string>
+    <string name="storage_delete">Supprimer le modèle</string>
+    <string name="model_kind_vad">Détection de voix</string>
+    <string name="model_kind_speaker">Modèle de locuteurs</string>
+    <string name="model_kind_asr">Modèle de transcription</string>
+    <string name="model_kind_llm">Modèle de résumé</string>
+    <string name="model_kind_other">Autre</string>
     <string name="settings_about">À propos</string>
     <string name="about_license">Libre et open source · GPL-3.0</string>
     <string name="about_components">Composants open source</string>
@@ -169,6 +178,7 @@
     <string name="export_srt">Enregistrer les sous-titres (.srt)</string>
     <string name="export_vtt">Enregistrer les sous-titres (.vtt)</string>
     <string name="export_md">Enregistrer en Markdown (.md)</string>
+    <string name="export_pdf">Enregistrer en PDF (.pdf)</string>
     <string name="export_heading_summary">Résumé</string>
     <string name="export_heading_transcript">Transcription</string>
     <string name="transcript_copied">Transcription copiée</string>

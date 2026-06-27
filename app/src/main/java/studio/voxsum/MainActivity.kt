@@ -680,6 +680,25 @@ private fun TranscribeScreen(
         writeDoc(it, TranscriptExport.markdown(utterances.toList(), speakerLabel, title, summary,
             context.getString(R.string.export_heading_summary), context.getString(R.string.export_heading_transcript)))
     }
+    // PDF is binary, so it bypasses writeDoc() and streams from PdfExport directly to the SAF document.
+    val pdfSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val utts = utterances.toList(); val t = title; val s = summary
+        val sumH = context.getString(R.string.export_heading_summary); val txH = context.getString(R.string.export_heading_transcript)
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)?.use { os ->
+                        studio.voxsum.core.export.PdfExport.write(os, utts, speakerLabel, t, s, sumH, txH)
+                    } != null
+                }.getOrDefault(false)
+            }
+            snackbarHostState.showSnackbar(context.getString(
+                if (ok) R.string.session_saved_as else R.string.session_save_failed,
+                documentLabel(context, uri),
+            ))
+        }
+    }
     fun copyTranscript() {
         val cm = context.getSystemService(android.content.ClipboardManager::class.java)
         cm?.setPrimaryClip(android.content.ClipData.newPlainText("VoxSum transcript", transcriptText()))
@@ -995,6 +1014,7 @@ private fun TranscribeScreen(
                 onExportSrt = { srtSaver.launch("${exportBaseName()}.srt") },
                 onExportVtt = { vttSaver.launch("${exportBaseName()}.vtt") },
                 onExportMarkdown = { mdSaver.launch("${exportBaseName()}.md") },
+                onExportPdf = { pdfSaver.launch("${exportBaseName()}.pdf") },
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },

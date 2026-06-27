@@ -482,6 +482,7 @@ class TranscriptionService : LifecycleService() {
             models.ensureLlmModel(spec) { frac -> reportDownload(R.string.svc_summarization_model_pct, frac) }
         }
         updateNotification(getString(R.string.svc_summarizing))
+        events.emit(TranscriptEvent.Status(getString(R.string.svc_summarizing)))   // localized (Summarizer no longer sets it)
         LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
             activeLlm = llm
             try {

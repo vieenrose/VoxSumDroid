@@ -49,7 +49,7 @@ class Summarizer(
         val mapBudget = ((llm.nCtx - mapMaxTokens - 96) * 3 / 5).coerceIn(512, 3500)
         val reduceBudget = ((llm.nCtx - reduceMax - 96) * 3 / 5).coerceAtLeast(512)
         val chunks = SummaryText.chunk(transcript, size = mapBudget)
-        emit(TranscriptEvent.Status("Summarizing ${chunks.size} chunk(s)…"))
+        // Status is set (localized) by the caller in the service; here we only drive the bar.
         emit(TranscriptEvent.Progress(0f))   // restart the bar for the summary phase
 
         val partials = ArrayList<String>(chunks.size)
@@ -66,7 +66,6 @@ class Summarizer(
         // meeting's ~16+ partials would otherwise join into one over-n_ctx reduce prompt -> empty summary.)
         var level: List<String> = partials
         while (level.size > 1 && level.joinToString("\n\n").length > reduceBudget) {
-            emit(TranscriptEvent.Status("Combining ${level.size} section summaries…"))
             val next = ArrayList<String>()
             for (group in SummaryText.groupPartials(level, reduceBudget)) {
                 if (group.size == 1) { next += group[0]; continue }
