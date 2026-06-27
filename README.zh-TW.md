@@ -5,35 +5,28 @@
 <h1 align="center">VoxSum for Android</h1>
 
 <p align="center">
-  <b>轉錄 · 語者分離 · 摘要 — 完全在裝置端、完全離線。</b>
+  <b>把任何聲音，變成標註語者的逐字稿與精簡摘要 —<br>全程在手機上完成，完全離線。</b>
 </p>
 
 <p align="center">
-  <a href="https://github.com/vieenrose/VoxSumDroid/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/vieenrose/VoxSumDroid?sort=semver"></a>
-  <img alt="Platform" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
-  <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0-blue">
-  <img alt="Offline" src="https://img.shields.io/badge/%E7%84%A1%E9%9C%80%E7%B6%B2%E8%B7%AF-success-success">
+  <a href="https://github.com/vieenrose/VoxSumDroid/releases/latest"><img alt="版本" src="https://img.shields.io/github/v/release/vieenrose/VoxSumDroid?sort=semver"></a>
+  <img alt="平台" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
+  <img alt="授權" src="https://img.shields.io/badge/license-GPL--3.0-blue">
+  <img alt="離線" src="https://img.shields.io/badge/%E7%84%A1%E9%9C%80%E7%B6%B2%E8%B7%AF-success-success">
 </p>
 
 <p align="center"><a href="README.md">English →</a> · <a href="README.fr.md">Français →</a></p>
 
 ---
 
-VoxSum 把音訊 — 檔案、Podcast 單集或 YouTube 連結 — 轉成標註語者的逐字稿與精簡摘要，
-而且全部在**手機上**完成。語音辨識、語者分離與 LLM 摘要皆於本機執行；無伺服器、無帳號、無雲端。
-本專案為 [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak) 的裝置端移植版。
-
-> 已在 Pixel 6 端到端驗證——三種語音辨識後端（SenseVoice、x-asr Zipformer zh-en、Qwen3-ASR）
-> 與兩款摘要模型（Gemma 4 E2B、Gemma 4 E4B）皆於裝置端執行：VAD 分段 ASR → 語者分離 → 摘要，
-> 並搭配與逐字稿同步的播放器。以 **APK** 形式於 [Releases](https://github.com/vieenrose/VoxSumDroid/releases) 發佈。
+錄一場會議、打開一段語音備忘、丟進一集 Podcast 或一條 YouTube 連結 —— VoxSum 會幫你寫出**誰說了什麼**，
+再用你選的語言給出一份**精簡摘要**。一切都在**裝置端**完成：無需帳號、無需雲端、無需訂閱，聲音也永遠不會離開你的手機。
 
 ## 為什麼選擇 VoxSum
 
-這不只是一款 App，更是對逐字稿的另一種主張 —— **你的話語，仍屬於你。**
-
 | 🛡️ 絕對隱私 | ✈️ 完全離線 | 💰 無需訂閱 |
 | :-- | :-- | :-- |
-| 音訊永不離開您的裝置；所有步驟皆在本機處理，機密錄音不會外洩到雲端。 | 模型就緒後即無需網路 —— 在飛機、高鐵或任何無訊號之處皆可使用。 | 一次擁有，永久使用。無用量計費、無週期性費用。 |
+| 音訊永遠不離開手機 —— 機密錄音不會外洩到雲端。 | 設定完成後即無需網路。在飛機、高鐵，或任何收不到訊號的地方都能用。 | 一次擁有，永久使用。沒有用量計費，也沒有月費。 |
 
 ## 螢幕截圖
 
@@ -41,44 +34,39 @@ VoxSum 把音訊 — 檔案、Podcast 單集或 YouTube 連結 — 轉成標註�
 | :--: | :--: | :--: | :--: |
 | <img src="docs/screenshots/01-home-zhtw.png" width="200" alt="首頁"> | <img src="docs/screenshots/03-transcript-zhtw.png" width="200" alt="逐字稿"> | <img src="docs/screenshots/04-summary-zhtw.png" width="200" alt="摘要"> | <img src="docs/screenshots/05-summary-language-zhtw.png" width="200" alt="摘要語言"> |
 
-## 功能特色
+## 你可以做什麼
 
-**擷取**
-- **三種語音辨識後端**，每次執行可自選 —— SenseVoice（多語言：中／英／日／韓／粵）、Zipformer zh-en（含標點、大小寫，預設）、Qwen3-ASR（高準確度）。
-- **即時錄音** —— 錄製會議並邊說邊轉錄；逐句串流出現，停止後再執行語者分離與摘要。
-- **Podcast 與 YouTube** —— 搜尋並下載 Podcast 單集（iTunes + RSS），或貼上 YouTube 連結（以 NewPipeExtractor 解析）直接進入流程。
+**🎙️ 從各種來源匯入音訊**
+- **裝置上的檔案** —— 支援多數常見格式。
+- **即時錄音** —— 一邊錄會議，一邊看著逐字稿逐句出現。
+- **Podcast** —— 搜尋、挑一集，直接轉成逐字稿。
+- **YouTube 連結** —— 貼上網址，或用關鍵字搜尋。
+- **重新開啟已存的工作階段** —— 從上次離開的地方無縫接續（見下方）。
 
-**理解**
-- **串流轉錄** —— 偵測到語音即逐句顯示（Silero VAD）。
-- **語者分離** —— 每句以 CAM++（中＋英）嵌入搭配自適應分群，並提供彩色時間軸、各語者色票與統計面板。fp16 嵌入模型由裝置端實測選定 —— 在中／英語上比舊基準約快 1.5 倍且更準確（[權重與基準測試](https://huggingface.co/Luigi/campplus-zh-en-onnx)）。
-- **裝置端摘要** —— 透過 llama.cpp 執行本機 GGUF 模型，產生標題與摘要。兩款可選模型：**Gemma 4 E2B**（預設——多語言＋中日韓 QAT，約 2.2 GB）與 **Gemma 4 E4B**（QAT，品質更高，約 3.2 GB）。
+**📝 閱讀與理解**
+- **即時逐字稿** —— 話一說出口，句子就出現；轉錄還沒結束就能先讀、先播放。
+- **誰在何時說話** —— 每一句都依語者標註並以顏色區分，並顯示語者數量。VoxSum 還能**從談話內容推測語者的真實姓名**。
+- **以你的語言呈現摘要** —— 一個簡短標題加上條列式摘要。可與逐字稿同語言，或自選 **English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어**。（預設為你手機的語言。）
+- **與逐字稿同步的內建播放器** —— 像音樂播放器一樣固定在底部：點任一句即可跳到該處，播放時當下那一句會自動高亮。
 
-**運用**
-- **與逐字稿同步的播放器**，如音樂播放器般固定於底部 —— 點任一句即可跳轉，作用中該句自動高亮，且轉錄進行中即可播放。
-- **行內編輯** —— 可直接編輯句子文字、標題與摘要，並重新命名語者。
-- **一鍵複製** —— 單擊即可將整段摘要複製到剪貼簿。
-- **摘要語言** —— 自選摘要與標題的語言：*與逐字稿相同*，或 English／Français／繁體中文／简体中文／日本語／한국어。預設為您的裝置語言（「以您的語言摘要」）；繁體中文再以 OpenCC `s2tw` 精修。
-- **自描述 `.ogg` 工作階段** —— 將整個工作階段存成單一 OGG/Opus 檔（附自動產生的封面）：可在任何播放器播放，而 VoxSum 會讀取其中內嵌的精確逐字稿以重新開啟與編輯。
-- **三語（English／繁體中文／Français）** —— UI 全面在地化。
+**✏️ 隨你編輯**
+- **任意修改** —— 改一個字、重新命名語者、調整標題或摘要，都能直接在原處進行。
+- 一鍵**複製**整段摘要。
+- 隨時**重新執行**轉錄、摘要或語者姓名偵測 —— 例如換個摘要語言再重新摘要一次。
+- **存成或分享為單一檔案** —— 整個工作階段（音訊＋逐字稿＋摘要＋語者＋封面）打包成一個 `.ogg`，**在任何播放器都能播**，**用 VoxSum 開啟時所有內容也完整保留**。
 
-## 運作方式
+## 語言
 
-```
-音訊 ─► VAD (Silero) ─► ASR (sherpa-onnx) ─► 語者分離 (CAM++ + 分群) ─► 摘要 (llama.cpp + Gemma)
-```
-
-各階段以串流方式即時更新 UI，不會卡在整個流程上。模組對應請見 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
-
-## 技術堆疊
-
-技術細節與授權對照見[英文說明](README.md#tech-stack)。
+- **轉錄**內建支援中文與英文；在**設定**裡一鍵即可切換到多語言引擎（中文 · 英文 · 日文 · 韓文 · 粵語）。
+- **摘要**可用七種語言撰寫，或與逐字稿同語言。
+- **App 本身**提供 **English、繁體中文、Français** 三種介面。
 
 ## 安裝
 
-模型**不**內建，會在首次使用時下載一次（並經 SHA-256 驗證），之後即可完全離線使用。兩種安裝方式：
+App **不**內建 AI 模型 —— 首次使用某功能時會下載一次，之後即可完全離線使用。有兩種安裝方式：
 
-**透過 F-Droid（推薦——自動更新）。** 在 F-Droid 用戶端中加入此自架軟體庫（**設定 → 軟體庫 → ➕**），
-即可從中安裝 VoxSum：
+**透過 F-Droid（推薦 —— 自動更新）。** 在 F-Droid 用戶端中加入此軟體庫（**設定 → 軟體庫 → ➕**），
+再從中安裝 VoxSum：
 
 ```
 https://vieenrose.github.io/VoxSumDroid/repo?fingerprint=c9fe46eb7d87d4fa4e2340a73f78a602eafbab655cbe7c7cb4ead5ab7a00b088
@@ -86,21 +74,28 @@ https://vieenrose.github.io/VoxSumDroid/repo?fingerprint=c9fe46eb7d87d4fa4e2340a
 
 <img src="docs/screenshots/fdroid-repo-qr.png" width="150" alt="F-Droid 軟體庫 QR"> &nbsp; *（或掃描以加入軟體庫）*
 
-這是自架軟體庫（非官方 f-droid.org 商店），加入為一次性步驟；之後更新即會自動送達。
+這是自架軟體庫（非官方 f-droid.org 商店），加入為一次性步驟；之後更新就會自動送達。
 
-**側載 APK。** 從 [**Releases 頁面**](https://github.com/vieenrose/VoxSumDroid/releases/latest) 下載最新的已簽署 APK 後安裝（Android 可能要求授權從瀏覽器或檔案管理器安裝）。
+**側載 APK。** 從 [**Releases 頁面**](https://github.com/vieenrose/VoxSumDroid/releases/latest)
+下載最新的已簽署 APK 並開啟安裝（Android 可能會要求授權從瀏覽器或檔案管理器安裝）。
 
-### 更新
+## 須知
 
-若您已加入 **F-Droid 軟體庫**，F-Droid 用戶端會自動更新本 App。若您是**側載 APK**，App 每天最多檢查一次
-GitHub Releases，並顯示「有可用更新」橫幅；點選**更新**即會下載已簽署的 APK 並交給系統安裝程式
-（僅需授權一次「安裝不明應用程式」）。此更新檢查是唯一的週期性網路請求，僅連線 GitHub、無任何遙測，
-且離線時自動略過。
+- **首次執行會下載模型。** 第一次使用某項功能時，VoxSum 會下載所需模型（並驗證完整性）並快取起來；
+  之後就能完全離線。
+- **唯一會送出的資料**，是每天最多一次、向 GitHub 查詢有無新版本的請求 —— 無任何追蹤，離線時自動略過。
+  （F-Droid 用戶則由用戶端負責更新。）
+- **支援 Android 8.0 以上。** 一支具備幾 GB 可用空間的近代手機即可順暢運作；品質更高的摘要模型為選用，
+  可在設定中關閉以適配較輕量的裝置。
 
-## 從原始碼建置
+## 給開發者
 
-建置步驟見[英文說明](README.md#build-from-source)。
+VoxSum 是 [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak) 的裝置端移植版，透過
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 與 [llama.cpp](https://github.com/ggml-org/llama.cpp)
+在本機執行語音辨識、語者分離與摘要模型，全部由原始碼建置。模組對應請見
+[`ARCHITECTURE.md`](ARCHITECTURE.md)；建置步驟見[英文說明](README.md#build-from-source)。
 
 ## 授權
 
-[GPL-3.0-or-later](LICENSE)。內含的原始碼相依套件各自保留其授權。
+[GPL-3.0-or-later](LICENSE)。內含的原始碼相依套件各自保留其授權；摘要模型依
+[Gemma Terms](https://ai.google.dev/gemma/terms) 條款散布。

@@ -5,11 +5,11 @@
 <h1 align="center">VoxSum pour Android</h1>
 
 <p align="center">
-  <b>Transcrire · diariser · résumer — entièrement sur l'appareil, entièrement hors ligne.</b>
+  <b>Transformez n'importe quel audio en une transcription claire, avec les intervenants identifiés,<br>et un résumé concis — entièrement sur votre téléphone, hors ligne.</b>
 </p>
 
 <p align="center">
-  <a href="https://github.com/vieenrose/VoxSumDroid/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/vieenrose/VoxSumDroid?sort=semver"></a>
+  <a href="https://github.com/vieenrose/VoxSumDroid/releases/latest"><img alt="Version" src="https://img.shields.io/github/v/release/vieenrose/VoxSumDroid?sort=semver"></a>
   <img alt="Plateforme" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Licence" src="https://img.shields.io/badge/license-GPL--3.0-blue">
   <img alt="Hors ligne" src="https://img.shields.io/badge/r%C3%A9seau-non%20requis-success">
@@ -19,25 +19,15 @@
 
 ---
 
-VoxSum transforme de l'audio — un fichier, un épisode de podcast ou un lien YouTube — en une
-transcription étiquetée par locuteur et un résumé concis, le tout s'exécutant **sur le téléphone**.
-Reconnaissance vocale, séparation des locuteurs et résumé par LLM s'exécutent localement ; pas de
-serveur, pas de compte, pas de cloud. C'est un portage sur appareil de
-[VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak).
-
-> Vérifié de bout en bout sur un Pixel 6 — les trois moteurs de reconnaissance (SenseVoice, x-asr
-> Zipformer zh-en, Qwen3-ASR) et les deux modèles de résumé (Gemma 4 E2B, Gemma 4 E4B) s'exécutent sur
-> l'appareil : reconnaissance segmentée par VAD → diarisation → résumé, avec un lecteur synchronisé à
-> la transcription. Distribué sous forme d'**APK** via
-> [Releases](https://github.com/vieenrose/VoxSumDroid/releases).
+Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien YouTube — VoxSum écrit
+**qui a dit quoi**, puis vous donne un **résumé concis** dans la langue de votre choix. Tout se passe
+**sur l'appareil** : sans compte, sans cloud, sans abonnement, et rien ne quitte jamais votre téléphone.
 
 ## Pourquoi VoxSum
 
-Pas seulement une appli, mais une autre posture sur la transcription — **vos mots restent à vous.**
-
 | 🛡️ Confidentiel par conception | ✈️ Fonctionne hors ligne | 💰 Sans abonnement |
 | :-- | :-- | :-- |
-| L'audio ne quitte jamais votre appareil ; chaque étape s'exécute localement, donc les enregistrements confidentiels ne peuvent pas fuiter vers un cloud. | Une fois les modèles présents, aucun réseau n'est nécessaire — en avion, en train ou loin de tout. | Acquis une bonne fois pour toutes. Pas de facturation à l'usage, pas de frais récurrents. |
+| Votre audio ne quitte jamais le téléphone — vos enregistrements sensibles ne fuiteront pas vers un cloud. | Une fois configuré, aucun réseau n'est nécessaire. En avion, en train, ou loin de tout, ça marche. | À vous pour de bon. Pas de minutes facturées, pas d'abonnement mensuel. |
 
 ## Captures d'écran
 
@@ -45,81 +35,40 @@ Pas seulement une appli, mais une autre posture sur la transcription — **vos m
 | :--: | :--: | :--: | :--: |
 | <img src="docs/screenshots/01-home.png" width="200" alt="Accueil"> | <img src="docs/screenshots/03-transcript.png" width="200" alt="Transcription"> | <img src="docs/screenshots/04-summary.png" width="200" alt="Résumé"> | <img src="docs/screenshots/05-summary-language.png" width="200" alt="Sélecteur de langue du résumé"> |
 
-## Fonctionnalités
+## Ce que vous pouvez faire
 
-**Capturer**
-- **Trois moteurs de reconnaissance**, sélectionnables à chaque exécution — SenseVoice (multilingue : zh / en / ja / ko / yue), Zipformer zh-en (ponctué, avec casse — par défaut), Qwen3-ASR (haute précision).
-- **Enregistrement en direct** — enregistrez une réunion et transcrivez à mesure que vous parlez ; les énoncés apparaissent en flux, puis la diarisation et le résumé s'exécutent à l'arrêt.
-- **Podcast et YouTube** — recherchez et téléchargez un épisode de podcast (iTunes + RSS), ou collez un lien YouTube (résolu via NewPipeExtractor) directement dans le pipeline.
+**🎙️ Importez de l'audio depuis n'importe où**
+- **Un fichier** de votre appareil — la plupart des formats courants fonctionnent.
+- **Enregistrez en direct** — captez une réunion et voyez la transcription apparaître phrase après phrase.
+- **Un podcast** — cherchez, choisissez un épisode et transcrivez-le.
+- **Un lien YouTube** — collez une URL, ou cherchez par mot-clé.
+- **Rouvrez une session enregistrée** — reprenez exactement là où vous vous étiez arrêté (voir plus bas).
 
-**Comprendre**
-- **Transcription en flux** — les énoncés apparaissent au fur et à mesure que la parole est détectée (Silero VAD).
-- **Diarisation des locuteurs** — empreintes CAM++ (zh+en) par énoncé + regroupement adaptatif, avec une frise colorée, des pastilles par locuteur et un panneau de statistiques. L'empreinte fp16 a été choisie par étalonnage sur l'appareil — ~1,5× plus rapide et plus précise en mandarin/anglais que la référence précédente ([poids + étalonnage](https://huggingface.co/Luigi/campplus-zh-en-onnx)).
-- **Résumé sur l'appareil** — un modèle GGUF local via llama.cpp produit un titre + un résumé. Deux modèles sélectionnables : **Gemma 4 E2B** (par défaut — multilingue + CJK QAT, ~2,2 Go) et **Gemma 4 E4B** (QAT, qualité supérieure, ~3,2 Go).
+**📝 Lisez et comprenez**
+- **Transcription en direct** — les lignes apparaissent dès que vous parlez ; vous pouvez lire (et écouter) avant la fin.
+- **Qui a parlé, et quand** — chaque ligne est étiquetée et colorée par intervenant, avec leur nombre. VoxSum peut même **deviner le vrai nom des intervenants** d'après leurs propos.
+- **Un résumé dans votre langue** — un titre court et un résumé à puces. Gardez la langue de la transcription, ou choisissez **English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어**. (Par défaut, la langue de votre téléphone.)
+- **Un lecteur intégré et synchronisé** — ancré en bas comme une appli musicale : touchez une ligne pour y sauter, et la ligne en cours se surligne pendant la lecture.
 
-**Exploiter**
-- **Lecteur synchronisé à la transcription**, ancré en bas comme un lecteur de musique — touchez une ligne pour vous y rendre, la ligne active se surligne automatiquement, et la lecture fonctionne pendant que la transcription est en cours.
-- **Édition en ligne** — modifiez le texte des énoncés, le titre et le résumé, et renommez les locuteurs sur place.
-- **Copie en un geste** — copiez tout le résumé dans le presse-papiers d'une seule touche.
-- **Langue du résumé** — choisissez la langue du résumé + titre : *Comme la transcription*, ou English / Français / 繁體中文 / 简体中文 / 日本語 / 한국어. Par défaut la langue de votre appareil (« résumer dans votre langue ») ; le chinois traditionnel est affiné via OpenCC `s2tw`.
-- **Session `.ogg` autodescriptive** — enregistrez/partagez toute la session dans un seul fichier OGG/Opus (avec une pochette générée) : il se lit dans n'importe quel lecteur, tandis que VoxSum récupère la transcription exacte intégrée pour la rouvrir et la modifier.
-- **Trilingue (English / 繁體中文 / Français)** — interface entièrement localisée.
+**✏️ Personnalisez**
+- **Modifiez tout** — corrigez un mot, renommez un intervenant, ajustez le titre ou le résumé, sur place.
+- **Copiez** tout le résumé d'un seul geste.
+- **Relancez** la transcription, le résumé ou la détection des noms quand vous voulez — p. ex. changez la langue du résumé puis relancez-le.
+- **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique `.ogg` qui **se lit dans n'importe quelle appli musicale** et **se rouvre dans VoxSum** avec tout intact.
 
-## Comment ça marche
+## Langues
 
-```
-audio ─► VAD (Silero) ─► ASR (sherpa-onnx) ─► diarisation (CAM++ + regroupement) ─► résumé (llama.cpp + Gemma)
-```
-
-Une fine couche de streaming transforme la sortie de chaque étape en mises à jour incrémentales de
-l'interface ; rien ne bloque sur le pipeline complet. Voir [`ARCHITECTURE.md`](ARCHITECTURE.md) pour
-la carte des modules.
-
-## Modèles d'IA
-
-Chaque modèle s'exécute **sur l'appareil**. Aucun n'est inclus dans l'APK — ils sont téléchargés à la
-première utilisation (vérifiés par SHA-256) depuis les sources ci-dessous.
-
-| Rôle | Modèle | Source |
-| :-- | :-- | :-- |
-| ASR — **par défaut** | Transducteur Zipformer zh-en, ponctué + casse mixte (`x-asr`) | [csukuangfj2/…zh-en-punct-int8-2026-06-03](https://huggingface.co/csukuangfj2/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03) · [k2-fsa/icefall](https://github.com/k2-fsa/icefall) · [sherpa-onnx asr-models](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
-| ASR — multilingue | SenseVoice (zh / en / ja / ko / yue) | [FunAudioLLM/SenseVoice](https://github.com/FunAudioLLM/SenseVoice) · [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
-| ASR — haute précision | Qwen3-ASR 0.6B | [QwenLM](https://huggingface.co/Qwen) · [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
-| Détection d'activité vocale | Silero VAD | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) |
-| Empreinte de locuteur (diarisation) | CAM++ zh+en, fp16 | [Luigi/campplus-zh-en-onnx](https://huggingface.co/Luigi/campplus-zh-en-onnx) · en amont [modelscope/3D-Speaker](https://github.com/modelscope/3D-Speaker) |
-| LLM de résumé | Gemma 4 E2B / E4B (GGUF) | [unsloth](https://huggingface.co/unsloth) · en amont [Google Gemma](https://huggingface.co/google) |
-
-**LLM de résumé** (GGUF QAT — entraînés en tenant compte de la quantisation), sélectionnables dans les Paramètres — en amont [Google Gemma](https://huggingface.co/google) :
-- **Gemma 4 E2B** *(par défaut)* — multilingue + CJK, ~2,2 Go — [unsloth/gemma-4-E2B-it-qat-mobile-GGUF](https://huggingface.co/unsloth/gemma-4-E2B-it-qat-mobile-GGUF)
-- **Gemma 4 E4B** — qualité supérieure, ~3,2 Go — [unsloth/gemma-4-E4B-it-qat-mobile-GGUF](https://huggingface.co/unsloth/gemma-4-E4B-it-qat-mobile-GGUF)
-
-**Moteurs d'inférence :** [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ASR / VAD / empreinte de
-locuteur, via ONNX Runtime) et [llama.cpp](https://github.com/ggml-org/llama.cpp) (LLM). La détection
-des noms de locuteurs réutilise le LLM de résumé sélectionné.
-
-## Pile technique
-
-| Aspect | Implémentation | Licence |
-| :-- | :-- | :-- |
-| ASR | sherpa-onnx `OfflineRecognizer` (SenseVoice / Zipformer / Qwen3) | Apache-2.0 |
-| VAD | sherpa-onnx `Vad` (Silero) | Apache-2.0 |
-| Diarisation | sherpa-onnx `SpeakerEmbeddingExtractor` (CAM++ zh+en, fp16) + regroupement adaptatif | Apache-2.0 |
-| Résumé | llama.cpp + Gemma 4 E2B / E4B (GGUF) | Gemma Terms |
-| Conversion zh-TW | OpenCC (`s2tw`), inclus | Apache-2.0 |
-| YouTube | NewPipeExtractor | GPL-3.0 |
-| Décodage audio | Android MediaCodec | plateforme |
-| Interface | Jetpack Compose (Material 3) | Apache-2.0 |
-
-Tout le code natif est **compilé depuis les sources** (sous-modules sous `native/`) ; aucun
-`.aar`/`.so` précompilé n'est commité.
+- **La transcription** gère le chinois et l'anglais d'emblée ; un moteur multilingue (chinois · anglais · japonais · coréen · cantonais) est à un tap dans les **Réglages**.
+- **Les résumés** peuvent être écrits dans l'une de sept langues, ou alignés sur la transcription.
+- **L'application elle-même** est disponible en **anglais, 繁體中文 et français**.
 
 ## Installation
 
-Les modèles ne sont **pas** inclus — ils sont téléchargés une seule fois, vérifiés par SHA-256, à la
-première utilisation ; ensuite l'appli est entièrement hors ligne. Deux façons d'installer :
+Les petits modèles d'IA ne sont **pas** inclus — ils se téléchargent une fois à la première utilisation,
+puis l'appli fonctionne entièrement hors ligne. Deux façons d'installer :
 
-**Via F-Droid (recommandé — mises à jour automatiques).** Ajoutez ce dépôt auto-hébergé à votre client
-F-Droid (**Paramètres → Dépôts → ➕**), puis installez VoxSum depuis celui-ci :
+**Via F-Droid (recommandé — mises à jour automatiques).** Dans votre client F-Droid, ajoutez ce dépôt
+(**Paramètres → Dépôts → ➕**), puis installez VoxSum depuis celui-ci :
 
 ```
 https://vieenrose.github.io/VoxSumDroid/repo?fingerprint=c9fe46eb7d87d4fa4e2340a73f78a602eafbab655cbe7c7cb4ead5ab7a00b088
@@ -127,43 +76,34 @@ https://vieenrose.github.io/VoxSumDroid/repo?fingerprint=c9fe46eb7d87d4fa4e2340a
 
 <img src="docs/screenshots/fdroid-repo-qr.png" width="150" alt="QR du dépôt F-Droid"> &nbsp; *(ou scannez pour ajouter le dépôt)*
 
-C'est un dépôt auto-hébergé (pas le store officiel f-droid.org), donc l'ajouter est une étape unique —
-ensuite les mises à jour arrivent automatiquement.
+C'est un dépôt auto-hébergé (pas le magasin officiel f-droid.org), donc l'ajout est une étape unique —
+ensuite, les mises à jour arrivent toutes seules.
 
-**Charger l'APK latéralement.** Téléchargez le dernier APK signé depuis la
-[**page Releases**](https://github.com/vieenrose/VoxSumDroid/releases/latest) et installez-le (Android
-peut demander l'autorisation d'installer depuis votre navigateur ou gestionnaire de fichiers).
+**Installez l'APK manuellement.** Téléchargez le dernier APK signé depuis la
+[**page Releases**](https://github.com/vieenrose/VoxSumDroid/releases/latest) et ouvrez-le pour
+l'installer (Android peut demander l'autorisation d'installer depuis votre navigateur ou gestionnaire de fichiers).
 
-### Mises à jour
+## Bon à savoir
 
-Si vous avez ajouté le **dépôt F-Droid**, votre client F-Droid met à jour l'appli automatiquement. Si
-vous avez **chargé l'APK latéralement**, l'appli vérifie les Releases GitHub au plus une fois par jour
-et affiche une bannière « Mise à jour disponible » ; toucher **Mettre à jour** télécharge l'APK signé
-et le confie à l'installateur système (vous accordez une fois « installer des applis inconnues »). Vous
-pouvez aussi lancer une vérification manuelle depuis Paramètres → À propos. Cette vérification est le
-seul appel réseau périodique, uniquement vers GitHub, sans télémétrie, et ignorée silencieusement hors
-ligne.
+- **Le premier lancement télécharge des modèles.** La première fois que vous utilisez une fonction,
+  VoxSum récupère le modèle nécessaire (avec vérification d'intégrité) et le met en cache. Ensuite,
+  vous pouvez passer entièrement hors ligne.
+- **La seule chose jamais envoyée** est une vérification facultative, une fois par jour, vers GitHub
+  pour une nouvelle version — sans aucun pistage, et ignorée hors ligne. (Les utilisateurs F-Droid
+  reçoivent les mises à jour via leur client.)
+- **Fonctionne sous Android 8.0+.** Un téléphone récent avec quelques Go d'espace libre est confortable ;
+  le modèle de résumé de meilleure qualité est optionnel et peut être désactivé dans les Réglages
+  pour les appareils plus légers.
 
-## Compiler depuis les sources
+## Pour les développeurs
 
-Nécessite Android Studio (Ladybug+), SDK 35, NDK 27.2.
-
-```bash
-git clone --recurse-submodules https://github.com/vieenrose/VoxSumDroid.git
-cd VoxSumDroid
-
-# 1. Compiler onnxruntime pour Android (l'étape lente ; figée sur v1.24.3).
-./scripts/build-onnxruntime-android.sh
-
-# 2. Pointer la compilation de l'appli dessus, puis compiler.
-export SHERPA_ONNXRUNTIME_LIB_DIR="$HOME/ort-build/Release"
-export SHERPA_ONNXRUNTIME_INCLUDE_DIR="$HOME/ort-headers"
-./gradlew :app:assembleDebug          # arm64-v8a par défaut
-```
-
-Voir [`SPIKE.md`](SPIKE.md) pour la recette éprouvée et [`RELEASING.md`](RELEASING.md) pour la façon
-dont l'étiquetage `v*` produit un APK de version signé via CI.
+VoxSum est un portage sur appareil de [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak).
+Il exécute la reconnaissance vocale, la séparation des locuteurs et le modèle de résumé localement via
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) et [llama.cpp](https://github.com/ggml-org/llama.cpp),
+le tout compilé depuis les sources. Voir [`ARCHITECTURE.md`](ARCHITECTURE.md) pour la carte des modules ;
+les instructions de compilation sont dans le [README anglais](README.md#build-from-source).
 
 ## Licence
 
-[GPL-3.0-or-later](LICENSE). Les dépendances source incluses conservent leurs propres licences.
+[GPL-3.0-or-later](LICENSE). Les dépendances source incluses conservent leur propre licence ; le modèle
+de résumé est distribué selon les [Gemma Terms](https://ai.google.dev/gemma/terms).
