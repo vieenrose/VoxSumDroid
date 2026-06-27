@@ -115,6 +115,7 @@
     <string name="status_starting">啟動中…</string>
     <string name="status_recording">錄音中…</string>
     <string name="status_done">完成</string>
+    <string name="status_no_speech">未偵測到語音</string>
     <string name="status_transcribing">轉錄中 %d%%</string>
     <string name="status_transcript_lines">逐字稿：%d 行</string>
     <string name="status_transcript_lines_speakers">逐字稿：%1$d 行，%2$d 位語者</string>
@@ -128,6 +129,7 @@
     <string name="svc_downloading_models">正在下載模型（首次執行）…</string>
     <string name="svc_downloading_models_pct">正在下載模型… %d%%</string>
     <string name="svc_downloading_diarization">正在下載語者分段模型…</string>
+    <string name="svc_downloading_diarization_pct">正在下載語者模型… %d%%</string>
     <string name="svc_downloading_named">正在下載 %1$s…</string>
     <string name="svc_summarization_model_pct">摘要模型… %d%%</string>
     <string name="svc_summarizing">摘要中…</string>

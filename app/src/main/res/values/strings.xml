@@ -116,6 +116,7 @@
     <string name="status_starting">Starting…</string>
     <string name="status_recording">Recording…</string>
     <string name="status_done">Done</string>
+    <string name="status_no_speech">No speech detected</string>
     <string name="status_transcribing">Transcribing %d%%</string>
     <string name="status_transcript_lines">Transcript: %d lines</string>
     <string name="status_transcript_lines_speakers">Transcript: %1$d lines, %2$d speakers</string>
@@ -129,6 +130,7 @@
     <string name="svc_downloading_models">Downloading models (first run)…</string>
     <string name="svc_downloading_models_pct">Downloading models… %d%%</string>
     <string name="svc_downloading_diarization">Downloading diarization models…</string>
+    <string name="svc_downloading_diarization_pct">Downloading speaker model… %d%%</string>
     <string name="svc_downloading_named">Downloading %1$s…</string>
     <string name="svc_summarization_model_pct">Summarization model… %d%%</string>
     <string name="svc_summarizing">Summarizing…</string>

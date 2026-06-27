@@ -111,6 +111,22 @@ class TranscriptionService : LifecycleService() {
     @Volatile private var stopRecordingRequested = false
     // Whether the current foreground notification should show the "Finish recording" action.
     @Volatile private var notifRecording = false
+    // Last reported download percent, so reportDownload() throttles to integer-percent changes.
+    @Volatile private var lastDlPct = -1
+
+    /**
+     * Surface a model-download fraction to BOTH the notification AND the UI (a [TranscriptEvent.DownloadProgress]
+     * that drives the same progress bar + status). Throttled to whole-percent changes; uses tryEmit because
+     * the download callback is not a suspend context and the events buffer is bounded. [msgRes] takes one %d.
+     */
+    private fun reportDownload(msgRes: Int, frac: Float) {
+        val pct = (frac * 100).toInt().coerceIn(0, 100)
+        if (pct == lastDlPct) return
+        lastDlPct = pct
+        val text = getString(msgRes, pct)
+        updateNotification(text)
+        events.tryEmit(TranscriptEvent.DownloadProgress(frac.coerceIn(0f, 1f), text))
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
@@ -266,9 +282,7 @@ class TranscriptionService : LifecycleService() {
         val backend = AsrBackend.fromId(cfg.asrBackend)
         if (!models.asrReady(backend)) {
             events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_models)))
-            models.ensureAsrModels(backend) { frac ->
-                updateNotification(getString(R.string.svc_downloading_models_pct, (frac * 100).toInt()))
-            }
+            models.ensureAsrModels(backend) { frac -> reportDownload(R.string.svc_downloading_models_pct, frac) }
         }
 
         events.emit(TranscriptEvent.Status(getString(R.string.svc_transcribing)))
@@ -333,9 +347,7 @@ class TranscriptionService : LifecycleService() {
         val backend = AsrBackend.fromId(cfg.asrBackend)
         if (!models.asrReady(backend)) {
             events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_models)))
-            models.ensureAsrModels(backend) { frac ->
-                updateNotification(getString(R.string.svc_downloading_models_pct, (frac * 100).toInt()))
-            }
+            models.ensureAsrModels(backend) { frac -> reportDownload(R.string.svc_downloading_models_pct, frac) }
         }
         val converter = summaryConverter(cfg)
         val recorder = AudioRecorder()
@@ -409,9 +421,7 @@ class TranscriptionService : LifecycleService() {
         if (cfg.diarizationEnabled) {
             if (!models.diarizationReady()) {
                 events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_diarization)))
-                models.ensureDiarizationModels { frac ->
-                    updateNotification("Diarization model… ${(frac * 100).toInt()}%")
-                }
+                models.ensureDiarizationModels { frac -> reportDownload(R.string.svc_downloading_diarization_pct, frac) }
             }
             events.emit(TranscriptEvent.Status(getString(R.string.svc_identifying_speakers)))
             DiarizationEngine(
@@ -446,9 +456,7 @@ class TranscriptionService : LifecycleService() {
         val spec = LlmRegistry.byId(cfg.llmModelId)
         if (!models.llmReady(spec)) {
             events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
-            models.ensureLlmModel(spec) { frac ->
-                updateNotification(getString(R.string.svc_summarization_model_pct, (frac * 100).toInt()))
-            }
+            models.ensureLlmModel(spec) { frac -> reportDownload(R.string.svc_summarization_model_pct, frac) }
         }
         updateNotification(getString(R.string.svc_summarizing))
         LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
@@ -489,9 +497,7 @@ class TranscriptionService : LifecycleService() {
         val spec = LlmRegistry.byId(cfg.llmModelId)
         if (!models.llmReady(spec)) {
             events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
-            models.ensureLlmModel(spec) { frac ->
-                updateNotification(getString(R.string.svc_summarization_model_pct, (frac * 100).toInt()))
-            }
+            models.ensureLlmModel(spec) { frac -> reportDownload(R.string.svc_summarization_model_pct, frac) }
         }
         updateNotification(getString(R.string.svc_extracting_actions))
         events.emit(TranscriptEvent.Status(getString(R.string.svc_extracting_actions)))

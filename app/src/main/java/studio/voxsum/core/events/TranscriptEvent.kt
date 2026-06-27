@@ -33,6 +33,10 @@ sealed interface TranscriptEvent {
     /** 0.0..1.0 progress over the audio (mirrors "progress"). */
     data class Progress(val fraction: Float) : TranscriptEvent
 
+    /** 0.0..1.0 progress of a model download (ASR / speaker / LLM), with a ready-to-show label.
+     *  Drives the same UI progress bar so a multi-hundred-MB download isn't a frozen bar. */
+    data class DownloadProgress(val fraction: Float, val label: String) : TranscriptEvent
+
     /** Terminal transcription event: all utterances + optional diarization stats. */
     data class Complete(
         val utterances: List<Utterance>,

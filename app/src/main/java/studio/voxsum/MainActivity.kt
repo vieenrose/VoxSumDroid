@@ -567,7 +567,10 @@ private fun TranscribeScreen(
     }
     // Stop routing: end recording gracefully (continue to diarization/summary) vs cancel a run.
     fun handleStop() {
-        if (isRecording) { isRecording = false; onStopRecording() } else onStop()
+        // Recording → finish gracefully (continues into diarization/summary, stays running). Otherwise
+        // the user is CANCELLING a transcription/summary: the service stops but emits no terminal event,
+        // so clear `running` here or the UI is stuck on the Stop button with no way back to Add audio.
+        if (isRecording) { isRecording = false; onStopRecording() } else { onStop(); running = false }
     }
 
 
@@ -697,6 +700,7 @@ private fun TranscribeScreen(
                 is TranscriptEvent.Status -> status = e.message
                 is TranscriptEvent.Utterance -> utterances.add(e)
                 is TranscriptEvent.Progress -> { progress = e.fraction; status = context.getString(R.string.status_transcribing, (e.fraction * 100).toInt()) }
+                is TranscriptEvent.DownloadProgress -> { running = true; progress = e.fraction; status = e.label }
                 is TranscriptEvent.Complete -> {
                     // Preserve any in-flight text edits (merge by index); speaker-name map is
                     // separate and untouched by the rebuild.
@@ -710,6 +714,10 @@ private fun TranscribeScreen(
                     status = e.speakerCount?.let {
                         context.getString(R.string.status_transcript_lines_speakers, merged.size, it)
                     } ?: context.getString(R.string.status_transcript_lines, merged.size)
+                    // An empty transcript (no speech detected, e.g. a silent recording) means the
+                    // pipeline returns WITHOUT summarizing, so no SummaryComplete will arrive to clear
+                    // `running`. Clear it here (otherwise the UI is stuck showing Stop) and say why.
+                    if (merged.isEmpty()) { running = false; status = context.getString(R.string.status_no_speech) }
                 }
                 is TranscriptEvent.Title -> title = e.title
                 is TranscriptEvent.RecordingSaved -> { audioUri = Uri.parse(e.uri); isRecording = false }

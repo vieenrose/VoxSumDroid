@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Permit cleartext (plain HTTP) traffic. Podcast/RSS audio enclosures are very frequently served
+  over http:// (e.g. BBC's open.live.bbc.co.uk), and so are some YouTube media URLs; Android blocks
+  cleartext by default from API 28+, which made those downloads fail outright. This only affects
+  downloading PUBLIC media — model downloads (Hugging Face) and the optional update check (GitHub)
+  are https and unchanged, and no user audio is ever uploaded, so the privacy promise is intact.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

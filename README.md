@@ -23,6 +23,8 @@ Record a meeting, open a voice memo, drop in a podcast or a YouTube link — Vox
 what**, then gives you a **concise summary** in the language you choose. Everything happens **on the
 device**: no account, no cloud, no subscription, and nothing ever leaves your phone.
 
+> New here? The **[5-minute Quick Start →](docs/QUICKSTART.md)** walks through every feature.
+
 ## Why VoxSum
 
 - 🛡️ **Private by design** — your audio never leaves the phone, so confidential recordings can't leak to a cloud.

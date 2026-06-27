@@ -116,6 +116,7 @@
     <string name="status_starting">Démarrage…</string>
     <string name="status_recording">Enregistrement…</string>
     <string name="status_done">Terminé</string>
+    <string name="status_no_speech">Aucune parole détectée</string>
     <string name="status_transcribing">Transcription %d%%</string>
     <string name="status_transcript_lines">Transcription : %d lignes</string>
     <string name="status_transcript_lines_speakers">Transcription : %1$d lignes, %2$d locuteurs</string>
@@ -129,6 +130,7 @@
     <string name="svc_downloading_models">Téléchargement des modèles (première exécution)…</string>
     <string name="svc_downloading_models_pct">Téléchargement des modèles… %d%%</string>
     <string name="svc_downloading_diarization">Téléchargement des modèles de diarisation…</string>
+    <string name="svc_downloading_diarization_pct">Téléchargement du modèle de locuteurs… %d%%</string>
     <string name="svc_downloading_named">Téléchargement de %1$s…</string>
     <string name="svc_summarization_model_pct">Modèle de résumé… %d%%</string>
     <string name="svc_summarizing">Résumé en cours…</string>
