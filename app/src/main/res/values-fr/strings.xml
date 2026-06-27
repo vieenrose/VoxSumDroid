@@ -186,6 +186,13 @@
     <string name="search_next">Suivant</string>
     <string name="search_close">Fermer la recherche</string>
     <string name="notif_finish_recording">Terminer</string>
+    <string name="svc_extracting_actions">Extraction des actions en cours…</string>
+    <string name="card_action_items">Actions à suivre</string>
+    <string name="re_extract_actions">Extraire les actions</string>
+    <string name="action_items_copied">Actions copiées</string>
+    <string name="cd_reassign_speaker">Changer le locuteur de cette ligne</string>
+    <string name="speaker_move_line">Déplacer la ligne vers</string>
+    <string name="speaker_merge_into">Fusionner le locuteur dans</string>
     <string name="cover_title">Couverture de la session</string>
     <string name="cover_none">Aucune couverture</string>
     <string name="cover_regenerate">Régénérer</string>

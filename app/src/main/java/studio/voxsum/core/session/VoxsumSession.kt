@@ -48,6 +48,7 @@ object VoxsumSession {
         val recovered: Boolean,   // false => plain .ogg with no embedded session
         val coverJpeg: ByteArray? = null,   // embedded cover art (METADATA_BLOCK_PICTURE), if any
         val coverSig: String? = null,       // signature the embedded cover was built from
+        val actionItems: String? = null,    // extracted action items + decisions (editable draft)
     )
 
     /** Outcome of a save: FULL = transcript embedded; PARTIAL = audio+summary only (blob too big); FAILED. */
@@ -70,6 +71,7 @@ object VoxsumSession {
         utterances: List<TranscriptEvent.Utterance>,
         speakerNames: Map<Int, SpeakerName>,
         summary: String?,
+        actionItems: String?,
         title: String?,
         asrModelId: String?,
         llmModelId: String?,
@@ -105,7 +107,7 @@ object VoxsumSession {
             CoverArt.encode(CoverGenerator.toJpeg(bmp), bmp.width, bmp.height)
         }.getOrNull() else null
         val comments = LinkedHashMap<String, String>()
-        comments[FIELD] = encodeSession(utterances, speakerNames, summary, title, asrModelId, llmModelId)
+        comments[FIELD] = encodeSession(utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId)
         title?.takeIf { it.isNotBlank() }?.let { comments["TITLE"] = it.replace('\n', ' ').trim() }
         summary?.takeIf { it.isNotBlank() }?.let { comments["DESCRIPTION"] = it.trim() }
         lrc(utterances).takeIf { it.isNotBlank() }?.let { comments["LYRICS"] = it }
@@ -131,12 +133,12 @@ object VoxsumSession {
     suspend fun save(
         context: Context, out: OutputStream, audioUri: Uri?,
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
-        summary: String?, title: String?, asrModelId: String?, llmModelId: String?,
+        summary: String?, actionItems: String?, title: String?, asrModelId: String?, llmModelId: String?,
         coverEnabled: Boolean = true, coverSeed: Int = 0,
     ): SaveOutcome = withContext(Dispatchers.IO) {
         out.use { o ->
             val dir = File(context.cacheDir, "voxsum_save").apply { mkdirs() }
-            val built = buildSessionOgg(context, dir, audioUri, utterances, speakerNames, summary, title, asrModelId, llmModelId, coverEnabled, coverSeed)
+            val built = buildSessionOgg(context, dir, audioUri, utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId, coverEnabled, coverSeed)
                 ?: return@use SaveOutcome.FAILED
             built.file.inputStream().use { it.copyTo(o) }
             built.file.delete()
@@ -192,12 +194,13 @@ object VoxsumSession {
 
     private fun encodeSession(
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
-        summary: String?, title: String?, asrModelId: String?, llmModelId: String?,
+        summary: String?, actionItems: String?, title: String?, asrModelId: String?, llmModelId: String?,
     ): String {
         val root = JSONObject()
         root.put("voxsum_version", VERSION)
         title?.let { root.put("title", it) }
         summary?.let { root.put("summary", it) }
+        actionItems?.let { root.put("action_items", it) }
         asrModelId?.let { root.put("asr_model", it) }
         llmModelId?.let { root.put("llm_model", it) }
         val names = JSONObject()
@@ -255,6 +258,7 @@ object VoxsumSession {
             utterances = utts,
             speakerNames = names,
             summary = m.optString("summary", "").ifEmpty { null },
+            actionItems = m.optString("action_items", "").ifEmpty { null },
             title = m.optString("title", "").ifEmpty { null },
             asrModelId = m.optString("asr_model", "").ifEmpty { null },
             llmModelId = m.optString("llm_model", "").ifEmpty { null },

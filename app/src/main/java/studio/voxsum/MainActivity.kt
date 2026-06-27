@@ -46,6 +46,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Forward5
 import androidx.compose.material.icons.filled.Pause
@@ -66,6 +67,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
@@ -150,6 +154,7 @@ import studio.voxsum.core.session.VoxsumSession
 import studio.voxsum.core.update.UpdateChecker
 import studio.voxsum.core.update.UpdateInfo
 import studio.voxsum.core.update.UpdateInstaller
+import studio.voxsum.data.SpeakerEdits
 import studio.voxsum.data.SpeakerName
 import studio.voxsum.data.computeDiarizationStats
 import studio.voxsum.data.speakerColor
@@ -331,6 +336,7 @@ private fun TranscribeScreen(
     var status by remember { mutableStateOf(context.getString(R.string.empty_status)) }
     var title by remember { mutableStateOf<String?>(null) }
     var summary by remember { mutableStateOf<String?>(null) }
+    var actionItems by remember { mutableStateOf<String?>(null) }
     var audioUri by remember { mutableStateOf<Uri?>(null) }
     var running by remember { mutableStateOf(false) }
     // True once a final transcript exists (the Complete event, after diarization). The Re-run menu
@@ -362,6 +368,7 @@ private fun TranscribeScreen(
     var editingSpeakerId by remember { mutableStateOf<Int?>(null) }
     var editingTitle by remember { mutableStateOf(false) }
     var editingSummary by remember { mutableStateOf(false) }
+    var editingActions by remember { mutableStateOf(false) }
     var isDetecting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -496,8 +503,8 @@ private fun TranscribeScreen(
     fun launchAudio(uri: Uri) {
         TranscriptionConfig.Holder.config = config   // apply settings to this run
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
-        editingTitle = false; editingSummary = false
-        title = null; summary = null; isPlaying = false; searchActive = false; searchQuery = ""
+        editingTitle = false; editingSummary = false; editingActions = false
+        title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
         coverEnabled = true; coverSeed = 0; coverPeaks = null; coverBitmap = null
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
@@ -538,8 +545,8 @@ private fun TranscribeScreen(
     }
     fun beginRecording() {
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
-        editingTitle = false; editingSummary = false
-        title = null; summary = null; isPlaying = false; searchActive = false; searchQuery = ""
+        editingTitle = false; editingSummary = false; editingActions = false
+        title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
         coverEnabled = true; coverSeed = 0; coverPeaks = null; coverBitmap = null
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
@@ -588,7 +595,7 @@ private fun TranscribeScreen(
         TranscriptionService.pendingExport = TranscriptionService.ExportRequest(
             share = false, saveUri = uri, audioUri = audioUri,
             utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
-            summary = summary, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
+            summary = summary, actionItems = actionItems, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
             coverEnabled = coverEnabled, coverSeed = coverSeed, fileName = VoxsumSession.suggestFileName(title),
         )
         exporting = true
@@ -615,7 +622,7 @@ private fun TranscribeScreen(
             utterances.clear(); utterances.addAll(loaded.utterances)
             speakerNames.clear(); loaded.speakerNames.forEach { (k, v) -> speakerNames[k] = v }
             editingIndex = -1; editingSpeakerId = null
-            title = loaded.title; summary = loaded.summary
+            title = loaded.title; summary = loaded.summary; actionItems = loaded.actionItems
             // Show the embedded cover as the preview; it re-embeds (regenerated from current metadata)
             // on the next save. coverEnabled tracks whether the .ogg had one.
             coverSeed = 0; coverPeaks = null
@@ -638,7 +645,7 @@ private fun TranscribeScreen(
         TranscriptionService.pendingExport = TranscriptionService.ExportRequest(
             share = true, saveUri = null, audioUri = audioUri,
             utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
-            summary = summary, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
+            summary = summary, actionItems = actionItems, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
             coverEnabled = coverEnabled, coverSeed = coverSeed, fileName = VoxsumSession.suggestFileName(title),
         )
         ContextCompat.startForegroundService(
@@ -707,6 +714,7 @@ private fun TranscribeScreen(
                 is TranscriptEvent.Title -> title = e.title
                 is TranscriptEvent.RecordingSaved -> { audioUri = Uri.parse(e.uri); isRecording = false }
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false }
+                is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false }
                 is TranscriptEvent.Failed -> {
                     status = context.getString(R.string.status_error, e.error); running = false
                     scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.status_error, e.error)) }
@@ -799,12 +807,36 @@ private fun TranscribeScreen(
         ContextCompat.startForegroundService(context, intent)
     }
 
+    // Extract action items + decisions from the current transcript (runs in the foreground service).
+    fun extractActions() {
+        if (running || utterances.isEmpty()) return
+        TranscriptionConfig.Holder.config = config
+        running = true; progress = 0f; status = context.getString(R.string.status_starting)   // transcript persists
+        val intent = Intent(context, TranscriptionService::class.java)
+            .setAction(TranscriptionService.ACTION_EXTRACT_ACTIONS)
+            .putExtra(TranscriptionService.EXTRA_TRANSCRIPT, utterances.joinToString("\n") { it.text })
+        ContextCompat.startForegroundService(context, intent)
+    }
+
+    // Speaker corrections — pure relabels via SpeakerEdits (renumbered to contiguous ids); the .ogg
+    // round-trips the result, and summaries/exports pick up the fix on the next run.
+    fun applySpeakerEdit(result: Pair<List<TranscriptEvent.Utterance>, Map<Int, SpeakerName>>) {
+        val (newUtts, newNames) = result
+        utterances.clear(); utterances.addAll(newUtts)
+        speakerNames.clear(); newNames.forEach { (k, v) -> speakerNames[k] = v }
+        editingIndex = -1; editingSpeakerId = null
+    }
+    fun reassignLine(index: Int, target: Int) =
+        applySpeakerEdit(SpeakerEdits.reassign(utterances.toList(), speakerNames.toMap(), index, target))
+    fun mergeSpeaker(from: Int, into: Int) =
+        applySpeakerEdit(SpeakerEdits.merge(utterances.toList(), speakerNames.toMap(), from, into))
+
     val stats = computeDiarizationStats(utterances)
     // Landscape uses a two-pane layout: title/summary/stats move to a left overview pane, so the
     // transcript list has no header items (in portrait they precede the utterances and shift the
     // auto-scroll index).
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val hasOverview = title != null || summary != null || stats.perSpeaker.isNotEmpty()
+    val hasOverview = title != null || summary != null || actionItems != null || stats.perSpeaker.isNotEmpty()
     // Landscape with something to show → side-by-side overview + transcript panes; otherwise a single
     // column. The stacked column carries the overview as one header item (which shifts auto-scroll).
     val twoPane = landscape && hasOverview
@@ -843,6 +875,7 @@ private fun TranscribeScreen(
     }
 
     // The utterance list — shared by the portrait (single column) and landscape (right pane) layouts.
+    val speakerIds = utterances.mapNotNull { it.speaker }.distinct().sorted()
     val transcriptItems: LazyListScope.() -> Unit = {
         items(count = utterances.size, key = { utterances[it].index }) { idx ->
             val u = utterances[idx]
@@ -866,6 +899,9 @@ private fun TranscribeScreen(
                     editingSpeakerId = null
                 },
                 onCancelSpeakerEdit = { editingSpeakerId = null },
+                speakerIds = speakerIds,
+                onReassignLine = { target -> reassignLine(idx, target) },
+                onMergeSpeaker = { target -> u.speaker?.let { mergeSpeaker(it, target) } },
             )
         }
     }
@@ -889,6 +925,17 @@ private fun TranscribeScreen(
                         val cm = context.getSystemService(android.content.ClipboardManager::class.java)
                         cm?.setPrimaryClip(android.content.ClipData.newPlainText("VoxSum summary", s))
                         scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.summary_copied)) }
+                    })
+            }
+            actionItems?.let { ai ->
+                ActionItemsCard(ai, editingActions,
+                    onBeginEdit = { editingActions = true },
+                    onSave = { actionItems = it; editingActions = false },
+                    onCancel = { editingActions = false },
+                    onCopy = {
+                        val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                        cm?.setPrimaryClip(android.content.ClipData.newPlainText("VoxSum action items", ai))
+                        scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.action_items_copied)) }
                     })
             }
             if (stats.perSpeaker.isNotEmpty()) SpeakerStatsPanel(stats = stats)
@@ -921,6 +968,8 @@ private fun TranscribeScreen(
                 canReDetect = transcriptReady && stats.perSpeaker.isNotEmpty(),
                 isDetecting = isDetecting,
                 onReDetect = { detectNames() },
+                canExtractActions = transcriptReady,
+                onExtractActions = { extractActions() },
                 onSearch = { searchActive = !searchActive; if (!searchActive) searchQuery = "" },
                 onSettings = { showConfigSheet = true },
                 onCoverPreview = {
@@ -1262,6 +1311,78 @@ private fun SummaryCard(
     }
 }
 
+/** Action items + decisions card — an editable draft (the model can miss or invent items). */
+@Composable
+private fun ActionItemsCard(
+    text: String, isEditing: Boolean,
+    onBeginEdit: () -> Unit, onSave: (String) -> Unit, onCancel: () -> Unit, onCopy: () -> Unit,
+) {
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.card_action_items),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = VoxSumPalette.Slate200,
+                modifier = Modifier.weight(1f),
+            )
+            if (!isEditing) {
+                IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.cd_copy_summary),
+                        tint = VoxSumPalette.Slate400, modifier = Modifier.size(16.dp))
+                }
+                EditPencil(onBeginEdit)
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (isEditing) {
+            UtteranceTextEditor(initial = text, onSave = onSave, onCancel = onCancel, minLines = 3)
+        } else {
+            Text(
+                renderMarkdown(text),
+                style = MaterialTheme.typography.bodyMedium,
+                color = VoxSumPalette.Slate200,
+                modifier = Modifier.fillMaxWidth().clickable { onBeginEdit() },
+            )
+        }
+    }
+}
+
+/** Per-line speaker fix: move this line to another speaker, or merge this speaker into another. */
+@Composable
+private fun SpeakerReassignMenu(
+    current: Int,
+    speakerIds: List<Int>,
+    speakerNames: SnapshotStateMap<Int, SpeakerName>,
+    onReassign: (Int) -> Unit,
+    onMerge: (Int) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }   // before any early return, for slot-table stability
+    val others = speakerIds.filter { it != current }
+    if (others.isEmpty()) return
+    Box {
+        IconButton(onClick = { open = true }, modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Filled.SwapHoriz, contentDescription = stringResource(R.string.cd_reassign_speaker),
+                tint = VoxSumPalette.Slate400, modifier = Modifier.size(16.dp))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(enabled = false, onClick = {},
+                text = { Text(stringResource(R.string.speaker_move_line), style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400) })
+            others.forEach { sid ->
+                val label = speakerNames[sid]?.name ?: stringResource(R.string.speaker_n, sid + 1)
+                DropdownMenuItem(text = { Text(label) }, onClick = { open = false; onReassign(sid) })
+            }
+            HorizontalDivider()
+            DropdownMenuItem(enabled = false, onClick = {},
+                text = { Text(stringResource(R.string.speaker_merge_into), style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400) })
+            others.forEach { sid ->
+                val label = speakerNames[sid]?.name ?: stringResource(R.string.speaker_n, sid + 1)
+                DropdownMenuItem(text = { Text(label) }, onClick = { open = false; onMerge(sid) })
+            }
+        }
+    }
+}
+
 /** Small pencil affordance reused by the title/summary cards (matches the utterance-row edit icon). */
 @Composable
 private fun EditPencil(onClick: () -> Unit) {
@@ -1519,6 +1640,9 @@ private fun UtteranceRow(
     onBeginSpeakerEdit: (Int) -> Unit,
     onCommitSpeakerName: (Int, String) -> Unit,
     onCancelSpeakerEdit: () -> Unit,
+    speakerIds: List<Int>,
+    onReassignLine: (Int) -> Unit,
+    onMergeSpeaker: (Int) -> Unit,
 ) {
     Column(
         Modifier
@@ -1546,6 +1670,9 @@ private fun UtteranceRow(
                 )
             }
             Spacer(Modifier.weight(1f))
+            if (!isEditing && utt.speaker != null && speakerIds.size > 1) {
+                SpeakerReassignMenu(utt.speaker, speakerIds, speakerNames, onReassignLine, onMergeSpeaker)
+            }
             if (!isEditing) {
                 IconButton(onClick = onBeginEdit, modifier = Modifier.size(28.dp)) {
                     Icon(

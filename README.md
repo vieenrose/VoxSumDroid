@@ -53,11 +53,13 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 - **Live transcript** — lines show up as soon as you speak; you can start reading (and playing) before it finishes.
 - **Who spoke when** — each line is tagged and colour-coded by speaker, with a speaker count. VoxSum can even **guess speakers' real names** from what they say.
 - **A summary in your language, your way** — a short title and a summary as **bullets, an executive brief, or a narrative**. Keep it in the transcript's language, or pick **English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어**. (It defaults to your phone's language.)
+- **Action items & decisions** — pull a draft checklist of who-does-what and the key decisions out of a meeting, ready to edit.
 - **Search the transcript** — find any word in a long recording; matches highlight and you can step through them.
 - **A built-in player, in sync** — docked at the bottom like a music app: tap any line to jump there, and the current line highlights as it plays.
 
 **✏️ Make it yours**
 - **Edit anything** — fix a word, rename a speaker, tweak the title or summary, right in place.
+- **Fix the speakers** — move a misattributed line to the right person, or merge two speakers into one.
 - **Copy** the whole summary with one tap.
 - **Export the words** — copy or share the transcript as text, or save **subtitles (`.srt`/`.vtt`)**, plain text, or Markdown for any other app.
 - **Re-run** the transcription, the summary, or the speaker-name detection whenever you like — e.g. switch the summary language and re-summarize.

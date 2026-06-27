@@ -33,6 +33,7 @@ import studio.voxsum.core.config.SummaryStyle
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
+import studio.voxsum.core.llm.ActionItemExtractor
 import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.LlmRegistry
@@ -63,6 +64,7 @@ class TranscriptionService : LifecycleService() {
         const val ACTION_STOP = "studio.voxsum.STOP"
         const val ACTION_RECORD = "studio.voxsum.RECORD"
         const val ACTION_SUMMARIZE = "studio.voxsum.SUMMARIZE"
+        const val ACTION_EXTRACT_ACTIONS = "studio.voxsum.EXTRACT_ACTIONS"
         // Gracefully end live recording and continue into diarization/summary (vs ACTION_STOP,
         // which cancels the whole job).
         const val ACTION_STOP_RECORDING = "studio.voxsum.STOP_RECORDING"
@@ -93,6 +95,7 @@ class TranscriptionService : LifecycleService() {
         val utterances: List<TranscriptEvent.Utterance>,
         val speakerNames: Map<Int, SpeakerName>,
         val summary: String?,
+        val actionItems: String?,
         val title: String?,
         val asrModelId: String?,
         val llmModelId: String?,
@@ -133,6 +136,7 @@ class TranscriptionService : LifecycleService() {
 
         val recording = intent?.action == ACTION_RECORD
         val summarizeOnly = intent?.action == ACTION_SUMMARIZE
+        val extractActions = intent?.action == ACTION_EXTRACT_ACTIONS
         stopRecordingRequested = false
         val previousJob = pipelineJob
         val previousLlm = activeLlm
@@ -146,6 +150,7 @@ class TranscriptionService : LifecycleService() {
             runCatching {
                 when {
                     summarizeOnly -> runSummarizeOnly(transcript.orEmpty())
+                    extractActions -> runExtractActions(transcript.orEmpty())
                     recording -> runRecordingPipeline()
                     else -> runPipeline(uri)
                 }
@@ -187,7 +192,7 @@ class TranscriptionService : LifecycleService() {
                     dir.listFiles()?.forEach { it.delete() }
                     val built = VoxsumSession.buildSessionOgg(
                         this@TranscriptionService, dir, req.audioUri, req.utterances, req.speakerNames,
-                        req.summary, req.title, req.asrModelId, req.llmModelId, req.coverEnabled, req.coverSeed, req.fileName,
+                        req.summary, req.actionItems, req.title, req.asrModelId, req.llmModelId, req.coverEnabled, req.coverSeed, req.fileName,
                     )
                     if (built != null)
                         TranscriptEvent.ExportDone(true, if (built.transcriptEmbedded) "FULL" else "PARTIAL", built.file.absolutePath)
@@ -197,7 +202,7 @@ class TranscriptionService : LifecycleService() {
                         contentResolver.openOutputStream(uri)?.let { os ->
                             VoxsumSession.save(
                                 this@TranscriptionService, os, req.audioUri, req.utterances, req.speakerNames,
-                                req.summary, req.title, req.asrModelId, req.llmModelId, req.coverEnabled, req.coverSeed,
+                                req.summary, req.actionItems, req.title, req.asrModelId, req.llmModelId, req.coverEnabled, req.coverSeed,
                             )
                         }
                     } ?: VoxsumSession.SaveOutcome.FAILED
@@ -470,6 +475,38 @@ class TranscriptionService : LifecycleService() {
         val cfg = TranscriptionConfig.Holder.config
         val models = ModelManager(this)
         summarize(transcript, cfg, models, summaryConverter(cfg))
+    }
+
+    /** Extract action items + decisions for an existing transcript (no re-decode / re-ASR). Reuses
+     *  the resident Gemma model via the CJK-safe map-reduce so a long meeting doesn't overflow n_ctx. */
+    private suspend fun runExtractActions(transcript: String) {
+        if (transcript.isBlank()) { events.emit(TranscriptEvent.ActionItemsComplete("-")); return }
+        val cfg = TranscriptionConfig.Holder.config
+        val models = ModelManager(this)
+        val spec = LlmRegistry.byId(cfg.llmModelId)
+        if (!models.llmReady(spec)) {
+            events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
+            models.ensureLlmModel(spec) { frac ->
+                updateNotification(getString(R.string.svc_summarization_model_pct, (frac * 100).toInt()))
+            }
+        }
+        updateNotification(getString(R.string.svc_extracting_actions))
+        events.emit(TranscriptEvent.Status(getString(R.string.svc_extracting_actions)))
+        val converter = summaryConverter(cfg)
+        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
+            activeLlm = llm
+            try {
+                val text = ActionItemExtractor(
+                    llm,
+                    template = spec.chatTemplate,
+                    targetLanguage = SummaryLanguage.fromId(cfg.summaryLanguage).promptName,
+                    convert = { converter?.convert(it) ?: it },
+                ).extract(transcript)
+                events.emit(TranscriptEvent.ActionItemsComplete(text))
+            } finally {
+                activeLlm = null
+            }
+        }
     }
 
     /** OpenCC s2tw converter, built only when the chosen summary language is Traditional Chinese. */

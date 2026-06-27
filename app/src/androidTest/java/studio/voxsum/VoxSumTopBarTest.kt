@@ -48,6 +48,7 @@ class VoxSumTopBarTest {
                 canReTranscribe = canReTranscribe, onReTranscribe = { fired["retx"] = true },
                 canReSummarize = canReSummarize, onReSummarize = { fired["resum"] = true },
                 canReDetect = canReDetect, isDetecting = false, onReDetect = { fired["redet"] = true },
+                canExtractActions = false, onExtractActions = { fired["actions"] = true },
                 onSearch = { fired["search"] = true },
                 onSettings = { fired["settings"] = true },
                 onCoverPreview = { fired["cover"] = true }, onSaveSession = { fired["save"] = true },

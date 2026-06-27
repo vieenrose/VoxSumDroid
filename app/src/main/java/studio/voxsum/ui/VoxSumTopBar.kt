@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
@@ -72,6 +73,8 @@ fun VoxSumTopBar(
     canReDetect: Boolean,
     isDetecting: Boolean,
     onReDetect: () -> Unit,
+    canExtractActions: Boolean,
+    onExtractActions: () -> Unit,
     onSearch: () -> Unit,
     onSettings: () -> Unit,
     onCoverPreview: () -> Unit,
@@ -142,7 +145,7 @@ fun VoxSumTopBar(
                             Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.add_audio), tint = VoxSumPalette.OnBrand)
                         }
                     }
-                    ReRunMenu(canReTranscribe, onReTranscribe, canReSummarize, onReSummarize, canReDetect, isDetecting, onReDetect)
+                    ReRunMenu(canReTranscribe, onReTranscribe, canReSummarize, onReSummarize, canReDetect, isDetecting, onReDetect, canExtractActions, onExtractActions)
                     if (transcriptAvailable) {
                         IconButton(onClick = onSearch) {
                             Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.search_transcript), tint = VoxSumPalette.OnBrand)
@@ -221,8 +224,10 @@ private fun ReRunMenu(
     canReDetect: Boolean,
     isDetecting: Boolean,
     onReDetect: () -> Unit,
+    canExtractActions: Boolean,
+    onExtractActions: () -> Unit,
 ) {
-    if (!canReTranscribe && !canReSummarize && !canReDetect) return
+    if (!canReTranscribe && !canReSummarize && !canReDetect && !canExtractActions) return
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) {
@@ -244,6 +249,11 @@ private fun ReRunMenu(
                 leadingIcon = { Icon(Icons.Filled.Badge, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_detect_names)) },
                 onClick = { open = false; onReDetect() },
+            )
+            if (canExtractActions) DropdownMenuItem(
+                leadingIcon = { Icon(Icons.Filled.Checklist, null, Modifier.size(18.dp)) },
+                text = { Text(stringResource(R.string.re_extract_actions)) },
+                onClick = { open = false; onExtractActions() },
             )
         }
     }

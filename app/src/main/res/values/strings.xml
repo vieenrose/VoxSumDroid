@@ -186,6 +186,13 @@
     <string name="search_next">Next match</string>
     <string name="search_close">Close search</string>
     <string name="notif_finish_recording">Finish</string>
+    <string name="svc_extracting_actions">Extracting action items…</string>
+    <string name="card_action_items">Action items</string>
+    <string name="re_extract_actions">Extract action items</string>
+    <string name="action_items_copied">Action items copied</string>
+    <string name="cd_reassign_speaker">Change speaker for this line</string>
+    <string name="speaker_move_line">Move line to</string>
+    <string name="speaker_merge_into">Merge speaker into</string>
     <string name="cover_title">Session cover</string>
     <string name="cover_none">No cover</string>
     <string name="cover_regenerate">Regenerate</string>

@@ -185,6 +185,13 @@
     <string name="search_next">下一個</string>
     <string name="search_close">關閉搜尋</string>
     <string name="notif_finish_recording">完成</string>
+    <string name="svc_extracting_actions">正在擷取行動項目…</string>
+    <string name="card_action_items">行動項目</string>
+    <string name="re_extract_actions">擷取行動項目</string>
+    <string name="action_items_copied">已複製行動項目</string>
+    <string name="cd_reassign_speaker">變更此句的語者</string>
+    <string name="speaker_move_line">將此句移至</string>
+    <string name="speaker_merge_into">合併語者至</string>
     <string name="cover_title">工作階段封面</string>
     <string name="cover_none">無封面</string>
     <string name="cover_regenerate">重新產生</string>

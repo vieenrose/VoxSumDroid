@@ -53,11 +53,13 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 - **Transcription en direct** — les lignes apparaissent dès que vous parlez ; vous pouvez lire (et écouter) avant la fin.
 - **Qui a parlé, et quand** — chaque ligne est étiquetée et colorée par intervenant, avec leur nombre. VoxSum peut même **deviner le vrai nom des intervenants** d'après leurs propos.
 - **Un résumé dans votre langue, à votre façon** — un titre court et un résumé **en puces, en synthèse ou en récit**. Gardez la langue de la transcription, ou choisissez **English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어**. (Par défaut, la langue de votre téléphone.)
+- **Actions et décisions** — tirez d'une réunion une liste (modifiable) de qui-fait-quoi et des décisions clés.
 - **Cherchez dans la transcription** — trouvez n'importe quel mot dans un long enregistrement ; les résultats se surlignent et vous pouvez les parcourir.
 - **Un lecteur intégré et synchronisé** — ancré en bas comme une appli musicale : touchez une ligne pour y sauter, et la ligne en cours se surligne pendant la lecture.
 
 **✏️ Personnalisez**
 - **Modifiez tout** — corrigez un mot, renommez un intervenant, ajustez le titre ou le résumé, sur place.
+- **Corrigez les intervenants** — déplacez une ligne mal attribuée vers la bonne personne, ou fusionnez deux intervenants.
 - **Copiez** tout le résumé d'un seul geste.
 - **Exportez le texte** — copiez ou partagez la transcription en texte, ou enregistrez des **sous-titres (`.srt`/`.vtt`)**, du texte brut ou du Markdown pour d'autres applis.
 - **Relancez** la transcription, le résumé ou la détection des noms quand vous voulez — p. ex. changez la langue du résumé puis relancez-le.
