@@ -160,6 +160,17 @@
     <string name="exporting">正在匯出工作階段…</string>
     <string name="exporting_hint">將在背景繼續完成，您可以繼續使用應用程式</string>
     <string name="cover_menu">封面…</string>
+    <string name="export_copy_transcript">複製逐字稿</string>
+    <string name="export_share_transcript">分享逐字稿…</string>
+    <string name="export_txt">另存純文字（.txt）</string>
+    <string name="export_srt">另存字幕（.srt）</string>
+    <string name="export_vtt">另存字幕（.vtt）</string>
+    <string name="export_md">另存 Markdown（.md）</string>
+    <string name="export_heading_summary">摘要</string>
+    <string name="export_heading_transcript">逐字稿</string>
+    <string name="transcript_copied">已複製逐字稿</string>
+    <string name="status_importing">正在匯入分享的音訊…</string>
+    <string name="import_failed">無法匯入該檔案</string>
     <string name="cover_title">工作階段封面</string>
     <string name="cover_none">無封面</string>
     <string name="cover_regenerate">重新產生</string>

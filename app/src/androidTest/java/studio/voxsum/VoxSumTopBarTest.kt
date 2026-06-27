@@ -51,6 +51,9 @@ class VoxSumTopBarTest {
                 onSettings = { fired["settings"] = true },
                 onCoverPreview = { fired["cover"] = true }, onSaveSession = { fired["save"] = true },
                 onShareSession = { fired["share"] = true },
+                onCopyTranscript = { fired["copytx"] = true }, onShareTranscript = { fired["sharetx"] = true },
+                onExportTxt = { fired["txt"] = true }, onExportSrt = { fired["srt"] = true },
+                onExportVtt = { fired["vtt"] = true }, onExportMarkdown = { fired["md"] = true },
             )
         }
         return fired
@@ -101,6 +104,20 @@ class VoxSumTopBarTest {
         compose.onNodeWithContentDescription(ctx.getString(R.string.cd_export)).performClick()
         compose.onNodeWithText(ctx.getString(R.string.session_save)).performClick()
         assertTrue(f["save"] == true)
+    }
+
+    @Test fun exportMenuTranscriptExportsFire() {
+        val f = bar(transcriptAvailable = true)
+        compose.onNodeWithContentDescription(ctx.getString(R.string.cd_export)).performClick()
+        compose.onNodeWithText(ctx.getString(R.string.export_srt)).performClick()
+        assertTrue(f["srt"] == true)
+    }
+
+    @Test fun exportMenuCopyTranscriptFires() {
+        val f = bar(transcriptAvailable = true)
+        compose.onNodeWithContentDescription(ctx.getString(R.string.cd_export)).performClick()
+        compose.onNodeWithText(ctx.getString(R.string.export_copy_transcript)).performClick()
+        assertTrue(f["copytx"] == true)
     }
 
     @Test fun reRunMenuHiddenWhenNothingApplies() {

@@ -161,6 +161,17 @@
     <string name="exporting">Exporting session…</string>
     <string name="exporting_hint">Continues in the background — you can keep using the app</string>
     <string name="cover_menu">Cover…</string>
+    <string name="export_copy_transcript">Copy transcript</string>
+    <string name="export_share_transcript">Share transcript…</string>
+    <string name="export_txt">Save as text (.txt)</string>
+    <string name="export_srt">Save subtitles (.srt)</string>
+    <string name="export_vtt">Save subtitles (.vtt)</string>
+    <string name="export_md">Save as Markdown (.md)</string>
+    <string name="export_heading_summary">Summary</string>
+    <string name="export_heading_transcript">Transcript</string>
+    <string name="transcript_copied">Transcript copied</string>
+    <string name="status_importing">Importing shared audio…</string>
+    <string name="import_failed">Couldn\'t import that file</string>
     <string name="cover_title">Session cover</string>
     <string name="cover_none">No cover</string>
     <string name="cover_regenerate">Regenerate</string>

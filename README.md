@@ -42,7 +42,8 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 ## What you can do
 
 **🎙️ Bring in audio from anywhere**
-- **A file** on your device — most common formats work.
+- **A file** on your device — most common audio and video formats work.
+- **Share from another app** — send a voice note or an audio/video file straight to VoxSum (from LINE, a recorder, your browser…) and it starts transcribing.
 - **Record live** — capture a meeting and watch the transcript appear sentence by sentence as you speak.
 - **A podcast** — search, pick an episode, and transcribe it.
 - **A YouTube link** — paste a URL, or search by keyword.
@@ -57,6 +58,7 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 **✏️ Make it yours**
 - **Edit anything** — fix a word, rename a speaker, tweak the title or summary, right in place.
 - **Copy** the whole summary with one tap.
+- **Export the words** — copy or share the transcript as text, or save **subtitles (`.srt`/`.vtt`)**, plain text, or Markdown for any other app.
 - **Re-run** the transcription, the summary, or the speaker-name detection whenever you like — e.g. switch the summary language and re-summarize.
 - **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) is packed into a single `.ogg` that **plays in any music app** and **reopens in VoxSum** with everything intact.
 

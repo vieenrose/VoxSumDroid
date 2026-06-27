@@ -3,11 +3,13 @@ package studio.voxsum.core.text
 import android.content.Context
 
 /**
- * Minimal on-device OpenCC Simplified→Traditional (s2tw) — the FOSS, dependency-free Android
- * counterpart of src/summarization.py's `opencc.OpenCC('s2twp')`. Longest-match over bundled
- * OpenCC dictionaries (Apache-2.0, in assets/opencc/): stage 1 maps Simplified→Traditional
- * (STPhrases then STCharacters), stage 2 applies Taiwan variants (TWVariants). Good enough for
- * summaries/titles; not a full locale-idiom engine. Built once, cached, reused.
+ * Minimal on-device OpenCC Simplified→Traditional, Taiwan standard with phrases (`s2twp`) — the
+ * FOSS, dependency-free Android counterpart of src/summarization.py's `opencc.OpenCC('s2twp')`.
+ * Longest-match over bundled OpenCC dictionaries (Apache-2.0, in assets/opencc/): stage 1 maps
+ * Simplified→Traditional (STPhrases then STCharacters); stage 2 applies the Taiwan localisation
+ * (TWPhrases + TWVariantsPhrases + TWVariants) so the vocabulary reads native — 資訊 not 信息,
+ * 影片 not 視頻, 軟體 not 軟件, 資料 not 數據. Good enough for summaries/titles; not a full
+ * locale-idiom engine. Built once, cached, reused.
  */
 class OpenCcConverter private constructor(
     private val s2t: Map<String, String>,
@@ -44,8 +46,14 @@ class OpenCcConverter private constructor(
             val s2t = HashMap<String, String>(60_000)
             loadInto(context, "opencc/STPhrases.txt", s2t)
             loadInto(context, "opencc/STCharacters.txt", s2t)
-            val tw = HashMap<String, String>(64)
+            // Stage 2 = the Taiwan-localisation pass of OpenCC's `s2twp` chain. Load the variant
+            // dicts first and the phrase dict LAST so Taiwan vocabulary wins on any key clash
+            // (信息→資訊, 數據→資料, 軟件→軟體, 視頻→影片…). Longest-match already prefers the multi-char
+            // phrase entries over single-char variants. Keys are in Traditional form (post stage 1).
+            val tw = HashMap<String, String>(2048)
             loadInto(context, "opencc/TWVariants.txt", tw)
+            loadInto(context, "opencc/TWVariantsPhrases.txt", tw)
+            loadInto(context, "opencc/TWPhrases.txt", tw)
             val maxKey = (s2t.keys.asSequence() + tw.keys.asSequence()).maxOfOrNull { it.length } ?: 1
             return OpenCcConverter(s2t, tw, maxKey)
         }

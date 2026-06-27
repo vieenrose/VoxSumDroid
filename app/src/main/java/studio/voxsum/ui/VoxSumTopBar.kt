@@ -75,6 +75,12 @@ fun VoxSumTopBar(
     onCoverPreview: () -> Unit,
     onSaveSession: () -> Unit,
     onShareSession: () -> Unit,
+    onCopyTranscript: () -> Unit,
+    onShareTranscript: () -> Unit,
+    onExportTxt: () -> Unit,
+    onExportSrt: () -> Unit,
+    onExportVtt: () -> Unit,
+    onExportMarkdown: () -> Unit,
 ) {
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Column(Modifier.fillMaxWidth()) {
@@ -151,7 +157,10 @@ fun VoxSumTopBar(
                         )
                     }
                 }
-                ExportMenu(transcriptAvailable, onCoverPreview, onSaveSession, onShareSession)
+                ExportMenu(
+                    transcriptAvailable, onCoverPreview, onSaveSession, onShareSession,
+                    onCopyTranscript, onShareTranscript, onExportTxt, onExportSrt, onExportVtt, onExportMarkdown,
+                )
             }
         }
         if (status.isNotBlank()) {
@@ -239,6 +248,12 @@ private fun ExportMenu(
     onCoverPreview: () -> Unit,
     onSaveSession: () -> Unit,
     onShareSession: () -> Unit,
+    onCopyTranscript: () -> Unit,
+    onShareTranscript: () -> Unit,
+    onExportTxt: () -> Unit,
+    onExportSrt: () -> Unit,
+    onExportVtt: () -> Unit,
+    onExportMarkdown: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
@@ -249,9 +264,9 @@ private fun ExportMenu(
                 tint = if (transcriptAvailable) VoxSumPalette.OnBrand else VoxSumPalette.OnBrandFaint,
             )
         }
-        // The session .ogg is the single editable artifact (transcript + summary + speakers + cover
-        // all ride inside it), so there are no separate transcript/summary exports — only Cover / Save / Share.
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            // The session .ogg is the editable round-trip archive — transcript + summary + speakers +
+            // cover all ride inside it, reopenable in VoxSum.
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.cover_menu)) },
                 onClick = { open = false; onCoverPreview() },
@@ -263,6 +278,32 @@ private fun ExportMenu(
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.session_share)) },
                 onClick = { open = false; onShareSession() },
+            )
+            HorizontalDivider()
+            // Get the WORDS out into other apps: copy/share as text, or save portable text/subtitles.
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.export_copy_transcript)) },
+                onClick = { open = false; onCopyTranscript() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.export_share_transcript)) },
+                onClick = { open = false; onShareTranscript() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.export_txt)) },
+                onClick = { open = false; onExportTxt() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.export_srt)) },
+                onClick = { open = false; onExportSrt() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.export_vtt)) },
+                onClick = { open = false; onExportVtt() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.export_md)) },
+                onClick = { open = false; onExportMarkdown() },
             )
         }
     }

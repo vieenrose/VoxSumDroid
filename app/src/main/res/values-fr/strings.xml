@@ -161,6 +161,17 @@
     <string name="exporting">Exportation de la session…</string>
     <string name="exporting_hint">Se poursuit en arrière-plan — vous pouvez continuer à utiliser l\'application</string>
     <string name="cover_menu">Couverture…</string>
+    <string name="export_copy_transcript">Copier la transcription</string>
+    <string name="export_share_transcript">Partager la transcription…</string>
+    <string name="export_txt">Enregistrer en texte (.txt)</string>
+    <string name="export_srt">Enregistrer les sous-titres (.srt)</string>
+    <string name="export_vtt">Enregistrer les sous-titres (.vtt)</string>
+    <string name="export_md">Enregistrer en Markdown (.md)</string>
+    <string name="export_heading_summary">Résumé</string>
+    <string name="export_heading_transcript">Transcription</string>
+    <string name="transcript_copied">Transcription copiée</string>
+    <string name="status_importing">Importation de l\'audio partagé…</string>
+    <string name="import_failed">Impossible d\'importer ce fichier</string>
     <string name="cover_title">Couverture de la session</string>
     <string name="cover_none">Aucune couverture</string>
     <string name="cover_regenerate">Régénérer</string>

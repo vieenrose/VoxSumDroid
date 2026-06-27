@@ -129,6 +129,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.core.content.IntentCompat
+import studio.voxsum.core.export.TranscriptExport
 import java.io.File
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
@@ -216,11 +219,26 @@ private fun documentLabel(context: android.content.Context, uri: Uri): String =
             ?.use { if (it.moveToFirst()) it.getString(0) else null }
     }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: uri.toString()
 
+/** Copy a shared/opened content Uri into the app's audio dir, so a run doesn't depend on the
+ *  caller's transient read grant (SEND/VIEW grants aren't persistable). Returns the local file. */
+private fun copyToAppAudio(context: android.content.Context, uri: Uri): File {
+    val dir = File(context.filesDir, "audio").apply { mkdirs() }
+    // currentTimeMillis + the Uri hash avoids a name clash if two files are imported in the same ms.
+    // No extension needed — AudioDecoder's MediaExtractor sniffs the container by content, not by name.
+    val out = File(dir, "shared_${System.currentTimeMillis()}_${kotlin.math.abs(uri.hashCode())}")
+    context.contentResolver.openInputStream(uri).use { input ->
+        requireNotNull(input) { "cannot open $uri" }
+        out.outputStream().use { input.copyTo(it) }
+    }
+    return out
+}
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         maybeRequestNotifications()
+        handleIncoming(intent)
         setContent {
             VoxSumTheme {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -269,6 +287,32 @@ class MainActivity : ComponentActivity() {
         ) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncoming(intent)
+    }
+
+    /** A "Share to VoxSum" or "Open with VoxSum" hands us an audio/video Uri — surface it to the
+     *  Compose layer (consumed once), which copies it into app storage and starts a run. */
+    private fun handleIncoming(intent: Intent?) {
+        incomingAudioUri(intent)?.let { sharedAudioUri.value = it }
+    }
+
+    private fun incomingAudioUri(intent: Intent?): Uri? {
+        intent ?: return null
+        return when (intent.action) {
+            Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+            Intent.ACTION_VIEW -> intent.data
+            else -> null
+        }
+    }
+
+    companion object {
+        /** Latest audio/video Uri received via share / open-with; the UI consumes it once. */
+        val sharedAudioUri = MutableStateFlow<Uri?>(null)
     }
 }
 
@@ -453,6 +497,27 @@ private fun TranscribeScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? -> if (uri != null) launchAudio(uri) }
 
+    // A share / "open with" from another app (LINE or WhatsApp voice note, a recorder, Files, a
+    // browser download…) lands in MainActivity.sharedAudioUri. Copy the stream into app storage while
+    // its transient grant is live, then transcribe it like any other source. Consumed once.
+    LaunchedEffect(Unit) {
+        MainActivity.sharedAudioUri.collect { u ->
+            if (u == null) return@collect
+            // Consume exactly the value we observed; if a newer share already replaced it, skip and let
+            // the next emission handle that one (latest-share-wins, no lost update). The grant on `u`
+            // stays valid for this Activity's lifetime, so copying off the main thread is safe; any
+            // failure (revoked grant, unreadable) degrades to the import_failed snackbar below.
+            if (!MainActivity.sharedAudioUri.compareAndSet(u, null)) return@collect
+            status = context.getString(R.string.status_importing)
+            val local = withContext(Dispatchers.IO) { runCatching { copyToAppAudio(context, u) }.getOrNull() }
+            if (local != null) launchAudio(Uri.fromFile(local))
+            else {
+                status = context.getString(R.string.empty_status)
+                snackbarHostState.showSnackbar(context.getString(R.string.import_failed))
+            }
+        }
+    }
+
     // --- Live recording (mic → streaming ASR; diarization/summary run on stop). ---
     var isRecording by remember { mutableStateOf(false) }
     var recSeconds by remember { mutableIntStateOf(0) }
@@ -561,6 +626,44 @@ private fun TranscribeScreen(
         ContextCompat.startForegroundService(
             context, Intent(context, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_EXPORT),
         )
+    }
+
+    // --- Transcript text exports (portable TXT / SRT / VTT / Markdown + copy & share). The .ogg is
+    //     the archive; these get the words into other apps. Pure local serialisation, no network. ---
+    val speakerLabel: (Int) -> String = { sid -> speakerNames[sid]?.name ?: context.getString(R.string.speaker_n, sid + 1) }
+    fun transcriptText(): String = TranscriptExport.plainText(utterances.toList(), speakerLabel, title, summary)
+    fun exportBaseName(): String =
+        title?.take(48)?.replace(Regex("[^\\p{L}\\p{N} _-]"), "_")?.trim()?.ifEmpty { null } ?: "transcript"
+    fun writeDoc(uri: Uri?, content: String) {
+        if (uri == null) return
+        val ok = runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) } != null
+        }.getOrDefault(false)
+        val msg = if (ok) context.getString(R.string.session_saved_as, documentLabel(context, uri))
+            else context.getString(R.string.session_save_failed)
+        scope.launch { snackbarHostState.showSnackbar(msg) }
+    }
+    // Each saver regenerates its content in the result callback (from the CURRENT transcript, so edits
+    // made while the SAF dialog was open are captured) — no shared pending-content state to race on.
+    val txtSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { writeDoc(it, transcriptText()) }
+    val srtSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/x-subrip")) { writeDoc(it, TranscriptExport.srt(utterances.toList(), speakerLabel)) }
+    val vttSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/vtt")) { writeDoc(it, TranscriptExport.vtt(utterances.toList(), speakerLabel)) }
+    val mdSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) {
+        writeDoc(it, TranscriptExport.markdown(utterances.toList(), speakerLabel, title, summary,
+            context.getString(R.string.export_heading_summary), context.getString(R.string.export_heading_transcript)))
+    }
+    fun copyTranscript() {
+        val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+        cm?.setPrimaryClip(android.content.ClipData.newPlainText("VoxSum transcript", transcriptText()))
+        scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.transcript_copied)) }
+    }
+    fun shareTranscript() {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, transcriptText())
+            putExtra(Intent.EXTRA_SUBJECT, title ?: context.getString(R.string.app_name))
+        }
+        runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.export_share_transcript))) }
     }
 
     LaunchedEffect(Unit) {
@@ -783,6 +886,12 @@ private fun TranscribeScreen(
                 // No pre-decode here; the picker callback hands the build+write to the service.
                 onSaveSession = { sessionSaver.launch(VoxsumSession.suggestFileName(title)) },
                 onShareSession = { shareSession() },
+                onCopyTranscript = { copyTranscript() },
+                onShareTranscript = { shareTranscript() },
+                onExportTxt = { txtSaver.launch("${exportBaseName()}.txt") },
+                onExportSrt = { srtSaver.launch("${exportBaseName()}.srt") },
+                onExportVtt = { vttSaver.launch("${exportBaseName()}.vtt") },
+                onExportMarkdown = { mdSaver.launch("${exportBaseName()}.md") },
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -925,7 +1034,7 @@ private fun TranscribeScreen(
     }
     if (showAddSourceSheet) {
         AddSourceSheet(
-            onPickFile = { picker.launch(arrayOf("audio/*")) },
+            onPickFile = { picker.launch(arrayOf("audio/*", "video/*")) },
             onRecord = { requestRecord() },
             onPodcast = { showPodcastSheet = true },
             onYouTube = { showYouTubeSheet = true },

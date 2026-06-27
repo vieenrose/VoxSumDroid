@@ -42,7 +42,8 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 ## Ce que vous pouvez faire
 
 **🎙️ Importez de l'audio depuis n'importe où**
-- **Un fichier** de votre appareil — la plupart des formats courants fonctionnent.
+- **Un fichier** de votre appareil — la plupart des formats audio et vidéo courants fonctionnent.
+- **Partagé depuis une autre appli** — envoyez une note vocale ou un fichier audio/vidéo directement à VoxSum (depuis LINE, un dictaphone, votre navigateur…) et la transcription démarre.
 - **Enregistrez en direct** — captez une réunion et voyez la transcription apparaître phrase après phrase.
 - **Un podcast** — cherchez, choisissez un épisode et transcrivez-le.
 - **Un lien YouTube** — collez une URL, ou cherchez par mot-clé.
@@ -57,6 +58,7 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 **✏️ Personnalisez**
 - **Modifiez tout** — corrigez un mot, renommez un intervenant, ajustez le titre ou le résumé, sur place.
 - **Copiez** tout le résumé d'un seul geste.
+- **Exportez le texte** — copiez ou partagez la transcription en texte, ou enregistrez des **sous-titres (`.srt`/`.vtt`)**, du texte brut ou du Markdown pour d'autres applis.
 - **Relancez** la transcription, le résumé ou la détection des noms quand vous voulez — p. ex. changez la langue du résumé puis relancez-le.
 - **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique `.ogg` qui **se lit dans n'importe quelle appli musicale** et **se rouvre dans VoxSum** avec tout intact.
 
