@@ -144,6 +144,8 @@ import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.SpeakerNamer
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
+import studio.voxsum.core.session.RecentSession
+import studio.voxsum.core.session.RecentSessions
 import studio.voxsum.core.session.VoxsumSession
 import studio.voxsum.core.update.UpdateChecker
 import studio.voxsum.core.update.UpdateInfo
@@ -159,6 +161,8 @@ import studio.voxsum.ui.PodcastSheet
 import studio.voxsum.ui.UpdateBanner
 import studio.voxsum.ui.renderMarkdown
 import studio.voxsum.ui.SpeakerStatsPanel
+import studio.voxsum.ui.TranscriptSearchBar
+import studio.voxsum.ui.highlightedTranscript
 import studio.voxsum.ui.VoxSumTopBar
 import studio.voxsum.ui.YouTubeSheet
 import studio.voxsum.ui.theme.VoxSumPalette
@@ -373,6 +377,13 @@ private fun TranscribeScreen(
     // even if the app is closed). The overlay just shows progress. lastSaveUri labels the result.
     var exporting by remember { mutableStateOf(false) }
     var lastSaveUri by remember { mutableStateOf<Uri?>(null) }
+    // Recently opened/saved sessions for the home screen (a derived cache over the user's own files).
+    var recentsVersion by remember { mutableIntStateOf(0) }
+    val recents = remember(recentsVersion) { RecentSessions.list(context) }
+    // Find-in-transcript (a slim search bar above the list; suppresses playback auto-follow while open).
+    var searchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var matchPos by remember { mutableIntStateOf(0) }
 
     // --- Synced player (android MediaPlayer; no extra dep). ---
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
@@ -486,7 +497,7 @@ private fun TranscribeScreen(
         TranscriptionConfig.Holder.config = config   // apply settings to this run
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         editingTitle = false; editingSummary = false
-        title = null; summary = null; isPlaying = false
+        title = null; summary = null; isPlaying = false; searchActive = false; searchQuery = ""
         coverEnabled = true; coverSeed = 0; coverPeaks = null; coverBitmap = null
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
@@ -528,7 +539,7 @@ private fun TranscribeScreen(
     fun beginRecording() {
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         editingTitle = false; editingSummary = false
-        title = null; summary = null; isPlaying = false
+        title = null; summary = null; isPlaying = false; searchActive = false; searchQuery = ""
         coverEnabled = true; coverSeed = 0; coverPeaks = null; coverBitmap = null
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
@@ -585,18 +596,21 @@ private fun TranscribeScreen(
             context, Intent(context, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_EXPORT),
         )
     }
-    val sessionOpener = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    fun openSessionUri(uri: Uri) {
         scope.launch {
             val loaded = runCatching { VoxsumSession.open(context, uri) }.getOrNull()
             if (loaded == null) {
+                // Stale entry (file moved / grant revoked) → drop it from Recent and tell the user.
+                RecentSessions.remove(context, uri.toString()); recentsVersion++
                 snackbarHostState.showSnackbar(context.getString(R.string.session_open_failed)); return@launch
             }
             if (!loaded.recovered) {
                 // A plain .ogg with no embedded session → just transcribe it as a normal source.
                 launchAudio(Uri.fromFile(loaded.audio)); return@launch
+            }
+            // Persist the grant so this session survives a reboot in the Recent list.
+            if (uri.scheme == "content") runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             utterances.clear(); utterances.addAll(loaded.utterances)
             speakerNames.clear(); loaded.speakerNames.forEach { (k, v) -> speakerNames[k] = v }
@@ -611,8 +625,12 @@ private fun TranscribeScreen(
             isPlaying = false; running = false; transcriptReady = true; progress = 0f
             audioUri = Uri.fromFile(loaded.audio)
             status = context.getString(R.string.status_session_loaded, loaded.utterances.size)
+            RecentSessions.add(context, uri.toString(), loaded.title ?: "", System.currentTimeMillis()); recentsVersion++
         }
     }
+    val sessionOpener = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? -> if (uri != null) openSessionUri(uri) }
     fun shareSession() {
         // No slow cover decode here — the build (incl. its single audio decode) runs in the service.
         // Any cover the user generated via the "Cover…" dialog rides along as the cached coverBlock.
@@ -717,6 +735,13 @@ private fun TranscribeScreen(
                             "PARTIAL" -> context.getString(R.string.session_saved_partial, label)
                             else -> context.getString(R.string.session_save_failed)
                         }
+                        // A saved session is a Recent too (the CreateDocument grant is persistable).
+                        if (e.outcome == "FULL" || e.outcome == "PARTIAL") lastSaveUri?.let { u ->
+                            if (u.scheme == "content") runCatching {
+                                context.contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            RecentSessions.add(context, u.toString(), title ?: "", System.currentTimeMillis()); recentsVersion++
+                        }
                         scope.launch { snackbarHostState.showSnackbar(msg) }
                     }
                 }
@@ -784,9 +809,25 @@ private fun TranscribeScreen(
     // column. The stacked column carries the overview as one header item (which shifts auto-scroll).
     val twoPane = landscape && hasOverview
     val headerCount = if (!twoPane && hasOverview) 1 else 0
+    // Matches for find-in-transcript; recompute when the query or transcript length changes.
+    val searchMatches = remember(searchQuery, utterances.size) {
+        if (searchQuery.isBlank()) emptyList()
+        else utterances.indices.filter { utterances[it].text.contains(searchQuery, ignoreCase = true) }
+    }
+    LaunchedEffect(searchQuery) { matchPos = 0 }
+    fun searchPrev() { if (searchMatches.isNotEmpty()) matchPos = (matchPos - 1 + searchMatches.size) % searchMatches.size }
+    fun searchNext() { if (searchMatches.isNotEmpty()) matchPos = (matchPos + 1) % searchMatches.size }
+    fun closeSearch() { searchActive = false; searchQuery = "" }
+    // Playback auto-follow — but NOT while searching, or the list would yank away from a match.
     LaunchedEffect(activeIndex) {
-        if (activeIndex in utterances.indices) {
+        if (searchQuery.isBlank() && activeIndex in utterances.indices) {
             runCatching { listState.animateScrollToItem(headerCount + activeIndex, scrollOffset = -200) }
+        }
+    }
+    // Keep the current search match in view as the user steps through.
+    LaunchedEffect(matchPos, searchMatches) {
+        searchMatches.getOrNull(matchPos)?.let { idx ->
+            runCatching { listState.animateScrollToItem(headerCount + idx, scrollOffset = -120) }
         }
     }
 
@@ -808,6 +849,7 @@ private fun TranscribeScreen(
             UtteranceRow(
                 utt = u,
                 active = idx == activeIndex,
+                highlight = if (searchActive) searchQuery else "",
                 isEditing = editingIndex == idx,
                 speakerNames = speakerNames,
                 editingSpeakerId = editingSpeakerId,
@@ -879,6 +921,7 @@ private fun TranscribeScreen(
                 canReDetect = transcriptReady && stats.perSpeaker.isNotEmpty(),
                 isDetecting = isDetecting,
                 onReDetect = { detectNames() },
+                onSearch = { searchActive = !searchActive; if (!searchActive) searchQuery = "" },
                 onSettings = { showConfigSheet = true },
                 onCoverPreview = {
                     scope.launch { coverBusy = true; renderCoverPreview(coverSeed); coverBusy = false; coverEnabled = true; showCoverDialog = true }
@@ -977,6 +1020,8 @@ private fun TranscribeScreen(
             if (isEmptyState) {
                 EmptyState(
                     onAddSource = { showAddSourceSheet = true },
+                    recents = recents,
+                    onOpenRecent = { openSessionUri(Uri.parse(it.uri)) },
                     modifier = Modifier.weight(1f),
                 )
             } else if (twoPane) {
@@ -995,15 +1040,27 @@ private fun TranscribeScreen(
                         Spacer(Modifier.height(8.dp))
                     }
                     Spacer(Modifier.width(12.dp))
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.weight(0.60f).fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        content = transcriptItems,
-                    )
+                    Column(Modifier.weight(0.60f).fillMaxHeight()) {
+                        if (searchActive) TranscriptSearchBar(
+                            query = searchQuery, onQuery = { searchQuery = it },
+                            matchCount = searchMatches.size, matchPos = matchPos,
+                            onPrev = { searchPrev() }, onNext = { searchNext() }, onClose = { closeSearch() },
+                        )
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            content = transcriptItems,
+                        )
+                    }
                 }
             } else {
                 Spacer(Modifier.height(8.dp))
+                if (searchActive) TranscriptSearchBar(
+                    query = searchQuery, onQuery = { searchQuery = it },
+                    matchCount = searchMatches.size, matchPos = matchPos,
+                    onPrev = { searchPrev() }, onNext = { searchNext() }, onClose = { closeSearch() },
+                )
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.weight(1f),
@@ -1451,6 +1508,7 @@ private fun TimelineStrip(
 private fun UtteranceRow(
     utt: TranscriptEvent.Utterance,
     active: Boolean,
+    highlight: String,
     isEditing: Boolean,
     speakerNames: SnapshotStateMap<Int, SpeakerName>,
     editingSpeakerId: Int?,
@@ -1503,7 +1561,7 @@ private fun UtteranceRow(
             UtteranceTextEditor(initial = utt.text, onSave = onSaveText, onCancel = onCancelEdit)
         } else {
             Text(
-                utt.text,
+                highlightedTranscript(utt.text, highlight),
                 style = MaterialTheme.typography.bodyMedium,
                 // Neutral high-contrast body text; the speaker colour lives on the chip only.
                 // (Tinting whole paragraphs to the speaker colour made the red speaker hard to

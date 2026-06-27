@@ -25,6 +25,11 @@ class Summarizer(
     private val targetLanguage: String? = null,
     /** Script post-conversion (OpenCC s2tw for Traditional Chinese); identity when not needed. */
     private val convert: (String) -> String = { it },
+    /** Format directives from the chosen SummaryStyle (default = bullets) + their token budgets. */
+    private val mapInstruction: String = "as a few short bullet points",
+    private val reduceInstruction: String = "into ONE concise summary of a few short bullet points",
+    private val mapMaxTokens: Int = 256,
+    private val reduceMaxTokens: Int = 400,
 ) {
 
     fun summarize(transcript: String, userPrompt: String): Flow<TranscriptEvent> = flow {
@@ -40,8 +45,8 @@ class Summarizer(
         // more granular chunks — safe. Without this, a long OR Chinese transcript makes a map chunk
         // (and the joined reduce prompt) exceed n_ctx, the native decode guard returns nothing, and the
         // summary comes back silently EMPTY. (zh-Hant transcripts longer than a few minutes hit this.)
-        val reduceMax = 400
-        val mapBudget = ((llm.nCtx - 256 - 96) * 3 / 5).coerceIn(512, 3500)
+        val reduceMax = reduceMaxTokens
+        val mapBudget = ((llm.nCtx - mapMaxTokens - 96) * 3 / 5).coerceIn(512, 3500)
         val reduceBudget = ((llm.nCtx - reduceMax - 96) * 3 / 5).coerceAtLeast(512)
         val chunks = SummaryText.chunk(transcript, size = mapBudget)
         emit(TranscriptEvent.Status("Summarizing ${chunks.size} chunk(s)…"))
@@ -49,7 +54,7 @@ class Summarizer(
         val partials = ArrayList<String>(chunks.size)
         for ((i, c) in chunks.withIndex()) {
             val sb = StringBuilder()
-            llm.generate(SummaryText.wrap(template, MAP_TEMPLATE.format(instr, c)), maxTokens = 256) { sb.append(it) }
+            llm.generate(SummaryText.wrap(template, MAP_TEMPLATE.format(instr, mapInstruction, c)), maxTokens = mapMaxTokens) { sb.append(it) }
             partials += sb.toString().trim()
             emit(TranscriptEvent.Partial(sb.toString().trim()))   // partials stay raw (intermediate)
             emit(TranscriptEvent.Progress((i + 1f) / chunks.size))
@@ -65,7 +70,7 @@ class Summarizer(
             for (group in SummaryText.groupPartials(level, reduceBudget)) {
                 if (group.size == 1) { next += group[0]; continue }
                 val sb = StringBuilder()
-                llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, group.joinToString("\n\n"))), reduceMax) { sb.append(it) }
+                llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, reduceInstruction, group.joinToString("\n\n"))), reduceMax) { sb.append(it) }
                 next += sb.toString().trim()
             }
             level = next
@@ -77,7 +82,7 @@ class Summarizer(
             finalSb.append(level[0])
         } else {
             llm.generate(
-                SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, level.joinToString("\n\n"))),
+                SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, reduceInstruction, level.joinToString("\n\n"))),
                 maxTokens = reduceMax,
             ) { finalSb.append(it) }
         }
@@ -92,14 +97,15 @@ class Summarizer(
     companion object {
         // Directive prompts: one concise bullet-point summary, no multiple versions / section
         // headers / preamble (verbose models like Gemma 4 otherwise emit "Short Summary:",
-        // "Detailed Summary:", etc.). First %s = the user's instruction, second %s = the text.
+        // "Detailed Summary:", etc.). The format itself comes from the style directive, not hard-coded.
+        // %s = user instruction, %s = the style's format directive, %s = the text.
         const val MAP_TEMPLATE =
-            "%s\nWrite the summary of the transcript section below as a few short bullet points. " +
-                "Output only the bullet points — no headings, no multiple versions, no preamble.\n\n" +
+            "%s\nWrite the summary of the transcript section below %s. " +
+                "Output only the summary itself — no headings, no multiple versions, no preamble.\n\n" +
                 "Transcript:\n%s\n\nSummary:"
         const val REDUCE_TEMPLATE =
-            "%s\nCombine the partial summaries below into ONE concise summary of a few short bullet " +
-                "points. Output only the bullet points — no headings, no multiple versions, no preamble.\n\n" +
+            "%s\nCombine the partial summaries below %s. " +
+                "Output only the summary itself — no headings, no multiple versions, no preamble.\n\n" +
                 "Partial summaries:\n%s\n\nSummary:"
         const val TITLE_TEMPLATE =
             "Write ONE short title (at most 8 words) for the summary below.%s " +

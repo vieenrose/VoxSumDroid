@@ -48,6 +48,7 @@ class VoxSumTopBarTest {
                 canReTranscribe = canReTranscribe, onReTranscribe = { fired["retx"] = true },
                 canReSummarize = canReSummarize, onReSummarize = { fired["resum"] = true },
                 canReDetect = canReDetect, isDetecting = false, onReDetect = { fired["redet"] = true },
+                onSearch = { fired["search"] = true },
                 onSettings = { fired["settings"] = true },
                 onCoverPreview = { fired["cover"] = true }, onSaveSession = { fired["save"] = true },
                 onShareSession = { fired["share"] = true },
@@ -118,6 +119,12 @@ class VoxSumTopBarTest {
         compose.onNodeWithContentDescription(ctx.getString(R.string.cd_export)).performClick()
         compose.onNodeWithText(ctx.getString(R.string.export_copy_transcript)).performClick()
         assertTrue(f["copytx"] == true)
+    }
+
+    @Test fun searchButtonFiresWhenTranscriptAvailable() {
+        val f = bar(transcriptAvailable = true)
+        compose.onNodeWithContentDescription(ctx.getString(R.string.search_transcript)).performClick()
+        assertTrue(f["search"] == true)
     }
 
     @Test fun reRunMenuHiddenWhenNothingApplies() {

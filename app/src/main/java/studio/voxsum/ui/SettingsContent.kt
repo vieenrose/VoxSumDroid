@@ -40,6 +40,7 @@ import studio.voxsum.BuildConfig
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.SummaryLanguage
+import studio.voxsum.core.config.SummaryStyle
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.update.UpdateChecker
@@ -168,6 +169,23 @@ fun SettingsContent(
                         enabled = enabled,
                         onClick = { onChange(config.copy(summaryLanguage = lang.id)) },
                         label = { Text(label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = VoxSumPalette.Sky.copy(alpha = 0.15f),
+                            selectedLabelColor = VoxSumPalette.Sky,
+                            labelColor = VoxSumPalette.Slate400,
+                        ),
+                    )
+                }
+            }
+        }
+        LabeledRow(stringResource(R.string.settings_summary_style)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SummaryStyle.entries.forEach { style ->
+                    FilterChip(
+                        selected = config.summaryStyle == style.id,
+                        enabled = enabled,
+                        onClick = { onChange(config.copy(summaryStyle = style.id)) },
+                        label = { Text(stringResource(style.labelRes)) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = VoxSumPalette.Sky.copy(alpha = 0.15f),
                             selectedLabelColor = VoxSumPalette.Sky,

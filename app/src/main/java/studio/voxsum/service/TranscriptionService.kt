@@ -2,6 +2,7 @@ package studio.voxsum.service
 
 import android.app.Notification
 import android.app.NotificationChannel
+import android.app.PendingIntent
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -28,6 +29,7 @@ import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioRecorder
 import studio.voxsum.core.audio.WavSlicer
 import studio.voxsum.core.config.SummaryLanguage
+import studio.voxsum.core.config.SummaryStyle
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
@@ -38,6 +40,7 @@ import studio.voxsum.core.models.ModelManager
 import studio.voxsum.core.session.VoxsumSession
 import studio.voxsum.core.text.OpenCcConverter
 import studio.voxsum.data.SpeakerName
+import studio.voxsum.MainActivity
 import studio.voxsum.R
 import java.io.File
 
@@ -103,6 +106,8 @@ class TranscriptionService : LifecycleService() {
     // coroutine cancellation while inside a blocking JNI call).
     @Volatile private var activeLlm: LlmEngine? = null
     @Volatile private var stopRecordingRequested = false
+    // Whether the current foreground notification should show the "Finish recording" action.
+    @Volatile private var notifRecording = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
@@ -441,11 +446,16 @@ class TranscriptionService : LifecycleService() {
         LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
             activeLlm = llm
             try {
+                val style = SummaryStyle.fromId(cfg.summaryStyle)
                 Summarizer(
                     llm,
                     template = spec.chatTemplate,
                     targetLanguage = SummaryLanguage.fromId(cfg.summaryLanguage).promptName,
                     convert = { converter?.convert(it) ?: it },
+                    mapInstruction = style.mapInstruction,
+                    reduceInstruction = style.reduceInstruction,
+                    mapMaxTokens = style.mapTokens,
+                    reduceMaxTokens = style.reduceTokens,
                 ).summarize(transcript, cfg.summaryPrompt)
                     .flowOn(Dispatchers.Default)
                     .collect { events.emit(it) }
@@ -472,6 +482,7 @@ class TranscriptionService : LifecycleService() {
 
     /** Start/refresh the FGS with the right type: microphone while recording, else data-sync. */
     private fun startForegroundTyped(recording: Boolean, text: String) {
+        notifRecording = recording
         val notif = buildNotification(text)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val type = if (recording) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
@@ -494,11 +505,28 @@ class TranscriptionService : LifecycleService() {
                 NotificationChannel(CHANNEL_ID, "VoxSum pipeline", NotificationManager.IMPORTANCE_LOW)
             )
         }
-        return Notification.Builder(this, CHANNEL_ID)
+        val flags = PendingIntent.FLAG_IMMUTABLE
+        val openPi = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), flags,
+        )
+        val stopPi = PendingIntent.getService(
+            this, 1, Intent(this, TranscriptionService::class.java).setAction(ACTION_STOP), flags,
+        )
+        val b = Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("VoxSum")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)
-            .build()
+            .setContentIntent(openPi)   // tap the notification to reopen the app
+        // While recording, "Finish" ends capture but continues into diarization/summary; "Stop"
+        // (always present) cancels the whole run.
+        if (notifRecording) {
+            val finishPi = PendingIntent.getService(
+                this, 2, Intent(this, TranscriptionService::class.java).setAction(ACTION_STOP_RECORDING), flags,
+            )
+            b.addAction(android.R.drawable.ic_media_pause, getString(R.string.notif_finish_recording), finishPi)
+        }
+        b.addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.stop), stopPi)
+        return b.build()
     }
 }

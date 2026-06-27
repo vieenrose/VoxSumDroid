@@ -11,12 +11,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.Icon
@@ -31,8 +34,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import studio.voxsum.R
+import studio.voxsum.core.session.RecentSession
 import studio.voxsum.ui.components.GradientButton
 import studio.voxsum.ui.theme.VoxSumPalette
 
@@ -43,7 +48,12 @@ import studio.voxsum.ui.theme.VoxSumPalette
  * (weight) from the parent column.
  */
 @Composable
-fun EmptyState(onAddSource: () -> Unit, modifier: Modifier = Modifier) {
+fun EmptyState(
+    onAddSource: () -> Unit,
+    recents: List<RecentSession> = emptyList(),
+    onOpenRecent: (RecentSession) -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     if (landscape) {
         // Wide + short: put the hero/CTA beside the pillars instead of stacking, so it fits the
@@ -69,6 +79,7 @@ fun EmptyState(onAddSource: () -> Unit, modifier: Modifier = Modifier) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Pillars()
+                RecentList(recents, onOpenRecent)
             }
         }
     } else {
@@ -89,6 +100,45 @@ fun EmptyState(onAddSource: () -> Unit, modifier: Modifier = Modifier) {
                 Pillars()
             }
             GradientButton(stringResource(R.string.add_audio), Icons.Filled.Add, onClick = onAddSource)
+            RecentList(recents, onOpenRecent)
+        }
+    }
+}
+
+/** Recent sessions on the blank slate — tap to reopen, skipping the file picker. Hidden when empty. */
+@Composable
+private fun RecentList(recents: List<RecentSession>, onOpen: (RecentSession) -> Unit) {
+    if (recents.isEmpty()) return
+    Column(
+        Modifier.widthIn(max = 360.dp).fillMaxWidth().padding(top = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            stringResource(R.string.recent_sessions),
+            style = MaterialTheme.typography.labelLarge,
+            color = VoxSumPalette.Slate400,
+            modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+        )
+        recents.forEach { r ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onOpen(r) }
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.History, contentDescription = null, tint = VoxSumPalette.Sky, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    r.title.ifBlank { stringResource(R.string.recent_untitled) },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = VoxSumPalette.Slate200,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }

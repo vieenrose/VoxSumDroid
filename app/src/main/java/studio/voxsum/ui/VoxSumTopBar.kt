@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.Tune
@@ -71,6 +72,7 @@ fun VoxSumTopBar(
     canReDetect: Boolean,
     isDetecting: Boolean,
     onReDetect: () -> Unit,
+    onSearch: () -> Unit,
     onSettings: () -> Unit,
     onCoverPreview: () -> Unit,
     onSaveSession: () -> Unit,
@@ -141,6 +143,11 @@ fun VoxSumTopBar(
                         }
                     }
                     ReRunMenu(canReTranscribe, onReTranscribe, canReSummarize, onReSummarize, canReDetect, isDetecting, onReDetect)
+                    if (transcriptAvailable) {
+                        IconButton(onClick = onSearch) {
+                            Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.search_transcript), tint = VoxSumPalette.OnBrand)
+                        }
+                    }
                 }
                 Box {
                     IconButton(onClick = onSettings) {

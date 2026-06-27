@@ -28,6 +28,8 @@ data class TranscriptionConfig(
     // ConfigStore derives a locale-based default on first run (migrates the legacy traditionalChinese
     // flag for existing installs). "zh-Hant" applies OpenCC s2tw to the transcript + summary.
     val summaryLanguage: String = "auto",
+    // Format of the summary (a [SummaryStyle] id): bullet (default) | executive | narrative.
+    val summaryStyle: String = "bullet",
 ) {
     object Holder {
         @Volatile var config: TranscriptionConfig = TranscriptionConfig()

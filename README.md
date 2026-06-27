@@ -47,12 +47,13 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 - **Record live** — capture a meeting and watch the transcript appear sentence by sentence as you speak.
 - **A podcast** — search, pick an episode, and transcribe it.
 - **A YouTube link** — paste a URL, or search by keyword.
-- **Reopen a saved session** — pick up exactly where you left off (see below).
+- **Reopen a saved session** — pick up exactly where you left off (see below); your **recent sessions** are one tap away on the home screen.
 
 **📝 Read and understand**
 - **Live transcript** — lines show up as soon as you speak; you can start reading (and playing) before it finishes.
 - **Who spoke when** — each line is tagged and colour-coded by speaker, with a speaker count. VoxSum can even **guess speakers' real names** from what they say.
-- **A summary in your language** — a short title and bullet-point summary. Keep it in the transcript's language, or pick **English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어**. (It defaults to your phone's language.)
+- **A summary in your language, your way** — a short title and a summary as **bullets, an executive brief, or a narrative**. Keep it in the transcript's language, or pick **English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어**. (It defaults to your phone's language.)
+- **Search the transcript** — find any word in a long recording; matches highlight and you can step through them.
 - **A built-in player, in sync** — docked at the bottom like a music app: tap any line to jump there, and the current line highlights as it plays.
 
 **✏️ Make it yours**

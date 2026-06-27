@@ -47,12 +47,13 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 - **Enregistrez en direct** — captez une réunion et voyez la transcription apparaître phrase après phrase.
 - **Un podcast** — cherchez, choisissez un épisode et transcrivez-le.
 - **Un lien YouTube** — collez une URL, ou cherchez par mot-clé.
-- **Rouvrez une session enregistrée** — reprenez exactement là où vous vous étiez arrêté (voir plus bas).
+- **Rouvrez une session enregistrée** — reprenez exactement là où vous vous étiez arrêté (voir plus bas) ; vos **sessions récentes** sont à portée d'un geste sur l'écran d'accueil.
 
 **📝 Lisez et comprenez**
 - **Transcription en direct** — les lignes apparaissent dès que vous parlez ; vous pouvez lire (et écouter) avant la fin.
 - **Qui a parlé, et quand** — chaque ligne est étiquetée et colorée par intervenant, avec leur nombre. VoxSum peut même **deviner le vrai nom des intervenants** d'après leurs propos.
-- **Un résumé dans votre langue** — un titre court et un résumé à puces. Gardez la langue de la transcription, ou choisissez **English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어**. (Par défaut, la langue de votre téléphone.)
+- **Un résumé dans votre langue, à votre façon** — un titre court et un résumé **en puces, en synthèse ou en récit**. Gardez la langue de la transcription, ou choisissez **English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어**. (Par défaut, la langue de votre téléphone.)
+- **Cherchez dans la transcription** — trouvez n'importe quel mot dans un long enregistrement ; les résultats se surlignent et vous pouvez les parcourir.
 - **Un lecteur intégré et synchronisé** — ancré en bas comme une appli musicale : touchez une ligne pour y sauter, et la ligne en cours se surligne pendant la lecture.
 
 **✏️ Personnalisez**

@@ -32,6 +32,7 @@ object ConfigStore {
             llmModelId = p.getString("llmModelId", d.llmModelId) ?: d.llmModelId,
             summaryPrompt = p.getString("summaryPrompt", d.summaryPrompt) ?: d.summaryPrompt,
             summaryLanguage = summaryLanguage,
+            summaryStyle = p.getString("summaryStyle", d.summaryStyle) ?: d.summaryStyle,
         )
     }
 
@@ -48,6 +49,7 @@ object ConfigStore {
             putString("llmModelId", c.llmModelId)
             putString("summaryPrompt", c.summaryPrompt)
             putString("summaryLanguage", c.summaryLanguage)
+            putString("summaryStyle", c.summaryStyle)
             apply()
         }
     }
