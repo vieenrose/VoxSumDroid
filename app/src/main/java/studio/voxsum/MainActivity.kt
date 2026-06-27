@@ -570,7 +570,8 @@ private fun TranscribeScreen(
         // Recording → finish gracefully (continues into diarization/summary, stays running). Otherwise
         // the user is CANCELLING a transcription/summary: the service stops but emits no terminal event,
         // so clear `running` here or the UI is stuck on the Stop button with no way back to Add audio.
-        if (isRecording) { isRecording = false; onStopRecording() } else { onStop(); running = false }
+        if (isRecording) { isRecording = false; onStopRecording() }
+        else { onStop(); running = false; status = context.getString(R.string.status_stopped) }
     }
 
 
@@ -722,7 +723,9 @@ private fun TranscribeScreen(
                 // Identifying speakers / Summarizing), so we no longer overwrite it with "Transcribing %"
                 // (which also mislabeled the summary phase). running guards a late event after completion.
                 is TranscriptEvent.Progress -> { if (running) progress = e.fraction }
-                is TranscriptEvent.DownloadProgress -> { running = true; progress = e.fraction; status = e.label }
+                // Only while a run is active — otherwise a buffered download event arriving just after
+                // Stop would re-stick the UI in "running" (running is already set when a run starts).
+                is TranscriptEvent.DownloadProgress -> { if (running) { progress = e.fraction; status = e.label } }
                 is TranscriptEvent.Complete -> {
                     // Preserve any in-flight text edits (merge by index); speaker-name map is
                     // separate and untouched by the rebuild.

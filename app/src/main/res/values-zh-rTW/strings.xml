@@ -9,6 +9,7 @@
 
     <!-- Empty / home state -->
     <string name="empty_status">請選擇音訊檔案以開始。</string>
+    <string name="status_stopped">已停止</string>
     <string name="empty_headline">完全離線轉錄與摘要</string>
     <string name="empty_subtitle">加入音訊檔案、錄製會議，或貼上 YouTube 連結以開始。</string>
     <!-- Value pillars on the home screen -->

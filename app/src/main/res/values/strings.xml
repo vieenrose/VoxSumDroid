@@ -9,6 +9,7 @@
 
     <!-- Empty / home state -->
     <string name="empty_status">Pick an audio file to begin.</string>
+    <string name="status_stopped">Stopped</string>
     <string name="empty_headline">Transcribe &amp; summarize, fully offline</string>
     <string name="empty_subtitle">Add an audio file, record a meeting, or paste a YouTube link to begin.</string>
     <!-- Value pillars on the home screen -->

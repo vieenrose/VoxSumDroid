@@ -9,6 +9,7 @@
 
     <!-- Empty / home state -->
     <string name="empty_status">Choisissez un fichier audio pour commencer.</string>
+    <string name="status_stopped">Arrêté</string>
     <string name="empty_headline">Transcription et résumé, 100 % hors ligne</string>
     <string name="empty_subtitle">Ajoutez un fichier audio, enregistrez une réunion ou collez un lien YouTube pour commencer.</string>
     <!-- Value pillars on the home screen -->

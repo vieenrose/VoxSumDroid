@@ -47,12 +47,22 @@ class TranscriptFlowTest {
         compose.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
     }
 
-    @Test fun progressEventUpdatesStatusLine() {
+    @Test fun statusEventUpdatesStatusLine() {
         awaitReady()
-        TranscriptionService.events.tryEmit(TranscriptEvent.Progress(0.5f))
-        val expected = str(R.string.status_transcribing, 50)
-        waitForText(expected)
-        compose.onNodeWithText(expected, substring = true).assertIsDisplayed()
+        // Each phase now owns the status line via a Status event (Progress drives only the bar).
+        val msg = "Identifying speakers (uitest)"
+        TranscriptionService.events.tryEmit(TranscriptEvent.Status(msg))
+        waitForText(msg)
+        compose.onNodeWithText(msg, substring = true).assertIsDisplayed()
+    }
+
+    @Test fun downloadProgressEventUpdatesStatusLine() {
+        awaitReady()
+        // Model-download progress carries its own labelled status (bar + "… NN%").
+        val msg = "Downloading summary model 42% (uitest)"
+        TranscriptionService.events.tryEmit(TranscriptEvent.DownloadProgress(0.42f, msg))
+        waitForText(msg)
+        compose.onNodeWithText(msg, substring = true).assertIsDisplayed()
     }
 
     @Test fun completeRendersUtterancesAndLineSpeakerCount() {

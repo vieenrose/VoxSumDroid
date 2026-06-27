@@ -2,6 +2,8 @@ package studio.voxsum.core.models
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -248,6 +250,10 @@ class ModelManager(context: Context) {
                     val buf = ByteArray(1 shl 16)
                     var read = 0L
                     while (true) {
+                        // Cooperate with cancellation so Stop can abort a multi-GB download promptly —
+                        // a blocking read() never checks on its own, so the loop must. The .use blocks
+                        // close the connection + .part file on the thrown CancellationException.
+                        coroutineContext.ensureActive()
                         val n = input.read(buf)
                         if (n < 0) break
                         out.write(buf, 0, n)
