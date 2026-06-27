@@ -1,13 +1,19 @@
 package studio.voxsum
 
 import android.Manifest
+import android.net.Uri
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import java.io.File
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
@@ -74,5 +80,24 @@ class TranscriptFlowTest {
         waitForText(expected)
         // The error surfaces in BOTH the status line and a snackbar — assert at least one is shown.
         compose.onAllNodesWithText(expected, substring = true).onFirst().assertIsDisplayed()
+    }
+
+    @Test fun loadingAnAudioSourceShowsThePlayerAndPlayToggles() {
+        awaitReady()
+        // Stage a real, short 16 kHz wav into the app's cache and load it as the audio source — a
+        // RecordingSaved event is exactly how the recording flow hands the player its WAV.
+        val bytes = InstrumentationRegistry.getInstrumentation().context.assets.open("en.wav").use { it.readBytes() }
+        val wav = File(compose.activity.cacheDir, "uitest_player.wav").apply { writeBytes(bytes) }
+        TranscriptionService.events.tryEmit(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
+
+        // The docked player appears with a Play control (the MediaPlayer prepares off-thread).
+        val play = str(R.string.cd_play)
+        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription(play).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription(play).assertIsDisplayed().performClick()
+
+        // Tapping Play starts playback (self-healing prepare), flipping the control to Pause.
+        val pause = str(R.string.cd_pause)
+        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription(pause).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription(pause).assertIsDisplayed()
     }
 }
