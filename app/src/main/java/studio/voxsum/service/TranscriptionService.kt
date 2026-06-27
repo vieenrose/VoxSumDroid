@@ -13,6 +13,8 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -197,7 +199,18 @@ class TranscriptionService : LifecycleService() {
                     TranscriptEvent.ExportDone(false, outcome.name)
                 }
             }.getOrElse {
-                if (it is CancellationException) throw it
+                // On cancellation (e.g. the pipeline's teardown stopSelf, or ACTION_STOP, while an
+                // export is in flight) still deliver a terminal event so the UI's "exporting" overlay
+                // clears — emitted under NonCancellable since a cancelled coroutine's plain emit isn't
+                // guaranteed — then propagate the cancellation.
+                if (it is CancellationException) {
+                    withContext(NonCancellable) {
+                        val failed = TranscriptEvent.ExportDone(req.share, "FAILED")
+                        events.emit(failed)
+                        notifyExportResult(failed)
+                    }
+                    throw it
+                }
                 TranscriptEvent.ExportDone(req.share, "FAILED")
             }
             events.emit(done)

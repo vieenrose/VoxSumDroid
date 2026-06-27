@@ -36,6 +36,18 @@ private fun AnnotatedString.Builder.appendInline(text: String) {
     var i = 0
     while (i < text.length) {
         when {
+            // Triple marker first: `***x***` / `___x___` is bold+italic. Must precede the `**` case,
+            // which would otherwise consume `**` and leave stray literal asterisks around the run.
+            text.startsWith("***", i) || text.startsWith("___", i) -> {
+                val mark = text.substring(i, i + 3)
+                val end = text.indexOf(mark, i + 3)
+                if (end >= 0) {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
+                        append(text.substring(i + 3, end))
+                    }
+                    i = end + 3
+                } else { append(mark); i += 3 }
+            }
             text.startsWith("**", i) || text.startsWith("__", i) -> {
                 val mark = text.substring(i, i + 2)
                 val end = text.indexOf(mark, i + 2)
