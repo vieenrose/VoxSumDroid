@@ -17,6 +17,11 @@ import java.util.Base64
 object CoverArt {
     const val FIELD = "METADATA_BLOCK_PICTURE"
     private const val TYPE_FRONT_COVER = 3
+    // A real session cover (1024×1024 JPEG) is well under 1 MB; cap the decode so a hostile/foreign
+    // .ogg can't force hundreds of MB of transient allocation (the comment value is bounded only by
+    // OggOpusTags' 512 MB file cap otherwise) and OOM the app.
+    private const val MAX_PICTURE = 16 * 1024 * 1024
+    private const val MAX_B64 = MAX_PICTURE / 3 * 4 + 16
 
     /** Encode a JPEG as a METADATA_BLOCK_PICTURE comment value (base64 of a FLAC picture block). */
     fun encode(jpeg: ByteArray, width: Int, height: Int, mime: String = "image/jpeg"): String {
@@ -35,12 +40,13 @@ object CoverArt {
 
     /** Decode a METADATA_BLOCK_PICTURE value back to the raw picture bytes (the JPEG), or null. */
     fun decode(value: String): ByteArray? = runCatching {
+        require(value.length <= MAX_B64)                                  // reject before allocating the decode
         val bb = ByteBuffer.wrap(Base64.getDecoder().decode(value))   // BIG_ENDIAN
         bb.int                                                            // picture type
         val mimeLen = bb.int; require(mimeLen in 0..256); bb.position(bb.position() + mimeLen)
         val descLen = bb.int; require(descLen in 0..65536); bb.position(bb.position() + descLen)
         bb.int; bb.int; bb.int; bb.int                                    // width, height, depth, colours
-        val dataLen = bb.int; require(dataLen in 1..bb.remaining())
+        val dataLen = bb.int; require(dataLen in 1..minOf(bb.remaining(), MAX_PICTURE))
         ByteArray(dataLen).also { bb.get(it) }
     }.getOrNull()
 

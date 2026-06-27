@@ -132,6 +132,13 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeLoad(
 
     llama_context_params cp = llama_context_default_params();
     cp.n_ctx           = (uint32_t) nCtx;
+    // Allow a logical batch up to the full context. The default n_batch is min(n_ctx, 2048), but the
+    // prompt is submitted as ONE llama_batch, and llama_decode asserts n_tokens <= n_batch — so a prompt
+    // of 2049..n_ctx tokens (a single CJK map chunk ≈ 1 token/char, or a long-meeting reduce step) would
+    // SIGABRT the whole process uncatchably. n_ubatch stays at its 512 default, so the compute buffer is
+    // unchanged (llama splits the logical batch into 512-token physical sub-batches internally); prompts
+    // beyond n_ctx are still caught by the n_ctx guard in the decode loop below and degrade gracefully.
+    cp.n_batch         = (uint32_t) nCtx;
     cp.n_threads       = nThreads;
     cp.n_threads_batch = nThreads;
     h->ctx  = llama_init_from_model(h->model, cp);

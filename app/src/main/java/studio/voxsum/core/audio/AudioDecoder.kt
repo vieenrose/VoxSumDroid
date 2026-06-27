@@ -24,6 +24,7 @@ object AudioDecoder {
     const val SAMPLE_RATE = 16_000
 
     private const val TIMEOUT_US = 10_000L
+    private const val MAX_DRAIN_POLLS = 3_000   // ~30 s of empty post-EOS polls → give up (anti-hang)
 
     /**
      * Returns the full decoded waveform as mono float samples in [-1, 1] at 16 kHz.
@@ -121,6 +122,12 @@ object AudioDecoder {
             val mime = inFormat.getString(MediaFormat.KEY_MIME)!!
             val srcRate = inFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val srcChannels = inFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            // A corrupt/hostile container can report 0 (or negative) here. srcRate <= 0 makes the
+            // resampler's step <= 0 → an infinite loop that hangs the decode coroutine forever;
+            // srcChannels <= 0 divides by zero and emits NaN samples into native ASR. Fail fast and
+            // catchably instead (surfaces as a clean pipeline error).
+            require(srcRate > 0) { "Invalid sample rate: $srcRate" }
+            require(srcChannels > 0) { "Invalid channel count: $srcChannels" }
 
             codec = MediaCodec.createDecoderByType(mime).also {
                 it.configure(inFormat, null, null, 0)
@@ -156,6 +163,10 @@ object AudioDecoder {
         val bufferInfo = MediaCodec.BufferInfo()
         var sawInputEos = false
         var sawOutputEos = false
+        // Watchdog: a corrupt stream can leave the codec never emitting BUFFER_FLAG_END_OF_STREAM after
+        // we've signalled input EOS, which would spin `while (!sawOutputEos)` forever (each poll ~10 ms).
+        // Bail after MAX_DRAIN_POLLS empty post-EOS polls (~30 s) so the decode can't hang indefinitely.
+        var drainPolls = 0
 
         while (!sawOutputEos) {
             if (!sawInputEos) {
@@ -174,7 +185,13 @@ object AudioDecoder {
             }
 
             val outIndex = codec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
+            if (outIndex < 0) {
+                if (sawInputEos && outIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    check(++drainPolls <= MAX_DRAIN_POLLS) { "decoder produced no end-of-stream" }
+                }
+            }
             if (outIndex >= 0) {
+                drainPolls = 0
                 if (bufferInfo.size > 0) {
                     val outBuf = codec.getOutputBuffer(outIndex)!!
                     outBuf.position(bufferInfo.offset)

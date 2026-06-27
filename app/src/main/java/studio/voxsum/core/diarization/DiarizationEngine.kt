@@ -69,6 +69,14 @@ class DiarizationEngine(
         this.totalSamples = totalSamples
         if (utterances.isEmpty()) return utterances to 0
 
+        // Robustness cap: clustering builds an n×n distance matrix (O(n²) memory) and runs O(n³)
+        // agglomerative linkage. A pathologically long recording (thousands of short VAD segments) would
+        // OOM / freeze for minutes. Above a safe bound, skip global clustering and label everything one
+        // speaker — degraded but bounded — rather than crash. Normal meetings stay well under this.
+        if (utterances.size > MAX_CLUSTER_N) {
+            return utterances.mapIndexed { i, u -> u.copy(index = i, speaker = 0) } to 1
+        }
+
         // 1. One L2-normalized embedding per utterance.
         val embs = Array(utterances.size) { i -> embedUtterance(utterances[i]) }
 
@@ -308,6 +316,7 @@ class DiarizationEngine(
         const val MIN_SEG_SEC = 1.5                      // shortest sub-utterance a split may yield
         const val SPLIT_MARGIN = 0.08                    // a window must be this much closer to switch off base
         const val ABS_GATE = 0.55                        // …and within this absolute cosine distance of it
+        const val MAX_CLUSTER_N = 2_000                  // above this many utterances, skip O(n³) clustering
 
         // The clustering math below is pure (no native state); kept here and marked internal so the
         // dendrogram + distance/normalization logic can be unit-tested directly (see
@@ -379,12 +388,15 @@ class DiarizationEngine(
             return FloatArray(v.size) { v[it] * inv }
         }
 
-        /** Cosine distance on L2-normalized vectors = 1 - dot. Zero/length-mismatch => far (1). */
+        /** Cosine distance on L2-normalized vectors = 1 - dot. Zero/length-mismatch => far (1). A NaN
+         *  (e.g. a NaN embedding) also maps to "far" — otherwise it would poison agglomerative()'s
+         *  min-search (a never-selected NaN pair leaves bi=-1 → ArrayIndexOutOfBounds). */
         internal fun cosineDistance(a: FloatArray, b: FloatArray): Double {
             if (a.isEmpty() || b.isEmpty() || a.size != b.size) return 1.0
             var dot = 0.0
             for (i in a.indices) dot += a[i].toDouble() * b[i]
-            return (1.0 - dot).coerceIn(0.0, 2.0)
+            val d = 1.0 - dot
+            return if (d.isNaN()) 1.0 else d.coerceIn(0.0, 2.0)
         }
 
         /** Remap arbitrary cluster reps to contiguous 0..k-1 by first appearance. */

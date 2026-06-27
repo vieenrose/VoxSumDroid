@@ -72,14 +72,19 @@ internal object SummaryText {
 
     /** Naive char-window chunker; replace with a sentence-aware splitter in Phase 2. */
     fun chunk(text: String, size: Int = 3500, overlap: Int = 300): List<String> {
-        if (text.length <= size) return listOf(text)
+        // Defensive: clamp the params so the window ALWAYS advances. With overlap >= size (or size <= 0)
+        // `start = end - overlap` would stall or move backward — an infinite loop that OOMs. Production
+        // calls pass safe values (3500/300); this just makes the function total for any input.
+        val sz = size.coerceAtLeast(1)
+        val ov = overlap.coerceIn(0, sz - 1)
+        if (text.length <= sz) return listOf(text)
         val out = ArrayList<String>()
         var start = 0
         while (start < text.length) {
-            val end = minOf(start + size, text.length)
+            val end = minOf(start + sz, text.length)
             out += text.substring(start, end)
             if (end == text.length) break
-            start = end - overlap
+            start = end - ov
         }
         return out
     }
