@@ -23,6 +23,8 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 **qui a dit quoi**, puis vous donne un **résumé concis** dans la langue de votre choix. Tout se passe
 **sur l'appareil** : sans compte, sans cloud, sans abonnement, et rien ne quitte jamais votre téléphone.
 
+> Vous débutez ? Le **[guide de démarrage en 5 minutes →](docs/QUICKSTART.md)** présente chaque fonction (en anglais).
+
 ## Pourquoi VoxSum
 
 - 🛡️ **Confidentiel par conception** — votre audio ne quitte jamais le téléphone, vos enregistrements sensibles ne fuiteront pas vers un cloud.
