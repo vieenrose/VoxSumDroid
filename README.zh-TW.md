@@ -24,15 +24,19 @@
 
 ## 為什麼選擇 VoxSum
 
-| 🛡️ 絕對隱私 | ✈️ 完全離線 | 💰 無需訂閱 |
-| :-- | :-- | :-- |
-| 音訊永遠不離開手機 —— 機密錄音不會外洩到雲端。 | 設定完成後即無需網路。在飛機、高鐵，或任何收不到訊號的地方都能用。 | 一次擁有，永久使用。沒有用量計費，也沒有月費。 |
+- 🛡️ **絕對隱私** —— 音訊永遠不離開手機，機密錄音不會外洩到雲端。
+- ✈️ **完全離線** —— 設定完成後即無需網路：在飛機、高鐵，或任何收不到訊號的地方都能用。
+- 💰 **無需訂閱** —— 一次擁有，永久使用。沒有用量計費，也沒有月費。
 
 ## 螢幕截圖
 
-| 首頁 | 逐字稿 | 摘要 | 摘要語言 |
-| :--: | :--: | :--: | :--: |
-| <img src="docs/screenshots/01-home-zhtw.png" width="200" alt="首頁"> | <img src="docs/screenshots/03-transcript-zhtw.png" width="200" alt="逐字稿"> | <img src="docs/screenshots/04-summary-zhtw.png" width="200" alt="摘要"> | <img src="docs/screenshots/05-summary-language-zhtw.png" width="200" alt="摘要語言"> |
+<p align="center">
+  <img src="docs/screenshots/01-home-zhtw.png" width="190" alt="首頁">
+  <img src="docs/screenshots/03-transcript-zhtw.png" width="190" alt="逐字稿">
+  <img src="docs/screenshots/04-summary-zhtw.png" width="190" alt="摘要">
+  <img src="docs/screenshots/05-summary-language-zhtw.png" width="190" alt="摘要語言">
+</p>
+<p align="center"><i>首頁 · 帶語者的即時逐字稿 · 摘要 · 摘要語言選擇</i></p>
 
 ## 你可以做什麼
 

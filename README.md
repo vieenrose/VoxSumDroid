@@ -25,15 +25,19 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 
 ## Why VoxSum
 
-| 🛡️ Private by design | ✈️ Works offline | 💰 No subscription |
-| :-- | :-- | :-- |
-| Your audio never leaves the phone — confidential recordings can't leak to a cloud. | Once set up, no network is needed. On a plane, a train, or off the grid, it just works. | Own it outright. No metered minutes, no monthly fee. |
+- 🛡️ **Private by design** — your audio never leaves the phone, so confidential recordings can't leak to a cloud.
+- ✈️ **Works offline** — once set up, no network is needed: on a plane, a train, or off the grid.
+- 💰 **No subscription** — own it outright. No metered minutes, no monthly fee.
 
 ## Screenshots
 
-| Home | Transcript | Summary | Summary language |
-| :--: | :--: | :--: | :--: |
-| <img src="docs/screenshots/01-home.png" width="200" alt="Home"> | <img src="docs/screenshots/03-transcript.png" width="200" alt="Transcript"> | <img src="docs/screenshots/04-summary.png" width="200" alt="Summary"> | <img src="docs/screenshots/05-summary-language.png" width="200" alt="Summary language picker"> |
+<p align="center">
+  <img src="docs/screenshots/01-home.png" width="190" alt="Home">
+  <img src="docs/screenshots/03-transcript.png" width="190" alt="Transcript">
+  <img src="docs/screenshots/04-summary.png" width="190" alt="Summary">
+  <img src="docs/screenshots/05-summary-language.png" width="190" alt="Summary language">
+</p>
+<p align="center"><i>Home · live transcript with speakers · summary · summary-language picker</i></p>
 
 ## What you can do
 

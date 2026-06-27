@@ -25,15 +25,19 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 
 ## Pourquoi VoxSum
 
-| 🛡️ Confidentiel par conception | ✈️ Fonctionne hors ligne | 💰 Sans abonnement |
-| :-- | :-- | :-- |
-| Votre audio ne quitte jamais le téléphone — vos enregistrements sensibles ne fuiteront pas vers un cloud. | Une fois configuré, aucun réseau n'est nécessaire. En avion, en train, ou loin de tout, ça marche. | À vous pour de bon. Pas de minutes facturées, pas d'abonnement mensuel. |
+- 🛡️ **Confidentiel par conception** — votre audio ne quitte jamais le téléphone, vos enregistrements sensibles ne fuiteront pas vers un cloud.
+- ✈️ **Fonctionne hors ligne** — une fois configuré, aucun réseau n'est nécessaire : en avion, en train, ou loin de tout.
+- 💰 **Sans abonnement** — à vous pour de bon. Pas de minutes facturées, pas d'abonnement mensuel.
 
 ## Captures d'écran
 
-| Accueil | Transcription | Résumé | Langue du résumé |
-| :--: | :--: | :--: | :--: |
-| <img src="docs/screenshots/01-home.png" width="200" alt="Accueil"> | <img src="docs/screenshots/03-transcript.png" width="200" alt="Transcription"> | <img src="docs/screenshots/04-summary.png" width="200" alt="Résumé"> | <img src="docs/screenshots/05-summary-language.png" width="200" alt="Sélecteur de langue du résumé"> |
+<p align="center">
+  <img src="docs/screenshots/01-home.png" width="190" alt="Accueil">
+  <img src="docs/screenshots/03-transcript.png" width="190" alt="Transcription">
+  <img src="docs/screenshots/04-summary.png" width="190" alt="Résumé">
+  <img src="docs/screenshots/05-summary-language.png" width="190" alt="Langue du résumé">
+</p>
+<p align="center"><i>Accueil · transcription en direct avec intervenants · résumé · choix de la langue du résumé</i></p>
 
 ## Ce que vous pouvez faire
 
