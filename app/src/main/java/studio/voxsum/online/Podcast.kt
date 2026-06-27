@@ -114,7 +114,9 @@ object Podcast {
                         if (total != null) onProgress((read.toFloat() / total).coerceIn(0f, 1f))
                     }
                 }
-                tmp.renameTo(out)
+                // Replace any stale prior download of the same episode; surface a real move failure
+                // instead of returning a Uri to a missing/stale file.
+                if (!tmp.renameTo(out)) { out.delete(); check(tmp.renameTo(out)) { "Could not save the downloaded episode" } }
             }
             enforceRetentionCap(dir, max = 20)
             Uri.fromFile(out)

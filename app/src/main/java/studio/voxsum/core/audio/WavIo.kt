@@ -48,14 +48,19 @@ class WavWriter(private val file: File) : AutoCloseable {
 
     override fun close() {
         out.flush(); out.close()
-        // Patch the 44-byte canonical header now that the data size is known.
+        // Patch the 44-byte canonical header now that the data size is known. WAV stores chunk sizes as
+        // UNSIGNED 32-bit, so cap at the format maximum: a >4 GB recording (~37 h at 16 kHz mono) then
+        // writes a valid (maxed-out) header instead of an Int that wraps to a tiny wrong size. WavSlicer
+        // derives the sample count from the file length, not these fields, so diarization is unaffected.
         val pcmBytes = samples * 2
+        val dataSize = minOf(pcmBytes, 0xFFFF_FFFFL).toInt()
+        val riffSize = minOf(36 + pcmBytes, 0xFFFF_FFFFL).toInt()
         RandomAccessFile(file, "rw").use { raf ->
             val h = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
-            h.put("RIFF".toByteArray()); h.putInt((36 + pcmBytes).toInt()); h.put("WAVE".toByteArray())
+            h.put("RIFF".toByteArray()); h.putInt(riffSize); h.put("WAVE".toByteArray())
             h.put("fmt ".toByteArray()); h.putInt(16); h.putShort(1); h.putShort(1)
             h.putInt(WavIo.SAMPLE_RATE); h.putInt(WavIo.SAMPLE_RATE * 2); h.putShort(2); h.putShort(16)
-            h.put("data".toByteArray()); h.putInt(pcmBytes.toInt())
+            h.put("data".toByteArray()); h.putInt(dataSize)
             raf.seek(0); raf.write(h.array())
         }
     }
