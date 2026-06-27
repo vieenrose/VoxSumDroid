@@ -35,7 +35,15 @@ class Summarizer(
         val langClause = if (targetLanguage != null) " Write it in $targetLanguage."
             else " Write it in the same language as the transcript."
         val instr = userPrompt + langClause
-        val chunks = SummaryText.chunk(transcript)
+        // Budget every prompt in CHARS so it fits n_ctx for ANY script. CJK is the densest (~1.55
+        // tokens/char), so cap at ~0.6 chars/token (*3/5); English (~4 chars/token) just gets smaller,
+        // more granular chunks — safe. Without this, a long OR Chinese transcript makes a map chunk
+        // (and the joined reduce prompt) exceed n_ctx, the native decode guard returns nothing, and the
+        // summary comes back silently EMPTY. (zh-Hant transcripts longer than a few minutes hit this.)
+        val reduceMax = 400
+        val mapBudget = ((llm.nCtx - 256 - 96) * 3 / 5).coerceIn(512, 3500)
+        val reduceBudget = ((llm.nCtx - reduceMax - 96) * 3 / 5).coerceAtLeast(512)
+        val chunks = SummaryText.chunk(transcript, size = mapBudget)
         emit(TranscriptEvent.Status("Summarizing ${chunks.size} chunk(s)…"))
 
         val partials = ArrayList<String>(chunks.size)
@@ -47,14 +55,30 @@ class Summarizer(
             emit(TranscriptEvent.Progress((i + 1f) / chunks.size))
         }
 
-        // If there was only one chunk, its summary IS the final summary — skip a redundant pass.
+        // Reduce HIERARCHICALLY so the joined prompt never overflows the context window: fold the
+        // partials in budget-sized groups, re-summarizing each round until a single prompt fits. (A long
+        // meeting's ~16+ partials would otherwise join into one over-n_ctx reduce prompt -> empty summary.)
+        var level: List<String> = partials
+        while (level.size > 1 && level.joinToString("\n\n").length > reduceBudget) {
+            emit(TranscriptEvent.Status("Combining ${level.size} section summaries…"))
+            val next = ArrayList<String>()
+            for (group in SummaryText.groupPartials(level, reduceBudget)) {
+                if (group.size == 1) { next += group[0]; continue }
+                val sb = StringBuilder()
+                llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, group.joinToString("\n\n"))), reduceMax) { sb.append(it) }
+                next += sb.toString().trim()
+            }
+            level = next
+        }
+
+        // One chunk (or a single folded summary) IS the final summary — skip a redundant pass.
         val finalSb = StringBuilder()
-        if (partials.size == 1) {
-            finalSb.append(partials[0])
+        if (level.size == 1) {
+            finalSb.append(level[0])
         } else {
             llm.generate(
-                SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, partials.joinToString("\n\n"))),
-                maxTokens = 400,
+                SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, level.joinToString("\n\n"))),
+                maxTokens = reduceMax,
             ) { finalSb.append(it) }
         }
         val finalSummary = convert(SummaryText.cleanSummary(finalSb.toString()))

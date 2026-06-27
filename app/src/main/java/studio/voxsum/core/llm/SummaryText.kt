@@ -70,6 +70,28 @@ internal object SummaryText {
             "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
     }
 
+    /**
+     * Greedily pack consecutive partial summaries into groups whose joined length (with "\n\n"
+     * separators) stays within [budgetChars], so a hierarchical reduce never builds a prompt that
+     * overflows the LLM context window. A single partial larger than the budget still gets its own
+     * group (it can't be split here); order and completeness are always preserved.
+     */
+    fun groupPartials(partials: List<String>, budgetChars: Int): List<List<String>> {
+        val groups = ArrayList<List<String>>()
+        var cur = ArrayList<String>()
+        var curLen = 0
+        for (p in partials) {
+            val sep = if (cur.isEmpty()) 0 else 2          // "\n\n"
+            if (cur.isNotEmpty() && curLen + sep + p.length > budgetChars) {
+                groups.add(cur); cur = ArrayList(); curLen = 0
+            }
+            curLen += (if (cur.isEmpty()) 0 else 2) + p.length
+            cur.add(p)
+        }
+        if (cur.isNotEmpty()) groups.add(cur)
+        return groups
+    }
+
     /** Naive char-window chunker; replace with a sentence-aware splitter in Phase 2. */
     fun chunk(text: String, size: Int = 3500, overlap: Int = 300): List<String> {
         // Defensive: clamp the params so the window ALWAYS advances. With overlap >= size (or size <= 0)

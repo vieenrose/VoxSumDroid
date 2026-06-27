@@ -7,7 +7,7 @@ package studio.voxsum.core.llm
  * Memory discipline (see SPIKE.md): never hold the ASR/diarization models and the LLM
  * loaded simultaneously. Load -> generate -> close around the summarization phase.
  */
-class LlmEngine private constructor(private var handle: Long) : AutoCloseable {
+class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : AutoCloseable {
 
     fun interface TokenCallback {
         /** Invoked by native code per decoded piece; forward to a Flow for streaming. */
@@ -37,7 +37,7 @@ class LlmEngine private constructor(private var handle: Long) : AutoCloseable {
         fun load(modelPath: String, nThreads: Int, nCtx: Int = 4096): LlmEngine {
             val h = nativeLoad(modelPath, nThreads, nCtx)
             check(h != 0L) { "Failed to load GGUF model: $modelPath" }
-            return LlmEngine(h)
+            return LlmEngine(h, nCtx)
         }
 
         @JvmStatic private external fun nativeLoad(path: String, nThreads: Int, nCtx: Int): Long
