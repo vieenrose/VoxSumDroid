@@ -64,6 +64,7 @@ class DiarizationEngine(
         samples: (Long, Long) -> FloatArray,
         totalSamples: Long,
         utterances: List<TranscriptEvent.Utterance>,
+        onProgress: (Float) -> Unit = {},
     ): Pair<List<TranscriptEvent.Utterance>, Int> {
         this.samples = samples
         this.totalSamples = totalSamples
@@ -77,8 +78,10 @@ class DiarizationEngine(
             return utterances.mapIndexed { i, u -> u.copy(index = i, speaker = 0) } to 1
         }
 
-        // 1. One L2-normalized embedding per utterance.
-        val embs = Array(utterances.size) { i -> embedUtterance(utterances[i]) }
+        // 1. One L2-normalized embedding per utterance. This loop is the bulk of diarization, so it
+        //    drives the progress callback (clustering after it is comparatively instant).
+        val n = utterances.size
+        val embs = Array(n) { i -> embedUtterance(utterances[i]).also { onProgress((i + 1f) / n) } }
 
         // 2. Adaptive clustering → a speaker label per utterance.
         var labels = cluster(embs)

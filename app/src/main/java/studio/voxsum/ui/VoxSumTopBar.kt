@@ -182,12 +182,14 @@ fun VoxSumTopBar(
             )
         }
         if (running) {
-            LinearProgressIndicator(
-                progress = { progress },
-                color = VoxSumPalette.Sky,
-                trackColor = VoxSumPalette.Slate700,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            )
+            val barMod = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            // Live capture has no known total → an indeterminate "working" bar (a determinate bar would
+            // sit at 0). Every other phase reports a real fraction, so it's determinate.
+            if (isRecording) {
+                LinearProgressIndicator(color = VoxSumPalette.Sky, trackColor = VoxSumPalette.Slate700, modifier = barMod)
+            } else {
+                LinearProgressIndicator(progress = { progress }, color = VoxSumPalette.Sky, trackColor = VoxSumPalette.Slate700, modifier = barMod)
+            }
         }
     }
 }

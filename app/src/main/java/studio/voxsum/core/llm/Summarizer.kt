@@ -50,6 +50,7 @@ class Summarizer(
         val reduceBudget = ((llm.nCtx - reduceMax - 96) * 3 / 5).coerceAtLeast(512)
         val chunks = SummaryText.chunk(transcript, size = mapBudget)
         emit(TranscriptEvent.Status("Summarizing ${chunks.size} chunk(s)…"))
+        emit(TranscriptEvent.Progress(0f))   // restart the bar for the summary phase
 
         val partials = ArrayList<String>(chunks.size)
         for ((i, c) in chunks.withIndex()) {

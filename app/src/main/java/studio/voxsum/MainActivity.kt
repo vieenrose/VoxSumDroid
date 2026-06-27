@@ -699,7 +699,10 @@ private fun TranscribeScreen(
             when (e) {
                 is TranscriptEvent.Status -> status = e.message
                 is TranscriptEvent.Utterance -> utterances.add(e)
-                is TranscriptEvent.Progress -> { progress = e.fraction; status = context.getString(R.string.status_transcribing, (e.fraction * 100).toInt()) }
+                // Progress drives the BAR only; each phase sets its own status (Transcribing /
+                // Identifying speakers / Summarizing), so we no longer overwrite it with "Transcribing %"
+                // (which also mislabeled the summary phase). running guards a late event after completion.
+                is TranscriptEvent.Progress -> { if (running) progress = e.fraction }
                 is TranscriptEvent.DownloadProgress -> { running = true; progress = e.fraction; status = e.label }
                 is TranscriptEvent.Complete -> {
                     // Preserve any in-flight text edits (merge by index); speaker-name map is

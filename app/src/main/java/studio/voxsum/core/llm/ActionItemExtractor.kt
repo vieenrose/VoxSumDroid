@@ -19,8 +19,9 @@ class ActionItemExtractor(
     private val convert: (String) -> String = { it },
 ) {
 
-    /** Blocking (runs native generate); call on a background dispatcher. */
-    fun extract(transcript: String): String {
+    /** Blocking (runs native generate); call on a background dispatcher. [onProgress] reports the
+     *  per-chunk map progress (0..1) for the UI bar. */
+    fun extract(transcript: String, onProgress: (Float) -> Unit = {}): String {
         val langClause = if (targetLanguage != null) " Write them in $targetLanguage."
             else " Write them in the same language as the transcript."
         // Same CJK-safe char budget as Summarizer (~0.6 chars/token), reserving MAX_TOKENS for output.
@@ -28,10 +29,11 @@ class ActionItemExtractor(
         val chunks = SummaryText.chunk(transcript, size = budget)
 
         val partials = ArrayList<String>(chunks.size)
-        for (c in chunks) {
+        for ((i, c) in chunks.withIndex()) {
             val sb = StringBuilder()
             llm.generate(SummaryText.wrap(template, MAP_TEMPLATE.format(langClause, c)), maxTokens = MAX_TOKENS) { sb.append(it) }
             partials += sb.toString().trim()
+            onProgress((i + 1f) / chunks.size)
         }
 
         // Fold in budget-sized groups until one prompt fits — never join all partials into one

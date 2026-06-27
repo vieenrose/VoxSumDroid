@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -126,6 +127,15 @@ class TranscriptionService : LifecycleService() {
         val text = getString(msgRes, pct)
         updateNotification(text)
         events.tryEmit(TranscriptEvent.DownloadProgress(frac.coerceIn(0f, 1f), text))
+    }
+
+    /** Total media duration in seconds via a cheap metadata read; 0 if unknown/unreadable. */
+    private fun probeDurationSec(uri: Uri): Double {
+        val mmr = MediaMetadataRetriever()
+        return try {
+            mmr.setDataSource(this, uri)
+            (mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L) / 1000.0
+        } catch (t: Throwable) { 0.0 } finally { runCatching { mmr.release() } }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -286,6 +296,10 @@ class TranscriptionService : LifecycleService() {
         }
 
         events.emit(TranscriptEvent.Status(getString(R.string.svc_transcribing)))
+        events.emit(TranscriptEvent.Progress(0f))   // restart the bar for the recognition phase
+        // Total audio length (a cheap metadata read) so the recognition phase can report REAL progress
+        // as each utterance's end time advances through the file. 0 when unknown → no ASR bar, still fine.
+        val totalDurationSec = probeDurationSec(uri)
         // OpenCC s2tw: like the web app, convert Simplified→Traditional on every utterance
         // (and later the summary/title) — only when the summary language is Traditional Chinese.
         // Built once, reused.
@@ -321,6 +335,10 @@ class TranscriptionService : LifecycleService() {
                             val u = converter?.let { e.copy(text = it.convert(e.text)) } ?: e
                             utterances += u
                             events.emit(u)
+                            // Recognition progress: how far the latest utterance reaches through the audio.
+                            if (totalDurationSec > 0) {
+                                events.emit(TranscriptEvent.Progress((u.endSec / totalDurationSec).toFloat().coerceIn(0f, 1f)))
+                            }
                         }
                         else -> events.emit(e)
                     }
@@ -424,6 +442,7 @@ class TranscriptionService : LifecycleService() {
                 models.ensureDiarizationModels { frac -> reportDownload(R.string.svc_downloading_diarization_pct, frac) }
             }
             events.emit(TranscriptEvent.Status(getString(R.string.svc_identifying_speakers)))
+            events.emit(TranscriptEvent.Progress(0f))   // restart the bar for the diarization phase
             DiarizationEngine(
                 embeddingModel = models.embeddingModel.absolutePath,
                 numThreads = asrThreads(),
@@ -431,7 +450,11 @@ class TranscriptionService : LifecycleService() {
                 clusterThreshold = cfg.clusterThreshold,
             ).use { de ->
                 val (t, count) = WavSlicer(wav).use { slicer ->
-                    de.assignSpeakers(slicer::read, slicer.totalSamples, utterances)
+                    var lastPct = -1
+                    de.assignSpeakers(slicer::read, slicer.totalSamples, utterances) { frac ->
+                        val pct = (frac * 100).toInt()
+                        if (pct != lastPct) { lastPct = pct; events.tryEmit(TranscriptEvent.Progress(frac)) }
+                    }
                 }
                 tagged = t
                 events.emit(TranscriptEvent.Complete(t, count))
@@ -501,6 +524,7 @@ class TranscriptionService : LifecycleService() {
         }
         updateNotification(getString(R.string.svc_extracting_actions))
         events.emit(TranscriptEvent.Status(getString(R.string.svc_extracting_actions)))
+        events.emit(TranscriptEvent.Progress(0f))   // restart the bar for the action-items phase
         val converter = summaryConverter(cfg)
         LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
             activeLlm = llm
@@ -510,7 +534,7 @@ class TranscriptionService : LifecycleService() {
                     template = spec.chatTemplate,
                     targetLanguage = SummaryLanguage.fromId(cfg.summaryLanguage).promptName,
                     convert = { converter?.convert(it) ?: it },
-                ).extract(transcript)
+                ).extract(transcript) { frac -> events.tryEmit(TranscriptEvent.Progress(frac)) }
                 events.emit(TranscriptEvent.ActionItemsComplete(text))
             } finally {
                 activeLlm = null
