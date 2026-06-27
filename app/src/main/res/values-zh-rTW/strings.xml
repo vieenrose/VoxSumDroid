@@ -157,10 +157,12 @@
     <string name="update_check_failed">無法檢查更新</string>
 
     <!-- Session as a self-describing .ogg + share -->
-    <string name="source_session">開啟工作階段（.ogg）</string>
-    <string name="source_session_desc">重新載入已儲存的 .ogg 以繼續編輯逐字稿</string>
+    <string name="source_session">開啟工作階段（.ogg / .m4a）</string>
+    <string name="source_session_desc">重新載入已儲存的 .ogg 或 .m4a 以繼續編輯逐字稿</string>
     <string name="session_save">儲存工作階段（.ogg）</string>
     <string name="session_share">分享工作階段（.ogg）</string>
+    <string name="session_save_m4a">儲存工作階段（.m4a）</string>
+    <string name="session_share_m4a">分享工作階段（.m4a）</string>
     <string name="session_saved">工作階段已儲存</string>
     <string name="session_saved_as">已儲存 %1$s</string>
     <string name="session_saved_partial">已儲存 %1$s — 逐字稿太大無法內嵌；僅含音訊與摘要</string>

@@ -158,10 +158,12 @@
     <string name="update_check_failed">Couldn\'t check for updates</string>
 
     <!-- Session as a self-describing .ogg + share -->
-    <string name="source_session">Open session (.ogg)</string>
-    <string name="source_session_desc">Reload a saved .ogg to keep editing the transcript</string>
+    <string name="source_session">Open session (.ogg / .m4a)</string>
+    <string name="source_session_desc">Reload a saved .ogg or .m4a to keep editing the transcript</string>
     <string name="session_save">Save session (.ogg)</string>
     <string name="session_share">Share session (.ogg)</string>
+    <string name="session_save_m4a">Save session (.m4a)</string>
+    <string name="session_share_m4a">Share session (.m4a)</string>
     <string name="session_saved">Session saved</string>
     <string name="session_saved_as">Saved %1$s</string>
     <string name="session_saved_partial">Saved %1$s — transcript too large to embed; audio + summary only</string>

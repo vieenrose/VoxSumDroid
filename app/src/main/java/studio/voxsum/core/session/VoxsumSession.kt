@@ -9,6 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioTranscoder
+import studio.voxsum.core.audio.Mp4Tags
 import studio.voxsum.core.audio.OggOpusTags
 import studio.voxsum.core.cover.CoverArt
 import studio.voxsum.core.cover.CoverGenerator
@@ -31,6 +32,15 @@ import java.util.zip.GZIPOutputStream
 object VoxsumSession {
     const val EXT = "ogg"
     const val MIME = "audio/ogg"
+
+    /** Container the session is stored in. Both embed the SAME self-describing session (audio +
+     *  transcript + summary + speakers + cover + title) and reopen losslessly; M4A/AAC is the most
+     *  universally-playable option, OGG/Opus the most efficient. */
+    enum class Format(val ext: String, val mime: String) {
+        OGG("ogg", "audio/ogg"),
+        M4A("m4a", "audio/mp4"),
+    }
+
     private const val VERSION = 1
     private const val FIELD = "VOXSUM"
     private const val MAX_BLOB_CHARS = 2 * 1024 * 1024      // base64 ceiling before decode
@@ -78,6 +88,7 @@ object VoxsumSession {
         coverEnabled: Boolean = true,   // auto-generate + embed the cover card (METADATA_BLOCK_PICTURE)
         coverSeed: Int = 0,             // layout/palette variant (the "Regenerate" seed)
         fileName: String = "session.$EXT",
+        format: Format = Format.OGG,    // OGG/Opus (default) or M4A/AAC — both embed the full session
     ): Built? = withContext(Dispatchers.IO) {
         if (audioUri == null) return@withContext null
         dir.mkdirs()
@@ -92,38 +103,49 @@ object VoxsumSession {
         if (decoded == null || decoded <= 0L) { workWav.delete(); return@withContext null }
         // Dot-prefixed temp name so it can never collide with a suggestFileName() output (which is
         // trimmed of leading dots), avoiding deleting the very file we return in the share flow.
-        val plain = File(dir, ".audio_tmp.ogg")
-        val transcoded = AudioTranscoder.wavToOggOpus(workWav, plain)
+        val plain = File(dir, ".audio_tmp.${format.ext}")
+        val transcoded = when (format) {
+            Format.OGG -> AudioTranscoder.wavToOggOpus(workWav, plain)
+            Format.M4A -> AudioTranscoder.wavToM4aAac(workWav, plain)
+        }
         workWav.delete()
         if (!transcoded) {
-            android.util.Log.w("voxsum-ogg", "wav->ogg transcode returned false")
+            android.util.Log.w("voxsum-session", "wav->${format.ext} transcode returned false")
             return@withContext null
         }
-        // Render the cover from this session's current metadata (title + speaker palette + waveform),
-        // so it's always in sync with the .ogg — regenerated whenever the session is (re)saved.
-        val coverBlock: String? = if (coverEnabled && utterances.isNotEmpty()) runCatching {
+        // Render the cover JPEG once from this session's metadata (title + speaker palette + waveform),
+        // so it's always in sync with the file — regenerated whenever the session is (re)saved.
+        var coverJpeg: ByteArray? = null; var coverW = 0; var coverH = 0
+        if (coverEnabled && utterances.isNotEmpty()) runCatching {
             val cols = utterances.mapNotNull { it.speaker }.distinct().sorted().map { speakerColor(it).toInt() }
             val bmp = CoverGenerator.render(title, peaks.peaks(), cols, coverSeed)
-            CoverArt.encode(CoverGenerator.toJpeg(bmp), bmp.width, bmp.height)
-        }.getOrNull() else null
-        val comments = LinkedHashMap<String, String>()
-        comments[FIELD] = encodeSession(utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId)
-        title?.takeIf { it.isNotBlank() }?.let { comments["TITLE"] = it.replace('\n', ' ').trim() }
-        summary?.takeIf { it.isNotBlank() }?.let { comments["DESCRIPTION"] = it.trim() }
-        lrc(utterances).takeIf { it.isNotBlank() }?.let { comments["LYRICS"] = it }
-        coverBlock?.let { comments[CoverArt.FIELD] = it }   // cover art any player can show
+            coverJpeg = CoverGenerator.toJpeg(bmp); coverW = bmp.width; coverH = bmp.height
+        }
+        val blob = encodeSession(utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId)
+        val cleanTitle = title?.replace('\n', ' ')?.trim()?.ifBlank { null }
+        val cleanSummary = summary?.trim()?.ifBlank { null }
+        val lyrics = lrc(utterances).ifBlank { null }
         val tagged = File(dir, fileName)
-        // OpusTags is now multi-page, so the comments fit at any size — keep VOXSUM (precise reimport)
-        // AND LYRICS (so ordinary audio players display the synced transcript). The fallback below is
-        // a genuine-error path only (no longer reachable for size); it keeps a playable ogg.
-        val embedded: Boolean = if (OggOpusTags.write(plain, tagged, comments)) {
-            true
-        } else {
-            // Genuine-error fallback: drop the heavy/optional fields (transcript, lyrics, cover),
-            // keep a playable ogg with just TITLE/DESCRIPTION.
-            val lite = comments.filterKeys { it != FIELD && it != "LYRICS" && it != CoverArt.FIELD }
-            if (lite.isEmpty() || !OggOpusTags.write(plain, tagged, lite)) plain.copyTo(tagged, overwrite = true)
-            false
+        val embedded: Boolean = when (format) {
+            Format.OGG -> {
+                val comments = LinkedHashMap<String, String>()
+                comments[FIELD] = blob
+                cleanTitle?.let { comments["TITLE"] = it }
+                cleanSummary?.let { comments["DESCRIPTION"] = it }
+                lyrics?.let { comments["LYRICS"] = it }
+                coverJpeg?.let { comments[CoverArt.FIELD] = CoverArt.encode(it, coverW, coverH) }   // any player shows it
+                if (OggOpusTags.write(plain, tagged, comments)) true
+                else {
+                    // Genuine-error fallback: a playable ogg with just TITLE/DESCRIPTION (no session).
+                    val lite = comments.filterKeys { it != FIELD && it != "LYRICS" && it != CoverArt.FIELD }
+                    if (lite.isEmpty() || !OggOpusTags.write(plain, tagged, lite)) plain.copyTo(tagged, overwrite = true)
+                    false
+                }
+            }
+            Format.M4A -> {
+                if (Mp4Tags.write(plain, tagged, voxsum = blob, title = cleanTitle, description = cleanSummary, coverJpeg = coverJpeg, lyrics = lyrics)) true
+                else { plain.copyTo(tagged, overwrite = true); false }   // fallback: playable m4a, no session
+            }
         }
         if (plain != tagged) plain.delete()
         Built(tagged, embedded)
@@ -134,11 +156,11 @@ object VoxsumSession {
         context: Context, out: OutputStream, audioUri: Uri?,
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
         summary: String?, actionItems: String?, title: String?, asrModelId: String?, llmModelId: String?,
-        coverEnabled: Boolean = true, coverSeed: Int = 0,
+        coverEnabled: Boolean = true, coverSeed: Int = 0, format: Format = Format.OGG,
     ): SaveOutcome = withContext(Dispatchers.IO) {
         out.use { o ->
             val dir = File(context.cacheDir, "voxsum_save").apply { mkdirs() }
-            val built = buildSessionOgg(context, dir, audioUri, utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId, coverEnabled, coverSeed)
+            val built = buildSessionOgg(context, dir, audioUri, utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId, coverEnabled, coverSeed, "session.${format.ext}", format)
                 ?: return@use SaveOutcome.FAILED
             built.file.inputStream().use { it.copyTo(o) }
             built.file.delete()
@@ -154,12 +176,15 @@ object VoxsumSession {
             if (it.name.startsWith("voxsum_open_") && it.name != dir.name) it.deleteRecursively()
         }
         dir.mkdirs()
-        val audio = File(dir, "session.ogg")
+        val audio = File(dir, "session.bin")
         context.contentResolver.openInputStream(src)?.use { ins -> audio.outputStream().use { ins.copyTo(it) } }
             ?: error("Could not open file")
-        // Cover art (if present) is recovered regardless of whether a full session blob exists.
-        val coverJpeg = OggOpusTags.read(audio, CoverArt.FIELD)?.let { CoverArt.decode(it) }
-        val blob = OggOpusTags.read(audio, FIELD)
+        // Detect the container by magic ("OggS" = OGG; "ftyp" at offset 4 = MP4/M4A) and read the
+        // session + cover from the matching tag layer. Both embed the identical VOXSUM blob.
+        val isM4a = isMp4(audio)
+        val coverJpeg = if (isM4a) Mp4Tags.readCover(audio)
+            else OggOpusTags.read(audio, CoverArt.FIELD)?.let { CoverArt.decode(it) }
+        val blob = if (isM4a) Mp4Tags.readVoxsum(audio) else OggOpusTags.read(audio, FIELD)
         if (blob == null || blob.length > MAX_BLOB_CHARS) {
             // No embedded session (or an implausibly large blob) — load as plain audio.
             return@withContext Loaded(audio, emptyList(), emptyMap(), null, null, null, null, recovered = false, coverJpeg = coverJpeg)
@@ -180,14 +205,14 @@ object VoxsumSession {
      * the name is used as `File(dir, name)` for sharing), dodges Windows reserved names, and caps
      * length. Falls back to `voxsum_session` when nothing usable remains.
      */
-    fun suggestFileName(title: String?): String {
+    fun suggestFileName(title: String?, ext: String = EXT): String {
         var s = (title ?: "")
             .replace(SAFE_NAME, "_")
             .replace(Regex("_{2,}"), "_")
             .trim('_', '.', '-')
         if (s.length > 60) s = s.take(60).trim('_', '.', '-')
         if (s.isBlank() || RESERVED.matches(s.substringBefore('.'))) s = "voxsum_session"
-        return "$s.$EXT"
+        return "$s.$ext"
     }
 
     // --- session (de)serialization: lossless JSON, gzip+base64 into one comment ---
@@ -275,6 +300,14 @@ object VoxsumSession {
             val s = u.startSec - m * 60
             "[%02d:%05.2f]%s".format(m, s, u.text.replace('\n', ' '))
         }
+
+    /** True when [f] is an MP4/M4A container ("ftyp" at offset 4), vs an OGG ("OggS" at 0). */
+    private fun isMp4(f: File): Boolean = runCatching {
+        f.inputStream().use { ins ->
+            val h = ByteArray(12)
+            if (ins.read(h) < 12) false else String(h, 4, 4, Charsets.US_ASCII) == "ftyp"
+        }
+    }.getOrDefault(false)
 
     private fun gzip(data: ByteArray): ByteArray {
         val bos = ByteArrayOutputStream()

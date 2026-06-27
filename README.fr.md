@@ -65,7 +65,7 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 - **Copiez** tout le résumé d'un seul geste.
 - **Exportez le texte** — copiez ou partagez la transcription en texte, ou enregistrez des **sous-titres (`.srt`/`.vtt`)**, du texte brut, du Markdown ou un **PDF** imprimable pour d'autres applis.
 - **Relancez** la transcription, le résumé ou la détection des noms quand vous voulez — p. ex. changez la langue du résumé puis relancez-le.
-- **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique `.ogg` qui **se lit dans n'importe quelle appli musicale** et **se rouvre dans VoxSum** avec tout intact.
+- **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique **`.ogg`** ou **`.m4a`** qui **se lit dans n'importe quelle appli musicale** (avec le titre, la pochette et la transcription en paroles) et **se rouvre dans VoxSum** avec tout intact. Choisissez `.m4a` pour la compatibilité maximale (iPhone, autoradios, tous les lecteurs).
 
 ## Langues
 

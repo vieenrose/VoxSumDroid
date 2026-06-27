@@ -80,6 +80,8 @@ fun VoxSumTopBar(
     onCoverPreview: () -> Unit,
     onSaveSession: () -> Unit,
     onShareSession: () -> Unit,
+    onSaveSessionM4a: () -> Unit,
+    onShareSessionM4a: () -> Unit,
     onCopyTranscript: () -> Unit,
     onShareTranscript: () -> Unit,
     onExportTxt: () -> Unit,
@@ -169,7 +171,7 @@ fun VoxSumTopBar(
                     }
                 }
                 ExportMenu(
-                    transcriptAvailable, onCoverPreview, onSaveSession, onShareSession,
+                    transcriptAvailable, onCoverPreview, onSaveSession, onShareSession, onSaveSessionM4a, onShareSessionM4a,
                     onCopyTranscript, onShareTranscript, onExportTxt, onExportSrt, onExportVtt, onExportMarkdown, onExportPdf,
                 )
             }
@@ -268,6 +270,8 @@ private fun ExportMenu(
     onCoverPreview: () -> Unit,
     onSaveSession: () -> Unit,
     onShareSession: () -> Unit,
+    onSaveSessionM4a: () -> Unit,
+    onShareSessionM4a: () -> Unit,
     onCopyTranscript: () -> Unit,
     onShareTranscript: () -> Unit,
     onExportTxt: () -> Unit,
@@ -299,6 +303,14 @@ private fun ExportMenu(
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.session_share)) },
                 onClick = { open = false; onShareSession() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.session_save_m4a)) },
+                onClick = { open = false; onSaveSessionM4a() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.session_share_m4a)) },
+                onClick = { open = false; onShareSessionM4a() },
             )
             HorizontalDivider()
             // Get the WORDS out into other apps: copy/share as text, or save portable text/subtitles.

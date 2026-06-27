@@ -1,6 +1,7 @@
 package studio.voxsum.core.audio
 
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.media.MediaMuxer
@@ -43,6 +44,30 @@ object AudioTranscoder {
             }
         }.getOrElse { android.util.Log.w("voxsum-ogg", "wav→ogg transcode failed", it); dest.delete(); false }
 
+    /** Stream a 16 kHz mono WAV to AAC in an MP4 (.m4a) container — the universally-playable session
+     *  format. The native AAC encoder is mandatory on Android, so this works on any device (API 18+). */
+    fun wavToM4aAac(wav: File, dest: File): Boolean =
+        runCatching {
+            RandomAccessFile(wav, "r").use { raf ->
+                raf.seek(44)
+                encodeAac(dest) { into -> raf.read(into).let { if (it <= 0) -1 else it } }
+            }
+        }.getOrElse { android.util.Log.w("voxsum-m4a", "wav→m4a transcode failed", it); dest.delete(); false }
+
+    /** Drive the AAC-LC encoder + MP4 muxer, pulling PCM16 via [read]. ~32 kbps mono speech. */
+    private fun encodeAac(dest: File, read: (ByteArray) -> Int): Boolean {
+        val fmt = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, RATE, 1).apply {
+            setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+            setInteger(MediaFormat.KEY_BIT_RATE, 32_000)
+        }
+        val encoderName = MediaCodecList(MediaCodecList.REGULAR_CODECS).findEncoderForFormat(fmt) ?: return false
+        return runCatching { encode(read, fmt, encoderName, dest, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) }
+            .fold(
+                onSuccess = { true },
+                onFailure = { android.util.Log.w("voxsum-m4a", "AAC encode failed", it); dest.delete(); false },
+            )
+    }
+
     /** Drive the Opus encoder + OGG muxer, pulling PCM16 via [read] (fills the buffer; -1 at EOF). */
     private fun encodeOgg(dest: File, read: (ByteArray) -> Int): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
@@ -52,16 +77,16 @@ object AudioTranscoder {
         val fmt = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, RATE, 1).apply {
             setInteger(MediaFormat.KEY_BIT_RATE, 24_000)
         }
-        return runCatching { encode(read, fmt, encoderName, dest) }
+        return runCatching { encode(read, fmt, encoderName, dest, MediaMuxer.OutputFormat.MUXER_OUTPUT_OGG) }
             .fold(
                 onSuccess = { true },
                 onFailure = { android.util.Log.w("voxsum-ogg", "Opus encode failed", it); dest.delete(); false },
             )
     }
 
-    private fun encode(read: (ByteArray) -> Int, fmt: MediaFormat, encoderName: String, dest: File) {
+    private fun encode(read: (ByteArray) -> Int, fmt: MediaFormat, encoderName: String, dest: File, muxerFormat: Int) {
         val codec = MediaCodec.createByCodecName(encoderName)
-        val muxer = MediaMuxer(dest.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_OGG)
+        val muxer = MediaMuxer(dest.absolutePath, muxerFormat)
         var track = -1
         var muxing = false
         try {

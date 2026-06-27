@@ -53,6 +53,7 @@ class VoxSumTopBarTest {
                 onSettings = { fired["settings"] = true },
                 onCoverPreview = { fired["cover"] = true }, onSaveSession = { fired["save"] = true },
                 onShareSession = { fired["share"] = true },
+                onSaveSessionM4a = { fired["savem4a"] = true }, onShareSessionM4a = { fired["sharem4a"] = true },
                 onCopyTranscript = { fired["copytx"] = true }, onShareTranscript = { fired["sharetx"] = true },
                 onExportTxt = { fired["txt"] = true }, onExportSrt = { fired["srt"] = true },
                 onExportVtt = { fired["vtt"] = true }, onExportMarkdown = { fired["md"] = true }, onExportPdf = { fired["pdf"] = true },

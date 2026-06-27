@@ -158,10 +158,12 @@
     <string name="update_check_failed">Impossible de rechercher des mises à jour</string>
 
     <!-- Session as a self-describing .ogg + share -->
-    <string name="source_session">Ouvrir une session (.ogg)</string>
-    <string name="source_session_desc">Recharger un .ogg enregistré pour continuer à modifier la transcription</string>
+    <string name="source_session">Ouvrir une session (.ogg / .m4a)</string>
+    <string name="source_session_desc">Recharger un .ogg ou .m4a enregistré pour continuer à modifier la transcription</string>
     <string name="session_save">Enregistrer la session (.ogg)</string>
     <string name="session_share">Partager la session (.ogg)</string>
+    <string name="session_save_m4a">Enregistrer la session (.m4a)</string>
+    <string name="session_share_m4a">Partager la session (.m4a)</string>
     <string name="session_saved">Session enregistrée</string>
     <string name="session_saved_as">Enregistré : %1$s</string>
     <string name="session_saved_partial">Enregistré : %1$s — transcription trop volumineuse à intégrer ; audio + résumé uniquement</string>

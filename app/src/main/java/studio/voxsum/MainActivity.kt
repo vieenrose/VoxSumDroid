@@ -589,23 +589,34 @@ private fun TranscribeScreen(
     }
 
     // --- Session as a self-describing .ogg: Save (SAF), Open (SAF → recover), Share (one .ogg). ---
-    val sessionSaver = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument(VoxsumSession.MIME)
-    ) { uri: Uri? ->
-        if (uri == null) { exporting = false; return@rememberLauncherForActivityResult }
-        // Hand the build+write to the foreground service so it finishes even if the app is closed
-        // (the cover was already generated before the picker opened). Overlay clears on ExportDone.
-        lastSaveUri = uri
+    // Build+write a session (.ogg or .m4a) in the foreground service so it finishes even if the app
+    // is closed. Both formats embed the identical full session; the file just plays more universally
+    // as .m4a. Overlay clears on ExportDone.
+    fun stageSessionExport(share: Boolean, uri: Uri?, format: VoxsumSession.Format) {
+        if (!share) lastSaveUri = uri
         TranscriptionService.pendingExport = TranscriptionService.ExportRequest(
-            share = false, saveUri = uri, audioUri = audioUri,
+            share = share, saveUri = uri, audioUri = audioUri,
             utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
             summary = summary, actionItems = actionItems, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
-            coverEnabled = coverEnabled, coverSeed = coverSeed, fileName = VoxsumSession.suggestFileName(title),
+            coverEnabled = coverEnabled, coverSeed = coverSeed,
+            fileName = VoxsumSession.suggestFileName(title, format.ext), format = format,
         )
         exporting = true
         ContextCompat.startForegroundService(
             context, Intent(context, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_EXPORT),
         )
+    }
+    val sessionSaver = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(VoxsumSession.MIME)
+    ) { uri: Uri? ->
+        if (uri == null) { exporting = false; return@rememberLauncherForActivityResult }
+        stageSessionExport(false, uri, VoxsumSession.Format.OGG)
+    }
+    val sessionSaverM4a = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(VoxsumSession.Format.M4A.mime)
+    ) { uri: Uri? ->
+        if (uri == null) { exporting = false; return@rememberLauncherForActivityResult }
+        stageSessionExport(false, uri, VoxsumSession.Format.M4A)
     }
     fun openSessionUri(uri: Uri) {
         scope.launch {
@@ -642,19 +653,9 @@ private fun TranscribeScreen(
     val sessionOpener = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? -> if (uri != null) openSessionUri(uri) }
-    fun shareSession() {
-        // No slow cover decode here — the build (incl. its single audio decode) runs in the service.
-        // Any cover the user generated via the "Cover…" dialog rides along as the cached coverBlock.
-        exporting = true
-        TranscriptionService.pendingExport = TranscriptionService.ExportRequest(
-            share = true, saveUri = null, audioUri = audioUri,
-            utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
-            summary = summary, actionItems = actionItems, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
-            coverEnabled = coverEnabled, coverSeed = coverSeed, fileName = VoxsumSession.suggestFileName(title),
-        )
-        ContextCompat.startForegroundService(
-            context, Intent(context, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_EXPORT),
-        )
+    fun shareSession(format: VoxsumSession.Format) {
+        // The build (incl. its single audio decode) runs in the service; no slow work here.
+        stageSessionExport(true, null, format)
     }
 
     // --- Transcript text exports (portable TXT / SRT / VTT / Markdown + copy & share). The .ogg is
@@ -1010,7 +1011,9 @@ private fun TranscribeScreen(
                 },
                 // No pre-decode here; the picker callback hands the build+write to the service.
                 onSaveSession = { sessionSaver.launch(VoxsumSession.suggestFileName(title)) },
-                onShareSession = { shareSession() },
+                onShareSession = { shareSession(VoxsumSession.Format.OGG) },
+                onSaveSessionM4a = { sessionSaverM4a.launch(VoxsumSession.suggestFileName(title, VoxsumSession.Format.M4A.ext)) },
+                onShareSessionM4a = { shareSession(VoxsumSession.Format.M4A) },
                 onCopyTranscript = { copyTranscript() },
                 onShareTranscript = { shareTranscript() },
                 onExportTxt = { txtSaver.launch("${exportBaseName()}.txt") },
@@ -1178,7 +1181,7 @@ private fun TranscribeScreen(
             onRecord = { requestRecord() },
             onPodcast = { showPodcastSheet = true },
             onYouTube = { showYouTubeSheet = true },
-            onOpenSession = { sessionOpener.launch(arrayOf("audio/ogg", "application/ogg", "*/*")) },
+            onOpenSession = { sessionOpener.launch(arrayOf("audio/ogg", "application/ogg", "audio/mp4", "audio/x-m4a", "*/*")) },
             onDismiss = { showAddSourceSheet = false },
         )
     }

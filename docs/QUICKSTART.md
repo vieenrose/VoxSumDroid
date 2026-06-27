@@ -76,9 +76,11 @@ the audio and transcribes it.
 
 Open the **⋮ (Export)** menu in the top bar:
 
-- **Save / Share session (.ogg)** — packs the whole session (audio + transcript + summary + speakers
-  + a cover) into one `.ogg` that **plays in any music app** and **reopens in VoxSum** with everything
-  intact. This is your archive — reopen it any time via *Add audio → Open session*.
+- **Save / Share session (.ogg or .m4a)** — packs the whole session (audio + transcript + summary +
+  speakers + a cover) into one `.ogg` *or* `.m4a` that **plays in any music app** (showing the title,
+  cover, and the transcript as lyrics) and **reopens in VoxSum** with everything intact. This is your
+  archive — reopen it any time via *Add audio → Open session*. Choose `.m4a` for the widest player
+  compatibility (iPhones, cars, every app).
 - **Copy / Share transcript** — get the text into any other app.
 - **Save as text / subtitles / Markdown / PDF** — `.txt`, `.srt`, `.vtt`, `.md`, or a printable `.pdf`
   for documents, captions, or notes.

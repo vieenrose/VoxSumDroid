@@ -65,7 +65,7 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 - **Copy** the whole summary with one tap.
 - **Export the words** — copy or share the transcript as text, or save **subtitles (`.srt`/`.vtt`)**, plain text, Markdown, or a printable **PDF** for any other app.
 - **Re-run** the transcription, the summary, or the speaker-name detection whenever you like — e.g. switch the summary language and re-summarize.
-- **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) is packed into a single `.ogg` that **plays in any music app** and **reopens in VoxSum** with everything intact.
+- **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) is packed into a single **`.ogg`** *or* **`.m4a`** that **plays in any music app** (and shows the title, cover and transcript as lyrics) and **reopens in VoxSum** with everything intact. Pick `.m4a` for the widest compatibility (iPhones, cars, every player).
 
 ## Languages
 
