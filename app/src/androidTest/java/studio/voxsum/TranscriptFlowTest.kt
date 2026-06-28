@@ -2,6 +2,7 @@ package studio.voxsum
 
 import android.Manifest
 import android.net.Uri
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -56,13 +57,19 @@ class TranscriptFlowTest {
         compose.onNodeWithText(msg, substring = true).assertIsDisplayed()
     }
 
-    @Test fun downloadProgressEventUpdatesStatusLine() {
+    @Test fun downloadProgressIgnoredWhenNotRunning() {
         awaitReady()
-        // Model-download progress carries its own labelled status (bar + "… NN%").
-        val msg = "Downloading summary model 42% (uitest)"
-        TranscriptionService.events.tryEmit(TranscriptEvent.DownloadProgress(0.42f, msg))
-        waitForText(msg)
-        compose.onNodeWithText(msg, substring = true).assertIsDisplayed()
+        // DownloadProgress drives the status line ONLY during an active run — the handler guards on
+        // `running` so a late buffered event (e.g. after Stop) can't re-stick the UI. With no run
+        // active (home screen), its label must NOT appear. A follow-up Status (which updates
+        // unconditionally) acts as an ordering marker: once it shows, the DownloadProgress before it
+        // was already processed — and skipped.
+        val dl = "Downloading summary model 42% (uitest)"
+        val marker = "Marker after download (uitest)"
+        TranscriptionService.events.tryEmit(TranscriptEvent.DownloadProgress(0.42f, dl))
+        TranscriptionService.events.tryEmit(TranscriptEvent.Status(marker))
+        waitForText(marker)
+        compose.onAllNodesWithText(dl, substring = true).assertCountEquals(0)
     }
 
     @Test fun completeRendersUtterancesAndLineSpeakerCount() {
