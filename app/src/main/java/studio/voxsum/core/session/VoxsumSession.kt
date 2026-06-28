@@ -129,7 +129,14 @@ object VoxsumSession {
         val blob = encodeSession(utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId)
         val cleanTitle = title?.replace('\n', ' ')?.trim()?.ifBlank { null }
         val cleanSummary = summary?.trim()?.ifBlank { null }
-        val lyrics = lrc(utterances).ifBlank { null }
+        // Player-facing lyrics (©lyr / LYRICS) = PLAIN transcript text, NOT timestamped LRC. Those tag
+        // fields are unsynchronized-plain-text by convention; LRC timestamps make lyrics-capable players
+        // (Doppler, Poweramp, MusicBee, Quod Libet…) reject the whole field, which is why nothing showed.
+        // Recovery fidelity is untouched: the full timestamped transcript round-trips via the VOXSUM blob,
+        // not this field. (Synced/karaoke display isn't a thing these containers support embedded anyway —
+        // that needs a sidecar .lrc.)
+        val lyrics = utterances.joinToString("\n") { it.text.replace('\n', ' ').trim() }
+            .ifBlank { null }
         val tagged = File(dir, fileName)
         val embedded: Boolean = when (format) {
             Format.OGG -> {
