@@ -26,8 +26,12 @@ class DiarizationTest {
         val inst = InstrumentationRegistry.getInstrumentation()
         val app = inst.targetContext
         val models = ModelManager(app)
-        assertTrue("push ASR models first", models.asrReady())
-        assertTrue("push diarization models first", models.diarizationReady())
+        // Self-provision (download what's missing) so this test is order-independent — it previously
+        // failed on a fresh device when it ran before EmbeddingBenchmarkTest fetched the speaker model.
+        if (!models.asrReady()) models.ensureAsrModels { }
+        if (!models.diarizationReady()) models.ensureDiarizationModels { }
+        assertTrue("ASR provisioned", models.asrReady())
+        assertTrue("diarization provisioned", models.diarizationReady())
 
         val pcm = readWav16kMono(inst.context.assets.open("two-speaker.wav"))
 
