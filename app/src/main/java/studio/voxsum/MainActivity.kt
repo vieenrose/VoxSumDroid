@@ -518,6 +518,9 @@ private fun TranscribeScreen(
     // A share / "open with" from another app (LINE or WhatsApp voice note, a recorder, Files, a
     // browser download…) lands in MainActivity.sharedAudioUri. Copy the stream into app storage while
     // its transient grant is live, then transcribe it like any other source. Consumed once.
+    // A shared file may itself be a saved VoxSum session (.ogg/.m4a) — recover it instead of blindly
+    // re-transcribing. openSessionUri (defined below) does that; this state bridges the scope gap.
+    var pendingSharedImport by remember { mutableStateOf<Uri?>(null) }
     LaunchedEffect(Unit) {
         MainActivity.sharedAudioUri.collect { u ->
             if (u == null) return@collect
@@ -528,8 +531,12 @@ private fun TranscribeScreen(
             if (!MainActivity.sharedAudioUri.compareAndSet(u, null)) return@collect
             status = context.getString(R.string.status_importing)
             val local = withContext(Dispatchers.IO) { runCatching { copyToAppAudio(context, u) }.getOrNull() }
-            if (local != null) launchAudio(Uri.fromFile(local))
-            else {
+            if (local != null) {
+                val luri = Uri.fromFile(local)
+                // If it embeds a session, route to recovery; otherwise transcribe it as before.
+                if (VoxsumSession.hasEmbeddedSession(local)) pendingSharedImport = luri
+                else launchAudio(luri)
+            } else {
                 status = context.getString(R.string.empty_status)
                 snackbarHostState.showSnackbar(context.getString(R.string.import_failed))
             }
@@ -653,6 +660,10 @@ private fun TranscribeScreen(
     val sessionOpener = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? -> if (uri != null) openSessionUri(uri) }
+    // A shared file that turned out to embed a session (detected above) is recovered here.
+    LaunchedEffect(pendingSharedImport) {
+        pendingSharedImport?.let { openSessionUri(it); pendingSharedImport = null }
+    }
     fun shareSession(format: VoxsumSession.Format) {
         // The build (incl. its single audio decode) runs in the service; no slow work here.
         stageSessionExport(true, null, format)

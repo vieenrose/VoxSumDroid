@@ -43,8 +43,13 @@ object VoxsumSession {
 
     private const val VERSION = 1
     private const val FIELD = "VOXSUM"
-    private const val MAX_BLOB_CHARS = 2 * 1024 * 1024      // base64 ceiling before decode
-    private const val MAX_JSON_BYTES = 16 * 1024 * 1024     // gunzip ceiling (real transcripts << this)
+    // base64 ceiling before decode. Generous on purpose: a long meeting's transcript can exceed a
+    // couple MB once base64'd (especially less-compressible CJK / dense text), and the REAL protection
+    // against a gzip bomb is [MAX_JSON_BYTES], which bounds the *decompressed* output as it streams.
+    // A 2 MB cap here used to silently reject (→ "plain audio", transcript lost) sessions that saved
+    // fine — so it must be at least as large as any blob that gunzips within MAX_JSON_BYTES.
+    private const val MAX_BLOB_CHARS = 32 * 1024 * 1024
+    private const val MAX_JSON_BYTES = 16 * 1024 * 1024     // gunzip ceiling (decompressed; the bomb guard)
 
     /** A restored session: the extracted audio file + the full editable transcript state. */
     data class Loaded(
@@ -192,6 +197,16 @@ object VoxsumSession {
         val json = runCatching { JSONObject(gunzip(Base64.decode(blob, Base64.NO_WRAP)).toString(Charsets.UTF_8)) }
             .getOrElse { error("Session metadata is corrupt") }
         parseManifest(json, audio, coverJpeg)
+    }
+
+    /** Cheap probe (tag read only, no decode/extract): does [file] embed a recoverable VoxSum session,
+     *  as opposed to being plain audio? Used to decide whether a *shared* file should be recovered as a
+     *  session or transcribed. */
+    suspend fun hasEmbeddedSession(file: File): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val blob = if (isMp4(file)) Mp4Tags.readVoxsum(file) else OggOpusTags.read(file, FIELD)
+            blob != null && blob.length <= MAX_BLOB_CHARS
+        }.getOrDefault(false)
     }
 
     private val SAFE_NAME = Regex("[^\\p{L}\\p{N}._-]")        // keep letters (incl. CJK), digits, . _ -
