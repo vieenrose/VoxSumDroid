@@ -11,8 +11,10 @@ data class RecentSession(val uri: String, val title: String, val openedAt: Long)
 /**
  * A small, derived convenience cache of recently opened/saved sessions, in SharedPreferences. It is
  * NOT a source of truth — the `.ogg` files are; this only saves re-drilling the system file picker
- * every time. No network, no telemetry. Capped, deduped by uri, most-recent first. A stale entry
- * (file moved / grant revoked) is pruned by the caller when an open fails.
+ * every time. No network, no telemetry. Capped, most-recent first, deduped by uri OR (non-blank)
+ * title — so the SAME session opened through different Uris (e.g. a VIEW-intent media Uri vs a SAF
+ * picker Uri, or a re-export) collapses to one row instead of stacking up. A stale entry (file
+ * moved / grant revoked) is pruned by the caller when an open fails.
  */
 object RecentSessions {
     private const val PREFS = "voxsum_recents"
@@ -30,9 +32,12 @@ object RecentSessions {
         }.getOrDefault(emptyList())
     }
 
-    /** Add or move-to-front (deduped by uri). [openedAt] is supplied by the caller. */
+    /** Add or move-to-front. Dedupes by uri AND by non-blank title, so the same session reached via a
+     *  different Uri (VIEW intent vs picker, or a re-export with the same title) replaces its prior row
+     *  rather than duplicating it. [openedAt] is supplied by the caller. */
     fun add(context: Context, uri: String, title: String, openedAt: Long) {
-        val rest = list(context).filter { it.uri != uri }
+        val t = title.trim()
+        val rest = list(context).filter { it.uri != uri && (t.isEmpty() || it.title.trim() != t) }
         write(context, (listOf(RecentSession(uri, title, openedAt)) + rest).take(MAX))
     }
 
