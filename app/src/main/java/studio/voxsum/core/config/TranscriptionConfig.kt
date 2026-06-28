@@ -1,5 +1,7 @@
 package studio.voxsum.core.config
 
+import studio.voxsum.core.models.LlmRegistry
+
 /**
  * User-facing pipeline configuration — the Android equivalent of the original web app's
  * ASR / Diarization / LLM / Summarization settings sidebar. Held in a process-wide
@@ -22,7 +24,10 @@ data class TranscriptionConfig(
     val clusterThreshold: Float = 0.8f,       // 0.1..1.0
 
     // --- Summarization ---
-    val llmModelId: String = "gemma-4-e2b-it-qat",
+    // The actually-used summary model. MUST track LlmRegistry.DEFAULT_ID — hardcoding it here (it was
+    // pinned to gemma) silently kept new installs on the old default even after the registry's default
+    // changed, so the "recommended" model in Settings and the model that actually ran disagreed.
+    val llmModelId: String = LlmRegistry.DEFAULT_ID,
     val summaryPrompt: String = "Summarize the key points of this transcript.",
     // Target language of the summary/title (a [SummaryLanguage] id). "auto" = match the transcript.
     // ConfigStore derives a locale-based default on first run (migrates the legacy traditionalChinese
