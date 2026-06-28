@@ -1,5 +1,10 @@
 # Keep JNI entry points reachable from native code.
 -keep class studio.voxsum.core.llm.LlmEngine { *; }
+# The native token-streaming callback looks up TokenCallback.onToken by name via JNI GetMethodID.
+# Without this keep, R8 renames onToken in release → GetMethodID returns null → JNI abort (SIGABRT)
+# the moment summarization starts. The nested interface is a SEPARATE class, so the LlmEngine keep
+# above does NOT cover it.
+-keep class studio.voxsum.core.llm.LlmEngine$TokenCallback { *; }
 # sherpa-onnx Kotlin API is called from its own JNI by name.
 -keep class com.k2fsa.sherpa.onnx.** { *; }
 

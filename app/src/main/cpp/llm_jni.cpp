@@ -169,6 +169,10 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
 
     jclass cbClass = env->GetObjectClass(onToken);
     jmethodID emit = env->GetMethodID(cbClass, "onToken", "(Ljava/lang/String;)V");
+    // Defensive: if the callback method can't be resolved (e.g. an obfuscation rule regressed),
+    // bail with an empty result instead of letting a later CallVoidMethod abort the process.
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    if (!emit) return env->NewStringUTF("");
 
     const char* prompt = env->GetStringUTFChars(jPrompt, nullptr);
     std::vector<llama_token> tokens = tokenize(vocab, std::string(prompt), /*addSpecial=*/true);
