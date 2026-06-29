@@ -95,11 +95,13 @@ as much as speed on a phone: 585 MB vs ~2.9 GB CPU is the difference between com
 
 **Do the LLM, prove it with numbers, then decide. Skip ASR for now.**
 
-1. **Desktop smoke (minutes):** `uvx litert-lm run …/Qwen3-0.6B qwen3_0_6b_mixed_int4.litertlm` — sanity-check
-   output quality on our zh/en/fr prompts.
-2. **Pixel 6 device benchmark (an hour):** push `litert_lm_main`, run `--benchmark --backend=gpu` (and `cpu`)
-   for prefill/decode tok/s + peak footprint **on the actual device** — replaces the flagship table with real
-   Pixel-6 figures.
+1. **Desktop smoke — ✅ done.** `uvx litert-lm run …/Qwen3-0.6B qwen3_0_6b_mixed_int4.litertlm` runs and
+   produces coherent Chinese — BUT mixed script (a Simplified `<think>` block, a Traditional-leaning answer)
+   and a Qwen3 `<think>` reasoning block. So our **OpenCC normalization AND think-stripping carry over
+   unchanged** to LiteRT (same model behavior as the GGUF) — the summarizer pipeline logic still applies.
+2. **Pixel 6 CLI benchmark — blocked on a binary.** LiteRT-LM releases ship only iOS/Mac frameworks; there's
+   no prebuilt Android `litert_lm_main`, so the adb-CLI benchmark needs a (heavy) Bazel build. The practical
+   route to real Pixel-6 numbers is therefore the app-level prototype below, not the CLI.
 3. **App-level A/B + energy (the deciding step):** throwaway branch adding a LiteRT-LM `Engine` path behind
    the existing `LlmRegistry`, gated so we can A/B against llama.cpp. Over a **fixed transcript**, measure
    **Wh/summary** (`adb shell dumpsys batterystats` deltas), wall-clock, **peak RSS**, and **quality
