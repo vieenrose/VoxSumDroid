@@ -109,20 +109,21 @@ An exported `.ogg`/`.m4a` stores the title, cover, **summary** (in the *comment*
 **time-synced transcript** (in the *lyrics* tag, as LRC `[mm:ss.xx]` lines). Android players that parse
 **synced lyrics** scroll the transcript **in real time** as it plays — read straight from the file,
 **no sidecar and no permission**. (Players without sync support show the text with the `[mm:ss]`
-timestamps visible.) Prefer the **`.m4a`** — its lyrics tag is read more widely than `.ogg`'s.
+timestamps visible.) **Use the `.m4a`** — its `©lyr` tag is read more widely; `.ogg` synced is
+player-dependent.
 
-| App | Open the lyrics here | Real-time sync |
-|---|---|---|
-| **Retro Music** *(free)* | now-playing lyrics (歌詞) | ✅ verified |
-| **Gramophone** *(free)* | the Lyrics view | ✅ verified |
-| **Poweramp** | the lyrics view | 🔄 expected |
-| **Musicolet** *(free)* | the **Lyrics** tab | 🔄 expected |
-| **Oto Music** *(free)* | the Lyrics view | 🔄 expected |
+| App | Lyrics view | `.m4a` | `.ogg` |
+|---|---|---|---|
+| **Retro Music** *(free)* | now-playing (歌詞) | ✅ | ❌ |
+| **Gramophone** *(free)* | the Lyrics view | ✅ | ✅ |
+| **Poweramp** | the lyrics view | 🔄 | 🔄 |
+| **Musicolet** *(free)* | the **Lyrics** tab | 🔄 | 🔄 |
+| **Oto Music** *(free)* | the Lyrics view | 🔄 | 🔄 |
 
-> **Notes.** ✅ = verified on a Pixel; 🔄 = documented synced-lyrics support. The **summary** lives in the
-> standard **comment** tag (*song info*). A standalone **`.lrc` sidecar** export (**Export → “Save synced
-> lyrics (.lrc)”**) also exists, but Android 14 blocks players from reading sidecars (no all-files access)
-> — which is why the lyrics are embedded instead.
+> **Notes.** ✅ = verified synced on a Pixel · ❌ = no synced lyrics · 🔄 = documented support (not tested
+> here). The **summary** lives in the standard **comment** tag. A standalone **`.lrc` sidecar** export
+> also exists, but Android 14 blocks players from reading sidecars (no all-files access) — which is why
+> the lyrics are embedded.
 
 ## For developers
 

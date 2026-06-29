@@ -112,18 +112,18 @@ Un fichier `.ogg`/`.m4a` exporté stocke le titre, la pochette, le **résumé** 
 et la **transcription synchronisée** (dans la balise *paroles/lyrics*, au format LRC `[mm:ss.xx]`). Les
 lecteurs Android qui interprètent les **paroles synchronisées** font défiler la transcription **en temps
 réel** pendant la lecture — lue directement depuis le fichier, **sans annexe ni permission**. (Les lecteurs
-sans synchro affichent le texte avec les horodatages `[mm:ss]` visibles.) Préférez le **`.m4a`** — sa balise
-de paroles est lue plus largement que celle du `.ogg`.
+sans synchro affichent le texte avec les horodatages `[mm:ss]` visibles.) **Utilisez le `.m4a`** — sa balise
+`©lyr` est lue plus largement ; la synchro `.ogg` dépend du lecteur.
 
-| Appli | Où ouvrir les paroles | Synchro temps réel |
-|---|---|---|
-| **Retro Music** *(gratuit)* | paroles en lecture (歌詞) | ✅ vérifié |
-| **Gramophone** *(gratuit)* | la vue Paroles | ✅ vérifié |
-| **Poweramp** | la vue des paroles | 🔄 attendu |
-| **Musicolet** *(gratuit)* | l'onglet **Paroles** | 🔄 attendu |
-| **Oto Music** *(gratuit)* | la vue Paroles | 🔄 attendu |
+| Appli | Vue paroles | `.m4a` | `.ogg` |
+|---|---|---|---|
+| **Retro Music** *(gratuit)* | en lecture (歌詞) | ✅ | ❌ |
+| **Gramophone** *(gratuit)* | la vue Paroles | ✅ | ✅ |
+| **Poweramp** | la vue des paroles | 🔄 | 🔄 |
+| **Musicolet** *(gratuit)* | l'onglet **Paroles** | 🔄 | 🔄 |
+| **Oto Music** *(gratuit)* | la vue Paroles | 🔄 | 🔄 |
 
-> **Remarques.** ✅ = vérifié sur un Pixel ; 🔄 = prise en charge documentée des paroles synchronisées. Le
+> **Remarques.** ✅ = synchro vérifiée sur un Pixel · ❌ = pas de paroles synchronisées · 🔄 = prise en charge documentée (non testée ici). Le
 > **résumé** figure dans la balise **commentaire** standard. Un export **`.lrc` annexe** (**Exporter →
 > « Enregistrer les paroles synchronisées (.lrc) »**) existe aussi, mais Android 14 empêche les lecteurs de
 > lire les annexes (pas d'accès à tous les fichiers) — d'où l'intégration directe.
