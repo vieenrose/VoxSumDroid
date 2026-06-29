@@ -107,27 +107,32 @@ after that, updates arrive automatically.
 
 An exported `.ogg`/`.m4a` stores the title, cover, **summary** (in the *comment* tag) and the
 **summary + transcript** (in the *lyrics* tag) as ordinary audio metadata. Any player that reads
-**embedded lyrics** can show them — the one trick is to open the player's **plain lyrics view**, not a
-*synced/karaoke* overlay (those want a timestamped `.lrc` file, which VoxSum doesn't write). Prefer the
+**embedded lyrics** can show them — the trick is to open the player's **lyrics view**. Prefer the
 **`.m4a`** for the widest compatibility.
 
-| Platform | App | Where the transcript / summary shows |
-|---|---|---|
-| **Android** | **Retro Music** *(free)* — verified | now-playing **⋮ → Go to Lyrics page** |
-| | **Musicolet** *(free)* | the **Lyrics** tab |
-| | **Oto Music** / **Gramophone** *(free)* | the Lyrics view |
-| | **Poweramp** | the embedded-lyrics view |
-| **iOS** | **Evermusic** *(free)* | **More Actions → Comments → “Embedded Lyrics”** |
-| | **Marvis Pro** | Now-Playing lyrics *(add the file to your Music library first)* |
-| | **Apple Music** | add to library, then **Song Info → Lyrics** *(favours synced lyrics)* |
-| **Windows** | **MusicBee** *(free)* | the **Lyrics** panel |
-| | **foobar2000** *(free)* | a lyrics component (ESLyric / Lyric Show 3) |
-| | **iTunes / Apple Music** | **Song Info → Lyrics** tab |
-| **macOS** | **Music.app (Apple Music)** | **Get Info → Lyrics** tab |
-| | **Swinsian** / **VOX** | the Lyrics pane |
-| **Linux** | **Lollypop** *(free)* | the Lyrics view |
-| | **Strawberry** *(free)* | enable lyrics from tags, then the **Lyrics** pane |
-| | **Quod Libet** *(free)* | shows the embedded `LYRICS` tag |
+**Static vs. real-time.** VoxSum embeds **plain-text** lyrics, so today they appear as a **static text
+block** in every app — nothing scrolls with the music. *Synchronized* (karaoke-style, line highlights as
+it plays) display needs a timestamped **`.lrc` sidecar** file, which VoxSum doesn't write yet (on the
+roadmap). The **🔄** apps below would scroll the transcript in real time once that `.lrc` exists; the
+others only ever show a static block.
+
+| Platform | App | Where the lyrics show | Real-time? |
+|---|---|---|---|
+| **Android** | **Retro Music** *(free)* — verified | now-playing **⋮ → Go to Lyrics page** | 🔄 with `.lrc` |
+| | **Musicolet** *(free)* | the **Lyrics** tab | 🔄 with `.lrc` |
+| | **Oto Music** / **Gramophone** *(free)* | the Lyrics view | 🔄 with `.lrc` |
+| | **Poweramp** | the embedded-lyrics view | 🔄 with `.lrc` |
+| **iOS** | **Evermusic** *(free)* | **More Actions → Comments → “Embedded Lyrics”** | 🔄 via **“LRC File”** mode |
+| | **Marvis Pro** | Now-Playing lyrics *(add to your Music library first)* | 🔄 with `.lrc` |
+| | **Apple Music** | add to library, then **Song Info → Lyrics** | static only *(local files)* |
+| **Windows** | **MusicBee** *(free)* | the **Lyrics** panel | 🔄 with `.lrc` |
+| | **foobar2000** *(free)* | a lyrics component (ESLyric) | 🔄 with `.lrc` |
+| | **iTunes / Apple Music** | **Song Info → Lyrics** tab | static only |
+| **macOS** | **Music.app (Apple Music)** | **Get Info → Lyrics** tab | static only *(local files)* |
+| | **Swinsian** / **VOX** | the Lyrics pane | static only |
+| **Linux** | **Lollypop** *(free)* | the Lyrics view | 🔄 with `.lrc` |
+| | **Strawberry** *(free)* | enable lyrics from tags, then the **Lyrics** pane | static only |
+| | **Quod Libet** *(free)* | shows the embedded `LYRICS` tag | static only |
 
 > **Notes.** **VLC** plays the audio on every platform but has **no lyrics panel** — use it only to
 > check playback. The **summary on its own** also lives in the standard **comment** tag, so it shows

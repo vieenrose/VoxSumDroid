@@ -110,28 +110,32 @@ l'installer (Android peut demander l'autorisation d'installer depuis votre navig
 
 Un fichier `.ogg`/`.m4a` exporté stocke le titre, la pochette, le **résumé** (dans la balise *commentaire*)
 et le **résumé + la transcription** (dans la balise *paroles/lyrics*) sous forme de métadonnées audio
-ordinaires. Tout lecteur capable de lire les **paroles intégrées** peut les afficher — la seule astuce est
-d'ouvrir la vue **paroles simples** du lecteur, et non une superposition *synchronisée/karaoké* (celles-ci
-attendent un fichier `.lrc` horodaté, que VoxSum ne génère pas). Préférez le **`.m4a`** pour la
-compatibilité la plus large.
+ordinaires. Tout lecteur capable de lire les **paroles intégrées** peut les afficher — l'astuce est
+d'ouvrir la vue **paroles** du lecteur. Préférez le **`.m4a`** pour la compatibilité la plus large.
 
-| Plateforme | Appli | Où s'affiche la transcription / le résumé |
-|---|---|---|
-| **Android** | **Retro Music** *(gratuit)* — vérifié | lecture en cours **⋮ → Aller à la page des paroles** |
-| | **Musicolet** *(gratuit)* | l'onglet **Paroles** |
-| | **Oto Music** / **Gramophone** *(gratuit)* | la vue Paroles |
-| | **Poweramp** | la vue des paroles intégrées |
-| **iOS** | **Evermusic** *(gratuit)* | **More Actions → Comments → « Embedded Lyrics »** |
-| | **Marvis Pro** | paroles en lecture *(ajoutez d'abord le fichier à votre bibliothèque Musique)* |
-| | **Apple Music** | ajoutez à la bibliothèque, puis **Song Info → Lyrics** *(privilégie les paroles synchronisées)* |
-| **Windows** | **MusicBee** *(gratuit)* | le panneau **Lyrics** |
-| | **foobar2000** *(gratuit)* | via un composant de paroles (ESLyric / Lyric Show 3) |
-| | **iTunes / Apple Music** | l'onglet **Song Info → Lyrics** |
-| **macOS** | **Musique (Apple Music)** | l'onglet **Lire les informations → Paroles** |
-| | **Swinsian** / **VOX** | le volet Paroles |
-| **Linux** | **Lollypop** *(gratuit)* | la vue Paroles |
-| | **Strawberry** *(gratuit)* | activez les paroles depuis les tags, puis le volet **Paroles** |
-| | **Quod Libet** *(gratuit)* | affiche la balise `LYRICS` intégrée |
+**Statique vs. temps réel.** VoxSum intègre des paroles en **texte brut** : aujourd'hui elles apparaissent
+donc comme un **bloc de texte statique** dans chaque appli — rien ne défile avec la musique. L'affichage
+*synchronisé* (style karaoké, la ligne se surligne au fil de la lecture) nécessite un fichier **`.lrc`
+annexe** horodaté, que VoxSum ne génère pas encore (prévu). Les applis marquées **🔄** feraient défiler la
+transcription en temps réel une fois ce `.lrc` présent ; les autres n'affichent qu'un bloc statique.
+
+| Plateforme | Appli | Où s'affiche la transcription / le résumé | Temps réel ? |
+|---|---|---|---|
+| **Android** | **Retro Music** *(gratuit)* — vérifié | lecture en cours **⋮ → Aller à la page des paroles** | 🔄 avec `.lrc` |
+| | **Musicolet** *(gratuit)* | l'onglet **Paroles** | 🔄 avec `.lrc` |
+| | **Oto Music** / **Gramophone** *(gratuit)* | la vue Paroles | 🔄 avec `.lrc` |
+| | **Poweramp** | la vue des paroles intégrées | 🔄 avec `.lrc` |
+| **iOS** | **Evermusic** *(gratuit)* | **More Actions → Comments → « Embedded Lyrics »** | 🔄 via le mode « LRC File » |
+| | **Marvis Pro** | paroles en lecture *(ajoutez d'abord le fichier à votre bibliothèque Musique)* | 🔄 avec `.lrc` |
+| | **Apple Music** | ajoutez à la bibliothèque, puis **Song Info → Lyrics** | statique seulement *(fichiers locaux)* |
+| **Windows** | **MusicBee** *(gratuit)* | le panneau **Lyrics** | 🔄 avec `.lrc` |
+| | **foobar2000** *(gratuit)* | via un composant de paroles (ESLyric) | 🔄 avec `.lrc` |
+| | **iTunes / Apple Music** | l'onglet **Song Info → Lyrics** | statique seulement |
+| **macOS** | **Musique (Apple Music)** | l'onglet **Lire les informations → Paroles** | statique seulement *(fichiers locaux)* |
+| | **Swinsian** / **VOX** | le volet Paroles | statique seulement |
+| **Linux** | **Lollypop** *(gratuit)* | la vue Paroles | 🔄 avec `.lrc` |
+| | **Strawberry** *(gratuit)* | activez les paroles depuis les tags, puis le volet **Paroles** | statique seulement |
+| | **Quod Libet** *(gratuit)* | affiche la balise `LYRICS` intégrée | statique seulement |
 
 > **Remarques.** **VLC** lit l'audio partout mais n'a **aucun panneau de paroles** — utilisez-le
 > seulement pour vérifier la lecture. Le **résumé seul** figure aussi dans la balise **commentaire**

@@ -103,26 +103,29 @@ https://vieenrose.github.io/VoxSumDroid/repo?fingerprint=c9fe46eb7d87d4fa4e2340a
 
 匯出的 `.ogg`/`.m4a` 會把標題、封面、**摘要**（存在*註解 comment* 標籤）以及
 **摘要＋逐字稿**（存在*歌詞 lyrics* 標籤）寫成一般的音訊中繼資料。任何能讀取**內嵌歌詞**的播放器都能顯示它們——
-唯一的訣竅是打開播放器的**純文字歌詞檢視**，而不是*同步／卡拉OK*疊層（那種需要帶時間軸的 `.lrc` 檔，VoxSum 不會產生）。
-建議用 **`.m4a`** 以取得最廣的相容性。
+訣竅是打開播放器的**歌詞檢視**。建議用 **`.m4a`** 以取得最廣的相容性。
 
-| 平台 | 程式 | 逐字稿／摘要顯示位置 |
-|---|---|---|
-| **Android** | **Retro Music** *(免費)* — 已驗證 | 播放畫面 **⋮ → 前往歌詞頁面** |
-| | **Musicolet** *(免費)* | **歌詞**分頁 |
-| | **Oto Music** / **Gramophone** *(免費)* | 歌詞檢視 |
-| | **Poweramp** | 內嵌歌詞檢視 |
-| **iOS** | **Evermusic** *(免費)* | **More Actions → Comments →「Embedded Lyrics」** |
-| | **Marvis Pro** | 播放畫面歌詞（需先把檔案加入「音樂」資料庫） |
-| | **Apple Music** | 加入資料庫後，**Song Info → Lyrics**（偏向同步歌詞） |
-| **Windows** | **MusicBee** *(免費)* | **Lyrics** 面板 |
-| | **foobar2000** *(免費)* | 需歌詞元件（ESLyric / Lyric Show 3） |
-| | **iTunes / Apple Music** | **Song Info → Lyrics** 分頁 |
-| **macOS** | **音樂 App（Apple Music）** | **取得資訊 → 歌詞** 分頁 |
-| | **Swinsian** / **VOX** | 歌詞窗格 |
-| **Linux** | **Lollypop** *(免費)* | 歌詞檢視 |
-| | **Strawberry** *(免費)* | 開啟「從標籤讀取歌詞」後，看 **Lyrics** 窗格 |
-| | **Quod Libet** *(免費)* | 顯示內嵌的 `LYRICS` 標籤 |
+**靜態 vs. 即時。** VoxSum 內嵌的是**純文字**歌詞，所以目前在每個程式裡都是**靜態文字區塊**——不會隨音樂捲動。
+*同步*（卡拉OK式，逐行隨播放高亮）顯示需要帶時間軸的 **`.lrc` 旁檔**，VoxSum 目前還不會產生（已列入規劃）。
+下表標 **🔄** 的程式在有 `.lrc` 後可即時捲動逐字稿；其餘只會顯示靜態區塊。
+
+| 平台 | 程式 | 逐字稿／摘要顯示位置 | 即時？ |
+|---|---|---|---|
+| **Android** | **Retro Music** *(免費)* — 已驗證 | 播放畫面 **⋮ → 前往歌詞頁面** | 🔄 需 `.lrc` |
+| | **Musicolet** *(免費)* | **歌詞**分頁 | 🔄 需 `.lrc` |
+| | **Oto Music** / **Gramophone** *(免費)* | 歌詞檢視 | 🔄 需 `.lrc` |
+| | **Poweramp** | 內嵌歌詞檢視 | 🔄 需 `.lrc` |
+| **iOS** | **Evermusic** *(免費)* | **More Actions → Comments →「Embedded Lyrics」** | 🔄 用「LRC File」模式 |
+| | **Marvis Pro** | 播放畫面歌詞（需先把檔案加入「音樂」資料庫） | 🔄 需 `.lrc` |
+| | **Apple Music** | 加入資料庫後，**Song Info → Lyrics** | 僅靜態（本機檔案） |
+| **Windows** | **MusicBee** *(免費)* | **Lyrics** 面板 | 🔄 需 `.lrc` |
+| | **foobar2000** *(免費)* | 歌詞元件（ESLyric） | 🔄 需 `.lrc` |
+| | **iTunes / Apple Music** | **Song Info → Lyrics** 分頁 | 僅靜態 |
+| **macOS** | **音樂 App（Apple Music）** | **取得資訊 → 歌詞** 分頁 | 僅靜態（本機檔案） |
+| | **Swinsian** / **VOX** | 歌詞窗格 | 僅靜態 |
+| **Linux** | **Lollypop** *(免費)* | 歌詞檢視 | 🔄 需 `.lrc` |
+| | **Strawberry** *(免費)* | 開啟「從標籤讀取歌詞」後，看 **Lyrics** 窗格 | 僅靜態 |
+| | **Quod Libet** *(免費)* | 顯示內嵌的 `LYRICS` 標籤 | 僅靜態 |
 
 > **備註。** **VLC** 在所有平台都能播放，但**沒有歌詞面板**——只能用來確認可否播放。**摘要本身**也存在標準的
 > **註解（comment）**標籤，所以即使是沒有歌詞檢視的播放器或檔案管理員，也能在*取得資訊／內容／註解*中看到。
