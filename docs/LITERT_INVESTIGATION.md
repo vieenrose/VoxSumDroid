@@ -119,20 +119,24 @@ sampling (topK 40 / topP 0.95 / temp 0.7, which fixes a greedy repeat-degenerati
 defaults); llama.cpp = 4 CPU threads (what ships). Peak RSS = `/proc/self/status` VmHWM (whole process).
 Harness: `app/src/androidTest/.../LiteRtBenchTest.kt`.
 
-| Metric | llama.cpp CPU(4t) · Q8 *(ships)* | LiteRT-LM GPU · mixed-INT4 |
-|---|--:|--:|
-| Model on disk | 610 MB | 475 MB |
-| Load / init | **0.56 s** | 7.9 s |
-| Prefill (TTFT) | 1.64 s | **0.62 s** |
-| Decode | 12.9 tok/s | **19.1 tok/s** |
-| Peak RSS (VmHWM) | **1020 MB** | 1962 MB |
-| Output quality | on-topic, rambled a little | clean 3-point summary |
+| Backend (1024 ctx) | Load | Prefill (TTFT) | Decode | Peak RSS (VmHWM) |
+|---|--:|--:|--:|--:|
+| **llama.cpp** CPU(4t) · Q8 *(ships)* | **0.56 s** | 1.64 s | 12.9 tok/s | **1020 MB** |
+| **LiteRT** GPU · INT4 | 7.9 s | **0.62 s** | **19.1 tok/s** | 1962 MB |
+| **LiteRT** CPU(4t) · INT4 | 1.55 s | 3.28 s | 12.5 tok/s | 2354 MB |
+| **LiteRT** NPU · INT4 | — | — | — | **unavailable** |
 
-- **GPU is faster at compute** (prefill 2.6×, decode ~1.5×) — but only modestly for a 0.6B model that's
-  already real-time on CPU.
-- **GPU costs ~2× the RAM** (1962 vs 1020 MB) despite a *smaller* model on disk — OpenCL holds weights in
-  system RAM *and* GPU mappings. On a phone, +940 MB is a real liability (largeHeap, OOM, app eviction).
-- **Load is 14× slower** (7.9 s) — an 8-second lag before the first summary.
+(INT4 model 475 MB on disk; Q8 610 MB. Output quality is a wash — same base model, sampler-dependent.)
+
+- **Memory is LiteRT's problem on BOTH backends** — GPU 1962 MB, CPU **2354 MB**, vs llama.cpp 1020 MB
+  (~2–2.3×) despite the INT4 model being *smaller* on disk. It's not just GPU mappings: LiteRT CPU loads
+  light (979 MB) then balloons to 2.35 GB during decode. There's no low-memory LiteRT backend here.
+- **GPU is the only faster one** (prefill 2.6×, decode ~1.5×) — modestly, for a model already real-time on
+  CPU — and it pays with ~2× RAM + a 7.9 s load. **LiteRT CPU is the worst of all**: same decode as
+  llama.cpp, *slower* prefill, *highest* RAM. No reason to pick it.
+- **NPU is unavailable on the Pixel 6** (Tensor G1): `Backend.NPU` fails to init —
+  `LiteRtLmJniException: NOT_FOUND … llm_litert_npu_compiled_model_executor`. The NPU path needs a
+  vendor-compiled model + runtime (only the MediaTek MT6993 artifact exists); Tensor G1 has neither.
 - **Accuracy** is a wash: same base model; quality tracks the sampler, not the runtime.
 - **Integration cost:** the LiteRT-LM AAR needs **Kotlin 2.3** (project is on 2.0.21) → a toolchain bump
   (done on this branch: Kotlin + Compose-plugin 2.3.0, plus a `kotlinOptions`→`compilerOptions` migration).
