@@ -18,6 +18,7 @@ import studio.voxsum.core.text.OpenCcConverter
 class OpenCcConverterTest {
 
     private val cc by lazy { OpenCcConverter.get(InstrumentationRegistry.getInstrumentation().targetContext, ChineseScript.TRADITIONAL) }
+    private val t2s by lazy { OpenCcConverter.get(InstrumentationRegistry.getInstrumentation().targetContext, ChineseScript.SIMPLIFIED) }
 
     @Test fun taiwanPhrasesNotJustCharacters() {
         assertEquals("資訊", cc.convert("信息"))   // 信息 (identical script) → Taiwan phrase
@@ -38,5 +39,14 @@ class OpenCcConverterTest {
 
     @Test fun nonChineseIsUntouched() {
         assertEquals("Hello, world! 123", cc.convert("Hello, world! 123"))
+    }
+
+    /** The new t2s direction (Traditional→Simplified) — used when the Target language resolves to Simplified. */
+    @Test fun simplifiedDirectionConvertsTraditionalToSimplified() {
+        assertEquals("电脑", t2s.convert("電腦"))
+        assertEquals("儿子", t2s.convert("兒子"))     // the exact slip seen on auto+zh-TW, now normalizable
+        assertEquals("发达", t2s.convert("發達"))
+        assertEquals("繁体中文", t2s.convert("繁體中文"))
+        assertEquals("Hello 123", t2s.convert("Hello 123"))
     }
 }
