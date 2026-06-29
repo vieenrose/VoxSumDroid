@@ -113,11 +113,12 @@ et le **résumé + la transcription** (dans la balise *paroles/lyrics*) sous for
 ordinaires. Tout lecteur capable de lire les **paroles intégrées** peut les afficher — l'astuce est
 d'ouvrir la vue **paroles** du lecteur. Préférez le **`.m4a`** pour la compatibilité la plus large.
 
-**Statique vs. temps réel.** VoxSum intègre des paroles en **texte brut** : aujourd'hui elles apparaissent
-donc comme un **bloc de texte statique** dans chaque appli — rien ne défile avec la musique. L'affichage
-*synchronisé* (style karaoké, la ligne se surligne au fil de la lecture) nécessite un fichier **`.lrc`
-annexe** horodaté, que VoxSum ne génère pas encore (prévu). Les applis marquées **🔄** feraient défiler la
-transcription en temps réel une fois ce `.lrc` présent ; les autres n'affichent qu'un bloc statique.
+**Statique vs. temps réel.** Les paroles intégrées au fichier audio sont en **texte brut** : seules, elles
+s'affichent comme un **bloc de texte statique** dans chaque appli. Pour un affichage *synchronisé* (style
+karaoké, la ligne se surligne au fil de la lecture), exportez la transcription en **`.lrc` annexe**
+(**Exporter → « Enregistrer les paroles synchronisées (.lrc) »**) et gardez-le à côté de l'audio avec le
+même nom de base — les applis marquées **🔄** font alors défiler la transcription en temps réel ; les
+autres n'affichent qu'un bloc statique.
 
 | Plateforme | Appli | Où s'affiche la transcription / le résumé | Temps réel ? |
 |---|---|---|---|

@@ -110,11 +110,11 @@ An exported `.ogg`/`.m4a` stores the title, cover, **summary** (in the *comment*
 **embedded lyrics** can show them — the trick is to open the player's **lyrics view**. Prefer the
 **`.m4a`** for the widest compatibility.
 
-**Static vs. real-time.** VoxSum embeds **plain-text** lyrics, so today they appear as a **static text
-block** in every app — nothing scrolls with the music. *Synchronized* (karaoke-style, line highlights as
-it plays) display needs a timestamped **`.lrc` sidecar** file, which VoxSum doesn't write yet (on the
-roadmap). The **🔄** apps below would scroll the transcript in real time once that `.lrc` exists; the
-others only ever show a static block.
+**Static vs. real-time.** The audio file's embedded lyrics are **plain text**, so on their own they show
+as a **static text block** in every app. For *synchronized* (karaoke-style, line highlights as it plays)
+display, export the transcript as a **`.lrc` sidecar** (**Export → “Save synced lyrics (.lrc)”**) and keep
+it next to the audio with the same base name — then the **🔄** apps below scroll it in real time; the rest
+only ever show the static block.
 
 | Platform | App | Where the lyrics show | Real-time? |
 |---|---|---|---|
