@@ -29,7 +29,7 @@ import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioRecorder
 import studio.voxsum.core.audio.WavSlicer
-import studio.voxsum.core.config.SummaryLanguage
+import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.SummaryStyle
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
@@ -495,7 +495,7 @@ class TranscriptionService : LifecycleService() {
                 Summarizer(
                     llm,
                     template = spec.chatTemplate,
-                    targetLanguage = SummaryLanguage.fromId(cfg.summaryLanguage).promptName,
+                    targetLanguage = TargetLanguage.fromId(cfg.targetLanguage).promptName,
                     convert = { converter?.convert(it) ?: it },
                     mapInstruction = style.mapInstruction,
                     reduceInstruction = style.reduceInstruction,
@@ -538,7 +538,7 @@ class TranscriptionService : LifecycleService() {
                 Summarizer(
                     llm,
                     template = spec.chatTemplate,
-                    targetLanguage = SummaryLanguage.fromId(cfg.summaryLanguage).promptName,
+                    targetLanguage = TargetLanguage.fromId(cfg.targetLanguage).promptName,
                     convert = { converter?.convert(it) ?: it },
                 ).title(summary)
                     .flowOn(Dispatchers.Default)
@@ -570,7 +570,7 @@ class TranscriptionService : LifecycleService() {
                 val text = ActionItemExtractor(
                     llm,
                     template = spec.chatTemplate,
-                    targetLanguage = SummaryLanguage.fromId(cfg.summaryLanguage).promptName,
+                    targetLanguage = TargetLanguage.fromId(cfg.targetLanguage).promptName,
                     convert = { converter?.convert(it) ?: it },
                 ).extract(transcript) { frac -> events.tryEmit(TranscriptEvent.Progress(frac)) }
                 events.emit(TranscriptEvent.ActionItemsComplete(text))
@@ -583,11 +583,11 @@ class TranscriptionService : LifecycleService() {
     /**
      * The single OpenCC converter applied to ALL output text — transcript, summary, title, action items,
      * and (in MainActivity) detected speaker names — so everything stays in one consistent script. The
-     * target script comes from the Target-language setting × device locale ([SummaryLanguage.scriptFor]):
+     * target script comes from the Target-language setting × device locale ([TargetLanguage.scriptFor]):
      * Traditional → s2tw, Simplified → t2s, otherwise null (skip). Built once per script and cached.
      */
     private fun outputConverter(cfg: TranscriptionConfig): OpenCcConverter? =
-        SummaryLanguage.scriptFor(cfg.summaryLanguage, this)?.let { OpenCcConverter.get(this, it) }
+        TargetLanguage.scriptFor(cfg.targetLanguage, this)?.let { OpenCcConverter.get(this, it) }
 
     /** Small thread budget — phone big-core count, not all cores (cf. num_vcpus). */
     private fun asrThreads(): Int =

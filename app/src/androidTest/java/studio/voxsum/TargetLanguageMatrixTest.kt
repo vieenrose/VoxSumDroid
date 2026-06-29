@@ -7,7 +7,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import studio.voxsum.core.config.SummaryLanguage
+import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.Summarizer
@@ -21,14 +21,14 @@ import studio.voxsum.core.text.OpenCcConverter
  * fixed transcript and logs the produced summary + title, asserting it is non-empty and — for the
  * reliably-detectable scripts (kana, hangul, CJK, Latin) — written in the requested system. This is
  * the empirical proof that "summarize in the user's language" actually works per model; the JVM
- * SummaryLanguageTest covers that the wiring routes each language correctly.
+ * TargetLanguageTest covers that the wiring routes each language correctly.
  *
  * Heavy: loads each GGUF and runs 7 summaries per model (one map + title each, the sample is < one
  * chunk). Models self-provision (downloads what's missing). The default model is swept first so its
  * evidence lands even if a later/larger model is slow to fetch.
  */
 @RunWith(AndroidJUnit4::class)
-class SummaryLanguageMatrixTest {
+class TargetLanguageMatrixTest {
 
     @Test
     fun everyLlmSummarizesInEveryTargetLanguage() = runBlocking {
@@ -45,7 +45,7 @@ class SummaryLanguageMatrixTest {
             assertTrue("provisioned ${spec.id}", models.llmReady(spec))
 
             LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = 4, nCtx = 2048).use { llm ->
-                for (lang in SummaryLanguage.entries) {
+                for (lang in TargetLanguage.entries) {
                     val convert: (String) -> String =
                         if (lang.convertsToTraditional) { s -> opencc.convert(s) } else { s -> s }
                     val summary = StringBuilder()
@@ -81,7 +81,7 @@ class SummaryLanguageMatrixTest {
             }
         }
         Log.i(TAG, "matrix complete: $checked combinations across ${LlmRegistry.ALL.size} model(s)")
-        assertTrue("expected the full language sweep", checked >= SummaryLanguage.entries.size)
+        assertTrue("expected the full language sweep", checked >= TargetLanguage.entries.size)
     }
 
     /**
@@ -89,21 +89,21 @@ class SummaryLanguageMatrixTest {
      * A multi-sentence Japanese summary always carries kana, but a short title may be kanji-only — so a
      * Japanese title is allowed to be CJK without kana.
      */
-    private fun scriptCheck(model: String, lang: SummaryLanguage, text: String, isTitle: Boolean) {
+    private fun scriptCheck(model: String, lang: TargetLanguage, text: String, isTitle: Boolean) {
         val what = if (isTitle) "title" else "summary"
         val cjk = text.any { it in '一'..'鿿' }
         val kana = text.any { it in '぀'..'ヿ' }
         val hangul = text.any { it in '가'..'힣' }
         val latin = text.any { it in 'A'..'Z' || it in 'a'..'z' }
         when (lang) {
-            SummaryLanguage.JAPANESE ->
+            TargetLanguage.JAPANESE ->
                 assertTrue("$model/ja $what: expected Japanese script", if (isTitle) kana || cjk else kana)
-            SummaryLanguage.KOREAN -> assertTrue("$model/ko $what: expected hangul", hangul)
-            SummaryLanguage.TRADITIONAL, SummaryLanguage.SIMPLIFIED ->
+            TargetLanguage.KOREAN -> assertTrue("$model/ko $what: expected hangul", hangul)
+            TargetLanguage.TRADITIONAL, TargetLanguage.SIMPLIFIED ->
                 assertTrue("$model/${lang.id} $what: expected CJK", cjk)
-            SummaryLanguage.ENGLISH, SummaryLanguage.FRENCH ->
+            TargetLanguage.ENGLISH, TargetLanguage.FRENCH ->
                 assertTrue("$model/${lang.id} $what: expected Latin script", latin)
-            SummaryLanguage.AUTO ->
+            TargetLanguage.AUTO ->
                 assertTrue("$model/auto $what: expected Latin (English sample)", latin)
         }
     }

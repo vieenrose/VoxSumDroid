@@ -10,7 +10,7 @@ import studio.voxsum.core.models.ChatTemplate
  * Pure-JVM tests for the summary/title text-shaping helpers ([SummaryText]). These run on raw
  * model output and produce the user-facing title + summary, so their edge cases (preamble lines,
  * markdown, list numbering, <think> blocks, quotes) directly affect what the user reads. The on-device
- * SummaryLanguageMatrixTest proves the models obey; this pins the cleanup behaviour.
+ * TargetLanguageMatrixTest proves the models obey; this pins the cleanup behaviour.
  */
 class SummarizerTextTest {
 

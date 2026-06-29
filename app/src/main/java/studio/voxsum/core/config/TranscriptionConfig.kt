@@ -30,11 +30,11 @@ data class TranscriptionConfig(
     val llmModelId: String = LlmRegistry.DEFAULT_ID,
     val summaryPrompt: String = "Summarize the key points of this transcript.",
     // Target language for ALL out-coming text — summary, title, transcript, and detected speaker names
-    // (a [SummaryLanguage] id; surfaced in Settings as "Target language"). "auto" = match the transcript.
+    // (a [TargetLanguage] id; surfaced in Settings as "Target language"). "auto" = match the transcript.
     // ConfigStore derives a locale-based default on first run. The chosen language × the device locale
     // pick the single Han script everything is normalized to via OpenCC — Traditional (s2tw) / Simplified
-    // (t2s) / none — keeping every text consistent. See [SummaryLanguage.scriptFor].
-    val summaryLanguage: String = "auto",
+    // (t2s) / none — keeping every text consistent. See [TargetLanguage.scriptFor].
+    val targetLanguage: String = "auto",
     // Format of the summary (a [SummaryStyle] id): bullet (default) | executive | narrative.
     val summaryStyle: String = "bullet",
 ) {

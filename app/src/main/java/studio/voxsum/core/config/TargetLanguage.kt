@@ -5,28 +5,23 @@ import studio.voxsum.core.text.ChineseScript
 import java.util.Locale
 
 /**
- * Target language for the generated summary + title — the "Summary language" picker.
- *
- * Generalizes the former Traditional-Chinese-only toggle into "summarize in the user's language":
- * the user picks the language the summary should be written in, independent of the transcript's
- * language. [AUTO] keeps the summary in the transcript's own language (the previous toggle-off
- * behavior).
+ * Target language for ALL out-coming text — the "Target language" picker in Settings. The user picks the
+ * language the OUTPUT should be written in; [AUTO] keeps it in the transcript's own language.
  *
  * [promptName] is injected into the LLM instruction ("Write it in <promptName>."); `null` for AUTO,
  * which instructs "the same language as the transcript".
  *
- * [convertsToTraditional] gates the OpenCC `s2tw` pass (Simplified→Traditional), applied to BOTH the
- * transcript utterances and the summary — matching the original web app. Only [TRADITIONAL] needs it:
- * the sherpa zh models emit Simplified and most LLMs default to Simplified, so every other choice is
- * produced directly by the model in the right script ([OpenCcConverter] only ships the s2tw direction).
+ * For Chinese, [scriptFor] turns the choice (× the device locale) into the single OpenCC script every
+ * text is normalized to — Traditional (s2tw) / Simplified (t2s) / none — so the transcript, summary,
+ * title and detected speaker names all stay in one consistent script.
  */
-enum class SummaryLanguage(
+enum class TargetLanguage(
     val id: String,
     /** Autonym shown in the picker (language-neutral); [AUTO] is labeled from a string resource. */
     val autonym: String,
     /** Human-readable target injected into the prompt; `null` = match the transcript. */
     val promptName: String?,
-    /** Apply OpenCC s2tw (Simplified→Traditional) to the transcript + summary. */
+    /** True only for [TRADITIONAL]; used by the on-device matrix test. Production routing is [scriptFor]. */
     val convertsToTraditional: Boolean = false,
 ) {
     AUTO("auto", "", null),
@@ -40,14 +35,14 @@ enum class SummaryLanguage(
     companion object {
         private val TRAD_REGIONS = setOf("TW", "HK", "MO")
 
-        fun fromId(id: String?): SummaryLanguage = entries.firstOrNull { it.id == id } ?: AUTO
+        fun fromId(id: String?): TargetLanguage = entries.firstOrNull { it.id == id } ?: AUTO
 
         /**
          * Best default for a fresh install — the user's own display language ("summarize in the
          * user's language"). Chinese resolves to Traditional/Simplified by script then region;
          * a language we don't offer falls back to [AUTO] (match the transcript).
          */
-        fun defaultFor(locale: Locale): SummaryLanguage = when (locale.language) {
+        fun defaultFor(locale: Locale): TargetLanguage = when (locale.language) {
             "zh" -> {
                 val script = locale.script  // "Hant" / "Hans" / "" (older tags)
                 val region = locale.country.uppercase(Locale.ROOT)
@@ -60,7 +55,7 @@ enum class SummaryLanguage(
             else -> AUTO
         }
 
-        fun defaultFor(context: Context): SummaryLanguage =
+        fun defaultFor(context: Context): TargetLanguage =
             defaultFor(context.resources.configuration.locales[0] ?: Locale.getDefault())
 
         /**

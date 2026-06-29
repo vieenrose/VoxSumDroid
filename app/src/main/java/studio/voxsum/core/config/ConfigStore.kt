@@ -13,12 +13,14 @@ object ConfigStore {
     fun load(context: Context): TranscriptionConfig {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val d = TranscriptionConfig()
-        // Summary language: a saved value wins; else migrate the legacy boolean (true→Traditional);
-        // a truly fresh install defaults to the user's display language ("summarize in your language").
-        val summaryLanguage = when {
-            p.contains("summaryLanguage") -> p.getString("summaryLanguage", d.summaryLanguage) ?: d.summaryLanguage
+        // Target language: a saved value wins; else migrate the legacy boolean (true→Traditional);
+        // a truly fresh install defaults to the user's display language. The prefs KEY stays the legacy
+        // "summaryLanguage" (the field/enum were renamed to targetLanguage/TargetLanguage, but renaming
+        // the stored key would orphan existing installs' setting).
+        val targetLanguage = when {
+            p.contains("summaryLanguage") -> p.getString("summaryLanguage", d.targetLanguage) ?: d.targetLanguage
             p.contains("traditionalChinese") -> if (p.getBoolean("traditionalChinese", true)) "zh-Hant" else "auto"
-            else -> SummaryLanguage.defaultFor(context).id
+            else -> TargetLanguage.defaultFor(context).id
         }
         return TranscriptionConfig(
             asrBackend = p.getString("asrBackend", d.asrBackend) ?: d.asrBackend,
@@ -31,7 +33,7 @@ object ConfigStore {
             clusterThreshold = p.getFloat("clusterThreshold", d.clusterThreshold),
             llmModelId = p.getString("llmModelId", d.llmModelId) ?: d.llmModelId,
             summaryPrompt = p.getString("summaryPrompt", d.summaryPrompt) ?: d.summaryPrompt,
-            summaryLanguage = summaryLanguage,
+            targetLanguage = targetLanguage,
             summaryStyle = p.getString("summaryStyle", d.summaryStyle) ?: d.summaryStyle,
         )
     }
@@ -48,7 +50,7 @@ object ConfigStore {
             putFloat("clusterThreshold", c.clusterThreshold)
             putString("llmModelId", c.llmModelId)
             putString("summaryPrompt", c.summaryPrompt)
-            putString("summaryLanguage", c.summaryLanguage)
+            putString("summaryLanguage", c.targetLanguage)   // legacy key (see load())
             putString("summaryStyle", c.summaryStyle)
             apply()
         }

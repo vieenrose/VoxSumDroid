@@ -3,7 +3,7 @@ package studio.voxsum.core.config
 import studio.voxsum.R
 
 /**
- * Format of the generated summary — the "Summary style" picker. Orthogonal to [SummaryLanguage]
+ * Format of the generated summary — the "Summary style" picker. Orthogonal to [TargetLanguage]
  * (which language) and the user's [TranscriptionConfig.summaryPrompt] (what to focus on): this is
  * HOW the summary reads. Each style supplies the map + reduce format instruction and a token budget
  * (flowing prose needs more output room than terse bullets).

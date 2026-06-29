@@ -141,7 +141,7 @@ import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.config.ConfigStore
-import studio.voxsum.core.config.SummaryLanguage
+import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.text.OpenCcConverter
 import studio.voxsum.core.cover.CoverGenerator
@@ -809,7 +809,7 @@ private fun TranscribeScreen(
                         SpeakerNamer(llm).detect(snapshot)
                     }
                     // Keep detected names in the same script as the rest of the output (Target language × locale).
-                    val cc = SummaryLanguage.scriptFor(config.summaryLanguage, context)?.let { OpenCcConverter.get(context, it) }
+                    val cc = TargetLanguage.scriptFor(config.targetLanguage, context)?.let { OpenCcConverter.get(context, it) }
                     if (cc != null) raw.mapValues { (_, n) -> n.copy(name = cc.convert(n.name)) } else raw
                 }
             }.getOrElse { status = context.getString(R.string.status_name_detection_failed, it.message); emptyMap() }
