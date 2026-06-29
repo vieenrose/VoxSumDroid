@@ -6,11 +6,14 @@ backend off `sherpa-onnx`, onto **LiteRT** (Google AI Edge), to cut on-device en
 **Scope:** the **F-Droid build-from-source / FOSS constraint is dropped** — prebuilt AARs and vendor NPU
 delegates are fair game.
 
-**Bottom line:** the **LLM migration is worth doing** — the exact model is pre-converted, the GPU path
-roughly **halves memory and multiplies decode speed**, and there's a turnkey Kotlin API. The **ASR
-migration is not worth it yet**: the model exists but is undocumented, the integration is custom
-reverse-engineering, our Pixel has no usable NPU path, and sherpa-onnx already works. **Prototype the LLM
-on the Pixel 6 and measure energy before committing.**
+**Bottom line (UPDATED after measuring on a Pixel 6 — see §7):** the LLM migration is **not worth it
+now.** On-device the GPU path is only modestly faster (decode ~1.5×, prefill 2.6×) but uses **~2× the
+RAM** (1962 vs 1020 MB), **loads 14× slower** (7.9 s vs 0.56 s), and needs a **Kotlin 2.0→2.3 toolchain
+bump** — the memory regression outweighs the speedup for a 0.6B model that's already real-time on CPU.
+The flagship "585 MB / halves memory" claim did NOT hold on this device. **ASR** stays not-worth-it
+(undocumented model, custom integration, no usable Pixel NPU, sherpa-onnx already works). Keep both
+current engines; revisit if LiteRT lands a lower-memory GPU path (or a usable Tensor NPU) and a
+Kotlin-2.0-compatible AAR.
 
 ---
 
@@ -108,6 +111,37 @@ as much as speed on a phone: 585 MB vs ~2.9 GB CPU is the difference between com
    (`LlmBenchTest`)**. Decide on measured energy, not the vendor table.
 4. **If it wins:** migrate the LLM (keep llama.cpp as a fallback in the registry during rollout). **Revisit
    ASR** only if a documented LiteRT path or a Chinese-capable `.litertlm` ASR appears.
+
+## 7. Measured on Pixel 6 (prototype — `litert-prototype` branch)
+
+Same zh summarization prompt, 1024-token context, Pixel 6 (Tensor G1, Mali-G78). LiteRT = GPU OpenCL +
+sampling (topK 40 / topP 0.95 / temp 0.7, which fixes a greedy repeat-degeneration seen with the
+defaults); llama.cpp = 4 CPU threads (what ships). Peak RSS = `/proc/self/status` VmHWM (whole process).
+Harness: `app/src/androidTest/.../LiteRtBenchTest.kt`.
+
+| Metric | llama.cpp CPU(4t) · Q8 *(ships)* | LiteRT-LM GPU · mixed-INT4 |
+|---|--:|--:|
+| Model on disk | 610 MB | 475 MB |
+| Load / init | **0.56 s** | 7.9 s |
+| Prefill (TTFT) | 1.64 s | **0.62 s** |
+| Decode | 12.9 tok/s | **19.1 tok/s** |
+| Peak RSS (VmHWM) | **1020 MB** | 1962 MB |
+| Output quality | on-topic, rambled a little | clean 3-point summary |
+
+- **GPU is faster at compute** (prefill 2.6×, decode ~1.5×) — but only modestly for a 0.6B model that's
+  already real-time on CPU.
+- **GPU costs ~2× the RAM** (1962 vs 1020 MB) despite a *smaller* model on disk — OpenCL holds weights in
+  system RAM *and* GPU mappings. On a phone, +940 MB is a real liability (largeHeap, OOM, app eviction).
+- **Load is 14× slower** (7.9 s) — an 8-second lag before the first summary.
+- **Accuracy** is a wash: same base model; quality tracks the sampler, not the runtime.
+- **Integration cost:** the LiteRT-LM AAR needs **Kotlin 2.3** (project is on 2.0.21) → a toolchain bump
+  (done on this branch: Kotlin + Compose-plugin 2.3.0, plus a `kotlinOptions`→`compilerOptions` migration).
+
+**Verdict: do not migrate the LLM now.** The memory regression is decisive; the speedup isn't worth ~2×
+RAM + an 8 s load + a toolchain bump for this use case. Only reconsider if a battery (Wh) measurement
+shows GPU's shorter compute nets a real energy win despite higher power and double the footprint — or if
+LiteRT ships a lower-memory GPU path / usable Tensor NPU. The `litert-prototype` branch is kept (unmerged)
+as the reproducible harness.
 
 ## Appendix — sources
 
