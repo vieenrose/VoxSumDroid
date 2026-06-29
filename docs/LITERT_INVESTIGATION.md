@@ -131,6 +131,12 @@ Harness: `app/src/androidTest/.../LiteRtBenchTest.kt`.
 - **Memory is LiteRT's problem on BOTH backends** — GPU 1962 MB, CPU **2354 MB**, vs llama.cpp 1020 MB
   (~2–2.3×) despite the INT4 model being *smaller* on disk. It's not just GPU mappings: LiteRT CPU loads
   light (979 MB) then balloons to 2.35 GB during decode. There's no low-memory LiteRT backend here.
+- **And no memory tuning helps.** The only RAM-related setting LiteRT-LM's Kotlin API exposes is
+  `EngineConfig.maxNumTokens` (KV-cache size); dropping it 1024→256 left GPU RSS **unchanged** (1967 vs
+  1962 MB) — the footprint is weights + GPU mappings, not KV. `Backend.GPU()` takes no options, and there's
+  no low-memory mode / KV-quantization / mmap toggle. (The *base* LiteRT GPU delegate does have a
+  "transient indirection buffer" low-memory flag + kernel serialization for faster load — but neither is
+  plumbed through the LiteRT-LM LLM API, so they're unreachable when running the model.)
 - **GPU is the only faster one** (prefill 2.6×, decode ~1.5×) — modestly, for a model already real-time on
   CPU — and it pays with ~2× RAM + a 7.9 s load. **LiteRT CPU is the worst of all**: same decode as
   llama.cpp, *slower* prefill, *highest* RAM. No reason to pick it.
