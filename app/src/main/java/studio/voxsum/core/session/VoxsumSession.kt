@@ -7,7 +7,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import studio.voxsum.R
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioTranscoder
 import studio.voxsum.core.audio.Mp4Tags
@@ -130,20 +129,21 @@ object VoxsumSession {
         val blob = encodeSession(utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId)
         val cleanTitle = title?.replace('\n', ' ')?.trim()?.ifBlank { null }
         val cleanSummary = summary?.trim()?.ifBlank { null }
-        // Player-facing lyrics (©lyr / LYRICS) = the SUMMARY (under a heading) then the full transcript,
-        // both PLAIN text, so a music player's Lyrics view shows BOTH at a glance. NOT timestamped LRC:
-        // those tag fields are unsynchronized-plain-text by convention, and LRC timestamps make
-        // lyrics-capable players (Doppler, Poweramp, MusicBee, Quod Libet…) reject the whole field.
-        // Recovery fidelity is untouched — the full timestamped transcript round-trips via the VOXSUM
-        // blob, not this field. (Synced/karaoke display isn't supported embedded in these containers;
-        // that needs a sidecar .lrc.)
-        val transcriptText = utterances.joinToString("\n") { it.text.replace('\n', ' ').trim() }
+        // Player-facing lyrics (©lyr / LYRICS) = LRC-style SYNCHRONIZED lyrics: an `[mm:ss.xx]` timestamp
+        // per transcript line. Players that parse embedded synced lyrics (Poweramp, Musicolet, Retro
+        // Music…) SCROLL the transcript in real time as the audio plays; players without sync support
+        // still show it as a text block (with the timestamps visible — the accepted trade-off for sync).
+        // The summary stays in the comment field (©cmt / DESCRIPTION); the canonical transcript
+        // round-trips via the VOXSUM blob, so recovery is untouched.
         val lyrics = buildString {
-            cleanSummary?.let {
-                append(context.getString(R.string.export_heading_summary)).append('\n').append(it).append("\n\n")
-                append(context.getString(R.string.export_heading_transcript)).append('\n')
+            cleanTitle?.let { append("[ti:").append(it.replace(']', ' ')).append("]\n") }
+            for (u in utterances) {
+                val t = u.text.replace('\n', ' ').trim()
+                if (t.isEmpty()) continue
+                val cs = (if (u.startSec > 0) u.startSec * 100 else 0.0).toLong()   // centiseconds
+                append(String.format(java.util.Locale.US, "[%02d:%02d.%02d]", cs / 6000, (cs / 100) % 60, cs % 100))
+                append(t).append('\n')
             }
-            append(transcriptText)
         }.ifBlank { null }
         val tagged = File(dir, fileName)
         val embedded: Boolean = when (format) {
