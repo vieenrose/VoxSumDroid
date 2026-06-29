@@ -115,14 +115,9 @@ https://vieenrose.github.io/VoxSumDroid/repo?fingerprint=c9fe46eb7d87d4fa4e2340a
 | | **Musicolet** *(免費)* | **歌詞**分頁 | 🔄 需 `.lrc` |
 | | **Oto Music** / **Gramophone** *(免費)* | 歌詞檢視 | 🔄 需 `.lrc` |
 | | **Poweramp** | 內嵌歌詞檢視 | 🔄 需 `.lrc` |
-| **iOS** | **Evermusic** *(免費)* | **More Actions → Comments →「Embedded Lyrics」** | 🔄 用「LRC File」模式 |
-| | **Marvis Pro** | 播放畫面歌詞（需先把檔案加入「音樂」資料庫） | 🔄 需 `.lrc` |
-| | **Apple Music** | 加入資料庫後，**Song Info → Lyrics** | 僅靜態（本機檔案） |
 | **Windows** | **MusicBee** *(免費)* | **Lyrics** 面板 | 🔄 需 `.lrc` |
 | | **foobar2000** *(免費)* | 歌詞元件（ESLyric） | 🔄 需 `.lrc` |
 | | **iTunes / Apple Music** | **Song Info → Lyrics** 分頁 | 僅靜態 |
-| **macOS** | **音樂 App（Apple Music）** | **取得資訊 → 歌詞** 分頁 | 僅靜態（本機檔案） |
-| | **Swinsian** / **VOX** | 歌詞窗格 | 僅靜態 |
 | **Linux** | **Lollypop** *(免費)* | 歌詞檢視 | 🔄 需 `.lrc` |
 | | **Strawberry** *(免費)* | 開啟「從標籤讀取歌詞」後，看 **Lyrics** 窗格 | 僅靜態 |
 | | **Quod Libet** *(免費)* | 顯示內嵌的 `LYRICS` 標籤 | 僅靜態 |

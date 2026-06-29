@@ -122,14 +122,9 @@ only ever show the static block.
 | | **Musicolet** *(free)* | the **Lyrics** tab | 🔄 with `.lrc` |
 | | **Oto Music** / **Gramophone** *(free)* | the Lyrics view | 🔄 with `.lrc` |
 | | **Poweramp** | the embedded-lyrics view | 🔄 with `.lrc` |
-| **iOS** | **Evermusic** *(free)* | **More Actions → Comments → “Embedded Lyrics”** | 🔄 via **“LRC File”** mode |
-| | **Marvis Pro** | Now-Playing lyrics *(add to your Music library first)* | 🔄 with `.lrc` |
-| | **Apple Music** | add to library, then **Song Info → Lyrics** | static only *(local files)* |
 | **Windows** | **MusicBee** *(free)* | the **Lyrics** panel | 🔄 with `.lrc` |
 | | **foobar2000** *(free)* | a lyrics component (ESLyric) | 🔄 with `.lrc` |
 | | **iTunes / Apple Music** | **Song Info → Lyrics** tab | static only |
-| **macOS** | **Music.app (Apple Music)** | **Get Info → Lyrics** tab | static only *(local files)* |
-| | **Swinsian** / **VOX** | the Lyrics pane | static only |
 | **Linux** | **Lollypop** *(free)* | the Lyrics view | 🔄 with `.lrc` |
 | | **Strawberry** *(free)* | enable lyrics from tags, then the **Lyrics** pane | static only |
 | | **Quod Libet** *(free)* | shows the embedded `LYRICS` tag | static only |

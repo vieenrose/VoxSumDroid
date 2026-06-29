@@ -126,14 +126,9 @@ autres n'affichent qu'un bloc statique.
 | | **Musicolet** *(gratuit)* | l'onglet **Paroles** | 🔄 avec `.lrc` |
 | | **Oto Music** / **Gramophone** *(gratuit)* | la vue Paroles | 🔄 avec `.lrc` |
 | | **Poweramp** | la vue des paroles intégrées | 🔄 avec `.lrc` |
-| **iOS** | **Evermusic** *(gratuit)* | **More Actions → Comments → « Embedded Lyrics »** | 🔄 via le mode « LRC File » |
-| | **Marvis Pro** | paroles en lecture *(ajoutez d'abord le fichier à votre bibliothèque Musique)* | 🔄 avec `.lrc` |
-| | **Apple Music** | ajoutez à la bibliothèque, puis **Song Info → Lyrics** | statique seulement *(fichiers locaux)* |
 | **Windows** | **MusicBee** *(gratuit)* | le panneau **Lyrics** | 🔄 avec `.lrc` |
 | | **foobar2000** *(gratuit)* | via un composant de paroles (ESLyric) | 🔄 avec `.lrc` |
 | | **iTunes / Apple Music** | l'onglet **Song Info → Lyrics** | statique seulement |
-| **macOS** | **Musique (Apple Music)** | l'onglet **Lire les informations → Paroles** | statique seulement *(fichiers locaux)* |
-| | **Swinsian** / **VOX** | le volet Paroles | statique seulement |
 | **Linux** | **Lollypop** *(gratuit)* | la vue Paroles | 🔄 avec `.lrc` |
 | | **Strawberry** *(gratuit)* | activez les paroles depuis les tags, puis le volet **Paroles** | statique seulement |
 | | **Quod Libet** *(gratuit)* | affiche la balise `LYRICS` intégrée | statique seulement |
