@@ -373,12 +373,8 @@ private fun TranscribeScreen(
     val scope = rememberCoroutineScope()
 
     // The cover auto-embeds on every save/share (generated in the export service from current
-    // metadata). The dialog just previews it and lets the user pick a variant (seed) or turn it off.
+    // metadata). Generation is deterministic (audio fingerprint + title), so there's no preview/accept UI.
     var coverEnabled by remember { mutableStateOf(true) }
-    var coverSeed by remember { mutableIntStateOf(0) }
-    var coverBitmap by remember { mutableStateOf<Bitmap?>(null) }     // preview shown in the dialog
-    var showCoverDialog by remember { mutableStateOf(false) }
-    var coverBusy by remember { mutableStateOf(false) }
     // True while a session .ogg is being built/written (in the foreground service, so it finishes
     // even if the app is closed). The overlay just shows progress. lastSaveUri labels the result.
     var exporting by remember { mutableStateOf(false) }
@@ -504,7 +500,7 @@ private fun TranscribeScreen(
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         editingTitle = false; editingSummary = false; editingActions = false
         title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
-        coverEnabled = true; coverSeed = 0; coverBitmap = null
+        coverEnabled = true
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri)
@@ -553,7 +549,7 @@ private fun TranscribeScreen(
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         editingTitle = false; editingSummary = false; editingActions = false
         title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
-        coverEnabled = true; coverSeed = 0; coverBitmap = null
+        coverEnabled = true
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         TranscriptionConfig.Holder.config = config
@@ -581,16 +577,6 @@ private fun TranscribeScreen(
     }
 
 
-    // --- Cover card: a pure-Canvas, transcript-seeded identicon. ---
-    // Render a cover PREVIEW (for the dialog) from the transcript + [seed]. The authoritative cover is
-    // generated in the export service at save/share time; this just shows what it'll look like.
-    // Deterministic + cheap (a hash + a few draws, no audio decode); run off the main thread anyway.
-    suspend fun renderCoverPreview(seed: Int) {
-        val transcriptSeed = utterances.joinToString("\n") { it.text }
-        val ttl = title
-        coverBitmap = withContext(Dispatchers.Default) { CoverGenerator.render(ttl, transcriptSeed, seed) }
-    }
-
     // --- Session as a self-describing .ogg: Save (SAF), Open (SAF → recover), Share (one .ogg). ---
     // Build+write a session (.ogg or .m4a) in the foreground service so it finishes even if the app
     // is closed. Both formats embed the identical full session; the file just plays more universally
@@ -601,7 +587,7 @@ private fun TranscribeScreen(
             share = share, saveUri = uri, audioUri = audioUri,
             utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
             summary = summary, actionItems = actionItems, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
-            coverEnabled = coverEnabled, coverSeed = coverSeed,
+            coverEnabled = coverEnabled,
             fileName = VoxsumSession.suggestFileName(title, format.ext), format = format,
         )
         exporting = true
@@ -635,12 +621,8 @@ private fun TranscribeScreen(
             speakerNames.clear(); loaded.speakerNames.forEach { (k, v) -> speakerNames[k] = v }
             editingIndex = -1; editingSpeakerId = null
             title = loaded.title; summary = loaded.summary; actionItems = loaded.actionItems
-            // Show the embedded cover as the preview; it re-embeds (regenerated from current metadata)
-            // on the next save. coverEnabled tracks whether the .ogg had one.
-            coverSeed = 0
-            val cj = loaded.coverJpeg
-            coverBitmap = cj?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull() }
-            coverEnabled = cj != null
+            // The cover re-embeds deterministically (from audio + title) on the next save.
+            coverEnabled = true
             isPlaying = false; running = false; transcriptReady = true; progress = 0f
             audioUri = Uri.fromFile(loaded.audio)
             status = context.getString(R.string.status_session_loaded, loaded.utterances.size)
@@ -1009,9 +991,6 @@ private fun TranscribeScreen(
                 onExtractActions = { extractActions() },
                 onSearch = { searchActive = !searchActive; if (!searchActive) searchQuery = "" },
                 onSettings = { showConfigSheet = true },
-                onCoverPreview = {
-                    scope.launch { coverBusy = true; renderCoverPreview(coverSeed); coverBusy = false; coverEnabled = true; showCoverDialog = true }
-                },
                 // No pre-decode here; the picker callback hands the build+write to the service.
                 onSaveSessionM4a = { sessionSaverM4a.launch(VoxsumSession.suggestFileName(title, VoxsumSession.Format.M4A.ext)) },
                 onShareSessionM4a = { shareSession(VoxsumSession.Format.M4A) },
@@ -1193,20 +1172,6 @@ private fun TranscribeScreen(
             onDismiss = { showYouTubeSheet = false },
         )
     }
-    if (showCoverDialog) {
-        CoverDialog(
-            bitmap = coverBitmap,
-            busy = coverBusy,
-            onRegenerate = {
-                coverSeed++
-                scope.launch { coverBusy = true; renderCoverPreview(coverSeed); coverBusy = false }
-            },
-            onRemove = {
-                coverEnabled = false; coverBitmap = null; showCoverDialog = false
-            },
-            onDismiss = { showCoverDialog = false },
-        )
-    }
     if (exporting) ExportingOverlay(onDismiss = { exporting = false })
     BackHandler(showConfigSheet || showPodcastSheet || showAddSourceSheet || showYouTubeSheet) {
         showConfigSheet = false; showPodcastSheet = false
@@ -1236,54 +1201,6 @@ private fun ExportingOverlay(onDismiss: () -> Unit) {
             }
         }
     }
-}
-
-/**
- * Cover preview: shows the generated card and lets the user accept it (Use), get a different look
- * (Regenerate — reshuffles the seed for the same metadata), or drop it (Remove). The cover is also
- * auto-(re)generated on Save/Share, so this dialog is an optional override, not a required step.
- */
-@Composable
-private fun CoverDialog(
-    bitmap: Bitmap?,
-    busy: Boolean,
-    onRegenerate: () -> Unit,
-    onRemove: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.cover_title)) },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = stringResource(R.string.cover_title),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(12.dp)),
-                    )
-                } else {
-                    Text(stringResource(R.string.cover_none))
-                }
-                if (busy) {
-                    Spacer(Modifier.height(12.dp))
-                    CircularProgressIndicator()
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onRegenerate, enabled = !busy) { Text(stringResource(R.string.cover_regenerate)) }
-        },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onRemove, enabled = !busy && bitmap != null) { Text(stringResource(R.string.cover_remove)) }
-                TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.cover_use)) }
-            }
-        },
-    )
 }
 
 /** Generated-title card with model attribution. */

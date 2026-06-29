@@ -12,11 +12,12 @@ import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 
 /**
- * Renders a session "cover" as a **transcript-seeded identicon** — a symmetric grid of rounded cells
- * whose pattern AND colours are derived deterministically from a SHA-256 of the transcript (mixed with
- * [seed], so "Regenerate" yields a different look). Same transcript + seed → byte-identical cover; no
- * model, instant, offline. The title is drawn small along the bottom for context. The JPEG embeds as
- * cover art (`covr` / METADATA_BLOCK_PICTURE) and previews in the accept/skip/regenerate UI.
+ * Renders a session "cover" as an **audio-seeded identicon** — a symmetric grid of rounded cells whose
+ * pattern AND colours are derived deterministically from a SHA-256 of the **audio** fingerprint mixed
+ * with the **title**. So the cover is effectively an ID for the audio track (immune to transcript
+ * edits), and changes only when the audio or the title changes. Same audio + title → byte-identical
+ * cover; no model, instant, offline. The title is drawn small along the bottom. The JPEG embeds as
+ * cover art (`covr` / METADATA_BLOCK_PICTURE); generation is fully deterministic (no accept/regenerate).
  */
 object CoverGenerator {
 
@@ -24,12 +25,12 @@ object CoverGenerator {
     private const val GRID = 5                    // cells per side; left half + centre column are mirrored
 
     /**
-     * @param title          session title (falls back to "VoxSum recording")
-     * @param transcriptSeed the transcript text the identicon is derived from (any stable string works)
-     * @param seed           "Regenerate" variant — mixed into the hash so the look changes
+     * @param title   session title (falls back to "VoxSum recording"); part of the seed, so a title
+     *                change regenerates the cover
+     * @param audioId a stable fingerprint of the audio (e.g. a hash of the decoded PCM)
      */
-    fun render(title: String?, transcriptSeed: String, seed: Int): Bitmap {
-        val h = hash(transcriptSeed, seed)
+    fun render(title: String?, audioId: ByteArray): Bitmap {
+        val h = hash(audioId, title)
         val bmp = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
 
@@ -75,10 +76,10 @@ object CoverGenerator {
         c.drawRoundRect(RectF(l + pad, t + pad, l + size - pad, t + size - pad), size * 0.2f, size * 0.2f, p)
     }
 
-    /** SHA-256 of the transcript, with [seed] appended — same inputs → same bytes → same cover. */
-    private fun hash(s: String, seed: Int): ByteArray = MessageDigest.getInstance("SHA-256").run {
-        update(s.toByteArray(Charsets.UTF_8))
-        update(byteArrayOf((seed ushr 24).toByte(), (seed ushr 16).toByte(), (seed ushr 8).toByte(), seed.toByte()))
+    /** SHA-256 of the audio fingerprint + title — same audio + title → same bytes → same cover. */
+    private fun hash(audioId: ByteArray, title: String?): ByteArray = MessageDigest.getInstance("SHA-256").run {
+        update(audioId)
+        update((title?.trim() ?: "").toByteArray(Charsets.UTF_8))
         digest()
     }
 

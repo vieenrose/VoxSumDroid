@@ -51,12 +51,11 @@ class VoxSumTopBarTest {
                 canExtractActions = false, onExtractActions = { fired["actions"] = true },
                 onSearch = { fired["search"] = true },
                 onSettings = { fired["settings"] = true },
-                onCoverPreview = { fired["cover"] = true }, onSaveSession = { fired["save"] = true },
-                onShareSession = { fired["share"] = true },
                 onSaveSessionM4a = { fired["savem4a"] = true }, onShareSessionM4a = { fired["sharem4a"] = true },
                 onCopyTranscript = { fired["copytx"] = true }, onShareTranscript = { fired["sharetx"] = true },
                 onExportTxt = { fired["txt"] = true }, onExportSrt = { fired["srt"] = true },
-                onExportVtt = { fired["vtt"] = true }, onExportMarkdown = { fired["md"] = true }, onExportPdf = { fired["pdf"] = true },
+                onExportVtt = { fired["vtt"] = true }, onExportLrc = { fired["lrc"] = true },
+                onExportMarkdown = { fired["md"] = true }, onExportPdf = { fired["pdf"] = true },
             )
         }
         return fired
@@ -105,8 +104,8 @@ class VoxSumTopBarTest {
     @Test fun exportMenuOpensAndSaveFires() {
         val f = bar(transcriptAvailable = true)
         compose.onNodeWithContentDescription(ctx.getString(R.string.cd_export)).performClick()
-        compose.onNodeWithText(ctx.getString(R.string.session_save)).performClick()
-        assertTrue(f["save"] == true)
+        compose.onNodeWithText(ctx.getString(R.string.session_save_m4a)).performClick()
+        assertTrue(f["savem4a"] == true)
     }
 
     @Test fun exportMenuTranscriptExportsFire() {

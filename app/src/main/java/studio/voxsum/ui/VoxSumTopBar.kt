@@ -77,7 +77,6 @@ fun VoxSumTopBar(
     onExtractActions: () -> Unit,
     onSearch: () -> Unit,
     onSettings: () -> Unit,
-    onCoverPreview: () -> Unit,
     onSaveSessionM4a: () -> Unit,
     onShareSessionM4a: () -> Unit,
     onCopyTranscript: () -> Unit,
@@ -170,7 +169,7 @@ fun VoxSumTopBar(
                     }
                 }
                 ExportMenu(
-                    transcriptAvailable, onCoverPreview, onSaveSessionM4a, onShareSessionM4a,
+                    transcriptAvailable, onSaveSessionM4a, onShareSessionM4a,
                     onCopyTranscript, onShareTranscript, onExportTxt, onExportSrt, onExportVtt, onExportLrc, onExportMarkdown, onExportPdf,
                 )
             }
@@ -266,7 +265,6 @@ private fun ReRunMenu(
 @Composable
 private fun ExportMenu(
     transcriptAvailable: Boolean,
-    onCoverPreview: () -> Unit,
     onSaveSessionM4a: () -> Unit,
     onShareSessionM4a: () -> Unit,
     onCopyTranscript: () -> Unit,
@@ -290,10 +288,6 @@ private fun ExportMenu(
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             // The session .ogg is the editable round-trip archive — transcript + summary + speakers +
             // cover all ride inside it, reopenable in VoxSum.
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.cover_menu)) },
-                onClick = { open = false; onCoverPreview() },
-            )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.session_save_m4a)) },
                 onClick = { open = false; onSaveSessionM4a() },

@@ -17,6 +17,7 @@ import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.data.SpeakerName
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.security.MessageDigest
 import java.io.OutputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
@@ -89,8 +90,7 @@ object VoxsumSession {
         title: String?,
         asrModelId: String?,
         llmModelId: String?,
-        coverEnabled: Boolean = true,   // auto-generate + embed the cover card (METADATA_BLOCK_PICTURE)
-        coverSeed: Int = 0,             // layout/palette variant (the "Regenerate" seed)
+        coverEnabled: Boolean = true,   // auto-generate + embed the cover (deterministic from audio + title)
         fileName: String = "session.$EXT",
         format: Format = Format.OGG,    // OGG/Opus (default) or M4A/AAC — both embed the full session
     ): Built? = withContext(Dispatchers.IO) {
@@ -104,6 +104,12 @@ object VoxsumSession {
             AudioDecoder.decodeToWav16k(context, audioUri, workWav) { _, _ -> }
         }.getOrElse { android.util.Log.w("voxsum-ogg", "decode failed", it); null }
         if (decoded == null || decoded <= 0L) { workWav.delete(); return@withContext null }
+        // A SHA-256 of the decoded audio — a stable fingerprint that makes the cover an ID for THIS
+        // track (unchanged by transcript edits). Hashed here, before the work WAV is consumed below.
+        val audioId = MessageDigest.getInstance("SHA-256").run {
+            workWav.inputStream().use { ins -> val b = ByteArray(1 shl 16); while (true) { val n = ins.read(b); if (n < 0) break; update(b, 0, n) } }
+            digest()
+        }
         // Dot-prefixed temp name so it can never collide with a suggestFileName() output (which is
         // trimmed of leading dots), avoiding deleting the very file we return in the share flow.
         val plain = File(dir, ".audio_tmp.${format.ext}")
@@ -116,12 +122,11 @@ object VoxsumSession {
             android.util.Log.w("voxsum-session", "wav->${format.ext} transcode returned false")
             return@withContext null
         }
-        // Render the cover JPEG — a transcript-seeded identicon, deterministic from the transcript text,
-        // so it's always in sync with the file and reproducible on every (re)save.
+        // Render the cover JPEG — an audio-seeded identicon (an ID for THIS track), keyed by audio + title,
+        // so transcript edits don't change it and it's reproducible on every (re)save.
         var coverJpeg: ByteArray? = null; var coverW = 0; var coverH = 0
-        if (coverEnabled && utterances.isNotEmpty()) runCatching {
-            val transcriptSeed = utterances.joinToString("\n") { it.text }
-            val bmp = CoverGenerator.render(title, transcriptSeed, coverSeed)
+        if (coverEnabled) runCatching {
+            val bmp = CoverGenerator.render(title, audioId)
             coverJpeg = CoverGenerator.toJpeg(bmp); coverW = bmp.width; coverH = bmp.height
         }
         val blob = encodeSession(utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId)
@@ -174,11 +179,11 @@ object VoxsumSession {
         context: Context, out: OutputStream, audioUri: Uri?,
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
         summary: String?, actionItems: String?, title: String?, asrModelId: String?, llmModelId: String?,
-        coverEnabled: Boolean = true, coverSeed: Int = 0, format: Format = Format.OGG,
+        coverEnabled: Boolean = true, format: Format = Format.OGG,
     ): SaveOutcome = withContext(Dispatchers.IO) {
         out.use { o ->
             val dir = File(context.cacheDir, "voxsum_save").apply { mkdirs() }
-            val built = buildSessionOgg(context, dir, audioUri, utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId, coverEnabled, coverSeed, "session.${format.ext}", format)
+            val built = buildSessionOgg(context, dir, audioUri, utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId, coverEnabled, "session.${format.ext}", format)
                 ?: return@use SaveOutcome.FAILED
             built.file.inputStream().use { it.copyTo(o) }
             built.file.delete()
