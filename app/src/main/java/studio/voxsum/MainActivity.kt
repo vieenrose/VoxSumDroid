@@ -376,7 +376,6 @@ private fun TranscribeScreen(
     // metadata). The dialog just previews it and lets the user pick a variant (seed) or turn it off.
     var coverEnabled by remember { mutableStateOf(true) }
     var coverSeed by remember { mutableIntStateOf(0) }
-    var coverPeaks by remember { mutableStateOf<FloatArray?>(null) }  // cached waveform thumbnail for the preview
     var coverBitmap by remember { mutableStateOf<Bitmap?>(null) }     // preview shown in the dialog
     var showCoverDialog by remember { mutableStateOf(false) }
     var coverBusy by remember { mutableStateOf(false) }
@@ -505,7 +504,7 @@ private fun TranscribeScreen(
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         editingTitle = false; editingSummary = false; editingActions = false
         title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
-        coverEnabled = true; coverSeed = 0; coverPeaks = null; coverBitmap = null
+        coverEnabled = true; coverSeed = 0; coverBitmap = null
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri)
@@ -554,7 +553,7 @@ private fun TranscribeScreen(
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         editingTitle = false; editingSummary = false; editingActions = false
         title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
-        coverEnabled = true; coverSeed = 0; coverPeaks = null; coverBitmap = null
+        coverEnabled = true; coverSeed = 0; coverBitmap = null
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         TranscriptionConfig.Holder.config = config
@@ -582,17 +581,14 @@ private fun TranscribeScreen(
     }
 
 
-    // --- Cover card: pure-Canvas thumbnail (gradient + waveform + title + speaker palette). ---
-    // Render a cover PREVIEW (for the dialog) from the current metadata + [seed]. The authoritative
-    // cover is generated in the export service at save/share time; this just shows what it'll look
-    // like. Heavy work off the main thread; the waveform decode is cached per audio.
+    // --- Cover card: a pure-Canvas, transcript-seeded identicon. ---
+    // Render a cover PREVIEW (for the dialog) from the transcript + [seed]. The authoritative cover is
+    // generated in the export service at save/share time; this just shows what it'll look like.
+    // Deterministic + cheap (a hash + a few draws, no audio decode); run off the main thread anyway.
     suspend fun renderCoverPreview(seed: Int) {
-        val peaks = coverPeaks ?: withContext(Dispatchers.IO) {
-            audioUri?.let { AudioDecoder.waveformPeaks(context, it) } ?: FloatArray(0)
-        }.also { coverPeaks = it }
-        val cols = utterances.mapNotNull { it.speaker }.distinct().sorted().map { speakerColor(it).toInt() }
+        val transcriptSeed = utterances.joinToString("\n") { it.text }
         val ttl = title
-        coverBitmap = withContext(Dispatchers.Default) { CoverGenerator.render(ttl, peaks, cols, seed) }
+        coverBitmap = withContext(Dispatchers.Default) { CoverGenerator.render(ttl, transcriptSeed, seed) }
     }
 
     // --- Session as a self-describing .ogg: Save (SAF), Open (SAF → recover), Share (one .ogg). ---
@@ -641,7 +637,7 @@ private fun TranscribeScreen(
             title = loaded.title; summary = loaded.summary; actionItems = loaded.actionItems
             // Show the embedded cover as the preview; it re-embeds (regenerated from current metadata)
             // on the next save. coverEnabled tracks whether the .ogg had one.
-            coverSeed = 0; coverPeaks = null
+            coverSeed = 0
             val cj = loaded.coverJpeg
             coverBitmap = cj?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull() }
             coverEnabled = cj != null

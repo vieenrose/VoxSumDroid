@@ -15,7 +15,6 @@ import studio.voxsum.core.cover.CoverArt
 import studio.voxsum.core.cover.CoverGenerator
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.data.SpeakerName
-import studio.voxsum.data.speakerColor
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.OutputStream
@@ -101,9 +100,8 @@ object VoxsumSession {
         // waveform in RAM, so multi-hour sessions encode without OOM. The cover's waveform is
         // accumulated DURING this same decode (no second pass), then the card is rendered + embedded.
         val workWav = File(dir, ".audio_tmp.wav")
-        val peaks = AudioDecoder.PeakAccumulator()
         val decoded = runCatching {
-            AudioDecoder.decodeToWav16k(context, audioUri, workWav) { block, len -> if (coverEnabled) peaks.add(block, len) }
+            AudioDecoder.decodeToWav16k(context, audioUri, workWav) { _, _ -> }
         }.getOrElse { android.util.Log.w("voxsum-ogg", "decode failed", it); null }
         if (decoded == null || decoded <= 0L) { workWav.delete(); return@withContext null }
         // Dot-prefixed temp name so it can never collide with a suggestFileName() output (which is
@@ -118,12 +116,12 @@ object VoxsumSession {
             android.util.Log.w("voxsum-session", "wav->${format.ext} transcode returned false")
             return@withContext null
         }
-        // Render the cover JPEG once from this session's metadata (title + speaker palette + waveform),
-        // so it's always in sync with the file — regenerated whenever the session is (re)saved.
+        // Render the cover JPEG — a transcript-seeded identicon, deterministic from the transcript text,
+        // so it's always in sync with the file and reproducible on every (re)save.
         var coverJpeg: ByteArray? = null; var coverW = 0; var coverH = 0
         if (coverEnabled && utterances.isNotEmpty()) runCatching {
-            val cols = utterances.mapNotNull { it.speaker }.distinct().sorted().map { speakerColor(it).toInt() }
-            val bmp = CoverGenerator.render(title, peaks.peaks(), cols, coverSeed)
+            val transcriptSeed = utterances.joinToString("\n") { it.text }
+            val bmp = CoverGenerator.render(title, transcriptSeed, coverSeed)
             coverJpeg = CoverGenerator.toJpeg(bmp); coverW = bmp.width; coverH = bmp.height
         }
         val blob = encodeSession(utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId)
