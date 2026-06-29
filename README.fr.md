@@ -109,34 +109,29 @@ l'installer (Android peut demander l'autorisation d'installer depuis votre navig
 ## Afficher la transcription et le résumé dans d'autres applis musicales
 
 Un fichier `.ogg`/`.m4a` exporté stocke le titre, la pochette, le **résumé** (dans la balise *commentaire*)
-et le **résumé + la transcription** (dans la balise *paroles/lyrics*) sous forme de métadonnées audio
-ordinaires. Tout lecteur capable de lire les **paroles intégrées** peut les afficher — l'astuce est
-d'ouvrir la vue **paroles** du lecteur. Préférez le **`.m4a`** pour la compatibilité la plus large.
+et la **transcription synchronisée** (dans la balise *paroles/lyrics*, au format LRC `[mm:ss.xx]`) sous forme
+de métadonnées audio ordinaires. Les lecteurs qui interprètent les **paroles synchronisées** font défiler la
+transcription **en temps réel** pendant la lecture — lue directement depuis le fichier, **sans annexe ni
+permission**. Les lecteurs sans prise en charge de la synchro affichent quand même le texte (avec les
+horodatages `[mm:ss]` visibles). Préférez le **`.m4a`** pour la compatibilité la plus large.
 
-**Statique vs. temps réel.** Les paroles intégrées au fichier audio sont en **texte brut** : seules, elles
-s'affichent comme un **bloc de texte statique** dans chaque appli. Pour un affichage *synchronisé* (style
-karaoké, la ligne se surligne au fil de la lecture), exportez la transcription en **`.lrc` annexe**
-(**Exporter → « Enregistrer les paroles synchronisées (.lrc) »**) et gardez-le à côté de l'audio avec le
-même nom de base — les applis marquées **🔄** font alors défiler la transcription en temps réel ; les
-autres n'affichent qu'un bloc statique.
-
-| Plateforme | Appli | Où s'affiche la transcription / le résumé | Temps réel ? |
+| Plateforme | Appli | Où s'affichent les paroles | Temps réel ? |
 |---|---|---|---|
-| **Android** | **Retro Music** *(gratuit)* — vérifié | lecture en cours **⋮ → Aller à la page des paroles** | 🔄 avec `.lrc` |
-| | **Musicolet** *(gratuit)* | l'onglet **Paroles** | 🔄 avec `.lrc` |
-| | **Oto Music** / **Gramophone** *(gratuit)* | la vue Paroles | 🔄 avec `.lrc` |
-| | **Poweramp** | la vue des paroles intégrées | 🔄 avec `.lrc` |
-| **Windows** | **MusicBee** *(gratuit)* | le panneau **Lyrics** | 🔄 avec `.lrc` |
-| | **foobar2000** *(gratuit)* | via un composant de paroles (ESLyric) | 🔄 avec `.lrc` |
-| | **iTunes / Apple Music** | l'onglet **Song Info → Lyrics** | statique seulement |
-| **Linux** | **Lollypop** *(gratuit)* | la vue Paroles | 🔄 avec `.lrc` |
-| | **Strawberry** *(gratuit)* | activez les paroles depuis les tags, puis le volet **Paroles** | statique seulement |
-| | **Quod Libet** *(gratuit)* | affiche la balise `LYRICS` intégrée | statique seulement |
+| **Android** | **Retro Music** *(gratuit)* — vérifié | paroles en lecture (歌詞) | ✅ synchro |
+| | **Gramophone** *(gratuit)* — vérifié | la vue Paroles | ✅ synchro |
+| | **Musicolet** / **Oto Music** *(gratuit)* | l'onglet **Paroles** | 🔄 synchro |
+| | **Poweramp** | la vue des paroles | 🔄 synchro |
+| **Windows** | **MusicBee** *(gratuit)* | le panneau **Lyrics** | 🔄 synchro |
+| | **foobar2000** *(gratuit)* | un composant de paroles (ESLyric) | 🔄 synchro |
+| | **iTunes / Apple Music** | l'onglet **Song Info → Lyrics** | texte seul |
+| **Linux** | **Lollypop** *(gratuit)* | la vue Paroles | 🔄 synchro |
+| | **Strawberry** / **Quod Libet** *(gratuit)* | le volet Paroles | texte seul |
 
-> **Remarques.** **VLC** lit l'audio partout mais n'a **aucun panneau de paroles** — utilisez-le
-> seulement pour vérifier la lecture. Le **résumé seul** figure aussi dans la balise **commentaire**
-> standard : il apparaît donc dans *Infos / Propriétés / Commentaires* de presque tout lecteur ou
-> gestionnaire de fichiers, même sans vue paroles.
+> **Remarques.** ✅ = vérifié sur un Pixel ; 🔄 = prise en charge documentée des paroles synchronisées. Les
+> lecteurs sans synchro affichent la transcription en texte brut **avec les horodatages `[mm:ss]` visibles**.
+> Le **résumé** figure dans la balise **commentaire** standard (*Infos / Propriétés*). **VLC** lit l'audio
+> mais n'a pas de panneau de paroles. Un export **`.lrc` annexe** (**Exporter → « Enregistrer les paroles
+> synchronisées (.lrc) »**) reste disponible pour les lecteurs de bureau qui le préfèrent.
 
 ## Pour les développeurs
 

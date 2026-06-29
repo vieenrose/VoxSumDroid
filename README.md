@@ -106,33 +106,28 @@ after that, updates arrive automatically.
 ## Viewing the transcript & summary in other music apps
 
 An exported `.ogg`/`.m4a` stores the title, cover, **summary** (in the *comment* tag) and the
-**summary + transcript** (in the *lyrics* tag) as ordinary audio metadata. Any player that reads
-**embedded lyrics** can show them — the trick is to open the player's **lyrics view**. Prefer the
-**`.m4a`** for the widest compatibility.
-
-**Static vs. real-time.** The audio file's embedded lyrics are **plain text**, so on their own they show
-as a **static text block** in every app. For *synchronized* (karaoke-style, line highlights as it plays)
-display, export the transcript as a **`.lrc` sidecar** (**Export → “Save synced lyrics (.lrc)”**) and keep
-it next to the audio with the same base name — then the **🔄** apps below scroll it in real time; the rest
-only ever show the static block.
+**time-synced transcript** (in the *lyrics* tag, as LRC `[mm:ss.xx]` lines) as ordinary audio metadata.
+Players that parse **synced lyrics** scroll the transcript **in real time** as it plays — read straight
+from the file, **no sidecar and no permissions**. Players without sync support still show the text (with
+the `[mm:ss]` timestamps visible). Prefer the **`.m4a`** for the widest compatibility.
 
 | Platform | App | Where the lyrics show | Real-time? |
 |---|---|---|---|
-| **Android** | **Retro Music** *(free)* — verified | now-playing **⋮ → Go to Lyrics page** | 🔄 with `.lrc` |
-| | **Musicolet** *(free)* | the **Lyrics** tab | 🔄 with `.lrc` |
-| | **Oto Music** / **Gramophone** *(free)* | the Lyrics view | 🔄 with `.lrc` |
-| | **Poweramp** | the embedded-lyrics view | 🔄 with `.lrc` |
-| **Windows** | **MusicBee** *(free)* | the **Lyrics** panel | 🔄 with `.lrc` |
-| | **foobar2000** *(free)* | a lyrics component (ESLyric) | 🔄 with `.lrc` |
-| | **iTunes / Apple Music** | **Song Info → Lyrics** tab | static only |
-| **Linux** | **Lollypop** *(free)* | the Lyrics view | 🔄 with `.lrc` |
-| | **Strawberry** *(free)* | enable lyrics from tags, then the **Lyrics** pane | static only |
-| | **Quod Libet** *(free)* | shows the embedded `LYRICS` tag | static only |
+| **Android** | **Retro Music** *(free)* — verified | now-playing lyrics (歌詞) | ✅ synced |
+| | **Gramophone** *(free)* — verified | the Lyrics view | ✅ synced |
+| | **Musicolet** / **Oto Music** *(free)* | the **Lyrics** tab | 🔄 synced |
+| | **Poweramp** | the lyrics view | 🔄 synced |
+| **Windows** | **MusicBee** *(free)* | the **Lyrics** panel | 🔄 synced |
+| | **foobar2000** *(free)* | a lyrics component (ESLyric) | 🔄 synced |
+| | **iTunes / Apple Music** | **Song Info → Lyrics** tab | text only |
+| **Linux** | **Lollypop** *(free)* | the Lyrics view | 🔄 synced |
+| | **Strawberry** / **Quod Libet** *(free)* | the Lyrics pane | text only |
 
-> **Notes.** **VLC** plays the audio on every platform but has **no lyrics panel** — use it only to
-> check playback. The **summary on its own** also lives in the standard **comment** tag, so it shows
-> under *Get Info / Properties / Comments* in almost any player or file manager, even ones without a
-> lyrics view.
+> **Notes.** ✅ = verified on a Pixel; 🔄 = documented synced-lyrics support. Players without sync show the
+> transcript as plain text **with the `[mm:ss]` timestamps visible**. The **summary** lives in the standard
+> **comment** tag (*Get Info / Properties / Comments*). **VLC** plays the audio but has no lyrics panel. A
+> standalone **`.lrc` sidecar** export (**Export → “Save synced lyrics (.lrc)”**) is also available for
+> desktop players that prefer one.
 
 ## For developers
 
