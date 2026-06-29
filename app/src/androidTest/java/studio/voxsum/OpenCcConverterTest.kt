@@ -5,6 +5,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
+import studio.voxsum.core.text.ChineseScript
 import studio.voxsum.core.text.OpenCcConverter
 
 /**
@@ -16,7 +17,7 @@ import studio.voxsum.core.text.OpenCcConverter
 @RunWith(AndroidJUnit4::class)
 class OpenCcConverterTest {
 
-    private val cc by lazy { OpenCcConverter.get(InstrumentationRegistry.getInstrumentation().targetContext) }
+    private val cc by lazy { OpenCcConverter.get(InstrumentationRegistry.getInstrumentation().targetContext, ChineseScript.TRADITIONAL) }
 
     @Test fun taiwanPhrasesNotJustCharacters() {
         assertEquals("資訊", cc.convert("信息"))   // 信息 (identical script) → Taiwan phrase

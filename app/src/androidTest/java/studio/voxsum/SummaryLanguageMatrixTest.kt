@@ -13,6 +13,7 @@ import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
+import studio.voxsum.core.text.ChineseScript
 import studio.voxsum.core.text.OpenCcConverter
 
 /**
@@ -33,7 +34,7 @@ class SummaryLanguageMatrixTest {
     fun everyLlmSummarizesInEveryTargetLanguage() = runBlocking {
         val app = InstrumentationRegistry.getInstrumentation().targetContext
         val models = ModelManager(app)
-        val opencc = OpenCcConverter.get(app)
+        val opencc = OpenCcConverter.get(app, ChineseScript.TRADITIONAL)
         var checked = 0
 
         for (spec in LlmRegistry.ALL) {

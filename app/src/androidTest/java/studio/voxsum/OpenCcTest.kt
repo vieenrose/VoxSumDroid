@@ -7,6 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import studio.voxsum.core.text.ChineseScript
 import studio.voxsum.core.text.OpenCcConverter
 
 /** Verify the bundled OpenCC dictionaries actually convert Simplified → Traditional (zh-TW). */
@@ -16,7 +17,7 @@ class OpenCcTest {
     @Test
     fun convertsSimplifiedToTraditional() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val cc = OpenCcConverter.get(ctx)
+        val cc = OpenCcConverter.get(ctx, ChineseScript.TRADITIONAL)
         // From the user's real transcript:
         val out = cc.convert("军方表示，这是第三地织布新竹油料分库厂商在清洗油槽的过程当中。")
         Log.i("OpenCcTest", "converted: $out")

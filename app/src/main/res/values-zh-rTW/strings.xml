@@ -61,7 +61,7 @@
     <string name="settings_identify_speakers">辨識語者</string>
     <string name="settings_cluster_threshold">分群門檻</string>
     <string name="settings_summary_options">摘要選項</string>
-    <string name="settings_summary_language">摘要語言</string>
+    <string name="settings_summary_language">目標語言</string>
     <string name="summary_language_auto">與逐字稿相同</string>
     <string name="settings_summary_prompt">摘要提示詞</string>
     <string name="settings_storage">儲存空間</string>
