@@ -180,6 +180,7 @@
     <string name="export_txt">Enregistrer en texte (.txt)</string>
     <string name="export_srt">Enregistrer les sous-titres (.srt)</string>
     <string name="export_vtt">Enregistrer les sous-titres (.vtt)</string>
+    <string name="export_lrc">Enregistrer les paroles synchronisées (.lrc)</string>
     <string name="export_md">Enregistrer en Markdown (.md)</string>
     <string name="export_pdf">Enregistrer en PDF (.pdf)</string>
     <string name="export_heading_summary">Résumé</string>

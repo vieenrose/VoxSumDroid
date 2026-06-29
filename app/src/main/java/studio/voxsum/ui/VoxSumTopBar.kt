@@ -87,6 +87,7 @@ fun VoxSumTopBar(
     onExportTxt: () -> Unit,
     onExportSrt: () -> Unit,
     onExportVtt: () -> Unit,
+    onExportLrc: () -> Unit,
     onExportMarkdown: () -> Unit,
     onExportPdf: () -> Unit,
 ) {
@@ -172,7 +173,7 @@ fun VoxSumTopBar(
                 }
                 ExportMenu(
                     transcriptAvailable, onCoverPreview, onSaveSession, onShareSession, onSaveSessionM4a, onShareSessionM4a,
-                    onCopyTranscript, onShareTranscript, onExportTxt, onExportSrt, onExportVtt, onExportMarkdown, onExportPdf,
+                    onCopyTranscript, onShareTranscript, onExportTxt, onExportSrt, onExportVtt, onExportLrc, onExportMarkdown, onExportPdf,
                 )
             }
         }
@@ -277,6 +278,7 @@ private fun ExportMenu(
     onExportTxt: () -> Unit,
     onExportSrt: () -> Unit,
     onExportVtt: () -> Unit,
+    onExportLrc: () -> Unit,
     onExportMarkdown: () -> Unit,
     onExportPdf: () -> Unit,
 ) {
@@ -333,6 +335,10 @@ private fun ExportMenu(
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.export_vtt)) },
                 onClick = { open = false; onExportVtt() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.export_lrc)) },
+                onClick = { open = false; onExportLrc() },
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.export_md)) },

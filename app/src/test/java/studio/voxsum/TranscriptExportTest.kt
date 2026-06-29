@@ -1,5 +1,6 @@
 package studio.voxsum
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -60,5 +61,22 @@ class TranscriptExportTest {
     @Test fun emptyTranscriptIsHandled() {
         assertTrue(TranscriptExport.srt(emptyList(), label).isEmpty())
         assertTrue(TranscriptExport.vtt(emptyList(), label).startsWith("WEBVTT"))
+    }
+
+    @Test fun lrcHasTitleCentisecondStampsSpeakerAndSkipsBlank() {
+        val lrc = TranscriptExport.lrc(sample, label, title = "My Meeting")
+        assertTrue("title header", lrc.startsWith("[ti:My Meeting]\n"))
+        assertTrue("[mm:ss.xx] + speaker", lrc.contains("[00:01.00]Speaker 1: Hello there"))
+        assertTrue("65.2s rolls to 1 min → [01:05.20]", lrc.contains("[01:05.20]Speaker 2: 我們開始吧"))
+        // Exactly two timestamped lines — the blank utterance is dropped.
+        val stamped = Regex("""^\[\d\d:\d\d\.\d\d]""")
+        assertEquals(2, lrc.lines().count { stamped.containsMatchIn(it) })
+    }
+
+    @Test fun lrcOmitsTitleAndSpeakerWhenAbsent() {
+        val lrc = TranscriptExport.lrc(listOf(u(0, "x", 5.0, 6.0, null)), label, title = null)
+        assertFalse("no [ti:] header", lrc.contains("[ti:"))
+        assertTrue(lrc.contains("[00:05.00]x"))
+        assertFalse("null speaker → no label prefix", lrc.contains(": x"))
     }
 }

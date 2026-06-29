@@ -179,6 +179,7 @@
     <string name="export_txt">另存純文字（.txt）</string>
     <string name="export_srt">另存字幕（.srt）</string>
     <string name="export_vtt">另存字幕（.vtt）</string>
+    <string name="export_lrc">另存同步歌詞（.lrc）</string>
     <string name="export_md">另存 Markdown（.md）</string>
     <string name="export_pdf">另存 PDF（.pdf）</string>
     <string name="export_heading_summary">摘要</string>

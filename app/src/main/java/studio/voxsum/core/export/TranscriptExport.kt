@@ -81,6 +81,33 @@ object TranscriptExport {
         }
     }
 
+    /**
+     * LRC synced lyrics: an `[mm:ss.xx]` timestamp per line, in time order, under a `[ti:]` title header.
+     * Saved next to the audio (same base name), players with a `.lrc` mode — Evermusic's "LRC File",
+     * Poweramp, MusicBee, Marvis… — scroll the transcript in real time as the track plays.
+     */
+    fun lrc(
+        utterances: List<TranscriptEvent.Utterance>,
+        label: (Int) -> String,
+        title: String?,
+    ): String = buildString {
+        title?.trim()?.takeIf { it.isNotEmpty() }?.let { append("[ti:").append(it).append("]\n") }
+        for (u in utterances) {
+            val text = u.text.replace('\n', ' ').trim()
+            if (text.isEmpty()) continue
+            append(lrcStamp(u.startSec))
+            u.speaker?.let { append(label(it)).append(": ") }
+            append(text).append('\n')
+        }
+    }
+
+    /** LRC timestamp `[mm:ss.xx]` — xx = hundredths of a second; ASCII digits always. */
+    private fun lrcStamp(sec: Double): String {
+        val cs = (if (sec > 0) sec * 100 else 0.0).toLong()   // total centiseconds
+        val h = cs % 100; val s = (cs / 100) % 60; val m = cs / 6000
+        return String.format(Locale.US, "[%02d:%02d.%02d]", m, s, h)
+    }
+
     // endSec can be <= startSec on a degenerate single-token VAD segment; give the cue at least 1s
     // so a subtitle player doesn't drop a zero-length entry.
     private fun endOf(u: TranscriptEvent.Utterance): Double =

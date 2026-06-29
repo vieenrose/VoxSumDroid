@@ -180,6 +180,7 @@
     <string name="export_txt">Save as text (.txt)</string>
     <string name="export_srt">Save subtitles (.srt)</string>
     <string name="export_vtt">Save subtitles (.vtt)</string>
+    <string name="export_lrc">Save synced lyrics (.lrc)</string>
     <string name="export_md">Save as Markdown (.md)</string>
     <string name="export_pdf">Save as PDF (.pdf)</string>
     <string name="export_heading_summary">Summary</string>

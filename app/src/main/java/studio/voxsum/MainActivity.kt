@@ -689,6 +689,8 @@ private fun TranscribeScreen(
     val txtSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { writeDoc(it, transcriptText()) }
     val srtSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/x-subrip")) { writeDoc(it, TranscriptExport.srt(utterances.toList(), speakerLabel)) }
     val vttSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/vtt")) { writeDoc(it, TranscriptExport.vtt(utterances.toList(), speakerLabel)) }
+    // .lrc has no registered MIME; octet-stream keeps the .lrc extension intact (players match by name).
+    val lrcSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { writeDoc(it, TranscriptExport.lrc(utterances.toList(), speakerLabel, title)) }
     val mdSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) {
         writeDoc(it, TranscriptExport.markdown(utterances.toList(), speakerLabel, title, summary,
             context.getString(R.string.export_heading_summary), context.getString(R.string.export_heading_transcript)))
@@ -1030,6 +1032,7 @@ private fun TranscribeScreen(
                 onExportTxt = { txtSaver.launch("${exportBaseName()}.txt") },
                 onExportSrt = { srtSaver.launch("${exportBaseName()}.srt") },
                 onExportVtt = { vttSaver.launch("${exportBaseName()}.vtt") },
+                onExportLrc = { lrcSaver.launch("${exportBaseName()}.lrc") },
                 onExportMarkdown = { mdSaver.launch("${exportBaseName()}.md") },
                 onExportPdf = { pdfSaver.launch("${exportBaseName()}.pdf") },
             )
