@@ -25,6 +25,7 @@
     <string name="re_run">Re-run</string>
     <string name="re_transcribe">Re-transcribe</string>
     <string name="re_summarize">Re-summarize</string>
+    <string name="re_title">Re-generate title</string>
     <string name="re_detect_names">Re-detect names</string>
     <string name="pick_audio">Pick audio…</string>
     <string name="stop">Stop</string>

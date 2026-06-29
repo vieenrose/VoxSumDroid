@@ -36,6 +36,7 @@ class VoxSumTopBarTest {
         downloadPending: Boolean = false,
         canReTranscribe: Boolean = false,
         canReSummarize: Boolean = false,
+        canReTitle: Boolean = false,
         canReDetect: Boolean = false,
         fired: MutableMap<String, Boolean> = mutableMapOf(),
     ): MutableMap<String, Boolean> {
@@ -47,6 +48,7 @@ class VoxSumTopBarTest {
                 onAddSource = { fired["add"] = true }, onStop = { fired["stop"] = true },
                 canReTranscribe = canReTranscribe, onReTranscribe = { fired["retx"] = true },
                 canReSummarize = canReSummarize, onReSummarize = { fired["resum"] = true },
+                canReTitle = canReTitle, onReTitle = { fired["retitle"] = true },
                 canReDetect = canReDetect, isDetecting = false, onReDetect = { fired["redet"] = true },
                 canExtractActions = false, onExtractActions = { fired["actions"] = true },
                 onSearch = { fired["search"] = true },

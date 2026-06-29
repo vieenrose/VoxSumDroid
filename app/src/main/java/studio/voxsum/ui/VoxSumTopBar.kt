@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Summarize
+import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -70,6 +71,8 @@ fun VoxSumTopBar(
     onReTranscribe: () -> Unit,
     canReSummarize: Boolean,
     onReSummarize: () -> Unit,
+    canReTitle: Boolean,
+    onReTitle: () -> Unit,
     canReDetect: Boolean,
     isDetecting: Boolean,
     onReDetect: () -> Unit,
@@ -146,7 +149,7 @@ fun VoxSumTopBar(
                             Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.add_audio), tint = VoxSumPalette.OnBrand)
                         }
                     }
-                    ReRunMenu(canReTranscribe, onReTranscribe, canReSummarize, onReSummarize, canReDetect, isDetecting, onReDetect, canExtractActions, onExtractActions)
+                    ReRunMenu(canReTranscribe, onReTranscribe, canReSummarize, onReSummarize, canReTitle, onReTitle, canReDetect, isDetecting, onReDetect, canExtractActions, onExtractActions)
                     if (transcriptAvailable) {
                         IconButton(onClick = onSearch) {
                             Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.search_transcript), tint = VoxSumPalette.OnBrand)
@@ -224,13 +227,15 @@ private fun ReRunMenu(
     onReTranscribe: () -> Unit,
     canReSummarize: Boolean,
     onReSummarize: () -> Unit,
+    canReTitle: Boolean,
+    onReTitle: () -> Unit,
     canReDetect: Boolean,
     isDetecting: Boolean,
     onReDetect: () -> Unit,
     canExtractActions: Boolean,
     onExtractActions: () -> Unit,
 ) {
-    if (!canReTranscribe && !canReSummarize && !canReDetect && !canExtractActions) return
+    if (!canReTranscribe && !canReSummarize && !canReTitle && !canReDetect && !canExtractActions) return
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) {
@@ -246,6 +251,11 @@ private fun ReRunMenu(
                 leadingIcon = { Icon(Icons.Filled.Summarize, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_summarize)) },
                 onClick = { open = false; onReSummarize() },
+            )
+            if (canReTitle) DropdownMenuItem(
+                leadingIcon = { Icon(Icons.Filled.Title, null, Modifier.size(18.dp)) },
+                text = { Text(stringResource(R.string.re_title)) },
+                onClick = { open = false; onReTitle() },
             )
             if (canReDetect) DropdownMenuItem(
                 enabled = !isDetecting,

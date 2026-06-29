@@ -32,7 +32,7 @@ class Summarizer(
     private val reduceMaxTokens: Int = 400,
 ) {
 
-    fun summarize(transcript: String, userPrompt: String): Flow<TranscriptEvent> = flow {
+    fun summarize(transcript: String, userPrompt: String, withTitle: Boolean = true): Flow<TranscriptEvent> = flow {
         // State the output language explicitly: a small LLM replies in English from an English
         // instruction even on a Chinese transcript. With a target language picked, force it; otherwise
         // tell the model to match the transcript's language. (OpenCC only converts Simplified→Traditional
@@ -89,9 +89,21 @@ class Summarizer(
         val finalSummary = convert(SummaryText.cleanSummary(finalSb.toString()))
         emit(TranscriptEvent.SummaryComplete(finalSummary))
 
-        val title = StringBuilder()
-        llm.generate(SummaryText.wrap(template, TITLE_TEMPLATE.format(langClause, finalSummary)), maxTokens = 24) { title.append(it) }
-        emit(TranscriptEvent.Title(convert(SummaryText.cleanTitle(title.toString()))))
+        // Title is derived from the final summary. Skipped on re-summarize (withTitle = false) so a model
+        // swap for a better summary doesn't churn a title the user is happy with.
+        if (withTitle) emit(titleEvent(finalSummary))
+    }
+
+    /** Generate ONLY the title, from an existing summary — the "re-title" path (leaves the summary as-is). */
+    fun title(summary: String): Flow<TranscriptEvent> = flow { emit(titleEvent(summary)) }
+
+    /** One short title for [summary], in the target language and OpenCC-converted. Shared by both paths. */
+    private fun titleEvent(summary: String): TranscriptEvent {
+        val langClause = if (targetLanguage != null) " Write it in $targetLanguage."
+            else " Write it in the same language as the transcript."
+        val sb = StringBuilder()
+        llm.generate(SummaryText.wrap(template, TITLE_TEMPLATE.format(langClause, summary)), maxTokens = 24) { sb.append(it) }
+        return TranscriptEvent.Title(convert(SummaryText.cleanTitle(sb.toString())))
     }
 
     companion object {

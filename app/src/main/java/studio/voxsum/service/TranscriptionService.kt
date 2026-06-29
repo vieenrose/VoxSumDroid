@@ -62,9 +62,11 @@ class TranscriptionService : LifecycleService() {
         private const val NOTIF_ID = 1
         const val EXTRA_AUDIO_URI = "audio_uri"
         const val EXTRA_TRANSCRIPT = "transcript"
+        const val EXTRA_SUMMARY = "summary"
         const val ACTION_STOP = "studio.voxsum.STOP"
         const val ACTION_RECORD = "studio.voxsum.RECORD"
         const val ACTION_SUMMARIZE = "studio.voxsum.SUMMARIZE"
+        const val ACTION_RETITLE = "studio.voxsum.RETITLE"
         const val ACTION_EXTRACT_ACTIONS = "studio.voxsum.EXTRACT_ACTIONS"
         // Gracefully end live recording and continue into diarization/summary (vs ACTION_STOP,
         // which cancels the whole job).
@@ -162,6 +164,7 @@ class TranscriptionService : LifecycleService() {
 
         val recording = intent?.action == ACTION_RECORD
         val summarizeOnly = intent?.action == ACTION_SUMMARIZE
+        val retitle = intent?.action == ACTION_RETITLE
         val extractActions = intent?.action == ACTION_EXTRACT_ACTIONS
         stopRecordingRequested = false
         val previousJob = pipelineJob
@@ -169,6 +172,7 @@ class TranscriptionService : LifecycleService() {
         startForegroundTyped(recording, "Preparing…")
         val uri = intent?.getStringExtra(EXTRA_AUDIO_URI)
         val transcript = intent?.getStringExtra(EXTRA_TRANSCRIPT)
+        val summaryExtra = intent?.getStringExtra(EXTRA_SUMMARY)
         // Run the whole pipeline off the main thread — the MediaCodec decode is a long
         // blocking call that would otherwise ANR the UI (lifecycleScope defaults to Main).
         var job: Job? = null
@@ -176,6 +180,7 @@ class TranscriptionService : LifecycleService() {
             runCatching {
                 when {
                     summarizeOnly -> runSummarizeOnly(transcript.orEmpty())
+                    retitle -> runTitleOnly(summaryExtra.orEmpty())
                     extractActions -> runExtractActions(transcript.orEmpty())
                     recording -> runRecordingPipeline()
                     else -> runPipeline(uri)
@@ -300,9 +305,10 @@ class TranscriptionService : LifecycleService() {
         // Total audio length (a cheap metadata read) so the recognition phase can report REAL progress
         // as each utterance's end time advances through the file. 0 when unknown → no ASR bar, still fine.
         val totalDurationSec = probeDurationSec(uri)
-        // OpenCC s2tw: like the web app, convert Simplified→Traditional on every utterance
-        // (and later the summary/title) — only when the summary language is Traditional Chinese.
-        // Built once, reused.
+        // OpenCC s2tw: convert the transcript Simplified→Traditional when the user reads Traditional
+        // (their locale, or an explicit Traditional summary) — independent of the summary language, so
+        // an English/auto summary still yields a Traditional transcript. The summary has its own gate.
+        val txConverter = transcriptConverter(cfg)
         val converter = summaryConverter(cfg)
 
         // Stream-decode the source to a 16 kHz mono work WAV while feeding the live VAD/ASR — never
@@ -332,7 +338,7 @@ class TranscriptionService : LifecycleService() {
                         is TranscriptEvent.Utterance -> {
                             // s2tw runs after cleanTranscript joined spaced CJK, so OpenCC sees
                             // contiguous text for correct phrase matching (clean-then-convert is intentional).
-                            val u = converter?.let { e.copy(text = it.convert(e.text)) } ?: e
+                            val u = txConverter?.let { e.copy(text = it.convert(e.text)) } ?: e
                             utterances += u
                             events.emit(u)
                             // Recognition progress: how far the latest utterance reaches through the audio.
@@ -367,6 +373,7 @@ class TranscriptionService : LifecycleService() {
             events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_models)))
             models.ensureAsrModels(backend) { frac -> reportDownload(R.string.svc_downloading_models_pct, frac) }
         }
+        val txConverter = transcriptConverter(cfg)
         val converter = summaryConverter(cfg)
         val recorder = AudioRecorder()
         val wav = File(File(filesDir, "audio").apply { mkdirs() }, "recording_${System.currentTimeMillis()}.wav")
@@ -404,7 +411,7 @@ class TranscriptionService : LifecycleService() {
                         is TranscriptEvent.Utterance -> {
                             // s2tw runs after cleanTranscript joined spaced CJK, so OpenCC sees
                             // contiguous text for correct phrase matching (clean-then-convert is intentional).
-                            val u = converter?.let { e.copy(text = it.convert(e.text)) } ?: e
+                            val u = txConverter?.let { e.copy(text = it.convert(e.text)) } ?: e
                             utterances += u
                             events.emit(u)
                         }
@@ -475,6 +482,7 @@ class TranscriptionService : LifecycleService() {
         cfg: TranscriptionConfig,
         models: ModelManager,
         converter: OpenCcConverter?,
+        withTitle: Boolean = true,
     ) {
         val spec = LlmRegistry.byId(cfg.llmModelId)
         if (!models.llmReady(spec)) {
@@ -496,7 +504,7 @@ class TranscriptionService : LifecycleService() {
                     reduceInstruction = style.reduceInstruction,
                     mapMaxTokens = style.mapTokens,
                     reduceMaxTokens = style.reduceTokens,
-                ).summarize(transcript, cfg.summaryPrompt)
+                ).summarize(transcript, cfg.summaryPrompt, withTitle)
                     .flowOn(Dispatchers.Default)
                     .collect { events.emit(it) }
             } finally {
@@ -505,11 +513,43 @@ class TranscriptionService : LifecycleService() {
         }
     }
 
-    /** Re-summarize an existing transcript with the current settings (no re-decode / re-ASR). */
+    /** Re-summarize an existing transcript with the current settings (no re-decode / re-ASR). Keeps the
+     *  existing title — swapping models for a better summary shouldn't churn a title the user likes. */
     private suspend fun runSummarizeOnly(transcript: String) {
         val cfg = TranscriptionConfig.Holder.config
         val models = ModelManager(this)
-        summarize(transcript, cfg, models, summaryConverter(cfg))
+        summarize(transcript, cfg, models, summaryConverter(cfg), withTitle = false)
+    }
+
+    /** Re-generate ONLY the title, from the existing summary (no re-decode / re-ASR / re-summary). */
+    private suspend fun runTitleOnly(summary: String) {
+        if (summary.isBlank()) { events.emit(TranscriptEvent.Title("")); return }
+        val cfg = TranscriptionConfig.Holder.config
+        val models = ModelManager(this)
+        val spec = LlmRegistry.byId(cfg.llmModelId)
+        if (!models.llmReady(spec)) {
+            events.emit(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
+            models.ensureLlmModel(spec) { frac -> reportDownload(R.string.svc_summarization_model_pct, frac) }
+        }
+        updateNotification(getString(R.string.svc_summarizing))
+        events.emit(TranscriptEvent.Status(getString(R.string.svc_summarizing)))
+        events.emit(TranscriptEvent.Progress(0f))
+        val converter = summaryConverter(cfg)
+        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
+            activeLlm = llm
+            try {
+                Summarizer(
+                    llm,
+                    template = spec.chatTemplate,
+                    targetLanguage = SummaryLanguage.fromId(cfg.summaryLanguage).promptName,
+                    convert = { converter?.convert(it) ?: it },
+                ).title(summary)
+                    .flowOn(Dispatchers.Default)
+                    .collect { events.emit(it) }
+            } finally {
+                activeLlm = null
+            }
+        }
     }
 
     /** Extract action items + decisions for an existing transcript (no re-decode / re-ASR). Reuses
@@ -546,6 +586,18 @@ class TranscriptionService : LifecycleService() {
     /** OpenCC s2tw converter, built only when the chosen summary language is Traditional Chinese. */
     private fun summaryConverter(cfg: TranscriptionConfig): OpenCcConverter? =
         if (SummaryLanguage.fromId(cfg.summaryLanguage).convertsToTraditional) OpenCcConverter.get(this) else null
+
+    /**
+     * OpenCC s2tw converter for the TRANSCRIPT — independent of the summary language. Applied when the
+     * user reads Traditional Chinese (a Traditional-region device locale: TW/HK/MO) or explicitly chose
+     * a Traditional summary, so an English/auto summary still yields a Traditional transcript on a zh-TW
+     * device. The sherpa zh models and Qwen3-ASR emit Simplified, hence the conversion.
+     */
+    private fun transcriptConverter(cfg: TranscriptionConfig): OpenCcConverter? {
+        val traditional = SummaryLanguage.fromId(cfg.summaryLanguage).convertsToTraditional ||
+            SummaryLanguage.defaultFor(this) == SummaryLanguage.TRADITIONAL
+        return if (traditional) OpenCcConverter.get(this) else null
+    }
 
     /** Small thread budget — phone big-core count, not all cores (cf. num_vcpus). */
     private fun asrThreads(): Int =

@@ -818,11 +818,24 @@ private fun TranscribeScreen(
     fun reSummarize() {
         if (running || utterances.isEmpty()) return
         TranscriptionConfig.Holder.config = config
-        title = null; summary = null
+        summary = null   // keep the title — re-summarize regenerates only the summary
         running = true; progress = 0f; status = context.getString(R.string.status_starting)   // transcript persists
         val intent = Intent(context, TranscriptionService::class.java)
             .setAction(TranscriptionService.ACTION_SUMMARIZE)
             .putExtra(TranscriptionService.EXTRA_TRANSCRIPT, utterances.joinToString("\n") { it.text })
+        ContextCompat.startForegroundService(context, intent)
+    }
+
+    // Re-run only title generation from the current summary (no re-ASR / re-summary). Lets you swap the
+    // summary model for a better summary without it, then refresh just the title if you want.
+    fun reTitle() {
+        if (running || summary.isNullOrBlank()) return
+        TranscriptionConfig.Holder.config = config
+        title = null   // keep the summary — re-title regenerates only the title
+        running = true; progress = 0f; status = context.getString(R.string.status_starting)
+        val intent = Intent(context, TranscriptionService::class.java)
+            .setAction(TranscriptionService.ACTION_RETITLE)
+            .putExtra(TranscriptionService.EXTRA_SUMMARY, summary)
         ContextCompat.startForegroundService(context, intent)
     }
 
@@ -984,6 +997,8 @@ private fun TranscribeScreen(
                 onReTranscribe = { audioUri?.let { launchAudio(it) } },
                 canReSummarize = transcriptReady,
                 onReSummarize = { reSummarize() },
+                canReTitle = transcriptReady && !summary.isNullOrBlank(),
+                onReTitle = { reTitle() },
                 canReDetect = transcriptReady && stats.perSpeaker.isNotEmpty(),
                 isDetecting = isDetecting,
                 onReDetect = { detectNames() },
