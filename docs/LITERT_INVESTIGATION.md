@@ -147,6 +147,31 @@ shows GPU's shorter compute nets a real energy win despite higher power and doub
 LiteRT ships a lower-memory GPU path / usable Tensor NPU. The `litert-prototype` branch is kept (unmerged)
 as the reproducible harness.
 
+## 8. Full model landscape on the Pixel 6 (prototype)
+
+Every LLM VoxSum offers (llama.cpp, CPU 4 threads, 1024 ctx, **same quant Q4_K_M**) + the Qwen3-ASR
+backend (sherpa-onnx int8), same harness, same device. Peak RSS = `/proc/self/status` VmHWM. Same zh
+prompt (LLMs, capped 320 tok) / a 10 s zh clip (ASR).
+
+| Model · engine | Load | Prefill | Decode / RTF | Peak RSS |
+|---|--:|--:|--:|--:|
+| **Qwen3-0.6B** Q4 · llama.cpp | 0.57 s | 1.94 s | 11.7 tok/s | **788 MB** |
+| **Qwen3-1.7B** Q4 · llama.cpp | 1.22 s | 5.79 s | 5.7 tok/s | 1460 MB |
+| **Gemma-4-E2B** Q4 · llama.cpp | 3.94 s | 8.48 s | 4.2 tok/s | 2829 MB |
+| **Gemma-4-E4B** Q4 · llama.cpp | — | — | — | **~5 GB → OOM** |
+| **Qwen3-ASR-0.6B** int8 · sherpa | 8.08 s | — | **RTF 0.59** | 1696 MB |
+
+For reference, 0.6B at other quant/runtime: Q8·llama.cpp 1020 MB / 12.9 tok/s · LiteRT-GPU INT4 1962 MB /
+19.1 tok/s · LiteRT-CPU INT4 2354 MB / 12.5 tok/s.
+
+- **RSS scales ~linearly with size:** 0.6B 0.8 GB → 1.7B 1.5 GB → E2B 2.8 GB. **E4B at Q4 (~5 GB) doesn't
+  fit** the 8 GB Pixel 6 — exactly why the app ships E4B as QAT-Q2 (~1.5 GB). Same-quant isn't viable for E4B here.
+- **Decode slows with size** (11.7 → 5.7 → 4.2 tok/s), prefill too — the default **Qwen3-0.6B is the sweet spot**.
+- **Qwen3-ASR is "large" (1.7 GB, 8 s load) but real-time** (RTF 0.59 on the Pixel 6 CPU) — "slow" is relative
+  to the lighter Zipformer default, not slower-than-realtime.
+- ASR and the LLM run **sequentially** (the memory discipline frees ASR before loading the LLM), so the
+  pipeline peak is the heaviest single stage (~2.8 GB at E2B) — comfortable on 8 GB, with the bigger Gemmas opt-in.
+
 ## Appendix — sources
 
 - LiteRT-LM Kotlin `Engine`/`Backend` API, backends enum, `litert_lm_main --benchmark`, `uvx litert-lm run` — `/google-ai-edge/litert-lm` + ai.google.dev/edge/litert-lm.
