@@ -488,7 +488,7 @@ class TranscriptionService : LifecycleService() {
         }
         updateNotification(getString(R.string.svc_summarizing))
         events.emit(TranscriptEvent.Status(getString(R.string.svc_summarizing)))   // localized (Summarizer no longer sets it)
-        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
+        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler).use { llm ->
             activeLlm = llm
             try {
                 val style = SummaryStyle.fromId(cfg.summaryStyle)
@@ -532,7 +532,7 @@ class TranscriptionService : LifecycleService() {
         events.emit(TranscriptEvent.Status(getString(R.string.svc_summarizing)))
         events.emit(TranscriptEvent.Progress(0f))
         val converter = outputConverter(cfg)
-        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
+        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler).use { llm ->
             activeLlm = llm
             try {
                 Summarizer(
@@ -564,7 +564,7 @@ class TranscriptionService : LifecycleService() {
         events.emit(TranscriptEvent.Status(getString(R.string.svc_extracting_actions)))
         events.emit(TranscriptEvent.Progress(0f))   // restart the bar for the action-items phase
         val converter = outputConverter(cfg)
-        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads()).use { llm ->
+        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler).use { llm ->
             activeLlm = llm
             try {
                 val text = ActionItemExtractor(

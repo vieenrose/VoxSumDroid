@@ -21,9 +21,20 @@ class OpenCcConverter private constructor(
     private val maxKey: Int,
 ) {
     fun convert(text: String): String {
+        // Skip non-Chinese text. OpenCC maps shared Han characters to Traditional variants, which mangles
+        // Japanese/Korean output (e.g. a model that summarized a JA/KO source in its own language — see the
+        // cross-lingual target-language case). Latin text has no Han chars so it's untouched anyway; this
+        // guards the CJK-but-not-Chinese case where conversion would corrupt the text.
+        if (hasKanaOrHangul(text)) return text
         var out = text
         for (dict in stages) out = applyStage(out, dict)
         return out
+    }
+
+    private fun hasKanaOrHangul(s: String): Boolean = s.any { c ->
+        c in '぀'..'ヿ' ||   // hiragana + katakana
+        c in '가'..'힣' ||   // hangul syllables
+        c in 'ᄀ'..'ᇿ'      // hangul jamo
     }
 
     private fun applyStage(text: String, dict: Map<String, String>): String {

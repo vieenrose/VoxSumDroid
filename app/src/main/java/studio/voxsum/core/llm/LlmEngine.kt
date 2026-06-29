@@ -1,5 +1,7 @@
 package studio.voxsum.core.llm
 
+import studio.voxsum.core.models.SamplerProfile
+
 /**
  * Thin Kotlin handle over llama.cpp (JNI bridge in app/src/main/cpp/llm_jni.cpp).
  * Counterpart of get_llm() in src/summarization.py — one model resident at a time.
@@ -33,13 +35,23 @@ class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : A
     companion object {
         init { System.loadLibrary("voxsum-llm") }
 
-        /** @param nThreads keep small on mobile — big-core count, not all cores. */
-        fun load(modelPath: String, nThreads: Int, nCtx: Int = 4096): LlmEngine {
-            val h = nativeLoad(modelPath, nThreads, nCtx)
+        /** @param nThreads keep small on mobile — big-core count, not all cores.
+         *  @param sampler per-model llama.cpp sampler chain (see [SamplerProfile]). */
+        fun load(
+            modelPath: String, nThreads: Int, nCtx: Int = 4096,
+            sampler: SamplerProfile = SamplerProfile.LEGACY,
+        ): LlmEngine {
+            val h = nativeLoad(
+                modelPath, nThreads, nCtx,
+                sampler.topK, sampler.topP, sampler.temp, sampler.repeatPenalty, sampler.presencePenalty,
+            )
             check(h != 0L) { "Failed to load GGUF model: $modelPath" }
             return LlmEngine(h, nCtx)
         }
 
-        @JvmStatic private external fun nativeLoad(path: String, nThreads: Int, nCtx: Int): Long
+        @JvmStatic private external fun nativeLoad(
+            path: String, nThreads: Int, nCtx: Int,
+            topK: Int, topP: Float, temp: Float, repeatPenalty: Float, presencePenalty: Float,
+        ): Long
     }
 }

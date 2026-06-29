@@ -10,9 +10,34 @@ data class LlmSpec(
     val fileName: String,       // distinct per id so models coexist on disk
     val chatTemplate: ChatTemplate,
     val shortName: String = "",  // compact name for the model picker
+    val sampler: SamplerProfile = SamplerProfile.LEGACY,  // per-model llama.cpp sampler chain
 )
 
 enum class ChatTemplate { CHATML, GEMMA, GEMMA4, QWEN3 }
+
+/**
+ * llama.cpp sampler settings, chosen per model. The chain itself lives in native code
+ * (llm_jni.cpp), but the values are picked here so each model gets what its family expects —
+ * passed through [LlmEngine.load] into the native handle.
+ */
+data class SamplerProfile(
+    val topK: Int,
+    val topP: Float,
+    val temp: Float,
+    val repeatPenalty: Float,
+    val presencePenalty: Float,
+) {
+    companion object {
+        /** Legacy small-instruct chain (Gemma, older Qwen3): a heavy repeat penalty stops the
+         *  "say the same sentence forever" loops those models fall into on summarization. */
+        val LEGACY = SamplerProfile(topK = 40, topP = 0.9f, temp = 0.7f, repeatPenalty = 1.3f, presencePenalty = 0.0f)
+
+        /** Qwen3.5 non-thinking spec (unsloth). A high repeat penalty makes Qwen3.5 drop punctuation
+         *  and structure into a run-on wall-of-text on long inputs, so repeat is OFF (1.0) and a flat
+         *  presence penalty guards repetition instead; top_k 20 / top_p 0.8 per the model card. */
+        val QWEN35 = SamplerProfile(topK = 20, topP = 0.8f, temp = 0.7f, repeatPenalty = 1.0f, presencePenalty = 1.0f)
+    }
+}
 
 /**
  * On-device summarization models.
@@ -24,31 +49,24 @@ enum class ChatTemplate { CHATML, GEMMA, GEMMA4, QWEN3 }
  * rather than via the GGUF's embedded template.
  */
 object LlmRegistry {
-    const val DEFAULT_ID = "qwen3-0.6b"
+    const val DEFAULT_ID = "qwen3.5-0.8b"
 
     private const val HF = "https://huggingface.co"
 
     val ALL: List<LlmSpec> = listOf(
-        // Qwen3 0.6B (Q8) is the default after an on-device sweep (Pixel 6) of small multilingual LLMs:
-        // it's the LIGHTEST model that stays in the transcript's language and keeps fidelity across
-        // en/zh/fr on BOTH short and long sources — peak RSS ~1.36 GB vs Gemma 4 E2B's ~2.6 GB (−48%).
-        // Lighter ones all broke down on long sources: Qwen2.5-1.5B and MiniCPM4-0.5B drifted French→
-        // English (MiniCPM also hallucinated), and ERNIE-4.5-0.3B garbled long inputs. Gemma 4 E2B/E4B
-        // stay as higher-fidelity (heavier) options; Qwen3 1.7B is the mid step. (See the LlmBenchTest
-        // harness for the evaluation.)
+        // Qwen3.5 0.8B (unsloth Q8) is the default after an on-device summarization eval (Pixel 6):
+        // it summarizes far more coherently than the older Qwen3 0.6B on BOTH short and long sources.
+        // It needs its OWN sampler (SamplerProfile.QWEN35) — the legacy heavy repeat penalty makes
+        // Qwen3.5 collapse long output into a run-on wall-of-text. Use unsloth's GGUF (the universal
+        // chat-template fix + imatrix quant). Gemma 4 E2B/E4B stay as heavier, higher-fidelity options.
+        // (See the SummarizerQualityTest harness for the evaluation.)
         LlmSpec(
-            id = "qwen3-0.6b",
-            displayName = "Qwen3 0.6B (recommended)",
-            url = "$HF/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf",
-            sha256 = "e150ed544dfe6016930c026a93913a5e3184181ebfe6ab2223ae01dd0491784c", sizeBytes = 639_447_744L,
-            fileName = "qwen3-0.6b.gguf", chatTemplate = ChatTemplate.QWEN3, shortName = "Qwen3 0.6B",
-        ),
-        LlmSpec(
-            id = "qwen3-1.7b",
-            displayName = "Qwen3 1.7B (higher fidelity)",
-            url = "$HF/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q5_K_M.gguf",
-            sha256 = "b0949de5b2e06cbed6aa96517f9bd8afb334584b6f95ee83479292ff4bdd8ed3", sizeBytes = 1_257_880_128L,
-            fileName = "qwen3-1.7b.gguf", chatTemplate = ChatTemplate.QWEN3, shortName = "Qwen3 1.7B",
+            id = "qwen3.5-0.8b",
+            displayName = "Qwen3.5 0.8B (recommended)",
+            url = "$HF/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q8_0.gguf",
+            sha256 = "0ad885ffd4bb022fc4f0d33a3308fa108ef8613159d3b3a67e23abca056b7a6c", sizeBytes = 811_843_840L,
+            fileName = "qwen3.5-0.8b.gguf", chatTemplate = ChatTemplate.QWEN3, shortName = "Qwen3.5 0.8B",
+            sampler = SamplerProfile.QWEN35,
         ),
         LlmSpec(
             id = "gemma-4-e2b-it-qat",
