@@ -65,7 +65,7 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 - **Copiez** tout le résumé d'un seul geste.
 - **Exportez le texte** — copiez ou partagez la transcription en texte, ou enregistrez des **sous-titres (`.srt`/`.vtt`)**, du texte brut, du Markdown ou un **PDF** imprimable pour d'autres applis.
 - **Relancez** la transcription, le résumé ou la détection des noms quand vous voulez — p. ex. changez la langue du résumé puis relancez-le.
-- **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique **`.ogg`** ou **`.m4a`** qui **se lit dans n'importe quelle appli musicale** (avec le titre, la pochette et la transcription en paroles) et **se rouvre dans VoxSum** avec tout intact. Choisissez `.m4a` pour la compatibilité maximale (iPhone, autoradios, tous les lecteurs).
+- **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique **`.ogg`** ou **`.m4a`** qui **se lit dans n'importe quelle appli musicale** (avec le titre, la pochette, le résumé et la transcription — voir [*Afficher la transcription et le résumé dans d'autres applis musicales*](#afficher-la-transcription-et-le-résumé-dans-dautres-applis-musicales)) et **se rouvre dans VoxSum** avec tout intact. Choisissez `.m4a` pour la compatibilité maximale (iPhone, autoradios, tous les lecteurs).
 
 ## Langues
 
@@ -105,6 +105,38 @@ l'installer (Android peut demander l'autorisation d'installer depuis votre navig
 - **Fonctionne sous Android 8.0+.** Un téléphone récent avec quelques Go d'espace libre est confortable ;
   le modèle de résumé de meilleure qualité est optionnel et peut être désactivé dans les Réglages
   pour les appareils plus légers.
+
+## Afficher la transcription et le résumé dans d'autres applis musicales
+
+Un fichier `.ogg`/`.m4a` exporté stocke le titre, la pochette, le **résumé** (dans la balise *commentaire*)
+et le **résumé + la transcription** (dans la balise *paroles/lyrics*) sous forme de métadonnées audio
+ordinaires. Tout lecteur capable de lire les **paroles intégrées** peut les afficher — la seule astuce est
+d'ouvrir la vue **paroles simples** du lecteur, et non une superposition *synchronisée/karaoké* (celles-ci
+attendent un fichier `.lrc` horodaté, que VoxSum ne génère pas). Préférez le **`.m4a`** pour la
+compatibilité la plus large.
+
+| Plateforme | Appli | Où s'affiche la transcription / le résumé |
+|---|---|---|
+| **Android** | **Retro Music** *(gratuit)* — vérifié | lecture en cours **⋮ → Aller à la page des paroles** |
+| | **Musicolet** *(gratuit)* | l'onglet **Paroles** |
+| | **Oto Music** / **Gramophone** *(gratuit)* | la vue Paroles |
+| | **Poweramp** | la vue des paroles intégrées |
+| **iOS** | **Evermusic** *(gratuit)* | **More Actions → Comments → « Embedded Lyrics »** |
+| | **Marvis Pro** | paroles en lecture *(ajoutez d'abord le fichier à votre bibliothèque Musique)* |
+| | **Apple Music** | ajoutez à la bibliothèque, puis **Song Info → Lyrics** *(privilégie les paroles synchronisées)* |
+| **Windows** | **MusicBee** *(gratuit)* | le panneau **Lyrics** |
+| | **foobar2000** *(gratuit)* | via un composant de paroles (ESLyric / Lyric Show 3) |
+| | **iTunes / Apple Music** | l'onglet **Song Info → Lyrics** |
+| **macOS** | **Musique (Apple Music)** | l'onglet **Lire les informations → Paroles** |
+| | **Swinsian** / **VOX** | le volet Paroles |
+| **Linux** | **Lollypop** *(gratuit)* | la vue Paroles |
+| | **Strawberry** *(gratuit)* | activez les paroles depuis les tags, puis le volet **Paroles** |
+| | **Quod Libet** *(gratuit)* | affiche la balise `LYRICS` intégrée |
+
+> **Remarques.** **VLC** lit l'audio partout mais n'a **aucun panneau de paroles** — utilisez-le
+> seulement pour vérifier la lecture. Le **résumé seul** figure aussi dans la balise **commentaire**
+> standard : il apparaît donc dans *Infos / Propriétés / Commentaires* de presque tout lecteur ou
+> gestionnaire de fichiers, même sans vue paroles.
 
 ## Pour les développeurs
 

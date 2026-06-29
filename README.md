@@ -65,7 +65,7 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 - **Copy** the whole summary with one tap.
 - **Export the words** — copy or share the transcript as text, or save **subtitles (`.srt`/`.vtt`)**, plain text, Markdown, or a printable **PDF** for any other app.
 - **Re-run** the transcription, the summary, or the speaker-name detection whenever you like — e.g. switch the summary language and re-summarize.
-- **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) is packed into a single **`.ogg`** *or* **`.m4a`** that **plays in any music app** (and shows the title, cover and transcript as lyrics) and **reopens in VoxSum** with everything intact. Pick `.m4a` for the widest compatibility (iPhones, cars, every player).
+- **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) is packed into a single **`.ogg`** *or* **`.m4a`** that **plays in any music app** (and shows the title, cover, summary and transcript — see [*Viewing the transcript & summary in other music apps*](#viewing-the-transcript--summary-in-other-music-apps)) and **reopens in VoxSum** with everything intact. Pick `.m4a` for the widest compatibility (iPhones, cars, every player).
 
 ## Languages
 
@@ -102,6 +102,37 @@ after that, updates arrive automatically.
   tracking, and skipped when you're offline. (F-Droid users get updates through their client instead.)
 - **Runs on Android 8.0+.** A recent phone with a few GB of free storage is comfortable; the higher-
   quality summary model is optional and can be turned off in Settings for lighter devices.
+
+## Viewing the transcript & summary in other music apps
+
+An exported `.ogg`/`.m4a` stores the title, cover, **summary** (in the *comment* tag) and the
+**summary + transcript** (in the *lyrics* tag) as ordinary audio metadata. Any player that reads
+**embedded lyrics** can show them — the one trick is to open the player's **plain lyrics view**, not a
+*synced/karaoke* overlay (those want a timestamped `.lrc` file, which VoxSum doesn't write). Prefer the
+**`.m4a`** for the widest compatibility.
+
+| Platform | App | Where the transcript / summary shows |
+|---|---|---|
+| **Android** | **Retro Music** *(free)* — verified | now-playing **⋮ → Go to Lyrics page** |
+| | **Musicolet** *(free)* | the **Lyrics** tab |
+| | **Oto Music** / **Gramophone** *(free)* | the Lyrics view |
+| | **Poweramp** | the embedded-lyrics view |
+| **iOS** | **Evermusic** *(free)* | **More Actions → Comments → “Embedded Lyrics”** |
+| | **Marvis Pro** | Now-Playing lyrics *(add the file to your Music library first)* |
+| | **Apple Music** | add to library, then **Song Info → Lyrics** *(favours synced lyrics)* |
+| **Windows** | **MusicBee** *(free)* | the **Lyrics** panel |
+| | **foobar2000** *(free)* | a lyrics component (ESLyric / Lyric Show 3) |
+| | **iTunes / Apple Music** | **Song Info → Lyrics** tab |
+| **macOS** | **Music.app (Apple Music)** | **Get Info → Lyrics** tab |
+| | **Swinsian** / **VOX** | the Lyrics pane |
+| **Linux** | **Lollypop** *(free)* | the Lyrics view |
+| | **Strawberry** *(free)* | enable lyrics from tags, then the **Lyrics** pane |
+| | **Quod Libet** *(free)* | shows the embedded `LYRICS` tag |
+
+> **Notes.** **VLC** plays the audio on every platform but has **no lyrics panel** — use it only to
+> check playback. The **summary on its own** also lives in the standard **comment** tag, so it shows
+> under *Get Info / Properties / Comments* in almost any player or file manager, even ones without a
+> lyrics view.
 
 ## For developers
 
