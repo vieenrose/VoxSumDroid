@@ -28,6 +28,13 @@ struct LlmHandle {
     llama_model*   model = nullptr;
     llama_context* ctx   = nullptr;
     int            nCtx  = 0;
+    // Per-model sampler chain (set at load; see SamplerProfile / LlmRegistry). Defaults match the
+    // legacy small-instruct chain in case a caller loads without an explicit profile.
+    int   topK            = 40;
+    float topP            = 0.9f;
+    float temp            = 0.7f;
+    float repeatPenalty   = 1.3f;
+    float presencePenalty = 0.0f;
     std::atomic<bool> cancel{false};
 };
 
@@ -116,7 +123,8 @@ extern "C" {
 // on a phone pass the big-core count, not all cores). CPU-only: n_gpu_layers = 0.
 JNIEXPORT jlong JNICALL
 Java_studio_voxsum_core_llm_LlmEngine_nativeLoad(
-        JNIEnv* env, jobject /*thiz*/, jstring jPath, jint nThreads, jint nCtx) {
+        JNIEnv* env, jobject /*thiz*/, jstring jPath, jint nThreads, jint nCtx,
+        jint topK, jfloat topP, jfloat temp, jfloat repeatPenalty, jfloat presencePenalty) {
     llama_backend_init();
 
     const char* path = env->GetStringUTFChars(jPath, nullptr);
@@ -126,6 +134,8 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeLoad(
     mp.use_mmap     = true;       // keep peak RAM down (see SPIKE.md "memory")
 
     auto* h = new LlmHandle();
+    h->topK = topK; h->topP = topP; h->temp = temp;
+    h->repeatPenalty = repeatPenalty; h->presencePenalty = presencePenalty;
     h->model = llama_model_load_from_file(path, mp);
     env->ReleaseStringUTFChars(jPath, path);
     if (!h->model) { LOGE("model load failed"); delete h; return 0; }
@@ -178,15 +188,16 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
     std::vector<llama_token> tokens = tokenize(vocab, std::string(prompt), /*addSpecial=*/true);
     env->ReleaseStringUTFChars(jPrompt, prompt);
 
-    // Sampler chain (cf. summarization.py temperature/top_p). A repetition penalty is
-    // essential here — small instruct models otherwise fall into "say the same sentence
-    // forever" loops on summarization. Fixed seed = reproducible.
+    // Sampler chain, per-model (see SamplerProfile / LlmRegistry). Some models need a repeat penalty
+    // to avoid "say the same sentence forever" loops; others (Qwen3.5) run on into a wall-of-text under
+    // one, so they pass repeat 1.0 + a flat presence penalty instead. Fixed seed = reproducible.
     llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
-        /*penalty_last_n=*/256, /*penalty_repeat=*/1.3f, /*penalty_freq=*/0.0f, /*penalty_present=*/0.0f));
-    llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
-    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
-    llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.7f));
+        /*penalty_last_n=*/256, /*penalty_repeat=*/h->repeatPenalty,
+        /*penalty_freq=*/0.0f, /*penalty_present=*/h->presencePenalty));
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_k(h->topK));
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(h->topP, 1));
+    llama_sampler_chain_add(smpl, llama_sampler_init_temp(h->temp));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     std::string out;

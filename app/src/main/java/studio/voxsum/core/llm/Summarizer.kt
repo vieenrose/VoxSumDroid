@@ -32,13 +32,17 @@ class Summarizer(
     private val reduceMaxTokens: Int = 400,
 ) {
 
+    // Output-language clause appended to every prompt. A small LLM otherwise replies in the
+    // transcript's language even when a target is set — the weak " Write it in X." was ignored
+    // cross-lingually (en/ja/ko transcript → summary stayed in the source language). So when a target
+    // is picked we force it emphatically: repeat the name and demand translation. (OpenCC only does a
+    // Simplified→Traditional script pass — it can't translate, so the language must come from the model.)
+    private val langClause: String = if (targetLanguage != null)
+        " Write the ENTIRE output in $targetLanguage. The transcript may be in another language —" +
+            " translate as you summarize. Do not use any language other than $targetLanguage."
+    else " Write it in the same language as the transcript."
+
     fun summarize(transcript: String, userPrompt: String, withTitle: Boolean = true): Flow<TranscriptEvent> = flow {
-        // State the output language explicitly: a small LLM replies in English from an English
-        // instruction even on a Chinese transcript. With a target language picked, force it; otherwise
-        // tell the model to match the transcript's language. (OpenCC only converts Simplified→Traditional
-        // as a script pass — it can't translate, so the language itself must come from the model.)
-        val langClause = if (targetLanguage != null) " Write it in $targetLanguage."
-            else " Write it in the same language as the transcript."
         val instr = userPrompt + langClause
         // Budget every prompt in CHARS so it fits n_ctx for ANY script. CJK is the densest (~1.55
         // tokens/char), so cap at ~0.6 chars/token (*3/5); English (~4 chars/token) just gets smaller,
@@ -99,8 +103,6 @@ class Summarizer(
 
     /** One short title for [summary], in the target language and OpenCC-converted. Shared by both paths. */
     private fun titleEvent(summary: String): TranscriptEvent {
-        val langClause = if (targetLanguage != null) " Write it in $targetLanguage."
-            else " Write it in the same language as the transcript."
         val sb = StringBuilder()
         llm.generate(SummaryText.wrap(template, TITLE_TEMPLATE.format(langClause, summary)), maxTokens = 24) { sb.append(it) }
         return TranscriptEvent.Title(convert(SummaryText.cleanTitle(sb.toString())))
