@@ -178,6 +178,28 @@ For reference, 0.6B at other quant/runtime: Q8·llama.cpp 1020 MB / 12.9 tok/s �
 - ASR and the LLM run **sequentially** (the memory discipline frees ASR before loading the LLM), so the
   pipeline peak is the heaviest single stage (~2.8 GB at E2B) — comfortable on 8 GB, with the bigger Gemmas opt-in.
 
+## 9. Alternative runtime: ONNX Runtime GenAI
+
+ORT is already in the app (sherpa-onnx uses the ORT core for ASR), so running the LLM on
+**onnxruntime-genai** (ORT's generative loop) is a natural question. From the docs (not yet benchmarked):
+
+- **Feasible.** Qwen3 is supported by the ORT-GenAI model builder (`onnxruntime_genai.models.builder -p int4`);
+  ONNX Qwen3 weights exist on HF (`onnx-community/Qwen3-{0.6B,1.7B,4B}-ONNX`, though those are transformers.js
+  graphs needing a rebuild into genai format). A Java/Kotlin Android API exists.
+- **CPU-only on the Pixel 6.** ORT-GenAI's accelerated path is the **QNN EP = Qualcomm Snapdragon NPU**; the
+  Pixel's **Tensor G1 isn't a QNN target** (NNAPI is deprecated). So on this device it falls back to CPU — same
+  as llama.cpp. (No Tensor acceleration, mirroring the LiteRT-NPU situation.)
+- **Memory-sane — unlike LiteRT.** CPU ORT-GenAI loads weights once (no GPU double-mapping), so its RSS should
+  track llama.cpp's ~1 GB — it does NOT carry LiteRT's ~2× regression. So on memory, ORT-GenAI ≥ LiteRT.
+- **No win over the incumbent here.** CPU vs CPU, ORT-GenAI ≈ llama.cpp on speed and memory, and it adds a
+  second native lib (onnxruntime-genai, atop the shared ORT core) plus a model-conversion step.
+
+**Verdict:** on the Pixel 6, ORT-GenAI offers no advantage over llama.cpp (both CPU-bound, parity) and isn't
+worth the extra lib + conversion. It gets interesting on **Qualcomm-NPU phones** (QNN acceleration) or as a
+**stack-consolidation** play (one ORT runtime for ASR + LLM) — and crucially it would NOT regress memory the way
+LiteRT does. Keep llama.cpp; revisit ORT-GenAI for a Snapdragon-NPU target. (Parity is inferred from the EP
+architecture; a CPU A/B would confirm.)
+
 ## Appendix — sources
 
 - LiteRT-LM Kotlin `Engine`/`Backend` API, backends enum, `litert_lm_main --benchmark`, `uvx litert-lm run` — `/google-ai-edge/litert-lm` + ai.google.dev/edge/litert-lm.
