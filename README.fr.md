@@ -65,7 +65,7 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 - **Copiez** tout le résumé d'un seul geste.
 - **Exportez le texte** — copiez ou partagez la transcription en texte, ou enregistrez des **sous-titres (`.srt`/`.vtt`)**, du texte brut, du Markdown ou un **PDF** imprimable pour d'autres applis.
 - **Relancez** la transcription, le résumé ou la détection des noms quand vous voulez — p. ex. changez la langue du résumé puis relancez-le.
-- **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique **`.ogg`** ou **`.m4a`** qui **se lit dans n'importe quelle appli musicale** (avec le titre, la pochette, le résumé et la transcription — voir [*Afficher la transcription et le résumé dans d'autres applis musicales*](#afficher-la-transcription-et-le-résumé-dans-dautres-applis-musicales)) et **se rouvre dans VoxSum** avec tout intact. Choisissez `.m4a` pour la compatibilité maximale (iPhone, autoradios, tous les lecteurs).
+- **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique **`.ogg`** ou **`.m4a`** qui **se lit dans n'importe quelle appli musicale** (avec le titre, la pochette, le résumé et la transcription — voir [*Paroles synchronisées dans les lecteurs Android*](#paroles-synchronisées-dans-les-lecteurs-android)) et **se rouvre dans VoxSum** avec tout intact. Choisissez `.m4a` pour la compatibilité maximale (iPhone, autoradios, tous les lecteurs).
 
 ## Langues
 
@@ -106,32 +106,27 @@ l'installer (Android peut demander l'autorisation d'installer depuis votre navig
   le modèle de résumé de meilleure qualité est optionnel et peut être désactivé dans les Réglages
   pour les appareils plus légers.
 
-## Afficher la transcription et le résumé dans d'autres applis musicales
+## Paroles synchronisées dans les lecteurs Android
 
 Un fichier `.ogg`/`.m4a` exporté stocke le titre, la pochette, le **résumé** (dans la balise *commentaire*)
-et la **transcription synchronisée** (dans la balise *paroles/lyrics*, au format LRC `[mm:ss.xx]`) sous forme
-de métadonnées audio ordinaires. Les lecteurs qui interprètent les **paroles synchronisées** font défiler la
-transcription **en temps réel** pendant la lecture — lue directement depuis le fichier, **sans annexe ni
-permission**. Les lecteurs sans prise en charge de la synchro affichent quand même le texte (avec les
-horodatages `[mm:ss]` visibles). Préférez le **`.m4a`** pour la compatibilité la plus large.
+et la **transcription synchronisée** (dans la balise *paroles/lyrics*, au format LRC `[mm:ss.xx]`). Les
+lecteurs Android qui interprètent les **paroles synchronisées** font défiler la transcription **en temps
+réel** pendant la lecture — lue directement depuis le fichier, **sans annexe ni permission**. (Les lecteurs
+sans synchro affichent le texte avec les horodatages `[mm:ss]` visibles.) Préférez le **`.m4a`** — sa balise
+de paroles est lue plus largement que celle du `.ogg`.
 
-| Plateforme | Appli | Où s'affichent les paroles | Temps réel ? |
-|---|---|---|---|
-| **Android** | **Retro Music** *(gratuit)* — vérifié | paroles en lecture (歌詞) | ✅ synchro |
-| | **Gramophone** *(gratuit)* — vérifié | la vue Paroles | ✅ synchro |
-| | **Musicolet** / **Oto Music** *(gratuit)* | l'onglet **Paroles** | 🔄 synchro |
-| | **Poweramp** | la vue des paroles | 🔄 synchro |
-| **Windows** | **MusicBee** *(gratuit)* | le panneau **Lyrics** | 🔄 synchro |
-| | **foobar2000** *(gratuit)* | un composant de paroles (ESLyric) | 🔄 synchro |
-| | **iTunes / Apple Music** | l'onglet **Song Info → Lyrics** | texte seul |
-| **Linux** | **Lollypop** *(gratuit)* | la vue Paroles | 🔄 synchro |
-| | **Strawberry** / **Quod Libet** *(gratuit)* | le volet Paroles | texte seul |
+| Appli | Où ouvrir les paroles | Synchro temps réel |
+|---|---|---|
+| **Retro Music** *(gratuit)* | paroles en lecture (歌詞) | ✅ vérifié |
+| **Gramophone** *(gratuit)* | la vue Paroles | ✅ vérifié |
+| **Poweramp** | la vue des paroles | 🔄 attendu |
+| **Musicolet** *(gratuit)* | l'onglet **Paroles** | 🔄 attendu |
+| **Oto Music** *(gratuit)* | la vue Paroles | 🔄 attendu |
 
-> **Remarques.** ✅ = vérifié sur un Pixel ; 🔄 = prise en charge documentée des paroles synchronisées. Les
-> lecteurs sans synchro affichent la transcription en texte brut **avec les horodatages `[mm:ss]` visibles**.
-> Le **résumé** figure dans la balise **commentaire** standard (*Infos / Propriétés*). **VLC** lit l'audio
-> mais n'a pas de panneau de paroles. Un export **`.lrc` annexe** (**Exporter → « Enregistrer les paroles
-> synchronisées (.lrc) »**) reste disponible pour les lecteurs de bureau qui le préfèrent.
+> **Remarques.** ✅ = vérifié sur un Pixel ; 🔄 = prise en charge documentée des paroles synchronisées. Le
+> **résumé** figure dans la balise **commentaire** standard. Un export **`.lrc` annexe** (**Exporter →
+> « Enregistrer les paroles synchronisées (.lrc) »**) existe aussi, mais Android 14 empêche les lecteurs de
+> lire les annexes (pas d'accès à tous les fichiers) — d'où l'intégration directe.
 
 ## Pour les développeurs
 
