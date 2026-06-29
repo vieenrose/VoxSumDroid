@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import studio.voxsum.R
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioTranscoder
 import studio.voxsum.core.audio.Mp4Tags
@@ -129,14 +130,21 @@ object VoxsumSession {
         val blob = encodeSession(utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId)
         val cleanTitle = title?.replace('\n', ' ')?.trim()?.ifBlank { null }
         val cleanSummary = summary?.trim()?.ifBlank { null }
-        // Player-facing lyrics (©lyr / LYRICS) = PLAIN transcript text, NOT timestamped LRC. Those tag
-        // fields are unsynchronized-plain-text by convention; LRC timestamps make lyrics-capable players
-        // (Doppler, Poweramp, MusicBee, Quod Libet…) reject the whole field, which is why nothing showed.
-        // Recovery fidelity is untouched: the full timestamped transcript round-trips via the VOXSUM blob,
-        // not this field. (Synced/karaoke display isn't a thing these containers support embedded anyway —
+        // Player-facing lyrics (©lyr / LYRICS) = the SUMMARY (under a heading) then the full transcript,
+        // both PLAIN text, so a music player's Lyrics view shows BOTH at a glance. NOT timestamped LRC:
+        // those tag fields are unsynchronized-plain-text by convention, and LRC timestamps make
+        // lyrics-capable players (Doppler, Poweramp, MusicBee, Quod Libet…) reject the whole field.
+        // Recovery fidelity is untouched — the full timestamped transcript round-trips via the VOXSUM
+        // blob, not this field. (Synced/karaoke display isn't supported embedded in these containers;
         // that needs a sidecar .lrc.)
-        val lyrics = utterances.joinToString("\n") { it.text.replace('\n', ' ').trim() }
-            .ifBlank { null }
+        val transcriptText = utterances.joinToString("\n") { it.text.replace('\n', ' ').trim() }
+        val lyrics = buildString {
+            cleanSummary?.let {
+                append(context.getString(R.string.export_heading_summary)).append('\n').append(it).append("\n\n")
+                append(context.getString(R.string.export_heading_transcript)).append('\n')
+            }
+            append(transcriptText)
+        }.ifBlank { null }
         val tagged = File(dir, fileName)
         val embedded: Boolean = when (format) {
             Format.OGG -> {

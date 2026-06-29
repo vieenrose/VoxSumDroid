@@ -50,13 +50,23 @@ object Mp4Tags {
             if (moov.size > 64L * 1024 * 1024) return@use false
 
             val moovBytes = ByteArray(moov.size.toInt()).also { raf.seek(moov.offset); raf.readFully(it) }
-            // moov children (after the 8-byte header), dropping any pre-existing udta — we rebuild it.
+            // moov children (after the 8-byte header). Drop two of them:
+            //  - any pre-existing `udta` — we rebuild it with our tags;
+            //  - the moov-level `meta` box — Android's MediaMuxer writes a QuickTime `mdta` meta there
+            //    (just `com.android.version`) that is NOT a FullBox. Strict iTunes tag parsers
+            //    (mutagen, TagLib, AVFoundation — i.e. what music players use) assume `meta` IS a
+            //    FullBox, skip 4 bytes, then misread the `hdlr` size as garbage and abort the moov
+            //    walk BEFORE reaching our `udta.meta.ilst` — so players showed none of our title /
+            //    comment / lyrics / cover. FFmpeg is lenient and reads them, which masked this. We drop
+            //    it (the android version string is non-essential); the moov shrinks and the stco/co64
+            //    shift below stays correct.
             val children = ArrayList<ByteArray>()
             run {
                 var p = 8
                 while (p + 8 <= moovBytes.size) {
                     val sz = be32(moovBytes, p); if (sz < 8 || p + sz > moovBytes.size) break
-                    if (str(moovBytes, p + 4) != "udta") children.add(moovBytes.copyOfRange(p, p + sz))
+                    val childType = str(moovBytes, p + 4)
+                    if (childType != "udta" && childType != "meta") children.add(moovBytes.copyOfRange(p, p + sz))
                     p += sz
                 }
             }
