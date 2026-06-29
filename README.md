@@ -116,9 +116,17 @@ player-dependent.
 |---|---|---|---|
 | **Retro Music** *(free)* | now-playing (歌詞) | ✅ | ❌ |
 | **Gramophone** *(free)* | the Lyrics view | ✅ | ✅ |
+| **Musicolet** *(free)* | tap the album cover → lyrics | ✅ | 🔄 |
 | **Poweramp** | the lyrics view | 🔄 | 🔄 |
-| **Musicolet** *(free)* | the **Lyrics** tab | 🔄 | 🔄 |
-| **Oto Music** *(free)* | the Lyrics view | 🔄 | 🔄 |
+| **Oto Music** *(free)* | the lyrics view | 🔄 | 🔄 |
+
+<p align="center">
+<img src="docs/screenshots/synced-retromusic.png" width="232" alt="Synced lyrics in Retro Music">
+&nbsp;<img src="docs/screenshots/synced-gramophone.png" width="232" alt="Synced lyrics in Gramophone">
+&nbsp;<img src="docs/screenshots/synced-musicolet.png" width="232" alt="Synced lyrics in Musicolet">
+</p>
+
+*Synced transcript scrolling on a Pixel — **Retro Music**, **Gramophone**, and **Musicolet** (the current line highlights as the audio plays).*
 
 > **Notes.** ✅ = verified synced on a Pixel · ❌ = no synced lyrics · 🔄 = documented support (not tested
 > here). The **summary** lives in the standard **comment** tag. A standalone **`.lrc` sidecar** export

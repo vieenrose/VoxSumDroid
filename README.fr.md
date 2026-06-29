@@ -119,9 +119,17 @@ sans synchro affichent le texte avec les horodatages `[mm:ss]` visibles.) **Util
 |---|---|---|---|
 | **Retro Music** *(gratuit)* | en lecture (歌詞) | ✅ | ❌ |
 | **Gramophone** *(gratuit)* | la vue Paroles | ✅ | ✅ |
+| **Musicolet** *(gratuit)* | appui sur la pochette → paroles | ✅ | 🔄 |
 | **Poweramp** | la vue des paroles | 🔄 | 🔄 |
-| **Musicolet** *(gratuit)* | l'onglet **Paroles** | 🔄 | 🔄 |
 | **Oto Music** *(gratuit)* | la vue Paroles | 🔄 | 🔄 |
+
+<p align="center">
+<img src="docs/screenshots/synced-retromusic.png" width="232" alt="Paroles synchronisées dans Retro Music">
+&nbsp;<img src="docs/screenshots/synced-gramophone.png" width="232" alt="Paroles synchronisées dans Gramophone">
+&nbsp;<img src="docs/screenshots/synced-musicolet.png" width="232" alt="Paroles synchronisées dans Musicolet">
+</p>
+
+*Transcription synchronisée qui défile sur un Pixel — **Retro Music**, **Gramophone** et **Musicolet** (la ligne en cours se surligne pendant la lecture).*
 
 > **Remarques.** ✅ = synchro vérifiée sur un Pixel · ❌ = pas de paroles synchronisées · 🔄 = prise en charge documentée (non testée ici). Le
 > **résumé** figure dans la balise **commentaire** standard. Un export **`.lrc` annexe** (**Exporter →

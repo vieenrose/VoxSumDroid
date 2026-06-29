@@ -110,9 +110,17 @@ https://vieenrose.github.io/VoxSumDroid/repo?fingerprint=c9fe46eb7d87d4fa4e2340a
 |---|---|---|---|
 | **Retro Music** *(免費)* | 播放畫面（歌詞） | ✅ | ❌ |
 | **Gramophone** *(免費)* | 歌詞檢視 | ✅ | ✅ |
+| **Musicolet** *(免費)* | 點封面 → 顯示歌詞 | ✅ | 🔄 |
 | **Poweramp** | 歌詞檢視 | 🔄 | 🔄 |
-| **Musicolet** *(免費)* | **歌詞**分頁 | 🔄 | 🔄 |
 | **Oto Music** *(免費)* | 歌詞檢視 | 🔄 | 🔄 |
+
+<p align="center">
+<img src="docs/screenshots/synced-retromusic.png" width="232" alt="Retro Music 同步歌詞">
+&nbsp;<img src="docs/screenshots/synced-gramophone.png" width="232" alt="Gramophone 同步歌詞">
+&nbsp;<img src="docs/screenshots/synced-musicolet.png" width="232" alt="Musicolet 同步歌詞">
+</p>
+
+*在 Pixel 上同步捲動的逐字稿——**Retro Music**、**Gramophone**、**Musicolet**（目前播放的那一行會隨之高亮）。*
 
 > **備註。** ✅＝已在 Pixel 驗證同步 · ❌＝無同步歌詞 · 🔄＝有文件記載支援（未在此測試）。**摘要**存在標準的**註解（comment）**標籤。
 > 也可另外匯出 **`.lrc` 旁檔**（**匯出 →「另存同步歌詞（.lrc）」**），但 Android 14 不允許播放器讀取旁檔
