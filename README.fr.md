@@ -65,7 +65,7 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 - **Copiez** tout le résumé d'un seul geste.
 - **Exportez le texte** — copiez ou partagez la transcription en texte, ou enregistrez des **sous-titres (`.srt`/`.vtt`)**, du texte brut, du Markdown ou un **PDF** imprimable pour d'autres applis.
 - **Relancez** la transcription, le résumé ou la détection des noms quand vous voulez — p. ex. changez la langue du résumé puis relancez-le.
-- **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique **`.ogg`** ou **`.m4a`** qui **se lit dans n'importe quelle appli musicale** (avec le titre, la pochette, le résumé et la transcription — voir [*Paroles synchronisées dans les lecteurs Android*](#paroles-synchronisées-dans-les-lecteurs-android)) et **se rouvre dans VoxSum** avec tout intact. Choisissez `.m4a` pour la compatibilité maximale (iPhone, autoradios, tous les lecteurs).
+- **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique **`.m4a`** qui **se lit dans n'importe quelle appli musicale** (avec le titre, la pochette, le résumé et la **transcription synchronisée** en paroles — voir [*Paroles synchronisées dans les lecteurs Android*](#paroles-synchronisées-dans-les-lecteurs-android)) et **se rouvre dans VoxSum** avec tout intact. (`.m4a` a la plus large compatibilité — iPhone, autoradios, tous les lecteurs ; les anciennes sessions `.ogg` s'ouvrent toujours.)
 
 ## Langues
 
@@ -108,20 +108,17 @@ l'installer (Android peut demander l'autorisation d'installer depuis votre navig
 
 ## Paroles synchronisées dans les lecteurs Android
 
-Un fichier `.ogg`/`.m4a` exporté stocke le titre, la pochette, le **résumé** (dans la balise *commentaire*)
+Un fichier `.m4a` exporté stocke le titre, la pochette, le **résumé** (dans la balise *commentaire*)
 et la **transcription synchronisée** (dans la balise *paroles/lyrics*, au format LRC `[mm:ss.xx]`). Les
 lecteurs Android qui interprètent les **paroles synchronisées** font défiler la transcription **en temps
 réel** pendant la lecture — lue directement depuis le fichier, **sans annexe ni permission**. (Les lecteurs
-sans synchro affichent le texte avec les horodatages `[mm:ss]` visibles.) **Utilisez le `.m4a`** — sa balise
-`©lyr` est lue plus largement ; la synchro `.ogg` dépend du lecteur.
+sans synchro affichent simplement le texte, avec les horodatages `[mm:ss]` visibles.)
 
-| Appli | Vue paroles | `.m4a` | `.ogg` |
-|---|---|---|---|
-| **Retro Music** *(gratuit)* | en lecture (歌詞) | ✅ | ❌ |
-| **Gramophone** *(gratuit)* | la vue Paroles | ✅ | ✅ |
-| **Musicolet** *(gratuit)* | appui sur la pochette → paroles | ✅ | 🔄 |
-| **Poweramp** | la vue des paroles | 🔄 | 🔄 |
-| **Oto Music** *(gratuit)* | la vue Paroles | 🔄 | 🔄 |
+| Appli | Où ouvrir les paroles | Synchro temps réel |
+|---|---|---|
+| **Retro Music** *(gratuit)* | en lecture (歌詞) | ✅ |
+| **Gramophone** *(gratuit)* | la vue Paroles | ✅ |
+| **Musicolet** *(gratuit)* | appui sur la pochette → paroles | ✅ |
 
 <p align="center">
 <img src="docs/screenshots/synced-retromusic.png" width="232" alt="Paroles synchronisées dans Retro Music">
@@ -131,10 +128,9 @@ sans synchro affichent le texte avec les horodatages `[mm:ss]` visibles.) **Util
 
 *Transcription synchronisée qui défile sur un Pixel — **Retro Music**, **Gramophone** et **Musicolet** (la ligne en cours se surligne pendant la lecture).*
 
-> **Remarques.** ✅ = synchro vérifiée sur un Pixel · ❌ = pas de paroles synchronisées · 🔄 = prise en charge documentée (non testée ici). Le
-> **résumé** figure dans la balise **commentaire** standard. Un export **`.lrc` annexe** (**Exporter →
-> « Enregistrer les paroles synchronisées (.lrc) »**) existe aussi, mais Android 14 empêche les lecteurs de
-> lire les annexes (pas d'accès à tous les fichiers) — d'où l'intégration directe.
+> **Remarques.** Les trois sont vérifiés sur un Pixel — la ligne en cours se surligne pendant la lecture. Le
+> **résumé** figure aussi dans la balise **commentaire** standard. Un export **`.lrc` annexe** (**Exporter →
+> « Enregistrer les paroles synchronisées (.lrc) »**) est aussi disponible pour les lecteurs qui le préfèrent.
 
 ## Pour les développeurs
 

@@ -65,7 +65,7 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 - **Copy** the whole summary with one tap.
 - **Export the words** — copy or share the transcript as text, or save **subtitles (`.srt`/`.vtt`)**, plain text, Markdown, or a printable **PDF** for any other app.
 - **Re-run** the transcription, the summary, or the speaker-name detection whenever you like — e.g. switch the summary language and re-summarize.
-- **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) is packed into a single **`.ogg`** *or* **`.m4a`** that **plays in any music app** (and shows the title, cover, summary and transcript — see [*Synced lyrics in Android music players*](#synced-lyrics-in-android-music-players)) and **reopens in VoxSum** with everything intact. Pick `.m4a` for the widest compatibility (iPhones, cars, every player).
+- **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) is packed into a single **`.m4a`** that **plays in any music app** (and shows the title, cover, summary and the **time-synced transcript** as lyrics — see [*Synced lyrics in Android music players*](#synced-lyrics-in-android-music-players)) and **reopens in VoxSum** with everything intact. (`.m4a` has the widest reach — iPhones, cars, every player; older `.ogg` sessions still open.)
 
 ## Languages
 
@@ -105,20 +105,17 @@ after that, updates arrive automatically.
 
 ## Synced lyrics in Android music players
 
-An exported `.ogg`/`.m4a` stores the title, cover, **summary** (in the *comment* tag) and the
+An exported `.m4a` stores the title, cover, **summary** (in the *comment* tag) and the
 **time-synced transcript** (in the *lyrics* tag, as LRC `[mm:ss.xx]` lines). Android players that parse
 **synced lyrics** scroll the transcript **in real time** as it plays — read straight from the file,
-**no sidecar and no permission**. (Players without sync support show the text with the `[mm:ss]`
-timestamps visible.) **Use the `.m4a`** — its `©lyr` tag is read more widely; `.ogg` synced is
-player-dependent.
+**no sidecar and no permission**. (Players without sync support just show the text, with the `[mm:ss]`
+timestamps visible.)
 
-| App | Lyrics view | `.m4a` | `.ogg` |
-|---|---|---|---|
-| **Retro Music** *(free)* | now-playing (歌詞) | ✅ | ❌ |
-| **Gramophone** *(free)* | the Lyrics view | ✅ | ✅ |
-| **Musicolet** *(free)* | tap the album cover → lyrics | ✅ | 🔄 |
-| **Poweramp** | the lyrics view | 🔄 | 🔄 |
-| **Oto Music** *(free)* | the lyrics view | 🔄 | 🔄 |
+| App | Open the lyrics here | Real-time sync |
+|---|---|---|
+| **Retro Music** *(free)* | now-playing lyrics (歌詞) | ✅ |
+| **Gramophone** *(free)* | the Lyrics view | ✅ |
+| **Musicolet** *(free)* | tap the album cover → lyrics | ✅ |
 
 <p align="center">
 <img src="docs/screenshots/synced-retromusic.png" width="232" alt="Synced lyrics in Retro Music">
@@ -128,10 +125,9 @@ player-dependent.
 
 *Synced transcript scrolling on a Pixel — **Retro Music**, **Gramophone**, and **Musicolet** (the current line highlights as the audio plays).*
 
-> **Notes.** ✅ = verified synced on a Pixel · ❌ = no synced lyrics · 🔄 = documented support (not tested
-> here). The **summary** lives in the standard **comment** tag. A standalone **`.lrc` sidecar** export
-> also exists, but Android 14 blocks players from reading sidecars (no all-files access) — which is why
-> the lyrics are embedded.
+> **Notes.** All three verified on a Pixel — the current line highlights as it plays. The **summary**
+> also lives in the standard **comment** tag (song info). A standalone **`.lrc` sidecar** export
+> (**Export → “Save synced lyrics (.lrc)”**) is also available for players that prefer one.
 
 ## For developers
 

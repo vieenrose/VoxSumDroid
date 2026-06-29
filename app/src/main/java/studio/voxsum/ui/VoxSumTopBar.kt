@@ -78,8 +78,6 @@ fun VoxSumTopBar(
     onSearch: () -> Unit,
     onSettings: () -> Unit,
     onCoverPreview: () -> Unit,
-    onSaveSession: () -> Unit,
-    onShareSession: () -> Unit,
     onSaveSessionM4a: () -> Unit,
     onShareSessionM4a: () -> Unit,
     onCopyTranscript: () -> Unit,
@@ -172,7 +170,7 @@ fun VoxSumTopBar(
                     }
                 }
                 ExportMenu(
-                    transcriptAvailable, onCoverPreview, onSaveSession, onShareSession, onSaveSessionM4a, onShareSessionM4a,
+                    transcriptAvailable, onCoverPreview, onSaveSessionM4a, onShareSessionM4a,
                     onCopyTranscript, onShareTranscript, onExportTxt, onExportSrt, onExportVtt, onExportLrc, onExportMarkdown, onExportPdf,
                 )
             }
@@ -269,8 +267,6 @@ private fun ReRunMenu(
 private fun ExportMenu(
     transcriptAvailable: Boolean,
     onCoverPreview: () -> Unit,
-    onSaveSession: () -> Unit,
-    onShareSession: () -> Unit,
     onSaveSessionM4a: () -> Unit,
     onShareSessionM4a: () -> Unit,
     onCopyTranscript: () -> Unit,
@@ -297,14 +293,6 @@ private fun ExportMenu(
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.cover_menu)) },
                 onClick = { open = false; onCoverPreview() },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.session_save)) },
-                onClick = { open = false; onSaveSession() },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.session_share)) },
-                onClick = { open = false; onShareSession() },
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.session_save_m4a)) },

@@ -613,12 +613,6 @@ private fun TranscribeScreen(
             context, Intent(context, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_EXPORT),
         )
     }
-    val sessionSaver = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument(VoxsumSession.MIME)
-    ) { uri: Uri? ->
-        if (uri == null) { exporting = false; return@rememberLauncherForActivityResult }
-        stageSessionExport(false, uri, VoxsumSession.Format.OGG)
-    }
     val sessionSaverM4a = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(VoxsumSession.Format.M4A.mime)
     ) { uri: Uri? ->
@@ -776,12 +770,12 @@ private fun TranscribeScreen(
                             scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.session_share_failed)) }
                         } else {
                             val send = Intent(Intent.ACTION_SEND).apply {
-                                type = VoxsumSession.MIME
+                                type = VoxsumSession.Format.M4A.mime
                                 putExtra(Intent.EXTRA_STREAM, shareUri)
                                 putExtra(Intent.EXTRA_SUBJECT, title ?: context.getString(R.string.app_name))
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
-                            runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.session_share))) }
+                            runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.session_share_m4a))) }
                         }
                     } else {
                         val label = lastSaveUri?.let { documentLabel(context, it) } ?: ""
@@ -1023,8 +1017,6 @@ private fun TranscribeScreen(
                     scope.launch { coverBusy = true; renderCoverPreview(coverSeed); coverBusy = false; coverEnabled = true; showCoverDialog = true }
                 },
                 // No pre-decode here; the picker callback hands the build+write to the service.
-                onSaveSession = { sessionSaver.launch(VoxsumSession.suggestFileName(title)) },
-                onShareSession = { shareSession(VoxsumSession.Format.OGG) },
                 onSaveSessionM4a = { sessionSaverM4a.launch(VoxsumSession.suggestFileName(title, VoxsumSession.Format.M4A.ext)) },
                 onShareSessionM4a = { shareSession(VoxsumSession.Format.M4A) },
                 onCopyTranscript = { copyTranscript() },
