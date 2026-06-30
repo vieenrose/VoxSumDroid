@@ -806,7 +806,7 @@ private fun TranscribeScreen(
                     val spec = LlmRegistry.byId(config.llmModelId)
                     if (!models.llmReady(spec)) models.ensureLlmModel(spec) { }
                     val raw = LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = 4, sampler = spec.sampler).use { llm ->
-                        SpeakerNamer(llm).detect(snapshot)
+                        SpeakerNamer(llm, spec.chatTemplate).detect(snapshot)
                     }
                     // Keep detected names in the same script as the rest of the output (Target language × locale).
                     val cc = TargetLanguage.scriptFor(config.targetLanguage, context)?.let { OpenCcConverter.get(context, it) }

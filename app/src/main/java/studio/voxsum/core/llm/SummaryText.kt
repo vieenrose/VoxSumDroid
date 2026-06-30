@@ -10,8 +10,18 @@ import studio.voxsum.core.models.ChatTemplate
  */
 internal object SummaryText {
 
-    /** Drop any <think>…</think> reasoning block a thinking-capable model (e.g. Qwen3.5) might emit. */
-    fun stripThink(s: String): String = s.replace(Regex("(?s)<think>.*?</think>"), "").trim()
+    /**
+     * Drop a <think>…</think> reasoning block a thinking-capable model (e.g. Qwen3.5) might emit. Handles
+     * BOTH a normal closed block AND an UNTERMINATED <think> (runaway reasoning that hit the token cap
+     * before closing) — the latter is dropped along with everything after it, so a half-emitted trace
+     * never leaks into the title/summary (the literal "<think" leak seen when reasoning ran away).
+     */
+    fun stripThink(s: String): String {
+        var t = s.replace(Regex("(?s)<think>.*?</think>"), "")   // complete blocks, anywhere
+        val open = t.indexOf("<think>")                          // an unterminated opener, if any
+        if (open >= 0) t = t.substring(0, open)
+        return t.trim()
+    }
 
     /**
      * Extract a single clean title from the model's reply. Verbose models (e.g. Gemma 4) answer

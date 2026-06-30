@@ -1,6 +1,7 @@
 package studio.voxsum.core.llm
 
 import studio.voxsum.core.events.TranscriptEvent
+import studio.voxsum.core.models.ChatTemplate
 import studio.voxsum.data.SpeakerName
 
 /**
@@ -9,7 +10,7 @@ import studio.voxsum.data.SpeakerName
  * NAME/CONFIDENCE/REASON, and (by default) keeps only high-confidence, non-"Unknown" names.
  * Returns overrides keyed by speaker id, reusing [SpeakerName].
  */
-class SpeakerNamer(private val llm: LlmEngine) {
+class SpeakerNamer(private val llm: LlmEngine, private val template: ChatTemplate) {
 
     fun detect(
         utterances: List<TranscriptEvent.Utterance>,
@@ -29,7 +30,9 @@ class SpeakerNamer(private val llm: LlmEngine) {
             var combined = grouped.getValue(speaker).joinToString(" ")
             if (combined.length > 4000) combined = combined.substring(0, 4000) + "..."
             val sb = StringBuilder()
-            llm.generate(chatml(SYSTEM_PROMPT, USER_TEMPLATE.format(combined)), maxTokens = 100) {
+            // Use the model's template (QWEN3 appends the empty <think></think> non-thinking block) — a raw
+            // CHATML open turn would put Qwen3.5 into REASONING mode and let a <think> trace eat the budget.
+            llm.generate(SummaryText.wrap(template, SYSTEM_PROMPT + "\n\n" + USER_TEMPLATE.format(combined)), maxTokens = 100) {
                 sb.append(it)
             }
             val parsed = parseSpeakerResponse(sb.toString())
@@ -49,7 +52,7 @@ class SpeakerNamer(private val llm: LlmEngine) {
         var name = "Unknown"
         var confidence = "low"
         var reason = "No clear identification found"
-        val cleaned = raw.replace("<|im_end|>", "").replace("<|im_start|>", "").trim()
+        val cleaned = SummaryText.stripThink(raw).replace("<|im_end|>", "").replace("<|im_start|>", "").trim()
         for (line in cleaned.lineSequence()) {
             val l = line.trim().trim('*').trim()
             when {
@@ -65,9 +68,6 @@ class SpeakerNamer(private val llm: LlmEngine) {
         if (confidence !in setOf("high", "medium", "low")) confidence = "low"
         return SpeakerName(name, confidence, reason)
     }
-
-    private fun chatml(system: String, user: String): String =
-        "<|im_start|>system\n$system<|im_end|>\n<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n"
 
     private companion object {
         const val SYSTEM_PROMPT =
