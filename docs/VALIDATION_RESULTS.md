@@ -67,6 +67,27 @@ much slower). **ja→Chinese fails on every model** — a fundamental shared-kan
    light default.
 3. **Documented limit:** ja→Chinese is infeasible at any model size (also noted in `Summarizer.kt`).
 
+## Faithfulness layer (judged)
+
+A larger model scored each summary 1–5 for faithfulness against its source + flagged hallucinations.
+Judge: a **local Qwen3.5-9B** (`tools/faithfulness.py`). OpenRouter free models were tried first per a
+suggestion, but the capable multilingual ones (qwen3-80b-instruct, llama-3.3-70b) were upstream
+rate-limited and the available one (nemotron-120b) reasoned + garbled Japanese — so the local 9B was both
+more reliable and on-ethos. Focused set: native + English summary for all 5 sources (Qwen3.5-0.8B).
+
+| cell | score | |
+|---|--:|---|
+| zh→auto / zh→en | **2 / 2** | confabulation on the recognizable news clip (invented son/debt/quote) |
+| en→auto / en→en | 4 / 5 | faithful |
+| ja→auto | 5 | faithful |
+| ja→en | **2** | cross-lingual distortion — contradicts the source |
+| ko→auto / ko→en | 5 / 3 | faithful / minor misread |
+| fr→auto / fr→en | 5 / 5 | faithful |
+
+- **Native summaries of novel content are faithful (4–5);** the 0.8B is accurate when it isn't "recognizing" the content.
+- **Recognizable/famous content triggers confabulation (2)** — confirms the caveat: the model invents "known" specifics.
+- **Cross-lingual → English can lower faithfulness** (ja→en, ko→en) — translating *while* summarizing introduces distortions, a layer beyond language adherence.
+
 ## Caveats
 
 - Automated **language-adherence + format** only; **faithfulness** (local judge) is the next layer.
