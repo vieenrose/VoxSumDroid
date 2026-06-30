@@ -505,6 +505,7 @@ private fun TranscribeScreen(
         coverEnabled = true
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
+        lastSaveUri = null   // fresh session → first Save picks a location; later Saves overwrite it
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri)
     }
 
@@ -555,6 +556,7 @@ private fun TranscribeScreen(
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         TranscriptionConfig.Holder.config = config
+        lastSaveUri = null   // fresh recording → first Save picks a location; later Saves overwrite it
         audioUri = null; running = true; transcriptReady = false; isRecording = true; progress = 0f
         status = context.getString(R.string.status_recording); onRecord()
     }
@@ -618,6 +620,13 @@ private fun TranscribeScreen(
             // Persist the grant so this session survives a reboot in the Recent list.
             if (uri.scheme == "content") runCatching {
                 context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            // If we also hold WRITE on the opened file, Save overwrites IT (no x(1) copy proliferating);
+            // otherwise leave it null so Save falls back to picking a fresh location.
+            lastSaveUri = uri.takeIf {
+                it.scheme == "content" && runCatching {
+                    context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_WRITE_URI_PERMISSION); true
+                }.getOrDefault(false)
             }
             utterances.clear(); utterances.addAll(loaded.utterances)
             speakerNames.clear(); loaded.speakerNames.forEach { (k, v) -> speakerNames[k] = v }
@@ -1012,7 +1021,12 @@ private fun TranscribeScreen(
                 onSearch = { searchActive = !searchActive; if (!searchActive) searchQuery = "" },
                 onSettings = { showConfigSheet = true },
                 // No pre-decode here; the picker callback hands the build+write to the service.
-                onSaveSessionM4a = { sessionSaverM4a.launch(VoxsumSession.suggestFileName(title, VoxsumSession.Format.M4A.ext)) },
+                onSaveSessionM4a = {
+                    // Re-saving an already-saved (or opened-writable) session overwrites the SAME file;
+                    // only the first save opens the document picker — no more x(1).m4a proliferation.
+                    lastSaveUri?.let { stageSessionExport(false, it, VoxsumSession.Format.M4A) }
+                        ?: sessionSaverM4a.launch(VoxsumSession.suggestFileName(title, VoxsumSession.Format.M4A.ext))
+                },
                 onShareSessionM4a = { shareSession(VoxsumSession.Format.M4A) },
                 onCopyTranscript = { copyTranscript() },
                 onShareTranscript = { shareTranscript() },

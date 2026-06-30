@@ -230,7 +230,9 @@ class TranscriptionService : LifecycleService() {
                     else TranscriptEvent.ExportDone(true, "FAILED")
                 } else {
                     val outcome = req.saveUri?.let { uri ->
-                        contentResolver.openOutputStream(uri)?.let { os ->
+                        // "wt" = write + TRUNCATE: overwriting an existing (possibly larger) session file
+                        // must not leave trailing bytes from the old content. Plain "w" doesn't truncate.
+                        contentResolver.openOutputStream(uri, "wt")?.let { os ->
                             VoxsumSession.save(
                                 this@TranscriptionService, os, req.audioUri, req.utterances, req.speakerNames,
                                 req.summary, req.actionItems, req.title, req.asrModelId, req.llmModelId, req.coverEnabled, req.format,
