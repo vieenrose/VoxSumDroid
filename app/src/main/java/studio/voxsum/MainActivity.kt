@@ -377,6 +377,10 @@ private fun TranscribeScreen(
     // The cover auto-embeds on every save/share (generated in the export service from current
     // metadata). Generation is deterministic (audio fingerprint + title), so there's no preview/accept UI.
     var coverEnabled by remember { mutableStateOf(true) }
+    // The current session's identicon, rendered live from (audio fingerprint + title) so it tracks
+    // title edits; null until the audio is fingerprinted. Shown in the header.
+    var coverBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var audioSig by remember { mutableStateOf<ByteArray?>(null) }
     // True while a session .ogg is being built/written (in the foreground service, so it finishes
     // even if the app is closed). The overlay just shows progress. lastSaveUri labels the result.
     var exporting by remember { mutableStateOf(false) }
@@ -505,7 +509,7 @@ private fun TranscribeScreen(
         coverEnabled = true
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
-        lastSaveUri = null   // fresh session → first Save picks a location; later Saves overwrite it
+        lastSaveUri = null; coverBitmap = null   // fresh session → reset Save target + identicon
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri)
     }
 
@@ -556,7 +560,7 @@ private fun TranscribeScreen(
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         TranscriptionConfig.Holder.config = config
-        lastSaveUri = null   // fresh recording → first Save picks a location; later Saves overwrite it
+        lastSaveUri = null; coverBitmap = null   // fresh recording → reset Save target + identicon
         audioUri = null; running = true; transcriptReady = false; isRecording = true; progress = 0f
         status = context.getString(R.string.status_recording); onRecord()
     }
@@ -646,6 +650,18 @@ private fun TranscribeScreen(
     // A shared file that turned out to embed a session (detected above) is recovered here.
     LaunchedEffect(pendingSharedImport) {
         pendingSharedImport?.let { openSessionUri(it); pendingSharedImport = null }
+    }
+    // Identicon: fingerprint the audio once it's settled (opened or transcription done), then render the
+    // cover from (fingerprint + title). Keyed on title too, so editing the title regenerates the cover —
+    // its pattern AND the title text drawn on it both derive from the title. Reset is automatic: a new
+    // session clears transcriptReady, which nulls the fingerprint and the cover.
+    LaunchedEffect(audioUri, transcriptReady) {
+        val u = audioUri
+        audioSig = if (u != null && transcriptReady) VoxsumSession.audioFingerprint(context, u) else null
+    }
+    LaunchedEffect(title, audioSig) {
+        val sig = audioSig
+        coverBitmap = if (sig != null) withContext(Dispatchers.IO) { CoverGenerator.render(title, sig) } else null
     }
     fun shareSession(format: VoxsumSession.Format) {
         // The build (incl. its single audio decode) runs in the service; no slow work here.
@@ -998,6 +1014,7 @@ private fun TranscribeScreen(
         topBar = {
             VoxSumTopBar(
                 downloadPending = downloadPending,
+                cover = coverBitmap?.asImageBitmap(),
                 status = status,
                 running = running,
                 progress = progress,

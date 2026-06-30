@@ -72,6 +72,24 @@ object VoxsumSession {
     /** A built session `.ogg` + whether the editable transcript blob fit inside it. */
     data class Built(val file: File, val transcriptEmbedded: Boolean)
 
+    /** Stable per-track fingerprint: SHA-256 of the decoded 16 kHz PCM — the cover seed. Identical to
+     *  the value [buildSessionOgg] derives from the same audio, so an in-app live preview equals the
+     *  cover that gets embedded on save. Decodes to a throwaway temp WAV; null if it can't be decoded. */
+    suspend fun audioFingerprint(context: Context, audioUri: Uri): ByteArray? = withContext(Dispatchers.IO) {
+        val tmp = File(context.cacheDir, ".fp_${audioUri.hashCode()}.wav")
+        try {
+            val n = runCatching { AudioDecoder.decodeToWav16k(context, audioUri, tmp) { _, _ -> } }.getOrNull()
+            if (n == null || n <= 0L) return@withContext null
+            MessageDigest.getInstance("SHA-256").run {
+                tmp.inputStream().use { ins ->
+                    val b = ByteArray(1 shl 16)
+                    while (true) { val k = ins.read(b); if (k < 0) break; update(b, 0, k) }
+                }
+                digest()
+            }
+        } finally { tmp.delete() }
+    }
+
     /**
      * Build a self-describing `.ogg` in [dir]: transcode [audioUri] to OGG/Opus and embed the
      * session as Vorbis comments. Returns null if there's no audio / it can't be transcoded.

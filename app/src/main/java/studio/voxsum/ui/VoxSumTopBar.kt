@@ -1,5 +1,6 @@
 package studio.voxsum.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +60,7 @@ import studio.voxsum.ui.theme.statusColor
 @Composable
 fun VoxSumTopBar(
     downloadPending: Boolean,
+    cover: ImageBitmap? = null,
     status: String,
     running: Boolean,
     progress: Float,
@@ -101,7 +104,16 @@ fun VoxSumTopBar(
                 .padding(horizontal = 16.dp, vertical = if (landscape) 4.dp else 10.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.GraphicEq, contentDescription = null, tint = VoxSumPalette.OnBrand)
+                if (cover != null) {
+                    // The session's identicon doubles as its avatar here once a cover exists.
+                    Image(
+                        bitmap = cover,
+                        contentDescription = null,
+                        modifier = Modifier.size(if (landscape) 24.dp else 30.dp).clip(RoundedCornerShape(7.dp)),
+                    )
+                } else {
+                    Icon(Icons.Filled.GraphicEq, contentDescription = null, tint = VoxSumPalette.OnBrand)
+                }
                 Spacer(Modifier.width(8.dp))
                 if (landscape) {
                     // One slim row: title + inline badge, so the header doesn't waste vertical space.
