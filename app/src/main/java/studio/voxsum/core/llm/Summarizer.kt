@@ -32,11 +32,18 @@ class Summarizer(
     private val reduceMaxTokens: Int = 400,
 ) {
 
-    // Output-language clause appended to every prompt. A small LLM otherwise replies in the
-    // transcript's language even when a target is set — the weak " Write it in X." was ignored
-    // cross-lingually (en/ja/ko transcript → summary stayed in the source language). So when a target
-    // is picked we force it emphatically: repeat the name and demand translation. (OpenCC only does a
-    // Simplified→Traditional script pass — it can't translate, so the language must come from the model.)
+    // Output-language clause appended to every prompt. A small LLM otherwise replies in the transcript's
+    // language even when a target is set — the weak " Write it in X." was ignored cross-lingually. So when
+    // a target is picked we force it emphatically (repeat the name, demand translation).
+    //
+    // Verified cross-lingual behavior on Qwen3.5 (host, 0.8B + 2B), target = Chinese:
+    //   • en → 繁中 : WORKS via this clause.
+    //   • ja → 繁中 : NOT achievable, even on the 2B — Qwen3.5 keeps Japanese (too much shared kanji makes
+    //                 it treat ja as "already Chinese"). Model size does not help; this is a known limit.
+    //   • ko → 繁中 : the model leaves Korean here; a dedicated translate pass CAN convert it, but that was
+    //                 evaluated and skipped (narrow value — only ko benefits). So ko output stays Korean.
+    // The OpenCcConverter guard keeps that residual ja/ko output CLEAN (it skips s2tw on kana/hangul) rather
+    // than mangling it. (OpenCC only does Simplified↔Traditional — it can't translate; language is the model's.)
     private val langClause: String = if (targetLanguage != null)
         " Write the ENTIRE output in $targetLanguage. The transcript may be in another language —" +
             " translate as you summarize. Do not use any language other than $targetLanguage."
