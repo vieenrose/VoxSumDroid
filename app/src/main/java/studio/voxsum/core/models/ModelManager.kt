@@ -2,6 +2,7 @@ package studio.voxsum.core.models
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.sync.Mutex
@@ -14,7 +15,9 @@ import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.BufferedInputStream
 import java.io.File
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
+import java.net.UnknownHostException
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
@@ -193,19 +196,28 @@ class ModelManager(context: Context) {
         check(asrReady()) { "Model files missing after provisioning" }
     }
 
-    /** Ensure the GGUF for [spec] is present (downloads on first use). */
+    /** Ensure the GGUF for [spec] is present AND valid (downloads on first use; a corrupt file is
+     *  deleted and re-downloaded once before giving up with a clear message). */
     suspend fun ensureLlmModel(spec: LlmSpec, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         val dest = llmFile(spec)
-        if (!dest.exists()) download(spec.url, dest, spec.sha256.ifBlank { null }, onProgress)
-        check(dest.exists()) { "LLM model missing after provisioning" }
-        // Integrity guard for the (intentionally unpinned) GGUFs: a truncated or otherwise corrupt
-        // model would be mmap-loaded by llama.cpp and abort the process natively (uncatchable), and the
-        // bad file persists across runs. Cheap, update-tolerant check — GGUF magic + a plausible size —
-        // rather than an exact SHA pin (the mobile-GGUF artifacts get re-quantized upstream). On
-        // failure delete it so the next attempt re-downloads instead of crash-looping.
-        if (!isValidGguf(dest, spec.sizeBytes)) {
+        // Present AND valid → done. Cheap re-check every call (GGUF magic + plausible size).
+        if (dest.exists() && isValidGguf(dest, spec.sizeBytes)) return@withContext
+        // A corrupt leftover (truncated prior download, an earlier crash) — drop it and re-fetch.
+        if (dest.exists()) dest.delete()
+        // Integrity guard for the (intentionally unpinned) GGUFs: a truncated/HTML-error body would be
+        // mmap-loaded by llama.cpp and abort the process natively (uncatchable). The cheap, update-
+        // tolerant check (magic + size) stands in for an exact SHA pin (mobile GGUFs get re-quantized
+        // upstream). Re-download once on a failed check rather than committing a crash-looping model.
+        var attempt = 0
+        while (true) {
+            attempt++
+            download(spec.url, dest, spec.sha256.ifBlank { null }, onProgress)
+            if (isValidGguf(dest, spec.sizeBytes)) return@withContext
             dest.delete()
-            error("Corrupt GGUF for ${spec.id} (failed integrity check); deleted, will re-download")
+            check(attempt < 2) {
+                "${spec.displayName} download is corrupt (failed integrity check) after $attempt attempts. Please try again."
+            }
+            onProgress(0f)
         }
     }
 
@@ -239,10 +251,46 @@ class ModelManager(context: Context) {
         mutex.withLock {
             if (dest.exists()) return@withLock
             val tmp = File(dest.parentFile, "${dest.name}.part")
-            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 30_000
-                readTimeout = 30_000
-                instanceFollowRedirects = true
+            // Retry transient failures (flaky mobile network, a 5xx, a body that fails the checksum)
+            // with linear backoff. Every failed attempt deletes the .part so a partial/corrupt file
+            // never lingers (wasting space or getting half-trusted). Abort immediately on user-cancel
+            // and on permanent errors (404 / out-of-disk) where retrying can't help.
+            var attempt = 0
+            while (true) {
+                attempt++
+                try {
+                    fetchToFile(url, tmp, onProgress)
+                    if (sha256 != null) {
+                        val actual = sha256Of(tmp)
+                        if (!actual.equals(sha256, ignoreCase = true))
+                            throw ChecksumMismatch("expected ${sha256.take(12)}..., got ${actual.take(12)}...")
+                    }
+                    check(tmp.renameTo(dest)) { "Could not move ${tmp.name} into place" }
+                    return@withLock
+                } catch (ce: kotlinx.coroutines.CancellationException) {
+                    tmp.delete(); throw ce
+                } catch (e: Exception) {
+                    tmp.delete()
+                    if (e is ModelNotFound || isOutOfSpace(e) || attempt >= MAX_DOWNLOAD_ATTEMPTS)
+                        throw java.io.IOException(downloadErrorMessage(e, dest.name, attempt), e)
+                    onProgress(0f)                       // reset the bar; the retry starts over
+                    delay(RETRY_BACKOFF_MS * attempt)
+                }
+            }
+        }
+    }
+
+    /** One attempt: HTTP GET [url] → [tmp], checking the status code and cooperating with cancellation
+     *  (a blocking read() never self-checks, so the loop must, or Stop can't abort a multi-GB fetch). */
+    private suspend fun fetchToFile(url: String, tmp: File, onProgress: (Float) -> Unit) {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 30_000; readTimeout = 30_000; instanceFollowRedirects = true
+        }
+        try {
+            when (val code = conn.responseCode) {
+                in 200..299 -> {}
+                404 -> throw ModelNotFound("HTTP 404")
+                else -> throw java.io.IOException("server returned HTTP $code")
             }
             conn.inputStream.use { input ->
                 val total = conn.contentLengthLong.takeIf { it > 0 }
@@ -250,9 +298,6 @@ class ModelManager(context: Context) {
                     val buf = ByteArray(1 shl 16)
                     var read = 0L
                     while (true) {
-                        // Cooperate with cancellation so Stop can abort a multi-GB download promptly —
-                        // a blocking read() never checks on its own, so the loop must. The .use blocks
-                        // close the connection + .part file on the thrown CancellationException.
                         coroutineContext.ensureActive()
                         val n = input.read(buf)
                         if (n < 0) break
@@ -262,14 +307,35 @@ class ModelManager(context: Context) {
                     }
                 }
             }
-            if (sha256 != null) {
-                val actual = sha256Of(tmp)
-                if (!actual.equals(sha256, ignoreCase = true)) {
-                    tmp.delete()
-                    error("Checksum mismatch for ${dest.name}: expected $sha256, got $actual")
-                }
-            }
-            check(tmp.renameTo(dest)) { "Could not move ${tmp.name} into place" }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private class ModelNotFound(msg: String) : java.io.IOException(msg)
+    private class ChecksumMismatch(msg: String) : java.io.IOException(msg)
+
+    /** True if [e] (or a cause) is an out-of-disk-space failure — retrying the download can't help. */
+    private fun isOutOfSpace(e: Throwable): Boolean {
+        var t: Throwable? = e
+        while (t != null) {
+            val m = t.message ?: ""
+            if (m.contains("ENOSPC", ignoreCase = true) || m.contains("No space", ignoreCase = true)) return true
+            t = t.cause
+        }
+        return false
+    }
+
+    /** A clear, actionable message for the failure surfaced to the user (TranscriptEvent.Failed). */
+    private fun downloadErrorMessage(e: Throwable, name: String, attempts: Int): String {
+        val tries = if (attempts > 1) " after $attempts attempts" else ""
+        return when {
+            e is ChecksumMismatch -> "$name download was corrupted (checksum mismatch)$tries. Please try again."
+            e is ModelNotFound -> "$name isn't available on the server (404) — try updating the app."
+            isOutOfSpace(e) -> "Not enough storage to download $name. Free up space and try again."
+            e is UnknownHostException -> "No internet connection while downloading $name. Reconnect and try again."
+            e is SocketTimeoutException -> "Download of $name timed out$tries. Check your connection and try again."
+            else -> "Couldn't download $name$tries: ${e.message ?: e.javaClass.simpleName}."
         }
     }
 
@@ -308,6 +374,11 @@ class ModelManager(context: Context) {
         // detect-names path constructs its own ModelManager), so concurrent first-run downloads of the
         // same file can't interleave-corrupt the shared ".part" temp. See download().
         private val downloadLocks = ConcurrentHashMap<String, Mutex>()
+
+        // Retry transient download failures (flaky network, a 5xx, a body that fails the checksum)
+        // with linear backoff before giving up; permanent errors (404 / out-of-disk) abort at once.
+        private const val MAX_DOWNLOAD_ATTEMPTS = 3
+        private const val RETRY_BACKOFF_MS = 1500L
 
         /** True if [f] looks like a complete GGUF: starts with the "GGUF" magic and is at least 90% of
          *  [expectedBytes] — catches truncated/corrupt downloads without pinning an exact (upstream-
