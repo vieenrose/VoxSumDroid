@@ -34,11 +34,12 @@ class SummarizerQualityTest {
         val transcript = File(txt).readText()
         assertTrue("push the gguf first → $gguf", File(gguf).exists())
 
+        val spec = studio.voxsum.core.models.LlmRegistry.byId(args.getString("model") ?: "qwen3.5-0.8b")
         val cc = OpenCcConverter.get(ctx, ChineseScript.TRADITIONAL)   // app converts output to zh-TW
-        val llm = LlmEngine.load(gguf, nThreads = 4, nCtx = 4096, sampler = studio.voxsum.core.models.SamplerProfile.QWEN35)
+        val llm = LlmEngine.load(gguf, nThreads = 4, nCtx = 4096, sampler = spec.sampler)
         val summary = StringBuilder(); val title = StringBuilder(); var mapChunks = 0
         val t0 = System.nanoTime()
-        Summarizer(llm, template = ChatTemplate.QWEN3, targetLanguage = "Traditional Chinese (繁體中文)",
+        Summarizer(llm, template = spec.chatTemplate, targetLanguage = "Traditional Chinese (繁體中文)",
                    convert = { cc.convert(it) })
             .summarize(transcript, "Summarize the key points of this transcript.")
             .collect { e ->

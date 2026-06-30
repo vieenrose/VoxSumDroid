@@ -22,7 +22,11 @@ class ActionItemExtractor(
     /** Blocking (runs native generate); call on a background dispatcher. [onProgress] reports the
      *  per-chunk map progress (0..1) for the UI bar. */
     fun extract(transcript: String, onProgress: (Float) -> Unit = {}): String {
-        val langClause = if (targetLanguage != null) " Write them in $targetLanguage."
+        // Strengthened like Summarizer's clause: the weak " Write them in X." was ignored cross-lingually
+        // (validation: action-items scored 17/35 vs summarize's 24/35 purely from this clause).
+        val langClause = if (targetLanguage != null)
+            " Write the ENTIRE output in $targetLanguage. The transcript may be in another language —" +
+                " translate as you extract. Do not use any language other than $targetLanguage."
             else " Write them in the same language as the transcript."
         // Same CJK-safe char budget as Summarizer (~0.6 chars/token), reserving MAX_TOKENS for output.
         val budget = ((llm.nCtx - MAX_TOKENS - 96) * 3 / 5).coerceIn(512, 3500)
