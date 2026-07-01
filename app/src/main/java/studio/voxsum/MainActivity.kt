@@ -277,10 +277,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startRecording() {
+    private fun startRecording(gen: Int) {
         ContextCompat.startForegroundService(
             this,
-            Intent(this, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_RECORD),
+            Intent(this, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_RECORD)
+                .putExtra(TranscriptionService.EXTRA_RUN_GEN, gen),
         )
     }
 
@@ -290,7 +291,7 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun startTranscription(uri: Uri) {
+    private fun startTranscription(uri: Uri, gen: Int) {
         // content:// (SAF) needs a persistable grant; file:// from our own filesDir/audio
         // (podcast downloads) is already owned by the app.
         if (uri.scheme == "content") {
@@ -300,6 +301,7 @@ class MainActivity : ComponentActivity() {
         }
         val intent = Intent(this, TranscriptionService::class.java)
             .putExtra(TranscriptionService.EXTRA_AUDIO_URI, uri.toString())
+            .putExtra(TranscriptionService.EXTRA_RUN_GEN, gen)
         ContextCompat.startForegroundService(this, intent)
     }
 
@@ -347,9 +349,9 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun TranscribeScreen(
-    onPicked: (Uri) -> Unit,
+    onPicked: (Uri, Int) -> Unit,
     onStop: () -> Unit,
-    onRecord: () -> Unit,
+    onRecord: (Int) -> Unit,
     onStopRecording: () -> Unit,
 ) {
     val pal = LocalVoxSumPalette.current
@@ -567,7 +569,7 @@ private fun TranscribeScreen(
         showAddSourceSheet = false; showYouTubeSheet = false
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh session → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
-        running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri)
+        running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri, sessionGen)
     }
 
     val picker = rememberLauncherForActivityResult(
@@ -620,7 +622,7 @@ private fun TranscribeScreen(
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh recording → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         audioUri = null; running = true; transcriptReady = false; isRecording = true; progress = 0f
-        status = context.getString(R.string.status_recording); onRecord()
+        status = context.getString(R.string.status_recording); onRecord(sessionGen)
     }
     val recordPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -801,7 +803,10 @@ private fun TranscribeScreen(
     }
 
     LaunchedEffect(Unit) {
-        TranscriptionService.eventStream.collect { e ->
+        TranscriptionService.eventStream.collect { (gen, e) ->
+            // Drop a superseded run's still-buffered events: a tagged event whose generation isn't the
+            // current session's must not mutate it (untagged events — e.g. export — always apply).
+            if (gen != TranscriptionService.UNTAGGED && gen != sessionGen) return@collect
             when (e) {
                 is TranscriptEvent.Status -> status = e.message
                 is TranscriptEvent.Utterance -> utterances.add(e)
@@ -987,6 +992,7 @@ private fun TranscribeScreen(
             .setAction(TranscriptionService.ACTION_SUMMARIZE)
             .putExtra(TranscriptionService.EXTRA_TRANSCRIPT, utterances.joinToString("\n") { it.text })
             .putExtra(TranscriptionService.EXTRA_WITH_TITLE, regenerateTitle)
+            .putExtra(TranscriptionService.EXTRA_RUN_GEN, sessionGen)
         ContextCompat.startForegroundService(context, intent)
     }
 
@@ -1000,6 +1006,7 @@ private fun TranscribeScreen(
         val intent = Intent(context, TranscriptionService::class.java)
             .setAction(TranscriptionService.ACTION_RETITLE)
             .putExtra(TranscriptionService.EXTRA_SUMMARY, summary)
+            .putExtra(TranscriptionService.EXTRA_RUN_GEN, sessionGen)
         ContextCompat.startForegroundService(context, intent)
     }
 
@@ -1011,6 +1018,7 @@ private fun TranscribeScreen(
         val intent = Intent(context, TranscriptionService::class.java)
             .setAction(TranscriptionService.ACTION_EXTRACT_ACTIONS)
             .putExtra(TranscriptionService.EXTRA_TRANSCRIPT, utterances.joinToString("\n") { it.text })
+            .putExtra(TranscriptionService.EXTRA_RUN_GEN, sessionGen)
         ContextCompat.startForegroundService(context, intent)
     }
 

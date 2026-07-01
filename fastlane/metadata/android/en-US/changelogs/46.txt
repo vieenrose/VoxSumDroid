@@ -1,0 +1,1 @@
+• Hardened against a rare race: if a new recording/transcription starts while another is still finishing (e.g. sharing a file mid-run), the old run's leftover events can no longer bleed into the new session — every pipeline event is now tagged with the run it belongs to.
