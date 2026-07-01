@@ -57,10 +57,15 @@ class ModelManager(context: Context) {
     // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
     private data class AsrModelSpec(
         val dir: String,
-        val url: String,
-        val sha256: String,
+        val url: String,                              // GitHub release .tar.bz2 (fallback source)
+        val sha256: String,                           // checksum of the GitHub archive
         val sentinels: List<String>,                  // "already provisioned" check (relative to dir)
         val buildFiles: (File) -> AsrModelFiles,
+        // HuggingFace mirror (PRIMARY source — its CDN is far more reliable than GitHub's release
+        // CDN in many regions, e.g. TW/CN). [hfBase] is a `/resolve/main` base; [hfFiles] are the
+        // repo-relative paths fetched individually into the model dir. When null, only GitHub is used.
+        val hfBase: String? = null,
+        val hfFiles: List<String>? = null,
     )
 
     private val asrSpecs: Map<AsrBackend, AsrModelSpec> = mapOf(
@@ -68,6 +73,8 @@ class ModelManager(context: Context) {
             dir = SENSE_VOICE_DIR, url = SENSE_VOICE_URL, sha256 = SENSE_VOICE_SHA,
             sentinels = listOf("model.int8.onnx", "tokens.txt"),
             buildFiles = { d -> AsrModelFiles(model = File(d, "model.int8.onnx").path, tokens = File(d, "tokens.txt").path) },
+            hfBase = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main",
+            hfFiles = listOf("model.int8.onnx", "tokens.txt"),
         ),
         // The "punct" variant (matches the web app's xasr_models): mixed-case English +
         // punctuation baked into the BPE vocab. The older zh-en-2023-11-22 zipformer emitted
@@ -86,6 +93,9 @@ class ModelManager(context: Context) {
                     tokens = File(d, "tokens.txt").path,
                 )
             },
+            hfBase = "https://huggingface.co/csukuangfj2/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03/resolve/main",
+            hfFiles = listOf("encoder-epoch-99-avg-1.int8.onnx", "decoder-epoch-99-avg-1.onnx",
+                "joiner-epoch-99-avg-1.int8.onnx", "tokens.txt"),
         ),
         AsrBackend.QWEN3 to AsrModelSpec(
             dir = "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
@@ -101,6 +111,9 @@ class ModelManager(context: Context) {
                     tokenizerDir = File(d, "tokenizer").path,
                 )
             },
+            hfBase = "https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/main",
+            hfFiles = listOf("conv_frontend.onnx", "encoder.int8.onnx", "decoder.int8.onnx",
+                "tokenizer/merges.txt", "tokenizer/tokenizer_config.json", "tokenizer/vocab.json"),
         ),
     )
 
@@ -127,14 +140,11 @@ class ModelManager(context: Context) {
     /** Download + extract the model for [backend] if missing (VAD shared across backends). */
     suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
         withContext(Dispatchers.IO) {
-            if (!vadModel.exists()) download(VAD_URL, vadModel, VAD_SHA) { onProgress(it * 0.1f) }
+            ensureVad { onProgress(it * 0.1f) }
             val spec = asrSpecs.getValue(backend)
             val d = specDir(spec)
             if (!spec.sentinels.all { File(d, it).exists() }) {
-                val archive = File(modelsDir, "${spec.dir}.tar.bz2")
-                download(spec.url, archive, spec.sha256) { onProgress(0.1f + it * 0.9f) }
-                extractTarBz2(archive, modelsDir)
-                archive.delete()
+                provisionAsr(spec, d) { onProgress(0.1f + it * 0.9f) }
                 onProgress(1f)
             }
             check(asrReady(backend)) { "ASR model files missing after provisioning ($backend)" }
@@ -145,6 +155,46 @@ class ModelManager(context: Context) {
                 LEGACY_ASR_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
             }
         }
+
+    /** Fetch the shared VAD model. HuggingFace first (reliable CDN), GitHub release as fallback. */
+    private suspend fun ensureVad(onProgress: (Float) -> Unit) {
+        if (vadModel.exists()) { onProgress(1f); return }
+        try {
+            download(VAD_HF_URL, vadModel, VAD_HF_SHA, onProgress)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            vadModel.delete()
+            download(VAD_URL, vadModel, VAD_SHA, onProgress)
+        }
+    }
+
+    /**
+     * Provision an ASR model into [d]. Tries the HuggingFace mirror first — fetching each file
+     * individually, which sidesteps GitHub's often-throttled release CDN and needs no extraction —
+     * and falls back to the GitHub .tar.bz2 (checksum-pinned) if the mirror is unreachable.
+     */
+    private suspend fun provisionAsr(spec: AsrModelSpec, d: File, onProgress: (Float) -> Unit) {
+        val hfBase = spec.hfBase
+        val hfFiles = spec.hfFiles
+        if (hfBase != null && hfFiles != null) {
+            try {
+                d.mkdirs()
+                hfFiles.forEachIndexed { i, rel ->
+                    val dest = File(d, rel).apply { parentFile?.mkdirs() }
+                    download("$hfBase/$rel", dest, null) { frac -> onProgress((i + frac) / hfFiles.size) }
+                }
+                return
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                // Mirror failed mid-way — clear partial files so the GitHub fallback starts clean.
+                d.deleteRecursively()
+            }
+        }
+        val archive = File(modelsDir, "${spec.dir}.tar.bz2")
+        download(spec.url, archive, spec.sha256, onProgress)
+        extractTarBz2(archive, modelsDir)
+        archive.delete()
+    }
 
     // --- LLM: selectable per LlmSpec; each model coexists on disk under its own filename. ---
     fun llmFile(spec: LlmSpec): File = File(modelsDir, spec.fileName)
@@ -187,23 +237,12 @@ class ModelManager(context: Context) {
     }
 
     /**
-     * Ensure the ASR models are present, downloading what's missing. [onProgress] receives a
-     * coarse 0..1 fraction. Safe to call when already present (no-op). Throws on network /
-     * checksum / extraction failure so the service can surface it.
+     * Ensure the default (SenseVoice) ASR models are present, downloading what's missing.
+     * [onProgress] receives a coarse 0..1 fraction. Safe to call when already present (no-op).
+     * Delegates to the backend-aware path so it shares the HuggingFace-first provisioning.
      */
-    suspend fun ensureAsrModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        if (!vadModel.exists()) {
-            download(VAD_URL, vadModel, VAD_SHA) { onProgress(it * 0.2f) }
-        }
-        if (!senseVoiceModel.exists() || !tokens.exists()) {
-            val archive = File(modelsDir, "$SENSE_VOICE_DIR.tar.bz2")
-            download(SENSE_VOICE_URL, archive, SENSE_VOICE_SHA) { onProgress(0.2f + it * 0.7f) }
-            extractTarBz2(archive, modelsDir)
-            archive.delete()
-            onProgress(1f)
-        }
-        check(asrReady()) { "Model files missing after provisioning" }
-    }
+    suspend fun ensureAsrModels(onProgress: (Float) -> Unit) =
+        ensureAsrModels(AsrBackend.SENSEVOICE, onProgress)
 
     /** Ensure the GGUF for [spec] is present AND valid (downloads on first use; a corrupt file is
      *  deleted and re-downloaded once before giving up with a clear message). */
@@ -418,6 +457,11 @@ class ModelManager(context: Context) {
                 "$SENSE_VOICE_DIR.tar.bz2"
         private const val VAD_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
+        // HuggingFace mirror of the VAD (primary) — csukuangfj's own VAD repo (sherpa-onnx author).
+        // A distinct but equivalent silero export, so it carries its own checksum pin.
+        private const val VAD_HF_URL =
+            "https://huggingface.co/csukuangfj/vad/resolve/main/silero_vad.onnx"
+        private const val VAD_HF_SHA = "a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28"
 
         // CAM++ zh+en fp16 (custom conversion, benchmarked best on-device) hosted on HF.
         private const val EMB_URL =
