@@ -218,9 +218,23 @@ class ModelManager(context: Context) {
      *  inference keeps its open handle and finishes fine; the space frees once it's released. */
     fun storedModels(): List<StoredModel> =
         (modelsDir.listFiles()?.toList() ?: emptyList())
+            .filterNot { it.isFile && it.name.endsWith(PART_SUFFIX) }   // hide in-flight/stale temp files
             .map { f -> StoredModel(f.name, kindOf(f.name), dirSize(f), f) }
             .filter { it.bytes > 0L }
             .sortedByDescending { it.bytes }
+
+    /**
+     * Delete leftover "<name>.part" temp files from downloads that were interrupted (the app was
+     * killed mid-fetch, so [download]'s own cleanup never ran). Safe to call at startup — no download
+     * is in flight yet, so every ".part" is stale — and it reclaims space a partial download stranded.
+     */
+    fun sweepStalePartFiles() {
+        runCatching {
+            modelsDir.walkTopDown()
+                .filter { it.isFile && it.name.endsWith(PART_SUFFIX) }
+                .forEach { it.delete() }
+        }
+    }
 
     private fun dirSize(f: File): Long =
         if (f.isDirectory) (f.listFiles()?.sumOf { dirSize(it) } ?: 0L) else f.length()
@@ -298,7 +312,7 @@ class ModelManager(context: Context) {
         val mutex = downloadLocks.computeIfAbsent(dest.absolutePath) { Mutex() }
         mutex.withLock {
             if (dest.exists()) return@withLock
-            val tmp = File(dest.parentFile, "${dest.name}.part")
+            val tmp = File(dest.parentFile, "${dest.name}$PART_SUFFIX")
             // Retry transient failures (flaky mobile network, a 5xx, a body that fails the checksum)
             // with linear backoff. Every failed attempt deletes the .part so a partial/corrupt file
             // never lingers (wasting space or getting half-trusted). Abort immediately on user-cancel
@@ -444,6 +458,9 @@ class ModelManager(context: Context) {
         }
 
         // Mirrors models/manifest.json. All FOSS-licensed. LLM specs live in LlmRegistry.
+        /** Suffix of the temp file a download streams into before it's verified and renamed into place. */
+        private const val PART_SUFFIX = ".part"
+
         private const val REL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
         const val SENSE_VOICE_DIR = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
 

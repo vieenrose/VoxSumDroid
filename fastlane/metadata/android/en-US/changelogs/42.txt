@@ -1,0 +1,1 @@
+• Interrupted downloads no longer leave junk behind: leftover partial ".part" files are hidden from Storage and swept automatically on the next launch, reclaiming their space.

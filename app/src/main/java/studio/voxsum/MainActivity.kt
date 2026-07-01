@@ -256,6 +256,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         maybeRequestNotifications()
+        // Reclaim space from any download the app was killed mid-way through (stale "*.part" temp
+        // files). Safe here: nothing is downloading yet at launch. Off the main thread — it's file IO.
+        Thread { ModelManager(applicationContext).sweepStalePartFiles() }.start()
         handleIncoming(intent)
         setContent {
             var themeMode by remember { mutableStateOf(ThemeStore.load(this)) }
