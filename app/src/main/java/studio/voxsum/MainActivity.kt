@@ -380,10 +380,17 @@ private fun TranscribeScreen(
     var transcriptDirty by remember { mutableStateOf(false) }
     // [titleEdited]: the user renamed the title → don't regenerate it on re-summarize (script convert only).
     var titleEdited by remember { mutableStateOf(false) }
+    // [pendingReextract]: action items are also a transcript child, but the single resident LLM can't run
+    // summary + extraction at once, so a re-summarize that also needs fresh actions sets this and the
+    // SummaryComplete handler chains extractActions() once the LLM is free.
+    var pendingReextract by remember { mutableStateOf(false) }
     // Guards for the async OpenCC conversion: [sessionGen] bumps on every new session (a stale convert
     // that finishes late must not clobber the new one); [scriptSeq] bumps per convert (only the latest applies).
     var sessionGen by remember { mutableIntStateOf(0) }
     var scriptSeq by remember { mutableIntStateOf(0) }
+    // Bumped by every hand-edit; snapshotted by applyChineseScript so an edit made during its off-main
+    // OpenCC window isn't overwritten by the converted pre-edit snapshot.
+    var editSeq by remember { mutableIntStateOf(0) }
     var showPodcastSheet by remember { mutableStateOf(false) }
     var showAddSourceSheet by remember { mutableStateOf(false) }
     var showYouTubeSheet by remember { mutableStateOf(false) }
@@ -414,6 +421,9 @@ private fun TranscribeScreen(
     // title edits; null until the audio is fingerprinted. Shown in the header.
     var coverBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var audioSig by remember { mutableStateOf<ByteArray?>(null) }
+    // True when coverBitmap is the cover EMBEDDED in an opened session — don't re-fingerprint the
+    // (lossy-transcoded) audio, which would render a different identicon on every reopen.
+    var coverFromSession by remember { mutableStateOf(false) }
     // True while a session .ogg is being built/written (in the foreground service, so it finishes
     // even if the app is closed). The overlay just shows progress. lastSaveUri labels the result.
     var exporting by remember { mutableStateOf(false) }
@@ -505,6 +515,9 @@ private fun TranscribeScreen(
         val uri = audioUri ?: return
         val started = runCatching { seekMs?.let { p.seekTo(it.coerceIn(0, durationMs)) }; p.start() }.isSuccess
         if (started) { isPlaying = true; buffering = false; return }
+        // Stop the poll loop from calling start() on this player while the IO re-prepare resets it (the
+        // MediaPlayer is not thread-safe) — mirror onError, which also clears isPlaying first.
+        isPlaying = false
         // The fast start() failed — the player errored, or isn't prepared yet (initial prepare still
         // running, or the pipeline was decoding the same audio). Re-prepare OFF the main thread
         // (serialized via preparePlayer), resuming at the requested point or current position — never
@@ -552,8 +565,8 @@ private fun TranscribeScreen(
         coverEnabled = true
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
-        lastSaveUri = null; coverBitmap = null   // fresh session → reset Save target + identicon
-        summaryStale = false; transcriptDirty = false; titleEdited = false; sessionGen++
+        lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh session → reset Save target + identicon
+        summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri)
     }
 
@@ -604,8 +617,8 @@ private fun TranscribeScreen(
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         TranscriptionConfig.Holder.config = config
-        lastSaveUri = null; coverBitmap = null   // fresh recording → reset Save target + identicon
-        summaryStale = false; transcriptDirty = false; titleEdited = false; sessionGen++
+        lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh recording → reset Save target + identicon
+        summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         audioUri = null; running = true; transcriptReady = false; isRecording = true; progress = 0f
         status = context.getString(R.string.status_recording); onRecord()
     }
@@ -625,7 +638,9 @@ private fun TranscribeScreen(
         // Recording → finish gracefully (continues into diarization/summary, stays running). Otherwise
         // the user is CANCELLING a transcription/summary: the service stops but emits no terminal event,
         // so clear `running` here or the UI is stuck on the Stop button with no way back to Add audio.
-        if (isRecording) { isRecording = false; onStopRecording() }
+        // Recording stops → the mic closes and processing begins, but no Status event flows until the
+        // summarize phase; set one now so the bar+text don't sit at "Recording…" over a 0% bar.
+        if (isRecording) { isRecording = false; status = context.getString(R.string.status_processing); onStopRecording() }
         else { onStop(); running = false; status = context.getString(R.string.status_stopped) }
     }
 
@@ -681,9 +696,19 @@ private fun TranscribeScreen(
             speakerNames.clear(); loaded.speakerNames.forEach { (k, v) -> speakerNames[k] = v }
             editingIndex = -1; editingSpeakerId = null
             // Fresh session → clear the dependency-tree flags so they don't leak from the previous one.
-            summaryStale = false; transcriptDirty = false; titleEdited = false; sessionGen++
+            summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
             title = loaded.title; summary = loaded.summary; actionItems = loaded.actionItems
-            // The cover re-embeds deterministically (from audio + title) on the next save.
+            // A saved title is intentional (the user finalized it) → treat it as a sticky edit so
+            // re-summarize won't silently overwrite it (they can still ↻ Re-title for a fresh one).
+            titleEdited = !loaded.title.isNullOrBlank()
+            // Attribute the summary/title to the model that ACTUALLY produced them, not the current default.
+            config = config.copy(
+                llmModelId = loaded.llmModelId ?: config.llmModelId,
+                asrModelId = loaded.asrModelId ?: config.asrModelId,
+            )
+            // Restore the EMBEDDED cover verbatim (re-fingerprinting the lossy audio would change it).
+            coverBitmap = loaded.coverJpeg?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+            coverFromSession = coverBitmap != null
             coverEnabled = true
             isPlaying = false; running = false; transcriptReady = true; progress = 0f
             audioUri = Uri.fromFile(loaded.audio)
@@ -702,13 +727,14 @@ private fun TranscribeScreen(
     // cover from (fingerprint + title). Keyed on title too, so editing the title regenerates the cover —
     // its pattern AND the title text drawn on it both derive from the title. Reset is automatic: a new
     // session clears transcriptReady, which nulls the fingerprint and the cover.
-    LaunchedEffect(audioUri, transcriptReady) {
+    LaunchedEffect(audioUri, transcriptReady, coverFromSession) {
         val u = audioUri
-        audioSig = if (u != null && transcriptReady) VoxsumSession.audioFingerprint(context, u) else null
+        // Opened sessions keep their embedded cover; only fresh runs fingerprint the audio.
+        audioSig = if (!coverFromSession && u != null && transcriptReady) VoxsumSession.audioFingerprint(context, u) else null
     }
-    LaunchedEffect(title, audioSig) {
+    LaunchedEffect(title, audioSig, coverFromSession) {
         val sig = audioSig
-        coverBitmap = if (sig != null) withContext(Dispatchers.IO) { CoverGenerator.render(title, sig) } else null
+        if (!coverFromSession) coverBitmap = if (sig != null) withContext(Dispatchers.IO) { CoverGenerator.render(title, sig) } else null
     }
     fun shareSession(format: VoxsumSession.Format) {
         // The build (incl. its single audio decode) runs in the service; no slow work here.
@@ -789,9 +815,11 @@ private fun TranscribeScreen(
                 is TranscriptEvent.Complete -> {
                     // Preserve any in-flight text edits (merge by index); speaker-name map is
                     // separate and untouched by the rebuild.
-                    val edited = utterances.associate { it.index to it.text }
+                    // Preserve in-flight text edits keyed by START TIME, not index: diarization can split
+                    // and re-index utterances 0..n-1, so an index map would reapply edits to shifted lines.
+                    val edited = utterances.associate { it.startSec to it.text }
                     val merged = e.utterances.map { inc ->
-                        edited[inc.index]?.let { inc.copy(text = it) } ?: inc
+                        edited[inc.startSec]?.let { inc.copy(text = it) } ?: inc
                     }
                     utterances.clear(); utterances.addAll(merged)
                     editingIndex = -1; editingSpeakerId = null
@@ -886,8 +914,12 @@ private fun TranscribeScreen(
     }
 
     // LLM-based speaker-name detection (loads the LLM off the main thread; preserves user edits).
+    // Gated on `running` like the sibling re-run actions (it loads its OWN LLM in-process, so it must
+    // not overlap a service run), and guarded by [sessionGen] so a slow detection that finishes after
+    // the user opened/started another session doesn't write stale names into it.
     fun detectNames() {
-        if (isDetecting) return
+        if (running || isDetecting) return
+        val gen = sessionGen
         val snapshot = utterances.toList()
         scope.launch {
             isDetecting = true
@@ -904,9 +936,14 @@ private fun TranscribeScreen(
                     val cc = TargetLanguage.scriptFor(config.targetLanguage, context)?.let { OpenCcConverter.get(context, it) }
                     if (cc != null) raw.mapValues { (_, n) -> n.copy(name = cc.convert(n.name)) } else raw
                 }
-            }.getOrElse { status = context.getString(R.string.status_name_detection_failed, it.message); emptyMap() }
-            result.forEach { (id, n) -> if (speakerNames[id]?.confidence != "user") speakerNames[id] = n }
-            if (result.isNotEmpty()) status = context.getString(R.string.status_detected_names, result.size)
+            }
+            if (gen != sessionGen) { isDetecting = false; return@launch }   // session changed → drop stale result
+            result
+                .onSuccess { names ->
+                    names.forEach { (id, n) -> if (speakerNames[id]?.confidence != "user") speakerNames[id] = n }
+                    if (names.isNotEmpty()) status = context.getString(R.string.status_detected_names, names.size)
+                }
+                .onFailure { status = context.getString(R.string.status_name_detection_failed, it.message) }
             isDetecting = false
         }
     }
@@ -917,6 +954,7 @@ private fun TranscribeScreen(
     fun applyChineseScript(newScript: ChineseScript) {
         val gen = sessionGen
         val seq = ++scriptSeq
+        val edit0 = editSeq
         // Snapshot the inputs NOW (a consistent view), convert off-main, then apply on-main only if
         // still current — no newer conversion superseded this and the session didn't change meanwhile.
         val utts0 = utterances.toList()
@@ -929,7 +967,7 @@ private fun TranscribeScreen(
             val newSummary = summary0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
             val newActions = actions0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
             val newNames = withContext(Dispatchers.Default) { names0.mapValues { (_, n) -> n.copy(name = cc.convert(n.name)) } }
-            if (seq != scriptSeq || gen != sessionGen) return@launch   // superseded / session changed → drop
+            if (seq != scriptSeq || gen != sessionGen || edit0 != editSeq) return@launch   // superseded / session changed / edited → drop
             for (i in newUtts.indices) if (i < utterances.size) utterances[i] = newUtts[i]
             title = newTitle; summary = newSummary; actionItems = newActions
             newNames.forEach { (id, n) -> speakerNames[id] = n }
@@ -957,7 +995,7 @@ private fun TranscribeScreen(
     fun reTitle() {
         if (running || summary.isNullOrBlank()) return
         TranscriptionConfig.Holder.config = config
-        title = null   // keep the summary — re-title regenerates only the title
+        title = null; titleEdited = false   // regenerated title is machine-made, not a sticky user edit
         running = true; progress = 0f; status = context.getString(R.string.status_starting)
         val intent = Intent(context, TranscriptionService::class.java)
             .setAction(TranscriptionService.ACTION_RETITLE)
@@ -974,6 +1012,17 @@ private fun TranscribeScreen(
             .setAction(TranscriptionService.ACTION_EXTRACT_ACTIONS)
             .putExtra(TranscriptionService.EXTRA_TRANSCRIPT, utterances.joinToString("\n") { it.text })
         ContextCompat.startForegroundService(context, intent)
+    }
+
+    // Regenerate the LLM children invalidated by a transcript edit or a summary-input change: re-summarize
+    // (+ title) when a summary exists, and — since the single resident LLM can't run both at once — chain
+    // a re-extract of the action items afterward (via pendingReextract, consumed on SummaryComplete). When
+    // there's no summary, re-extract directly.
+    fun regenerateStaleChildren() {
+        if (running) return
+        if (actionItems != null) pendingReextract = true
+        if (!summary.isNullOrBlank()) reSummarize()
+        else if (pendingReextract) { pendingReextract = false; extractActions() }
     }
 
     // Speaker corrections — pure relabels via SpeakerEdits (renumbered to contiguous ids); the .ogg
@@ -1048,9 +1097,9 @@ private fun TranscribeScreen(
                 onBeginEdit = { editingIndex = idx; editingSpeakerId = null },
                 onSaveText = { newText ->
                     if (newText.isNotEmpty()) {
-                        utterances[idx] = u.copy(text = newText); editingIndex = -1
-                        // Transcript changed → its summary child is now stale (offer to re-summarize).
-                        if (!summary.isNullOrBlank()) transcriptDirty = true
+                        utterances[idx] = u.copy(text = newText); editingIndex = -1; editSeq++
+                        // Transcript changed → its summary AND action-items children are now stale.
+                        if (!summary.isNullOrBlank() || actionItems != null) transcriptDirty = true
                     }
                 },
                 onCancelEdit = { editingIndex = -1 },
@@ -1075,13 +1124,13 @@ private fun TranscribeScreen(
             title?.let { t ->
                 TitleCard(t, llmDisplay, editingTitle,
                     onBeginEdit = { editingTitle = true },
-                    onSave = { title = it; editingTitle = false; titleEdited = true },
+                    onSave = { title = it; editingTitle = false; titleEdited = true; editSeq++ },
                     onCancel = { editingTitle = false })
             }
             summary?.let { s ->
                 SummaryCard(s, llmDisplay, editingSummary,
                     onBeginEdit = { editingSummary = true },
-                    onSave = { summary = it; editingSummary = false },
+                    onSave = { summary = it; editingSummary = false; editSeq++ },
                     onCancel = { editingSummary = false },
                     onCopy = {
                         val cm = context.getSystemService(android.content.ClipboardManager::class.java)
@@ -1092,7 +1141,7 @@ private fun TranscribeScreen(
             actionItems?.let { ai ->
                 ActionItemsCard(ai, editingActions,
                     onBeginEdit = { editingActions = true },
-                    onSave = { actionItems = it; editingActions = false },
+                    onSave = { actionItems = it; editingActions = false; editSeq++ },
                     onCancel = { editingActions = false },
                     onCopy = {
                         val cm = context.getSystemService(android.content.ClipboardManager::class.java)
@@ -1124,16 +1173,19 @@ private fun TranscribeScreen(
                 recSeconds = recSeconds,
                 onAddSource = { showAddSourceSheet = true },
                 onStop = { handleStop() },
-                canReTranscribe = transcriptReady && audioUri != null,
+                // All re-run actions are disabled while a run is in flight (each fun also guards `running`);
+                // this also blocks Re-transcribe/Detect-names from starting a second run whose buffered
+                // events would otherwise land on the freshly-reset session.
+                canReTranscribe = transcriptReady && !running && audioUri != null,
                 onReTranscribe = { audioUri?.let { launchAudio(it) } },
-                canReSummarize = transcriptReady,
-                onReSummarize = { reSummarize() },
-                canReTitle = transcriptReady && !summary.isNullOrBlank(),
+                canReSummarize = transcriptReady && !running,
+                onReSummarize = { regenerateStaleChildren() },
+                canReTitle = transcriptReady && !running && !summary.isNullOrBlank(),
                 onReTitle = { reTitle() },
-                canReDetect = transcriptReady && stats.perSpeaker.isNotEmpty(),
+                canReDetect = transcriptReady && !running && stats.perSpeaker.isNotEmpty(),
                 isDetecting = isDetecting,
                 onReDetect = { detectNames() },
-                canExtractActions = transcriptReady,
+                canExtractActions = transcriptReady && !running,
                 onExtractActions = { extractActions() },
                 onSearch = { searchActive = !searchActive; if (!searchActive) searchQuery = "" },
                 onSettings = { showConfigSheet = true },
@@ -1301,8 +1353,13 @@ private fun TranscribeScreen(
                 duration = SnackbarDuration.Long,
             )
             transcriptDirty = false
-            if (res == SnackbarResult.ActionPerformed) reSummarize()
+            if (res == SnackbarResult.ActionPerformed) regenerateStaleChildren()
         }
+    }
+    // Single resident LLM → a re-summarize and a re-extract can't overlap; when a run that owes a
+    // re-extract finishes (running clears, pendingReextract set), chain the action-items regeneration.
+    LaunchedEffect(running, pendingReextract) {
+        if (!running && pendingReextract) { pendingReextract = false; extractActions() }
     }
     // When Settings closes after a change that needs the LLM (and a summary exists), offer a one-tap
     // re-summarize — the setting alone doesn't touch the on-screen summary, so this closes that gap.
@@ -1314,7 +1371,7 @@ private fun TranscribeScreen(
                 actionLabel = context.getString(R.string.re_summarize),
                 duration = SnackbarDuration.Long,
             )
-            if (res == SnackbarResult.ActionPerformed) reSummarize()   // re-titles too, unless user-renamed
+            if (res == SnackbarResult.ActionPerformed) regenerateStaleChildren()   // re-titles + re-extracts too
         }
     }
     if (showConfigSheet) {
@@ -1333,10 +1390,11 @@ private fun TranscribeScreen(
                     val newScript = TargetLanguage.scriptFor(newCfg.targetLanguage, context)
                     if (old.targetLanguage in zh && newCfg.targetLanguage in zh && newScript != null) {
                         if (utterances.isNotEmpty()) applyChineseScript(newScript)
-                    } else if (!summary.isNullOrBlank()) summaryStale = true
+                    } else if (!summary.isNullOrBlank() || actionItems != null) summaryStale = true
                 }
-                // Summary-shaping changes (model / style / prompt) need an LLM re-run of the summary.
-                if (!summary.isNullOrBlank() && (newCfg.summaryStyle != old.summaryStyle ||
+                // Summary-shaping changes (model / style / prompt) need an LLM re-run of the summary
+                // (and, via regenerateStaleChildren, the action items).
+                if ((!summary.isNullOrBlank() || actionItems != null) && (newCfg.summaryStyle != old.summaryStyle ||
                         newCfg.llmModelId != old.llmModelId || newCfg.summaryPrompt != old.summaryPrompt)) {
                     summaryStale = true
                 }

@@ -131,6 +131,7 @@
 
     <!-- Status messages -->
     <string name="status_starting">Starting…</string>
+    <string name="status_processing">Processing…</string>
     <string name="status_recording">Recording…</string>
     <string name="status_done">Done</string>
     <string name="status_no_speech">No speech detected</string>

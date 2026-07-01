@@ -130,6 +130,7 @@
 
     <!-- Status messages -->
     <string name="status_starting">啟動中…</string>
+    <string name="status_processing">處理中…</string>
     <string name="status_recording">錄音中…</string>
     <string name="status_done">完成</string>
     <string name="status_no_speech">未偵測到語音</string>

@@ -534,7 +534,11 @@ class TranscriptionService : LifecycleService() {
 
     /** Re-generate ONLY the title, from the existing summary (no re-decode / re-ASR / re-summary). */
     private suspend fun runTitleOnly(summary: String) {
-        if (summary.isBlank()) { events.emit(TranscriptEvent.Title("")); return }
+        if (summary.isBlank()) {
+            events.emit(TranscriptEvent.Title(""))
+            events.emit(TranscriptEvent.SummaryComplete(summary))   // terminal event → client clears `running`
+            return
+        }
         val cfg = TranscriptionConfig.Holder.config
         val models = ModelManager(this)
         val spec = LlmRegistry.byId(cfg.llmModelId)
@@ -561,6 +565,9 @@ class TranscriptionService : LifecycleService() {
                 activeLlm = null
             }
         }
+        // Title alone has no terminal event; re-send the unchanged summary so the client clears `running`
+        // and reaches the done state (otherwise a successful re-title strands the UI as still-running).
+        events.emit(TranscriptEvent.SummaryComplete(summary))
     }
 
     /** Extract action items + decisions for an existing transcript (no re-decode / re-ASR). Reuses

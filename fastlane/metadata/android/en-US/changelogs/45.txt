@@ -1,0 +1,6 @@
+Consistency fixes from a deep review:
+• Re-title no longer leaves the UI stuck as "running" (Export/Settings greyed out).
+• "Detect names" is now blocked during a run and can't write names into a session you've since switched to.
+• Editing the transcript now offers to refresh the summary AND the action items; switching 繁體/简体 also converts action items and speaker names.
+• A reopened session keeps its embedded cover, its original model attribution, and a title you renamed.
+• Player no longer stutters/ping-pongs during a stall; edits survive speaker-splitting; and more.
