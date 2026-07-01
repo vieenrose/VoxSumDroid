@@ -432,6 +432,10 @@ private fun TranscribeScreen(
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableIntStateOf(0) }
     var durationMs by remember { mutableIntStateOf(0) }
+    // When the playback source is swapped to the decoded WAV at end-of-ASR (same audio, new file), carry
+    // the position + play-state across the player rebuild so the cursor doesn't snap back to 0.
+    var pendingSeekMs by remember { mutableStateOf<Int?>(null) }
+    var resumeAfterSwap by remember { mutableStateOf(false) }
     var volume by remember { mutableFloatStateOf(1f) }
     var muted by remember { mutableStateOf(false) }
     var dragMs by remember { mutableStateOf<Int?>(null) }
@@ -455,7 +459,10 @@ private fun TranscribeScreen(
     DisposableEffect(audioUri) {
         enhancer?.release(); enhancer = null
         player?.release(); player = null
-        durationMs = 0; positionMs = 0; dragMs = null
+        // Consume the carry-over from a source swap (null on a genuinely new session → start at 0).
+        val seekTo = pendingSeekMs; val resume = resumeAfterSwap
+        pendingSeekMs = null; resumeAfterSwap = false
+        durationMs = 0; positionMs = seekTo ?: 0; dragMs = null
         audioUri?.let { uri ->
             val mp = MediaPlayer()
             mp.setVolume(volume, volume)
@@ -476,7 +483,10 @@ private fun TranscribeScreen(
             // prepare() can fail if the pipeline is still decoding the same audio (codec/CPU
             // contention); the player self-heals on the next play tap via [resumeOrRecover], so a
             // failed prepare here just leaves durationMs at 0 (no UI block either way).
-            scope.launch { preparePlayer(mp, uri, null) }
+            scope.launch {
+                // Prepare at the carried-over position; resume playing if it was playing before the swap.
+                if (preparePlayer(mp, uri, seekTo) && resume) runCatching { mp.start() }.onSuccess { isPlaying = true }
+            }
         }
         onDispose { enhancer?.release(); enhancer = null; player?.release(); player = null }
     }
@@ -795,7 +805,17 @@ private fun TranscribeScreen(
                     if (merged.isEmpty()) { running = false; status = context.getString(R.string.status_no_speech) }
                 }
                 is TranscriptEvent.Title -> title = e.title
-                is TranscriptEvent.RecordingSaved -> { audioUri = Uri.parse(e.uri); isRecording = false }
+                is TranscriptEvent.RecordingSaved -> {
+                    val newUri = Uri.parse(e.uri)
+                    // End-of-ASR source swap (original file → decoded WAV of the SAME audio): keep the
+                    // player where it was instead of rebuilding at 0. (For a live recording audioUri was
+                    // null, so this is skipped and the first player correctly starts at 0.)
+                    if (audioUri != null && newUri != audioUri) {
+                        pendingSeekMs = positionMs.takeIf { it > 0 }
+                        resumeAfterSwap = isPlaying
+                    }
+                    audioUri = newUri; isRecording = false
+                }
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false }
                 is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false }
                 is TranscriptEvent.Failed -> {

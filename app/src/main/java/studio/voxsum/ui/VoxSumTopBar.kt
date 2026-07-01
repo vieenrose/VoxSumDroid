@@ -185,8 +185,10 @@ fun VoxSumTopBar(
                         )
                     }
                 }
+                // Export only a COMPLETE session: disabled while a run is in flight (like the settings
+                // controls), so you can't save a half-transcribed, summary-less snapshot by accident.
                 ExportMenu(
-                    transcriptAvailable, onSaveSessionM4a, onShareSessionM4a,
+                    transcriptAvailable && !running, onSaveSessionM4a, onShareSessionM4a,
                     onCopyTranscript, onShareTranscript, onExportTxt, onExportSrt, onExportVtt, onExportLrc, onExportMarkdown, onExportPdf,
                 )
             }
@@ -290,7 +292,7 @@ private fun ReRunMenu(
 
 @Composable
 private fun ExportMenu(
-    transcriptAvailable: Boolean,
+    canExport: Boolean,
     onSaveSessionM4a: () -> Unit,
     onShareSessionM4a: () -> Unit,
     onCopyTranscript: () -> Unit,
@@ -305,11 +307,11 @@ private fun ExportMenu(
     val pal = LocalVoxSumPalette.current
     var open by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { open = true }, enabled = transcriptAvailable) {
+        IconButton(onClick = { open = true }, enabled = canExport) {
             Icon(
                 Icons.Filled.MoreVert,
                 contentDescription = stringResource(R.string.cd_export),
-                tint = if (transcriptAvailable) pal.OnBrand else pal.OnBrandFaint,
+                tint = if (canExport) pal.OnBrand else pal.OnBrandFaint,
             )
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
