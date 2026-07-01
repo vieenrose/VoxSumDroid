@@ -63,6 +63,7 @@ class TranscriptionService : LifecycleService() {
         const val EXTRA_AUDIO_URI = "audio_uri"
         const val EXTRA_TRANSCRIPT = "transcript"
         const val EXTRA_SUMMARY = "summary"
+        const val EXTRA_WITH_TITLE = "with_title"   // ACTION_SUMMARIZE: also regenerate the title
         const val ACTION_STOP = "studio.voxsum.STOP"
         const val ACTION_RECORD = "studio.voxsum.RECORD"
         const val ACTION_SUMMARIZE = "studio.voxsum.SUMMARIZE"
@@ -173,13 +174,14 @@ class TranscriptionService : LifecycleService() {
         val uri = intent?.getStringExtra(EXTRA_AUDIO_URI)
         val transcript = intent?.getStringExtra(EXTRA_TRANSCRIPT)
         val summaryExtra = intent?.getStringExtra(EXTRA_SUMMARY)
+        val summarizeWithTitle = intent?.getBooleanExtra(EXTRA_WITH_TITLE, false) ?: false
         // Run the whole pipeline off the main thread — the MediaCodec decode is a long
         // blocking call that would otherwise ANR the UI (lifecycleScope defaults to Main).
         var job: Job? = null
         job = lifecycleScope.launch(Dispatchers.Default) {
             runCatching {
                 when {
-                    summarizeOnly -> runSummarizeOnly(transcript.orEmpty())
+                    summarizeOnly -> runSummarizeOnly(transcript.orEmpty(), summarizeWithTitle)
                     retitle -> runTitleOnly(summaryExtra.orEmpty())
                     extractActions -> runExtractActions(transcript.orEmpty())
                     recording -> runRecordingPipeline()
@@ -524,10 +526,10 @@ class TranscriptionService : LifecycleService() {
 
     /** Re-summarize an existing transcript with the current settings (no re-decode / re-ASR). Keeps the
      *  existing title — swapping models for a better summary shouldn't churn a title the user likes. */
-    private suspend fun runSummarizeOnly(transcript: String) {
+    private suspend fun runSummarizeOnly(transcript: String, withTitle: Boolean = false) {
         val cfg = TranscriptionConfig.Holder.config
         val models = ModelManager(this)
-        summarize(transcript, cfg, models, outputConverter(cfg), withTitle = false)
+        summarize(transcript, cfg, models, outputConverter(cfg), withTitle = withTitle)
     }
 
     /** Re-generate ONLY the title, from the existing summary (no re-decode / re-ASR / re-summary). */

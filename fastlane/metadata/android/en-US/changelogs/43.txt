@@ -1,0 +1,3 @@
+• Changing the summary language / style / model, or editing the transcript, now offers a one-tap "Re-summarize" so your summary and title no longer silently go stale.
+• Switching between 繁體 and 简体 Chinese instantly converts the existing transcript, summary, title and speaker names (OpenCC) — no slow model re-run.
+• A title you renamed yourself is kept when re-summarizing.

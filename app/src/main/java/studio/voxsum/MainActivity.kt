@@ -145,6 +145,7 @@ import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.TranscriptionConfig
+import studio.voxsum.core.text.ChineseScript
 import studio.voxsum.core.text.OpenCcConverter
 import studio.voxsum.core.cover.CoverGenerator
 import studio.voxsum.core.events.TranscriptEvent
@@ -369,6 +370,20 @@ private fun TranscribeScreen(
         mutableStateOf(ConfigStore.load(context).also { TranscriptionConfig.Holder.config = it })
     }
     var showConfigSheet by remember { mutableStateOf(false) }
+    // Dependency tree (audio → transcript → {summary → title, speaker names, action items}): a change to
+    // a node invalidates its descendants. Cheap script-only changes convert in place (OpenCC); expensive
+    // LLM regenerations are offered via a snackbar; and nodes the user hand-edited are sticky (never
+    // auto-clobbered — only script-converted, which preserves wording).
+    // [summaryStale]: a summary-input (LLM) setting changed → offer re-summarize when Settings closes.
+    var summaryStale by remember { mutableStateOf(false) }
+    // [transcriptDirty]: the transcript was hand-edited → offer to re-summarize (its child).
+    var transcriptDirty by remember { mutableStateOf(false) }
+    // [titleEdited]: the user renamed the title → don't regenerate it on re-summarize (script convert only).
+    var titleEdited by remember { mutableStateOf(false) }
+    // Guards for the async OpenCC conversion: [sessionGen] bumps on every new session (a stale convert
+    // that finishes late must not clobber the new one); [scriptSeq] bumps per convert (only the latest applies).
+    var sessionGen by remember { mutableIntStateOf(0) }
+    var scriptSeq by remember { mutableIntStateOf(0) }
     var showPodcastSheet by remember { mutableStateOf(false) }
     var showAddSourceSheet by remember { mutableStateOf(false) }
     var showYouTubeSheet by remember { mutableStateOf(false) }
@@ -528,6 +543,7 @@ private fun TranscribeScreen(
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         lastSaveUri = null; coverBitmap = null   // fresh session → reset Save target + identicon
+        summaryStale = false; transcriptDirty = false; titleEdited = false; sessionGen++
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri)
     }
 
@@ -579,6 +595,7 @@ private fun TranscribeScreen(
         showAddSourceSheet = false; showYouTubeSheet = false
         TranscriptionConfig.Holder.config = config
         lastSaveUri = null; coverBitmap = null   // fresh recording → reset Save target + identicon
+        summaryStale = false; transcriptDirty = false; titleEdited = false; sessionGen++
         audioUri = null; running = true; transcriptReady = false; isRecording = true; progress = 0f
         status = context.getString(R.string.status_recording); onRecord()
     }
@@ -653,6 +670,8 @@ private fun TranscribeScreen(
             utterances.clear(); utterances.addAll(loaded.utterances)
             speakerNames.clear(); loaded.speakerNames.forEach { (k, v) -> speakerNames[k] = v }
             editingIndex = -1; editingSpeakerId = null
+            // Fresh session → clear the dependency-tree flags so they don't leak from the previous one.
+            summaryStale = false; transcriptDirty = false; titleEdited = false; sessionGen++
             title = loaded.title; summary = loaded.summary; actionItems = loaded.actionItems
             // The cover re-embeds deterministically (from audio + title) on the next save.
             coverEnabled = true
@@ -872,15 +891,44 @@ private fun TranscribeScreen(
         }
     }
 
-    // Re-run only summarization on the current transcript with the current settings (no re-ASR).
-    fun reSummarize() {
+    // Re-render every Chinese text node into [newScript] via OpenCC — the cheap path for a pure
+    // Traditional↔Simplified switch (no LLM). Conversion preserves wording, so it's applied to ALL nodes
+    // including user-edited ones; the converter leaves Latin / kana / hangul untouched.
+    fun applyChineseScript(newScript: ChineseScript) {
+        val gen = sessionGen
+        val seq = ++scriptSeq
+        // Snapshot the inputs NOW (a consistent view), convert off-main, then apply on-main only if
+        // still current — no newer conversion superseded this and the session didn't change meanwhile.
+        val utts0 = utterances.toList()
+        val title0 = title; val summary0 = summary; val actions0 = actionItems
+        val names0 = speakerNames.toMap()
+        scope.launch {
+            val cc = withContext(Dispatchers.IO) { OpenCcConverter.get(context, newScript) }
+            val newUtts = withContext(Dispatchers.Default) { utts0.map { it.copy(text = cc.convert(it.text)) } }
+            val newTitle = title0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
+            val newSummary = summary0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
+            val newActions = actions0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
+            val newNames = withContext(Dispatchers.Default) { names0.mapValues { (_, n) -> n.copy(name = cc.convert(n.name)) } }
+            if (seq != scriptSeq || gen != sessionGen) return@launch   // superseded / session changed → drop
+            for (i in newUtts.indices) if (i < utterances.size) utterances[i] = newUtts[i]
+            title = newTitle; summary = newSummary; actionItems = newActions
+            newNames.forEach { (id, n) -> speakerNames[id] = n }
+        }
+    }
+
+    // Re-run only summarization on the current transcript with the current settings (no re-ASR). The
+    // title is a child of the summary, so it regenerates too — UNLESS the user hand-renamed it (a sticky
+    // edit), in which case only the summary is refreshed.
+    fun reSummarize(regenerateTitle: Boolean = !titleEdited) {
         if (running || utterances.isEmpty()) return
         TranscriptionConfig.Holder.config = config
-        summary = null   // keep the title — re-summarize regenerates only the summary
+        summary = null
+        if (regenerateTitle) { title = null; titleEdited = false }
         running = true; progress = 0f; status = context.getString(R.string.status_starting)   // transcript persists
         val intent = Intent(context, TranscriptionService::class.java)
             .setAction(TranscriptionService.ACTION_SUMMARIZE)
             .putExtra(TranscriptionService.EXTRA_TRANSCRIPT, utterances.joinToString("\n") { it.text })
+            .putExtra(TranscriptionService.EXTRA_WITH_TITLE, regenerateTitle)
         ContextCompat.startForegroundService(context, intent)
     }
 
@@ -979,7 +1027,11 @@ private fun TranscribeScreen(
                 onSeek = { sec -> resumeOrRecover((sec * 1000).toInt()) },
                 onBeginEdit = { editingIndex = idx; editingSpeakerId = null },
                 onSaveText = { newText ->
-                    if (newText.isNotEmpty()) { utterances[idx] = u.copy(text = newText); editingIndex = -1 }
+                    if (newText.isNotEmpty()) {
+                        utterances[idx] = u.copy(text = newText); editingIndex = -1
+                        // Transcript changed → its summary child is now stale (offer to re-summarize).
+                        if (!summary.isNullOrBlank()) transcriptDirty = true
+                    }
                 },
                 onCancelEdit = { editingIndex = -1 },
                 onBeginSpeakerEdit = { sid -> editingSpeakerId = sid; editingIndex = -1 },
@@ -1003,7 +1055,7 @@ private fun TranscribeScreen(
             title?.let { t ->
                 TitleCard(t, llmDisplay, editingTitle,
                     onBeginEdit = { editingTitle = true },
-                    onSave = { title = it; editingTitle = false },
+                    onSave = { title = it; editingTitle = false; titleEdited = true },
                     onCancel = { editingTitle = false })
             }
             summary?.let { s ->
@@ -1219,11 +1271,56 @@ private fun TranscribeScreen(
         }
     }
 
+    // A hand-edited transcript makes its summary child stale → offer a one-tap re-summarize (once per
+    // edit episode; the flag stays set while the snackbar shows so further edits don't stack it).
+    LaunchedEffect(transcriptDirty) {
+        if (transcriptDirty && !summary.isNullOrBlank() && !running) {
+            val res = snackbarHostState.showSnackbar(
+                message = context.getString(R.string.transcript_changed_resummarize),
+                actionLabel = context.getString(R.string.re_summarize),
+                duration = SnackbarDuration.Long,
+            )
+            transcriptDirty = false
+            if (res == SnackbarResult.ActionPerformed) reSummarize()
+        }
+    }
+    // When Settings closes after a change that needs the LLM (and a summary exists), offer a one-tap
+    // re-summarize — the setting alone doesn't touch the on-screen summary, so this closes that gap.
+    LaunchedEffect(showConfigSheet) {
+        if (!showConfigSheet && summaryStale && !summary.isNullOrBlank() && !running) {
+            summaryStale = false
+            val res = snackbarHostState.showSnackbar(
+                message = context.getString(R.string.summary_settings_changed),
+                actionLabel = context.getString(R.string.re_summarize),
+                duration = SnackbarDuration.Long,
+            )
+            if (res == SnackbarResult.ActionPerformed) reSummarize()   // re-titles too, unless user-renamed
+        }
+    }
     if (showConfigSheet) {
         ConfigSheet(
             config = config,
             enabled = !running,
-            onChange = { config = it; ConfigStore.save(context, it) },
+            onChange = { newCfg ->
+                val old = config
+                config = newCfg
+                ConfigStore.save(context, newCfg)
+                // Target-language change: a pure Traditional↔Simplified switch is only a script re-render,
+                // so convert every text node in place (OpenCC, instant, no LLM) — even user-edited ones,
+                // since conversion preserves wording. Any other language change needs the LLM (→ snackbar).
+                if (newCfg.targetLanguage != old.targetLanguage) {
+                    val zh = setOf(TargetLanguage.TRADITIONAL.id, TargetLanguage.SIMPLIFIED.id)
+                    val newScript = TargetLanguage.scriptFor(newCfg.targetLanguage, context)
+                    if (old.targetLanguage in zh && newCfg.targetLanguage in zh && newScript != null) {
+                        if (utterances.isNotEmpty()) applyChineseScript(newScript)
+                    } else if (!summary.isNullOrBlank()) summaryStale = true
+                }
+                // Summary-shaping changes (model / style / prompt) need an LLM re-run of the summary.
+                if (!summary.isNullOrBlank() && (newCfg.summaryStyle != old.summaryStyle ||
+                        newCfg.llmModelId != old.llmModelId || newCfg.summaryPrompt != old.summaryPrompt)) {
+                    summaryStale = true
+                }
+            },
             onDismiss = { showConfigSheet = false },
             // Manual "Check for updates" found a newer release → surface the banner, close settings.
             onUpdateFound = { info -> updateInfo = info; updateDismissed = false; showConfigSheet = false },

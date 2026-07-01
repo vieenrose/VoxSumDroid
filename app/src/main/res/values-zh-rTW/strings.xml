@@ -141,6 +141,8 @@
     <string name="status_name_detection_failed">名稱偵測失敗：%1$s</string>
     <string name="status_error">錯誤：%1$s</string>
     <string name="retry">重試</string>
+    <string name="summary_settings_changed">摘要設定已變更，請點「重新摘要」以套用。</string>
+    <string name="transcript_changed_resummarize">逐字稿已編輯，請點「重新摘要」以更新摘要。</string>
     <string name="svc_asr_model_corrupt">語音模型無法載入，檔案可能不完整，已自動清除；請點「重試」重新下載。</string>
     <string name="mic_permission_required">錄音需要麥克風權限</string>
 
