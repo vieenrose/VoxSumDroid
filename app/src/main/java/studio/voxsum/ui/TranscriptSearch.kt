@@ -27,7 +27,8 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import studio.voxsum.R
-import studio.voxsum.ui.theme.VoxSumPalette
+import androidx.compose.ui.graphics.Color
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /**
  * Find-in-page over the current transcript: a slim bar (shown above the list when search is active)
@@ -46,25 +47,26 @@ fun TranscriptSearchBar(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val pal = LocalVoxSumPalette.current
     Row(
         modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Filled.Search, contentDescription = null, tint = VoxSumPalette.Slate400, modifier = Modifier.size(18.dp))
+        Icon(Icons.Filled.Search, contentDescription = null, tint = pal.Slate400, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
         BasicTextField(
             value = query,
             onValueChange = onQuery,
             singleLine = true,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = VoxSumPalette.Slate200),
-            cursorBrush = SolidColor(VoxSumPalette.Sky),
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = pal.Slate200),
+            cursorBrush = SolidColor(pal.Sky),
             modifier = Modifier.weight(1f),
             decorationBox = { inner ->
                 if (query.isEmpty()) {
                     Text(
                         stringResource(R.string.search_transcript_hint),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = VoxSumPalette.Slate400,
+                        color = pal.Slate400,
                     )
                 }
                 inner()
@@ -75,24 +77,29 @@ fun TranscriptSearchBar(
                 if (matchCount == 0) stringResource(R.string.search_no_matches)
                 else stringResource(R.string.search_match_count, matchPos + 1, matchCount),
                 style = MaterialTheme.typography.labelMedium,
-                color = VoxSumPalette.Slate400,
+                color = pal.Slate400,
             )
             IconButton(onClick = onPrev, enabled = matchCount > 0, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.KeyboardArrowUp, stringResource(R.string.search_prev), tint = VoxSumPalette.Slate200, modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.KeyboardArrowUp, stringResource(R.string.search_prev), tint = pal.Slate200, modifier = Modifier.size(20.dp))
             }
             IconButton(onClick = onNext, enabled = matchCount > 0, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.KeyboardArrowDown, stringResource(R.string.search_next), tint = VoxSumPalette.Slate200, modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.KeyboardArrowDown, stringResource(R.string.search_next), tint = pal.Slate200, modifier = Modifier.size(20.dp))
             }
         }
         IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Filled.Close, stringResource(R.string.search_close), tint = VoxSumPalette.Slate400, modifier = Modifier.size(18.dp))
+            Icon(Icons.Filled.Close, stringResource(R.string.search_close), tint = pal.Slate400, modifier = Modifier.size(18.dp))
         }
     }
 }
 
 /** Render [text] with every (case-insensitive) occurrence of [query] highlighted. Returns plain
  *  text when [query] is blank, so callers can use it unconditionally. */
-fun highlightedTranscript(text: String, query: String): AnnotatedString {
+fun highlightedTranscript(
+    text: String,
+    query: String,
+    highlight: Color,
+    textColor: Color,
+): AnnotatedString {
     if (query.isBlank()) return AnnotatedString(text)
     // Match on the original text with ignoreCase (NOT a pre-lowercased copy, whose length can differ
     // from the original for some Unicode and misalign the indices). query.length advances each step,
@@ -103,7 +110,7 @@ fun highlightedTranscript(text: String, query: String): AnnotatedString {
             val hit = text.indexOf(query, i, ignoreCase = true)
             if (hit < 0) { append(text.substring(i)); break }
             append(text.substring(i, hit))
-            withStyle(SpanStyle(background = VoxSumPalette.Sky.copy(alpha = 0.35f), color = VoxSumPalette.Slate200)) {
+            withStyle(SpanStyle(background = highlight.copy(alpha = 0.35f), color = textColor)) {
                 append(text.substring(hit, hit + query.length))
             }
             i = hit + query.length

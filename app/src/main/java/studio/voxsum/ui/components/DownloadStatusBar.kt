@@ -12,7 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /**
  * A status line + progress bar for a multi-stage fetch (search → resolve → download). Pass the
@@ -22,19 +22,20 @@ import studio.voxsum.ui.theme.VoxSumPalette
  */
 @Composable
 fun DownloadStatusBar(statusRes: Int, progress: Float?, modifier: Modifier = Modifier) {
+    val pal = LocalVoxSumPalette.current
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (progress == null) {
             LinearProgressIndicator(
-                color = VoxSumPalette.Sky,
-                trackColor = VoxSumPalette.Slate700,
+                color = pal.Sky,
+                trackColor = pal.Slate700,
                 modifier = Modifier.fillMaxWidth(),
             )
         } else {
             val animated by animateFloatAsState(progress.coerceIn(0f, 1f), label = "dl")
             LinearProgressIndicator(
                 progress = { animated },
-                color = VoxSumPalette.Sky,
-                trackColor = VoxSumPalette.Slate700,
+                color = pal.Sky,
+                trackColor = pal.Slate700,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -42,7 +43,7 @@ fun DownloadStatusBar(statusRes: Int, progress: Float?, modifier: Modifier = Mod
         Text(
             stringResource(statusRes) + pct,
             style = MaterialTheme.typography.bodySmall,
-            color = VoxSumPalette.Slate400,
+            color = pal.Slate400,
         )
     }
 }

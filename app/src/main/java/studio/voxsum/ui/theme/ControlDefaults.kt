@@ -16,51 +16,64 @@ import androidx.compose.ui.graphics.Color
 
 /**
  * One place for the brand-consistent colors of Material controls, so sliders, switches, text
- * fields, radios and buttons all read sky-on-slate instead of the default Material indigo.
+ * fields, radios and buttons all read sky-on-slate instead of the default Material indigo. Colors
+ * are pulled from the theme-aware [LocalVoxSumPalette] so they flip with light / dark / e-ink.
  */
 
 @Composable
-fun voxSumSliderColors(): SliderColors = SliderDefaults.colors(
-    thumbColor = VoxSumPalette.Sky,
-    activeTrackColor = VoxSumPalette.Sky,
-    inactiveTrackColor = VoxSumPalette.Slate700,
-    activeTickColor = VoxSumPalette.Slate900,
-    inactiveTickColor = VoxSumPalette.Slate600,
-)
+fun voxSumSliderColors(): SliderColors {
+    val pal = LocalVoxSumPalette.current
+    return SliderDefaults.colors(
+        thumbColor = pal.Sky,
+        activeTrackColor = pal.Sky,
+        inactiveTrackColor = pal.Slate700,
+        activeTickColor = pal.Slate900,
+        inactiveTickColor = pal.Slate600,
+    )
+}
 
 @Composable
-fun voxSumSwitchColors(): SwitchColors = SwitchDefaults.colors(
-    checkedThumbColor = VoxSumPalette.Slate900,
-    checkedTrackColor = VoxSumPalette.Sky,
-    checkedBorderColor = VoxSumPalette.Sky,
-    uncheckedThumbColor = VoxSumPalette.Slate400,
-    uncheckedTrackColor = VoxSumPalette.Slate800,
-    uncheckedBorderColor = VoxSumPalette.Slate600,
-)
+fun voxSumSwitchColors(): SwitchColors {
+    val pal = LocalVoxSumPalette.current
+    return SwitchDefaults.colors(
+        checkedThumbColor = pal.Slate900,
+        checkedTrackColor = pal.Sky,
+        checkedBorderColor = pal.Sky,
+        uncheckedThumbColor = pal.Slate400,
+        uncheckedTrackColor = pal.Slate800,
+        uncheckedBorderColor = pal.Slate600,
+    )
+}
 
 @Composable
-fun voxSumTextFieldColors(): TextFieldColors = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = VoxSumPalette.Slate200,
-    unfocusedTextColor = VoxSumPalette.Slate200,
-    focusedContainerColor = VoxSumPalette.InsetSurface,
-    unfocusedContainerColor = VoxSumPalette.InsetSurface,
-    cursorColor = VoxSumPalette.Sky,
-    focusedBorderColor = VoxSumPalette.Sky,
-    unfocusedBorderColor = VoxSumPalette.Hairline,
-    focusedLabelColor = VoxSumPalette.Sky,
-    unfocusedLabelColor = VoxSumPalette.Slate400,
-)
+fun voxSumTextFieldColors(): TextFieldColors {
+    val pal = LocalVoxSumPalette.current
+    return OutlinedTextFieldDefaults.colors(
+        focusedTextColor = pal.Slate200,
+        unfocusedTextColor = pal.Slate200,
+        focusedContainerColor = pal.InsetSurface,
+        unfocusedContainerColor = pal.InsetSurface,
+        cursorColor = pal.Sky,
+        focusedBorderColor = pal.Sky,
+        unfocusedBorderColor = pal.Hairline,
+        focusedLabelColor = pal.Sky,
+        unfocusedLabelColor = pal.Slate400,
+    )
+}
 
 @Composable
-fun voxSumRadioColors(): RadioButtonColors = RadioButtonDefaults.colors(
-    selectedColor = VoxSumPalette.Sky,
-    unselectedColor = VoxSumPalette.Slate400,
-)
+fun voxSumRadioColors(): RadioButtonColors {
+    val pal = LocalVoxSumPalette.current
+    return RadioButtonDefaults.colors(
+        selectedColor = pal.Sky,
+        unselectedColor = pal.Slate400,
+    )
+}
 
 /** Outlined-button content tint; pair with a Hairline border at the call site. */
 @Composable
 fun voxSumOutlinedColors(): ButtonColors = ButtonDefaults.outlinedButtonColors(
-    contentColor = VoxSumPalette.Slate200,
+    contentColor = LocalVoxSumPalette.current.Slate200,
 )
 
 @Composable

@@ -9,7 +9,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.unit.dp
 import studio.voxsum.R
 import studio.voxsum.data.DiarizationStats
-import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /**
  * Compact speaker summary — just the detected speaker count. The "detect speaker names" action
@@ -18,11 +18,12 @@ import studio.voxsum.ui.theme.VoxSumPalette
  */
 @Composable
 fun SpeakerStatsPanel(stats: DiarizationStats, modifier: Modifier = Modifier) {
+    val pal = LocalVoxSumPalette.current
     if (stats.perSpeaker.isEmpty()) return
     Text(
         pluralStringResource(R.plurals.speaker_count, stats.totalSpeakers, stats.totalSpeakers),
         style = MaterialTheme.typography.bodyMedium,
-        color = VoxSumPalette.Slate400,
+        color = pal.Slate400,
         modifier = modifier.padding(vertical = 2.dp),
     )
 }

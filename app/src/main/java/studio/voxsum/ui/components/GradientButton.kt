@@ -18,7 +18,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /**
  * The brand primary CTA — a sky→indigo gradient pill with dark ink, matching the web app's
@@ -34,6 +34,7 @@ fun GradientButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     Button(
         onClick = onClick,
         enabled = enabled,
@@ -44,19 +45,19 @@ fun GradientButton(
         ),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
         modifier = modifier.background(
-            brush = if (enabled) VoxSumPalette.BrandGradient else SolidColor(VoxSumPalette.Slate700),
+            brush = if (enabled) pal.BrandGradient else SolidColor(pal.Slate700),
             shape = RoundedCornerShape(12.dp),
         ),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
-                Icon(icon, contentDescription = null, tint = VoxSumPalette.Slate900, modifier = Modifier.size(18.dp))
+                Icon(icon, contentDescription = null, tint = pal.Slate900, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
             }
-            Text(text, color = VoxSumPalette.Slate900, fontWeight = FontWeight.SemiBold)
+            Text(text, color = pal.Slate900, fontWeight = FontWeight.SemiBold)
             if (trailingIcon != null) {
                 Spacer(Modifier.width(4.dp))
-                Icon(trailingIcon, contentDescription = null, tint = VoxSumPalette.Slate900, modifier = Modifier.size(18.dp))
+                Icon(trailingIcon, contentDescription = null, tint = pal.Slate900, modifier = Modifier.size(18.dp))
             }
         }
     }

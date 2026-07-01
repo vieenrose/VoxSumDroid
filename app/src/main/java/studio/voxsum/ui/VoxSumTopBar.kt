@@ -48,6 +48,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import studio.voxsum.R
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.statusColor
 
@@ -94,13 +95,14 @@ fun VoxSumTopBar(
     onExportMarkdown: () -> Unit,
     onExportPdf: () -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Column(Modifier.fillMaxWidth()) {
         Box(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
-                .background(VoxSumPalette.BrandGradient)
+                .background(pal.BrandGradient)
                 .padding(horizontal = 16.dp, vertical = if (landscape) 4.dp else 10.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -112,7 +114,7 @@ fun VoxSumTopBar(
                         modifier = Modifier.size(if (landscape) 24.dp else 30.dp).clip(RoundedCornerShape(7.dp)),
                     )
                 } else {
-                    Icon(Icons.Filled.GraphicEq, contentDescription = null, tint = VoxSumPalette.OnBrand)
+                    Icon(Icons.Filled.GraphicEq, contentDescription = null, tint = pal.OnBrand)
                 }
                 Spacer(Modifier.width(8.dp))
                 if (landscape) {
@@ -120,7 +122,7 @@ fun VoxSumTopBar(
                     Text(
                         stringResource(R.string.app_name),
                         style = MaterialTheme.typography.titleLarge,
-                        color = VoxSumPalette.OnBrand,
+                        color = pal.OnBrand,
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(Modifier.width(10.dp))
@@ -130,7 +132,7 @@ fun VoxSumTopBar(
                         Text(
                             stringResource(R.string.app_name),
                             style = MaterialTheme.typography.headlineSmall,
-                            color = VoxSumPalette.OnBrand,
+                            color = pal.OnBrand,
                             fontWeight = FontWeight.Bold,
                         )
                         OnDeviceBadge()
@@ -145,7 +147,7 @@ fun VoxSumTopBar(
                             Text(
                                 "%d:%02d".format(recSeconds / 60, recSeconds % 60),
                                 style = MaterialTheme.typography.labelMedium,
-                                color = VoxSumPalette.OnBrand,
+                                color = pal.OnBrand,
                             )
                             Spacer(Modifier.width(2.dp))
                         }
@@ -158,19 +160,19 @@ fun VoxSumTopBar(
                         }
                     } else {
                         IconButton(onClick = onAddSource) {
-                            Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.add_audio), tint = VoxSumPalette.OnBrand)
+                            Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.add_audio), tint = pal.OnBrand)
                         }
                     }
                     ReRunMenu(canReTranscribe, onReTranscribe, canReSummarize, onReSummarize, canReTitle, onReTitle, canReDetect, isDetecting, onReDetect, canExtractActions, onExtractActions)
                     if (transcriptAvailable) {
                         IconButton(onClick = onSearch) {
-                            Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.search_transcript), tint = VoxSumPalette.OnBrand)
+                            Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.search_transcript), tint = pal.OnBrand)
                         }
                     }
                 }
                 Box {
                     IconButton(onClick = onSettings) {
-                        Icon(Icons.Filled.Tune, contentDescription = stringResource(R.string.cd_settings), tint = VoxSumPalette.OnBrand)
+                        Icon(Icons.Filled.Tune, contentDescription = stringResource(R.string.cd_settings), tint = pal.OnBrand)
                     }
                     if (downloadPending) {
                         Box(
@@ -202,9 +204,9 @@ fun VoxSumTopBar(
             // Live capture has no known total → an indeterminate "working" bar (a determinate bar would
             // sit at 0). Every other phase reports a real fraction, so it's determinate.
             if (isRecording) {
-                LinearProgressIndicator(color = VoxSumPalette.Sky, trackColor = VoxSumPalette.Slate700, modifier = barMod)
+                LinearProgressIndicator(color = pal.Sky, trackColor = pal.Slate700, modifier = barMod)
             } else {
-                LinearProgressIndicator(progress = { progress }, color = VoxSumPalette.Sky, trackColor = VoxSumPalette.Slate700, modifier = barMod)
+                LinearProgressIndicator(progress = { progress }, color = pal.Sky, trackColor = pal.Slate700, modifier = barMod)
             }
         }
     }
@@ -213,20 +215,21 @@ fun VoxSumTopBar(
 /** A small always-on reassurance that nothing leaves the phone — the core promise of the app. */
 @Composable
 private fun OnDeviceBadge() {
+    val pal = LocalVoxSumPalette.current
     Row(
         Modifier
             .padding(top = 2.dp)
             .clip(RoundedCornerShape(50))
-            .background(VoxSumPalette.OnBrand.copy(alpha = 0.18f))
+            .background(pal.OnBrand.copy(alpha = 0.18f))
             .padding(horizontal = 8.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Filled.Lock, contentDescription = null, tint = VoxSumPalette.OnBrand, modifier = Modifier.size(11.dp))
+        Icon(Icons.Filled.Lock, contentDescription = null, tint = pal.OnBrand, modifier = Modifier.size(11.dp))
         Spacer(Modifier.width(4.dp))
         Text(
             stringResource(R.string.badge_on_device),
             style = MaterialTheme.typography.labelSmall,
-            color = VoxSumPalette.OnBrand,
+            color = pal.OnBrand,
         )
     }
 }
@@ -247,11 +250,12 @@ private fun ReRunMenu(
     canExtractActions: Boolean,
     onExtractActions: () -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     if (!canReTranscribe && !canReSummarize && !canReTitle && !canReDetect && !canExtractActions) return
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) {
-            Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.re_run), tint = VoxSumPalette.OnBrand)
+            Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.re_run), tint = pal.OnBrand)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             if (canReTranscribe) DropdownMenuItem(
@@ -298,13 +302,14 @@ private fun ExportMenu(
     onExportMarkdown: () -> Unit,
     onExportPdf: () -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }, enabled = transcriptAvailable) {
             Icon(
                 Icons.Filled.MoreVert,
                 contentDescription = stringResource(R.string.cd_export),
-                tint = if (transcriptAvailable) VoxSumPalette.OnBrand else VoxSumPalette.OnBrandFaint,
+                tint = if (transcriptAvailable) pal.OnBrand else pal.OnBrandFaint,
             )
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {

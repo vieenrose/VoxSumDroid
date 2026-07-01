@@ -50,11 +50,13 @@ import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.SummaryStyle
+import studio.voxsum.core.config.ThemeMode
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.update.UpdateChecker
 import studio.voxsum.core.update.UpdateInfo
-import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.LocalThemeController
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 import studio.voxsum.ui.theme.voxSumSliderColors
 import studio.voxsum.ui.theme.voxSumSwitchColors
 
@@ -74,7 +76,12 @@ fun SettingsContent(
     onChange: (TranscriptionConfig) -> Unit,
     onUpdateFound: (UpdateInfo) -> Unit = {},
 ) {
+    val pal = LocalVoxSumPalette.current
     Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // (0) Appearance — theme selector (Auto follows the OS; E-ink is a manual e-paper theme).
+        Section(stringResource(R.string.settings_appearance))
+        AppearanceSelector(enabled)
+
         // (1) ASR engine — rich selectable cards.
         Section(stringResource(R.string.settings_asr_engine))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -128,9 +135,9 @@ fun SettingsContent(
                             onClick = { onChange(config.copy(language = code)) },
                             label = { Text(label) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = VoxSumPalette.Sky.copy(alpha = 0.15f),
-                                selectedLabelColor = VoxSumPalette.Sky,
-                                labelColor = VoxSumPalette.Slate400,
+                                selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
+                                selectedLabelColor = pal.Sky,
+                                labelColor = pal.Slate400,
                             ),
                         )
                     }
@@ -179,9 +186,9 @@ fun SettingsContent(
                         onClick = { onChange(config.copy(targetLanguage = lang.id)) },
                         label = { Text(label) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = VoxSumPalette.Sky.copy(alpha = 0.15f),
-                            selectedLabelColor = VoxSumPalette.Sky,
-                            labelColor = VoxSumPalette.Slate400,
+                            selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
+                            selectedLabelColor = pal.Sky,
+                            labelColor = pal.Slate400,
                         ),
                     )
                 }
@@ -196,9 +203,9 @@ fun SettingsContent(
                         onClick = { onChange(config.copy(summaryStyle = style.id)) },
                         label = { Text(stringResource(style.labelRes)) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = VoxSumPalette.Sky.copy(alpha = 0.15f),
-                            selectedLabelColor = VoxSumPalette.Sky,
-                            labelColor = VoxSumPalette.Slate400,
+                            selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
+                            selectedLabelColor = pal.Sky,
+                            labelColor = pal.Slate400,
                         ),
                     )
                 }
@@ -223,9 +230,45 @@ fun SettingsContent(
     }
 }
 
+/** Four-way theme picker (Auto / Light / Dark / E-ink) wired to [LocalThemeController]. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AppearanceSelector(enabled: Boolean) {
+    val pal = LocalVoxSumPalette.current
+    val theme = LocalThemeController.current
+    val options = listOf(
+        ThemeMode.AUTO to R.string.theme_auto,
+        ThemeMode.LIGHT to R.string.theme_light,
+        ThemeMode.DARK to R.string.theme_dark,
+        ThemeMode.EINK to R.string.theme_eink,
+    )
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.forEach { (mode, labelRes) ->
+            FilterChip(
+                selected = theme.mode == mode,
+                enabled = enabled,
+                onClick = { theme.setMode(mode) },
+                label = { Text(stringResource(labelRes)) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
+                    selectedLabelColor = pal.Sky,
+                    labelColor = pal.Slate400,
+                ),
+            )
+        }
+    }
+    Text(
+        stringResource(R.string.theme_eink_hint),
+        style = MaterialTheme.typography.labelSmall,
+        color = pal.Slate400,
+        modifier = Modifier.padding(top = 2.dp),
+    )
+}
+
 /** Lists downloaded models with sizes and a per-item delete (re-downloads on next use). */
 @Composable
 private fun StoragePanel(enabled: Boolean) {
+    val pal = LocalVoxSumPalette.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var models by remember { mutableStateOf<List<ModelManager.StoredModel>>(emptyList()) }
@@ -234,26 +277,26 @@ private fun StoragePanel(enabled: Boolean) {
         models = withContext(Dispatchers.IO) { ModelManager(context).storedModels() }
     }
     if (models.isEmpty()) {
-        Text(stringResource(R.string.storage_none), style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+        Text(stringResource(R.string.storage_none), style = MaterialTheme.typography.bodySmall, color = pal.Slate400)
         return
     }
     val fmt = { b: Long -> android.text.format.Formatter.formatShortFileSize(context, b) }
     Text(
         stringResource(R.string.storage_total, fmt(models.sumOf { it.bytes })),
-        style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400,
+        style = MaterialTheme.typography.bodySmall, color = pal.Slate400,
         modifier = Modifier.padding(bottom = 4.dp),
     )
     models.forEach { m ->
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(kindLabel(m.kind), style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Slate200)
-                Text("${m.name} · ${fmt(m.bytes)}", style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
+                Text(kindLabel(m.kind), style = MaterialTheme.typography.bodyMedium, color = pal.Slate200)
+                Text("${m.name} · ${fmt(m.bytes)}", style = MaterialTheme.typography.labelSmall, color = pal.Slate400)
             }
             IconButton(
                 enabled = enabled,
                 onClick = { scope.launch { withContext(Dispatchers.IO) { m.delete() }; version++ } },
             ) {
-                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.storage_delete), tint = VoxSumPalette.Slate400)
+                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.storage_delete), tint = pal.Slate400)
             }
         }
     }
@@ -273,6 +316,7 @@ private fun kindLabel(kind: ModelManager.ModelKind): String = stringResource(
 /** Version + GPL notice + a manual update check + the open-source components + repo link. */
 @Composable
 private fun AboutContent(onUpdateFound: (UpdateInfo) -> Unit) {
+    val pal = LocalVoxSumPalette.current
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -280,13 +324,13 @@ private fun AboutContent(onUpdateFound: (UpdateInfo) -> Unit) {
     Text(
         "VoxSum v${BuildConfig.VERSION_NAME}",
         style = MaterialTheme.typography.bodyMedium,
-        color = VoxSumPalette.Slate200,
+        color = pal.Slate200,
         fontWeight = FontWeight.SemiBold,
     )
     Text(
         stringResource(R.string.about_license),
         style = MaterialTheme.typography.bodySmall,
-        color = VoxSumPalette.Slate400,
+        color = pal.Slate400,
     )
     Spacer(Modifier.height(8.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -303,21 +347,21 @@ private fun AboutContent(onUpdateFound: (UpdateInfo) -> Unit) {
         }) { Text(stringResource(R.string.update_check)) }
         checkState?.let {
             Spacer(Modifier.width(10.dp))
-            Text(it, style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+            Text(it, style = MaterialTheme.typography.bodySmall, color = pal.Slate400)
         }
     }
     Spacer(Modifier.height(10.dp))
     Text(
         stringResource(R.string.about_components),
         style = MaterialTheme.typography.labelSmall,
-        color = VoxSumPalette.Slate400,
+        color = pal.Slate400,
     )
     Column(Modifier.padding(top = 4.dp)) {
         COMPONENT_LICENSES.forEach { (name, license) ->
             Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                 Text(name, style = MaterialTheme.typography.bodySmall,
-                    color = VoxSumPalette.Slate200, modifier = Modifier.weight(1f))
-                Text(license, style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+                    color = pal.Slate200, modifier = Modifier.weight(1f))
+                Text(license, style = MaterialTheme.typography.bodySmall, color = pal.Slate400)
             }
         }
     }
@@ -325,7 +369,7 @@ private fun AboutContent(onUpdateFound: (UpdateInfo) -> Unit) {
     Text(
         "github.com/vieenrose/VoxSumDroid",
         style = MaterialTheme.typography.bodySmall,
-        color = VoxSumPalette.Sky,
+        color = pal.Sky,
         modifier = Modifier
             .clickable { uriHandler.openUri("https://github.com/vieenrose/VoxSumDroid") }
             .padding(vertical = 4.dp),
@@ -344,10 +388,11 @@ private val COMPONENT_LICENSES = listOf(
 
 @Composable
 private fun Section(title: String) {
+    val pal = LocalVoxSumPalette.current
     Text(
         title.uppercase(),
         style = MaterialTheme.typography.labelMedium,
-        color = VoxSumPalette.Sky,
+        color = pal.Sky,
         fontWeight = FontWeight.SemiBold,
         letterSpacing = 1.sp,
         modifier = Modifier.padding(top = 14.dp, bottom = 2.dp),
@@ -356,19 +401,21 @@ private fun Section(title: String) {
 
 @Composable
 private fun LabeledRow(label: String, content: @Composable () -> Unit) {
+    val pal = LocalVoxSumPalette.current
     Column(Modifier.padding(vertical = 4.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Slate200)
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = pal.Slate200)
         content()
     }
 }
 
 @Composable
 private fun SwitchRow(label: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+    val pal = LocalVoxSumPalette.current
     Row(
         Modifier.fillMaxWidth().padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Slate200,
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = pal.Slate200,
             modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange, enabled = enabled, colors = voxSumSwitchColors())
     }
@@ -378,11 +425,12 @@ private fun SwitchRow(label: String, checked: Boolean, enabled: Boolean, onChang
 private fun SliderRow(
     label: String, value: Float, from: Float, to: Float, enabled: Boolean, onChange: (Float) -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     Column(Modifier.padding(vertical = 4.dp)) {
         Text(
             "$label: ${"%.2f".format(value)}",
             style = MaterialTheme.typography.bodyMedium,
-            color = VoxSumPalette.Slate200,
+            color = pal.Slate200,
             modifier = Modifier.wrapContentWidth(),
         )
         Slider(value = value, onValueChange = onChange, valueRange = from..to, enabled = enabled,

@@ -28,7 +28,7 @@ import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
-import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /**
  * Settings — a [ModalBottomSheet] hosting [SettingsContent], opened by the header gear.
@@ -44,6 +44,7 @@ fun ConfigSheet(
     onDismiss: () -> Unit,
     onUpdateFound: (studio.voxsum.core.update.UpdateInfo) -> Unit = {},
 ) {
+    val pal = LocalVoxSumPalette.current
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var readyAsr by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -62,7 +63,7 @@ fun ConfigSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = VoxSumPalette.Slate800,
+        containerColor = pal.Slate800,
     ) {
         Column(
             Modifier
@@ -74,7 +75,7 @@ fun ConfigSheet(
             Text(
                 stringResource(R.string.settings_title),
                 style = MaterialTheme.typography.titleLarge,
-                color = VoxSumPalette.Slate200,
+                color = pal.Slate200,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 8.dp),
             )

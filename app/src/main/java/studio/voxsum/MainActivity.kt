@@ -172,10 +172,15 @@ import studio.voxsum.ui.TranscriptSearchBar
 import studio.voxsum.ui.highlightedTranscript
 import studio.voxsum.ui.VoxSumTopBar
 import studio.voxsum.ui.YouTubeSheet
-import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.LocalThemeController
+import studio.voxsum.ui.theme.LocalVoxSumPalette
+import studio.voxsum.ui.theme.ThemeController
 import studio.voxsum.ui.theme.VoxSumTheme
 import studio.voxsum.ui.theme.voxSumSliderColors
 import studio.voxsum.ui.theme.voxSumTextFieldColors
+import studio.voxsum.core.config.ThemeMode
+import studio.voxsum.core.config.ThemeStore
+import androidx.compose.runtime.CompositionLocalProvider
 
 /**
  * Phase 4 shell: pick a local audio file (SAF) → run the foreground pipeline → render the
@@ -251,9 +256,16 @@ class MainActivity : ComponentActivity() {
         maybeRequestNotifications()
         handleIncoming(intent)
         setContent {
-            VoxSumTheme {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    TranscribeScreen(::startTranscription, ::stopTranscription, ::startRecording, ::stopRecording)
+            var themeMode by remember { mutableStateOf(ThemeStore.load(this)) }
+            val controller = ThemeController(themeMode) { mode ->
+                themeMode = mode
+                ThemeStore.save(this, mode)
+            }
+            CompositionLocalProvider(LocalThemeController provides controller) {
+                VoxSumTheme(themeMode) {
+                    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        TranscribeScreen(::startTranscription, ::stopTranscription, ::startRecording, ::stopRecording)
+                    }
                 }
             }
         }
@@ -334,6 +346,7 @@ private fun TranscribeScreen(
     onRecord: () -> Unit,
     onStopRecording: () -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     val context = LocalContext.current
     var status by remember { mutableStateOf(context.getString(R.string.empty_status)) }
     var title by remember { mutableStateOf<String?>(null) }
@@ -1009,7 +1022,7 @@ private fun TranscribeScreen(
     val isEmptyState = utterances.isEmpty() && !running && player == null
 
     Scaffold(
-        modifier = Modifier.fillMaxSize().background(VoxSumPalette.Slate900Grad),
+        modifier = Modifier.fillMaxSize().background(pal.Slate900Grad),
         containerColor = Color.Transparent,
         topBar = {
             VoxSumTopBar(
@@ -1064,7 +1077,7 @@ private fun TranscribeScreen(
                     positionMs = ms.coerceIn(0, durationMs)
                     resumeOrRecover(positionMs)
                 }
-                Surface(color = VoxSumPalette.PanelSurface, tonalElevation = 3.dp) {
+                Surface(color = pal.PanelSurface, tonalElevation = 3.dp) {
                     Column(
                         Modifier
                             .fillMaxWidth()
@@ -1237,17 +1250,18 @@ private fun TranscribeScreen(
  */
 @Composable
 private fun ExportingOverlay(onDismiss: () -> Unit) {
+    val pal = LocalVoxSumPalette.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true),
     ) {
-        Surface(shape = RoundedCornerShape(16.dp), color = VoxSumPalette.PanelSurface, tonalElevation = 6.dp) {
+        Surface(shape = RoundedCornerShape(16.dp), color = pal.PanelSurface, tonalElevation = 6.dp) {
             Row(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
                 Spacer(Modifier.width(16.dp))
                 Column {
-                    Text(stringResource(R.string.exporting), color = VoxSumPalette.Slate200, style = MaterialTheme.typography.titleSmall)
-                    Text(stringResource(R.string.exporting_hint), color = VoxSumPalette.Slate400, style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.exporting), color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.exporting_hint), color = pal.Slate400, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -1260,6 +1274,7 @@ private fun TitleCard(
     title: String, llm: String, isEditing: Boolean,
     onBeginEdit: () -> Unit, onSave: (String) -> Unit, onCancel: () -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         if (isEditing) {
             UtteranceTextEditor(initial = title, onSave = onSave, onCancel = onCancel, minLines = 1)
@@ -1269,12 +1284,12 @@ private fun TitleCard(
                     title,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = VoxSumPalette.Slate200,
+                    color = pal.Slate200,
                     modifier = Modifier.weight(1f).clickable { onBeginEdit() },
                 )
                 EditPencil(onBeginEdit)
             }
-            Text("via $llm", style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
+            Text("via $llm", style = MaterialTheme.typography.labelSmall, color = pal.Slate400)
         }
     }
 }
@@ -1285,25 +1300,26 @@ private fun SummaryCard(
     summary: String, llm: String, isEditing: Boolean,
     onBeginEdit: () -> Unit, onSave: (String) -> Unit, onCancel: () -> Unit, onCopy: () -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 stringResource(R.string.card_summary),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = VoxSumPalette.Slate200,
+                color = pal.Slate200,
                 modifier = Modifier.weight(1f),
             )
             if (!isEditing) {
                 // One-tap copy to clipboard (the summary export was removed — the .ogg is the editor).
                 IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.cd_copy_summary),
-                        tint = VoxSumPalette.Slate400, modifier = Modifier.size(16.dp))
+                        tint = pal.Slate400, modifier = Modifier.size(16.dp))
                 }
                 EditPencil(onBeginEdit)
             }
         }
-        Text("via $llm", style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
+        Text("via $llm", style = MaterialTheme.typography.labelSmall, color = pal.Slate400)
         Spacer(Modifier.height(8.dp))
         if (isEditing) {
             UtteranceTextEditor(initial = summary, onSave = onSave, onCancel = onCancel, minLines = 4)
@@ -1311,7 +1327,7 @@ private fun SummaryCard(
             Text(
                 renderMarkdown(summary),
                 style = MaterialTheme.typography.bodyMedium,
-                color = VoxSumPalette.Slate200,
+                color = pal.Slate200,
                 modifier = Modifier.fillMaxWidth().clickable { onBeginEdit() },
             )
         }
@@ -1324,19 +1340,20 @@ private fun ActionItemsCard(
     text: String, isEditing: Boolean,
     onBeginEdit: () -> Unit, onSave: (String) -> Unit, onCancel: () -> Unit, onCopy: () -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 stringResource(R.string.card_action_items),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = VoxSumPalette.Slate200,
+                color = pal.Slate200,
                 modifier = Modifier.weight(1f),
             )
             if (!isEditing) {
                 IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.cd_copy_summary),
-                        tint = VoxSumPalette.Slate400, modifier = Modifier.size(16.dp))
+                        tint = pal.Slate400, modifier = Modifier.size(16.dp))
                 }
                 EditPencil(onBeginEdit)
             }
@@ -1348,7 +1365,7 @@ private fun ActionItemsCard(
             Text(
                 renderMarkdown(text),
                 style = MaterialTheme.typography.bodyMedium,
-                color = VoxSumPalette.Slate200,
+                color = pal.Slate200,
                 modifier = Modifier.fillMaxWidth().clickable { onBeginEdit() },
             )
         }
@@ -1364,24 +1381,25 @@ private fun SpeakerReassignMenu(
     onReassign: (Int) -> Unit,
     onMerge: (Int) -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     var open by remember { mutableStateOf(false) }   // before any early return, for slot-table stability
     val others = speakerIds.filter { it != current }
     if (others.isEmpty()) return
     Box {
         IconButton(onClick = { open = true }, modifier = Modifier.size(28.dp)) {
             Icon(Icons.Filled.SwapHoriz, contentDescription = stringResource(R.string.cd_reassign_speaker),
-                tint = VoxSumPalette.Slate400, modifier = Modifier.size(16.dp))
+                tint = pal.Slate400, modifier = Modifier.size(16.dp))
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(enabled = false, onClick = {},
-                text = { Text(stringResource(R.string.speaker_move_line), style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400) })
+                text = { Text(stringResource(R.string.speaker_move_line), style = MaterialTheme.typography.labelSmall, color = pal.Slate400) })
             others.forEach { sid ->
                 val label = speakerNames[sid]?.name ?: stringResource(R.string.speaker_n, sid + 1)
                 DropdownMenuItem(text = { Text(label) }, onClick = { open = false; onReassign(sid) })
             }
             HorizontalDivider()
             DropdownMenuItem(enabled = false, onClick = {},
-                text = { Text(stringResource(R.string.speaker_merge_into), style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400) })
+                text = { Text(stringResource(R.string.speaker_merge_into), style = MaterialTheme.typography.labelSmall, color = pal.Slate400) })
             others.forEach { sid ->
                 val label = speakerNames[sid]?.name ?: stringResource(R.string.speaker_n, sid + 1)
                 DropdownMenuItem(text = { Text(label) }, onClick = { open = false; onMerge(sid) })
@@ -1393,11 +1411,12 @@ private fun SpeakerReassignMenu(
 /** Small pencil affordance reused by the title/summary cards (matches the utterance-row edit icon). */
 @Composable
 private fun EditPencil(onClick: () -> Unit) {
+    val pal = LocalVoxSumPalette.current
     IconButton(onClick = onClick, modifier = Modifier.size(28.dp)) {
         Icon(
             Icons.Filled.Edit,
             contentDescription = stringResource(R.string.cd_edit),
-            tint = VoxSumPalette.Slate400,
+            tint = pal.Slate400,
             modifier = Modifier.size(16.dp),
         )
     }
@@ -1416,11 +1435,12 @@ private fun fmtMs(ms: Int): String {
 /** A rounded surface card used to group a section (settings, podcast, summary). */
 @Composable
 private fun SectionCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    val pal = LocalVoxSumPalette.current
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = VoxSumPalette.PanelSurface),
+        colors = CardDefaults.cardColors(containerColor = pal.PanelSurface),
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, VoxSumPalette.Hairline),
+        border = BorderStroke(1.dp, pal.Hairline),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
     ) {
         Column(Modifier.padding(16.dp), content = content)
@@ -1446,6 +1466,7 @@ private fun PlayerBar(
     compact: Boolean = false,
     buffering: Boolean = false,
 ) {
+    val pal = LocalVoxSumPalette.current
     val shownMs = dragMs ?: positionMs
     // Two slim rows: the seek bar IS the speaker timeline (one merged scrubber), then a centered
     // transport with the times at the edges and volume tucked behind a popup.
@@ -1464,40 +1485,40 @@ private fun PlayerBar(
         )
         Spacer(Modifier.height(if (compact) 2.dp else 4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(fmtMs(shownMs), style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
+            Text(fmtMs(shownMs), style = MaterialTheme.typography.labelSmall, color = pal.Slate400)
             Spacer(Modifier.weight(1f))
             IconButton(onClick = { onSkip(-5000) }, modifier = Modifier.size(btnSize)) {
-                Icon(Icons.Filled.Replay5, contentDescription = stringResource(R.string.cd_back5), tint = VoxSumPalette.Slate200)
+                Icon(Icons.Filled.Replay5, contentDescription = stringResource(R.string.cd_back5), tint = pal.Slate200)
             }
             Box(
                 Modifier
                     .size(playSize)
                     .clip(CircleShape)
-                    .background(VoxSumPalette.BrandGradient)
+                    .background(pal.BrandGradient)
                     .clickable(onClick = onPlayPause),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = if (isPlaying) stringResource(R.string.cd_pause) else stringResource(R.string.cd_play),
-                    tint = VoxSumPalette.Slate900,
+                    tint = pal.Slate900,
                 )
                 // Underrun: overlay a spinner so it reads as "buffering, will resume" not "frozen".
                 if (buffering) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(playSize),
-                        color = VoxSumPalette.Slate900,
+                        color = pal.Slate900,
                         strokeWidth = 2.dp,
                     )
                 }
             }
             IconButton(onClick = { onSkip(5000) }, modifier = Modifier.size(btnSize)) {
-                Icon(Icons.Filled.Forward5, contentDescription = stringResource(R.string.cd_forward5), tint = VoxSumPalette.Slate200)
+                Icon(Icons.Filled.Forward5, contentDescription = stringResource(R.string.cd_forward5), tint = pal.Slate200)
             }
             Spacer(Modifier.weight(1f))
             VolumeControl(volume = volume, muted = muted, onVolume = onVolume, onToggleMute = onToggleMute, btnSize = btnSize)
             Spacer(Modifier.width(6.dp))
-            Text(fmtMs(durationMs), style = MaterialTheme.typography.labelSmall, color = VoxSumPalette.Slate400)
+            Text(fmtMs(durationMs), style = MaterialTheme.typography.labelSmall, color = pal.Slate400)
         }
     }
 }
@@ -1512,6 +1533,7 @@ private fun VolumeControl(
     onToggleMute: () -> Unit,
     btnSize: Dp,
 ) {
+    val pal = LocalVoxSumPalette.current
     var open by remember { mutableStateOf(false) }
     val muteIcon = if (muted || volume == 0f) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp
     val above = remember {
@@ -1530,7 +1552,7 @@ private fun VolumeControl(
     }
     Box {
         IconButton(onClick = { open = true }, modifier = Modifier.size(btnSize)) {
-            Icon(muteIcon, contentDescription = stringResource(R.string.cd_mute), tint = VoxSumPalette.Slate400)
+            Icon(muteIcon, contentDescription = stringResource(R.string.cd_mute), tint = pal.Slate400)
         }
         if (open) {
             Popup(
@@ -1540,7 +1562,7 @@ private fun VolumeControl(
             ) {
                 Surface(
                     shape = RoundedCornerShape(24.dp),
-                    color = VoxSumPalette.Slate800,
+                    color = pal.Slate800,
                     tonalElevation = 6.dp,
                     shadowElevation = 8.dp,
                 ) {
@@ -1549,7 +1571,7 @@ private fun VolumeControl(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         IconButton(onClick = onToggleMute, modifier = Modifier.size(40.dp)) {
-                            Icon(muteIcon, contentDescription = if (muted) stringResource(R.string.cd_unmute) else stringResource(R.string.cd_mute), tint = VoxSumPalette.Slate200)
+                            Icon(muteIcon, contentDescription = if (muted) stringResource(R.string.cd_unmute) else stringResource(R.string.cd_mute), tint = pal.Slate200)
                         }
                         Slider(
                             value = if (muted) 0f else volume,
@@ -1575,11 +1597,12 @@ private fun TimelineStrip(
     onDragChange: (Int?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val pal = LocalVoxSumPalette.current
     val durSec = (durationMs / 1000.0).coerceAtLeast(0.001)
     Canvas(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(VoxSumPalette.Slate800)
+            .background(pal.Slate800)
             .pointerInput(durationMs) {
                 detectTapGestures { offset ->
                     if (size.width > 0 && durationMs > 0) {
@@ -1627,7 +1650,7 @@ private fun TimelineStrip(
         // Playhead: a thin white line + a Sky thumb, so the strip reads as the scrubber.
         val cx = (progressMs.toFloat() / durationMs).coerceIn(0f, 1f) * w
         drawLine(Color.White, Offset(cx, 0f), Offset(cx, h), strokeWidth = 2f)
-        drawCircle(VoxSumPalette.Sky, radius = h * 0.42f, center = Offset(cx, h / 2f))
+        drawCircle(pal.Sky, radius = h * 0.42f, center = Offset(cx, h / 2f))
         drawCircle(Color.White, radius = h * 0.42f, center = Offset(cx, h / 2f), style = Stroke(width = 2f))
     }
 }
@@ -1651,20 +1674,21 @@ private fun UtteranceRow(
     onReassignLine: (Int) -> Unit,
     onMergeSpeaker: (Int) -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     Column(
         Modifier
             .fillMaxWidth()
             .drawBehind {
                 if (active) {
-                    drawRect(VoxSumPalette.ActiveTint)
-                    drawRect(VoxSumPalette.ActiveBar, size = Size(3.dp.toPx(), size.height))
+                    drawRect(pal.ActiveTint)
+                    drawRect(pal.ActiveBar, size = Size(3.dp.toPx(), size.height))
                 }
             }
             .padding(vertical = 4.dp, horizontal = 6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("[${fmt(utt.startSec)}]", style = MaterialTheme.typography.labelMedium,
-                color = VoxSumPalette.Slate400)
+                color = pal.Slate400)
             Spacer(Modifier.width(6.dp))
             utt.speaker?.let { sid ->
                 SpeakerTag(
@@ -1685,7 +1709,7 @@ private fun UtteranceRow(
                     Icon(
                         Icons.Filled.Edit,
                         contentDescription = stringResource(R.string.cd_edit),
-                        tint = VoxSumPalette.Slate400,
+                        tint = pal.Slate400,
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -1695,12 +1719,12 @@ private fun UtteranceRow(
             UtteranceTextEditor(initial = utt.text, onSave = onSaveText, onCancel = onCancelEdit)
         } else {
             Text(
-                highlightedTranscript(utt.text, highlight),
+                highlightedTranscript(utt.text, highlight, pal.Sky, pal.Slate200),
                 style = MaterialTheme.typography.bodyMedium,
                 // Neutral high-contrast body text; the speaker colour lives on the chip only.
                 // (Tinting whole paragraphs to the speaker colour made the red speaker hard to
                 // read on the dark background.)
-                color = VoxSumPalette.Slate200,
+                color = pal.Slate200,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onSeek(utt.startSec) }

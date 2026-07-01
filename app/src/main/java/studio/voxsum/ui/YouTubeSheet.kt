@@ -41,6 +41,7 @@ import studio.voxsum.R
 import studio.voxsum.online.YouTube
 import studio.voxsum.ui.components.DownloadStatusBar
 import studio.voxsum.ui.components.GradientButton
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.voxSumTextFieldColors
 
@@ -52,6 +53,7 @@ import studio.voxsum.ui.theme.voxSumTextFieldColors
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
+    val pal = LocalVoxSumPalette.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -89,14 +91,14 @@ fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
     ModalBottomSheet(
         onDismissRequest = { if (!busy) onDismiss() },
         sheetState = sheetState,
-        containerColor = VoxSumPalette.Slate800,
+        containerColor = pal.Slate800,
     ) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(stringResource(R.string.source_youtube), style = MaterialTheme.typography.titleLarge,
-                color = VoxSumPalette.Slate200, fontWeight = FontWeight.Bold)
+                color = pal.Slate200, fontWeight = FontWeight.Bold)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = query,
@@ -126,18 +128,18 @@ fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
             ) {
                 results.forEach { v ->
                     Surface(
-                        color = VoxSumPalette.InsetSurface,
+                        color = pal.InsetSurface,
                         shape = MaterialTheme.shapes.medium,
-                        border = BorderStroke(1.dp, VoxSumPalette.Hairline),
+                        border = BorderStroke(1.dp, pal.Hairline),
                         modifier = Modifier.fillMaxWidth().clickable(enabled = !busy) { transcribe(v.url) },
                     ) {
                         Column(Modifier.padding(12.dp)) {
                             Text(v.title, style = MaterialTheme.typography.bodyMedium,
-                                color = VoxSumPalette.Slate200, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                color = pal.Slate200, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(
                                 listOfNotNull(v.uploader.ifBlank { null }, v.durationText.ifBlank { null })
                                     .joinToString(" · "),
-                                style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400,
+                                style = MaterialTheme.typography.bodySmall, color = pal.Slate400,
                             )
                         }
                     }

@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import studio.voxsum.R
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.voxSumRadioColors
 
@@ -38,26 +39,27 @@ fun ModelOptionCard(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     Surface(
         onClick = onClick,
         enabled = enabled,
         shape = RoundedCornerShape(12.dp),
-        color = if (selected) VoxSumPalette.Sky.copy(alpha = 0.12f)
-        else VoxSumPalette.Slate900.copy(alpha = 0.5f),
-        border = if (selected) BorderStroke(2.dp, VoxSumPalette.BrandGradient)
-        else BorderStroke(1.dp, VoxSumPalette.Hairline),
+        color = if (selected) pal.Sky.copy(alpha = 0.12f)
+        else pal.Slate900.copy(alpha = 0.5f),
+        border = if (selected) BorderStroke(2.dp, pal.BrandGradient)
+        else BorderStroke(1.dp, pal.Hairline),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             RadioButton(selected = selected, onClick = onClick, enabled = enabled, colors = voxSumRadioColors())
             Column(Modifier.weight(1f).padding(start = 4.dp)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, color = VoxSumPalette.Slate200)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+                Text(title, style = MaterialTheme.typography.bodyLarge, color = pal.Slate200)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = pal.Slate400)
             }
             Icon(
                 imageVector = if (downloaded) Icons.Filled.CheckCircle else Icons.Filled.Download,
                 contentDescription = if (downloaded) stringResource(R.string.model_downloaded) else stringResource(R.string.model_will_download),
-                tint = if (downloaded) VoxSumPalette.Success else VoxSumPalette.Slate400,
+                tint = if (downloaded) VoxSumPalette.Success else pal.Slate400,
                 modifier = Modifier.size(18.dp),
             )
         }

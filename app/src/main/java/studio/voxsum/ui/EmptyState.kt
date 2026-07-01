@@ -39,7 +39,7 @@ import androidx.compose.ui.unit.dp
 import studio.voxsum.R
 import studio.voxsum.core.session.RecentSession
 import studio.voxsum.ui.components.GradientButton
-import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /**
  * Blank-slate hero that states the product promise up front — fully on-device, offline, and yours
@@ -108,6 +108,7 @@ fun EmptyState(
 /** Recent sessions on the blank slate — tap to reopen, skipping the file picker. Hidden when empty. */
 @Composable
 private fun RecentList(recents: List<RecentSession>, onOpen: (RecentSession) -> Unit) {
+    val pal = LocalVoxSumPalette.current
     if (recents.isEmpty()) return
     Column(
         Modifier.widthIn(max = 360.dp).fillMaxWidth().padding(top = 4.dp),
@@ -116,7 +117,7 @@ private fun RecentList(recents: List<RecentSession>, onOpen: (RecentSession) -> 
         Text(
             stringResource(R.string.recent_sessions),
             style = MaterialTheme.typography.labelLarge,
-            color = VoxSumPalette.Slate400,
+            color = pal.Slate400,
             modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
         )
         recents.forEach { r ->
@@ -128,12 +129,12 @@ private fun RecentList(recents: List<RecentSession>, onOpen: (RecentSession) -> 
                     .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Filled.History, contentDescription = null, tint = VoxSumPalette.Sky, modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.History, contentDescription = null, tint = pal.Sky, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(10.dp))
                 Text(
                     r.title.ifBlank { stringResource(R.string.recent_untitled) },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = VoxSumPalette.Slate200,
+                    color = pal.Slate200,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -145,22 +146,23 @@ private fun RecentList(recents: List<RecentSession>, onOpen: (RecentSession) -> 
 
 @Composable
 private fun Hero(iconSize: Int) {
+    val pal = LocalVoxSumPalette.current
     Icon(
         Icons.Filled.GraphicEq,
         contentDescription = null,
-        tint = VoxSumPalette.Sky,
+        tint = pal.Sky,
         modifier = Modifier.size(iconSize.dp),
     )
     Text(
         stringResource(R.string.empty_headline),
         style = MaterialTheme.typography.titleMedium,
-        color = VoxSumPalette.Slate200,
+        color = pal.Slate200,
         textAlign = TextAlign.Center,
     )
     Text(
         stringResource(R.string.empty_subtitle),
         style = MaterialTheme.typography.bodyMedium,
-        color = VoxSumPalette.Slate400,
+        color = pal.Slate400,
         textAlign = TextAlign.Center,
     )
 }
@@ -174,15 +176,16 @@ private fun Pillars() {
 
 @Composable
 private fun Pillar(icon: ImageVector, titleRes: Int, descRes: Int) {
+    val pal = LocalVoxSumPalette.current
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Icon(
             icon,
             contentDescription = null,
-            tint = VoxSumPalette.Sky,
+            tint = pal.Sky,
             modifier = Modifier
                 .size(38.dp)
                 .clip(CircleShape)
-                .background(VoxSumPalette.Sky.copy(alpha = 0.14f))
+                .background(pal.Sky.copy(alpha = 0.14f))
                 .padding(9.dp),
         )
         Spacer(Modifier.width(14.dp))
@@ -190,12 +193,12 @@ private fun Pillar(icon: ImageVector, titleRes: Int, descRes: Int) {
             Text(
                 stringResource(titleRes),
                 style = MaterialTheme.typography.titleSmall,
-                color = VoxSumPalette.Slate200,
+                color = pal.Slate200,
             )
             Text(
                 stringResource(descRes),
                 style = MaterialTheme.typography.bodySmall,
-                color = VoxSumPalette.Slate400,
+                color = pal.Slate400,
             )
         }
     }

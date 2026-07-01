@@ -37,6 +37,7 @@ import studio.voxsum.online.Podcast
 import studio.voxsum.online.PodcastSeries
 import studio.voxsum.ui.components.DownloadStatusBar
 import studio.voxsum.ui.components.GradientButton
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.voxSumTextFieldColors
 
@@ -47,6 +48,7 @@ import studio.voxsum.ui.theme.voxSumTextFieldColors
  */
 @Composable
 fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
+    val pal = LocalVoxSumPalette.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var query by remember { mutableStateOf("") }
@@ -104,9 +106,9 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
                     }
                 }) {
                     Column(Modifier.padding(12.dp)) {
-                        Text(s.title, style = MaterialTheme.typography.bodyLarge, color = VoxSumPalette.Slate200)
+                        Text(s.title, style = MaterialTheme.typography.bodyLarge, color = pal.Slate200)
                         Text("${s.artist} · ${s.episodeCount} episodes",
-                            style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+                            style = MaterialTheme.typography.bodySmall, color = pal.Slate400)
                     }
                 }
             }
@@ -122,9 +124,9 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(e.title, style = MaterialTheme.typography.bodyMedium, color = VoxSumPalette.Slate200)
+                            Text(e.title, style = MaterialTheme.typography.bodyMedium, color = pal.Slate200)
                             if (e.durationText.isNotBlank()) {
-                                Text(e.durationText, style = MaterialTheme.typography.bodySmall, color = VoxSumPalette.Slate400)
+                                Text(e.durationText, style = MaterialTheme.typography.bodySmall, color = pal.Slate400)
                             }
                         }
                         Spacer(Modifier.width(8.dp))
@@ -148,10 +150,11 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
 
 @Composable
 private fun RowCard(onClick: (() -> Unit)?, content: @Composable () -> Unit) {
+    val pal = LocalVoxSumPalette.current
     Surface(
-        color = VoxSumPalette.InsetSurface,
+        color = pal.InsetSurface,
         shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, VoxSumPalette.Hairline),
+        border = BorderStroke(1.dp, pal.Hairline),
         modifier = Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) { content() }
 }

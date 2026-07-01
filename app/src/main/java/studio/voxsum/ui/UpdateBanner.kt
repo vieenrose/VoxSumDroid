@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import studio.voxsum.R
 import studio.voxsum.ui.components.DownloadStatusBar
 import studio.voxsum.ui.components.GradientButton
-import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /**
  * Dismissible "a newer version is available" card. While downloading it shows the progress bar
@@ -47,29 +47,30 @@ fun UpdateBanner(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val pal = LocalVoxSumPalette.current
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = VoxSumPalette.PanelSurface),
+        colors = CardDefaults.cardColors(containerColor = pal.PanelSurface),
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, VoxSumPalette.Hairline),
+        border = BorderStroke(1.dp, pal.Hairline),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.SystemUpdate, contentDescription = null, tint = VoxSumPalette.Sky,
+                Icon(Icons.Filled.SystemUpdate, contentDescription = null, tint = pal.Sky,
                     modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     stringResource(R.string.update_available, versionTag),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = VoxSumPalette.Slate200,
+                    color = pal.Slate200,
                     modifier = Modifier.weight(1f),
                 )
                 if (progress == null) {
                     IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.update_later),
-                            tint = VoxSumPalette.Slate400, modifier = Modifier.size(18.dp))
+                            tint = pal.Slate400, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -77,7 +78,7 @@ fun UpdateBanner(
                 Text(
                     notes.trim().lineSequence().filter { it.isNotBlank() }.take(4).joinToString("\n"),
                     style = MaterialTheme.typography.bodySmall,
-                    color = VoxSumPalette.Slate400,
+                    color = pal.Slate400,
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -88,7 +89,7 @@ fun UpdateBanner(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     GradientButton(text = stringResource(R.string.update_now), icon = Icons.Filled.Download, onClick = onUpdate)
                     TextButton(onClick = onDismiss) {
-                        Text(stringResource(R.string.update_later), color = VoxSumPalette.Slate400)
+                        Text(stringResource(R.string.update_later), color = pal.Slate400)
                     }
                 }
             }

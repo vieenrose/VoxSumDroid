@@ -28,7 +28,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import studio.voxsum.R
-import studio.voxsum.ui.theme.VoxSumPalette
+import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /**
  * One place to add audio from any source — File / Record / Podcast / YouTube as list rows,
@@ -44,18 +44,19 @@ fun AddSourceSheet(
     onOpenSession: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val pal = LocalVoxSumPalette.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = VoxSumPalette.Slate800,
+        containerColor = pal.Slate800,
     ) {
         // Scrollable so every source stays reachable on a short (landscape) viewport.
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             Text(
                 stringResource(R.string.add_audio),
                 style = MaterialTheme.typography.titleLarge,
-                color = VoxSumPalette.Slate200,
+                color = pal.Slate200,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
             )
@@ -70,10 +71,11 @@ fun AddSourceSheet(
 
 @Composable
 private fun SourceRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
+    val pal = LocalVoxSumPalette.current
     ListItem(
-        headlineContent = { Text(title, color = VoxSumPalette.Slate200) },
-        supportingContent = { Text(subtitle, color = VoxSumPalette.Slate400) },
-        leadingContent = { Icon(icon, contentDescription = null, tint = VoxSumPalette.Sky) },
+        headlineContent = { Text(title, color = pal.Slate200) },
+        supportingContent = { Text(subtitle, color = pal.Slate400) },
+        leadingContent = { Icon(icon, contentDescription = null, tint = pal.Sky) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     )
