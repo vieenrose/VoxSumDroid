@@ -58,6 +58,7 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 - **Actions et décisions** — tirez d'une réunion une liste (modifiable) de qui-fait-quoi et des décisions clés.
 - **Cherchez dans la transcription** — trouvez n'importe quel mot dans un long enregistrement ; les résultats se surlignent et vous pouvez les parcourir.
 - **Un lecteur intégré et synchronisé** — ancré en bas comme une appli musicale : touchez une ligne pour y sauter, et la ligne en cours se surligne pendant la lecture.
+- **Confortable pour les yeux** — thèmes **Clair**, **Sombre**, ou un thème **E-ink** plat à fort contraste conçu pour les liseuses (Boox et similaires). **Auto** — le réglage par défaut — suit le mode clair/sombre du système. Changez-en à tout moment dans **Paramètres → Apparence**.
 
 **✏️ Personnalisez**
 - **Modifiez tout** — corrigez un mot, renommez un intervenant, ajustez le titre ou le résumé, sur place.

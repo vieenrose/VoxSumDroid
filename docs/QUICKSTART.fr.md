@@ -92,6 +92,7 @@ Les sessions enregistrées et rouvertes apparaissent sous **Récent** sur l'écr
 </p>
 <p align="center"><i>À gauche : langue + style du résumé. À droite : <b>Stockage</b> (espace disque par modèle, avec bouton de suppression) et <b>À propos</b> (version, licence, composants open source).</i></p>
 
+- **Apparence** — **Clair**, **Sombre**, ou **E-ink** (un thème plat à fort contraste pour les liseuses comme Boox). **Auto** — le réglage par défaut — suit le mode clair/sombre du système.
 - **Langue du résumé** — gardez la langue de la transcription, ou choisissez English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어.
 - **Style du résumé** — Puces / Synthèse / Récit.
 - **Moteur de transcription** — chinois + anglais par défaut ; un moteur multilingue (chinois · anglais · japonais · coréen · cantonais) est à un toucher.

@@ -141,6 +141,8 @@
     <string name="status_detected_names">%d nom(s) de locuteur détecté(s)</string>
     <string name="status_name_detection_failed">Échec de la détection des noms : %1$s</string>
     <string name="status_error">Erreur : %1$s</string>
+    <string name="retry">Réessayer</string>
+    <string name="svc_asr_model_corrupt">Le modèle de reconnaissance n\'a pas pu être chargé (fichier peut-être incomplet). Il a été supprimé ; appuyez sur Réessayer pour le retélécharger.</string>
     <string name="mic_permission_required">L\'autorisation du microphone est requise pour enregistrer</string>
 
     <!-- Foreground-service notifications -->

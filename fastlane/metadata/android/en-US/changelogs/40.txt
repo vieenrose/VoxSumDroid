@@ -1,0 +1,2 @@
+• A corrupt or incomplete speech model now recovers gracefully: the bad files are cleared automatically, and the error offers a one-tap Retry that re-downloads a fresh copy — no more getting stuck.
+• Docs updated for the new Light / Dark / E-ink themes.

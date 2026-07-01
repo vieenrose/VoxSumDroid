@@ -72,8 +72,10 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -776,7 +778,17 @@ private fun TranscribeScreen(
                 is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false }
                 is TranscriptEvent.Failed -> {
                     status = context.getString(R.string.status_error, e.error); running = false
-                    scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.status_error, e.error)) }
+                    // Offer a one-tap Retry for the same source (a corrupt model was cleared server-
+                    // side, so the retry re-downloads it). Only when we still hold the source Uri.
+                    val src = audioUri
+                    scope.launch {
+                        val res = snackbarHostState.showSnackbar(
+                            message = context.getString(R.string.status_error, e.error),
+                            actionLabel = src?.let { context.getString(R.string.retry) },
+                            duration = SnackbarDuration.Long,
+                        )
+                        if (res == SnackbarResult.ActionPerformed && src != null) launchAudio(src)
+                    }
                 }
                 is TranscriptEvent.ExportDone -> {
                     exporting = false

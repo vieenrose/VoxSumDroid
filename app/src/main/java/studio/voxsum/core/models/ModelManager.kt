@@ -115,6 +115,15 @@ class ModelManager(context: Context) {
     fun asrFiles(backend: AsrBackend): AsrModelFiles =
         asrSpecs.getValue(backend).let { it.buildFiles(specDir(it)) }
 
+    /**
+     * Remove the on-disk model directory for [backend] so the next run re-downloads a clean copy.
+     * Used to recover when the recognizer fails to load — the files are present (so [asrReady] is
+     * true and [ensureAsrModels] would otherwise skip the download) but incomplete/corrupt.
+     */
+    fun deleteAsr(backend: AsrBackend) {
+        specDir(asrSpecs.getValue(backend)).takeIf(File::exists)?.deleteRecursively()
+    }
+
     /** Download + extract the model for [backend] if missing (VAD shared across backends). */
     suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
         withContext(Dispatchers.IO) {

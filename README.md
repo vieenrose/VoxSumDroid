@@ -58,6 +58,7 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 - **Action items & decisions** — pull a draft checklist of who-does-what and the key decisions out of a meeting, ready to edit.
 - **Search the transcript** — find any word in a long recording; matches highlight and you can step through them.
 - **A built-in player, in sync** — docked at the bottom like a music app: tap any line to jump there, and the current line highlights as it plays.
+- **Easy on the eyes** — **Light**, **Dark**, or a flat high-contrast **E-ink** theme built for e-paper readers (Boox and the like). **Auto** — the default — follows your system's light/dark setting. Switch any time in **Settings → Appearance**.
 
 **✏️ Make it yours**
 - **Edit anything** — fix a word, rename a speaker, tweak the title or summary, right in place.
@@ -65,7 +66,7 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 - **Copy** the whole summary with one tap.
 - **Export the words** — copy or share the transcript as text, or save **subtitles (`.srt`/`.vtt`)**, plain text, Markdown, or a printable **PDF** for any other app.
 - **Re-run** the transcription, the summary, or the speaker-name detection whenever you like — e.g. switch the summary language and re-summarize.
-- **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) is packed into a single **`.m4a`** that **plays in any music app** (and shows the title, cover, summary and the **time-synced transcript** as lyrics — see [*Synced lyrics in Android music players*](#synced-lyrics-in-android-music-players)) and **reopens in VoxSum** with everything intact. (`.m4a` has the widest reach — iPhones, cars, every player; older `.ogg` sessions still open.)
+- **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) packs into a single **`.m4a`**. It **plays in any music app** — showing the title, cover, summary, and the **time-synced transcript** as [scrolling lyrics](#synced-lyrics-in-android-music-players) — and **reopens in VoxSum** with everything intact. `.m4a` reaches the widest set of players (iPhones, cars, every app); older `.ogg` sessions still open too.
 
 ## Languages
 

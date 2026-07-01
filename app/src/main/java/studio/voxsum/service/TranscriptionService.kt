@@ -322,15 +322,25 @@ class TranscriptionService : LifecycleService() {
 
         // --- ASR phase: collect utterances while streaming them to the UI. ---
         val utterances = ArrayList<TranscriptEvent.Utterance>()
-        AsrEngine(
-            backend = backend,
-            files = models.asrFiles(backend),
-            vadModel = models.vadModel.absolutePath,
-            numThreads = asrThreads(),
-            language = cfg.language,
-            useItn = cfg.useItn,
-            vadThreshold = cfg.vadThreshold,
-        ).use { asr ->
+        val asr = try {
+            AsrEngine(
+                backend = backend,
+                files = models.asrFiles(backend),
+                vadModel = models.vadModel.absolutePath,
+                numThreads = asrThreads(),
+                language = cfg.language,
+                useItn = cfg.useItn,
+                vadThreshold = cfg.vadThreshold,
+            )
+        } catch (t: Throwable) {
+            // The model files are present but the recognizer couldn't load them — an incomplete or
+            // corrupt download/extraction. Remove them so a retry re-downloads a clean copy, and
+            // surface a clear, retryable message instead of a raw native error in the transcript.
+            runCatching { models.deleteAsr(backend) }
+            events.emit(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))
+            return
+        }
+        asr.use {
             asr.transcribeLive(chunks)
                 .flowOn(Dispatchers.Default)
                 .collect { e ->

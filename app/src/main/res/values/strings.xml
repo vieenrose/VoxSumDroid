@@ -141,6 +141,8 @@
     <string name="status_detected_names">Detected %d speaker name(s)</string>
     <string name="status_name_detection_failed">Name detection failed: %1$s</string>
     <string name="status_error">Error: %1$s</string>
+    <string name="retry">Retry</string>
+    <string name="svc_asr_model_corrupt">The speech model couldn\'t be loaded — it may be incomplete. It has been cleared; tap Retry to download a fresh copy.</string>
     <string name="mic_permission_required">Microphone permission is required to record</string>
 
     <!-- Foreground-service notifications -->

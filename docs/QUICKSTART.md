@@ -115,6 +115,8 @@ Saved and reopened sessions show up under **Recent** on the home screen, one tap
 <p align="center"><i>Left: summary language + style. Right: <b>Storage</b> (per-model disk usage with a
 delete button) and <b>About</b> (version, license, open-source components).</i></p>
 
+- **Appearance** — **Light**, **Dark**, or **E-ink** (a flat, high-contrast theme for e-paper
+  readers like Boox). **Auto** — the default — follows your system's light/dark setting.
 - **Summary language** — keep the transcript's language, or pick English · Français · 繁體中文 ·
   简体中文 · 日本語 · 한국어.
 - **Summary style** — Bullets / Executive / Narrative.
