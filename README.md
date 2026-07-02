@@ -49,17 +49,22 @@ older Python backend. For the Android app itself, see `README.md` on `main`.
 - A desktop audio decoder (`AudioDecoder`, ffmpeg-backed) and recorder (`AudioRecorder`,
   `javax.sound.sampled`) — verified by actually decoding real WAV/MP3 files (sample counts and
   waveform peaks cross-checked) and opening a real microphone line, matching Android's
-  `decodeToPcm16k`/`decodeToWav16k`/`waveformPeaks`/`record` contracts.
+  `decodeToPcm16k`/`decodeToWav16k`/`waveformPeaks`/`record` contracts. That verification caught
+  a real bug: a blocking mic read with no dispatcher hint could deadlock a single-threaded caller
+  — fixed with `flowOn(Dispatchers.IO)`.
+- A desktop file picker (`FilePicker`, native AWT/GTK dialogs) replacing Android's SAF launchers —
+  verified against a real, screenshotted native dialog with a working extension filter, and a real
+  file selection returning a correct, existing path.
 
 **Not yet done:**
 
 - sherpa-onnx's upstream Kotlin API wrapper inlines Android-only `AssetManager` constructors in
   every file, so it needs a small hand-written desktop JNI wrapper (or a patched copy) before
   ASR/diarization actually run on Linux — the native library side is ready and waiting for it.
-- A desktop file-open/save dialog (replacing Android's SAF pickers) and a plain coroutine-scoped
-  background job (replacing the foreground `Service` execution model).
 - Wiring the real VoxSum UI into `:desktop/Main.kt` (currently a minimal theme-picker placeholder)
-  and an end-to-end transcribe+summarize run on Linux.
+  and an end-to-end transcribe+summarize run on Linux. This is also where the Android foreground
+  `Service`'s execution model gets its desktop counterpart — just a plain `CoroutineScope` tied to
+  the app's lifetime, no dedicated replacement needed ahead of time.
 
 ## Build & run
 
