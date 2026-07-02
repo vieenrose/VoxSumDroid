@@ -53,6 +53,7 @@ fun main() {
     mainApplication()
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 private fun mainApplication() = application {
     Window(
         onCloseRequest = ::exitApplication,
@@ -64,6 +65,7 @@ private fun mainApplication() = application {
         var showSettings by remember { mutableStateOf(false) }
         var showModels by remember { mutableStateOf(false) }
         var showExportMenu by remember { mutableStateOf(false) }
+        var showRecentMenu by remember { mutableStateOf(false) }
         var showRerunMenu by remember { mutableStateOf(false) }
         var showSearch by remember { mutableStateOf(false) }
         var recording by remember { mutableStateOf(false) }
@@ -91,7 +93,11 @@ private fun mainApplication() = application {
             val pal = LocalVoxSumPalette.current
             Column(Modifier.fillMaxSize().background(pal.Slate900).padding(20.dp)) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    androidx.compose.foundation.layout.FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         Button(
                             enabled = !state.running && !recording,
                             onClick = {
@@ -102,11 +108,36 @@ private fun mainApplication() = application {
                                 val saved = SessionFile.load(picked)
                                 if (saved != null) {
                                     state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
+                                    RecentSessions.add(picked.absolutePath, saved.title.ifBlank { picked.name }, System.currentTimeMillis())
                                 } else {
                                     scope.launch { runPipeline(picked, state.config, state.summaryStyle, update) }
                                 }
                             },
                         ) { Text("Add audio") }
+
+                        Box {
+                            Button(onClick = { showRecentMenu = true }) { Text("Recent ▾") }
+                            DropdownMenu(expanded = showRecentMenu, onDismissRequest = { showRecentMenu = false }) {
+                                val recents = RecentSessions.list()
+                                if (recents.isEmpty()) {
+                                    Text("No recent sessions", color = pal.Slate400, modifier = Modifier.padding(8.dp))
+                                } else {
+                                    recents.forEach { r ->
+                                        DropdownMenuItem(text = { Text(r.title.ifBlank { r.path.substringAfterLast('/') }) }, onClick = {
+                                            showRecentMenu = false
+                                            val f = java.io.File(r.path)
+                                            val saved = SessionFile.load(f)
+                                            if (saved != null) {
+                                                state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
+                                                RecentSessions.add(r.path, r.title, System.currentTimeMillis())
+                                            } else {
+                                                RecentSessions.remove(r.path)
+                                            }
+                                        })
+                                    }
+                                }
+                            }
+                        }
 
                         Button(
                             enabled = !state.running,
@@ -147,7 +178,12 @@ private fun mainApplication() = application {
 
                         Button(
                             enabled = state.transcriptReady && state.audioFile != null,
-                            onClick = { state.audioFile?.let { SessionFile.save(it, state) } },
+                            onClick = {
+                                state.audioFile?.let {
+                                    SessionFile.save(it, state)
+                                    RecentSessions.add(it.absolutePath, state.title.ifBlank { it.name }, System.currentTimeMillis())
+                                }
+                            },
                         ) { Text("Save session") }
 
                         Button(onClick = { showSearch = !showSearch }) { Text("🔍") }

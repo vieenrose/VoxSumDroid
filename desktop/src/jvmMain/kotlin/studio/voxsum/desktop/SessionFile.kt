@@ -83,6 +83,10 @@ object SessionFile {
         }.getOrNull()
     }
 
+    /** Exposes the top-level array parse for other small JSON sidecars in this app (e.g.
+     *  [RecentSessions]) so they don't need their own parser. */
+    fun parseJsonArray(raw: String): List<Any?> = JsonParser(raw).parseTopLevelArray()
+
     private fun jsonString(s: String): String {
         val sb = StringBuilder("\"")
         for (c in s) when (c) {
@@ -102,6 +106,7 @@ object SessionFile {
      *  output plus any hand-edited/foreign JSON matching this shape. */
     private class JsonParser(private val s: String) {
         private var i = 0
+        fun parseTopLevelArray(): List<Any?> { skipWs(); return parseArray() }
         fun parseObject(): Map<String, Any?> {
             skipWs(); expect('{')
             val out = LinkedHashMap<String, Any?>()
