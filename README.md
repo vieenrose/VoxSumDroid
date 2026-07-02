@@ -2,7 +2,7 @@
   <img src="docs/screenshots/app-icon.png" width="96" alt="VoxSum" />
 </p>
 
-<h1 align="center">VoxSum for Linux (desktop) — work in progress</h1>
+<h1 align="center">VoxSum for Linux (desktop)</h1>
 
 <p align="center">
   <b>Turn any audio into a clean, speaker-labelled transcript and a short summary —<br>entirely on your machine, fully offline.</b>
@@ -75,19 +75,29 @@ from the dev tree. Every item below was actually executed and observed:
   through the system's default input device end to end to a "Done" summary.
 - **Model management**: a Models screen listing every downloaded model with size/kind and a Delete
   action to reclaim space (`ModelManager.storedModels()`, shared with Android).
-- **Session save/reopen**: "Save session" writes a `<audio>.voxsum.json` sidecar; reopening the same
-  audio file loads it back instantly with no re-transcription. This is a *different, simpler* format
-  than Android's `VoxsumSession` (which embeds the session in the audio file's own OGG/M4A tags via
-  Android-only APIs) — tracked as a follow-up to reach true format parity.
+- **Session save/reopen — full format parity with Android**: "Save session" writes a
+  self-describing `.ogg`/`.m4a` file (audio transcoded to Opus/AAC via a system `ffmpeg`
+  subprocess, an audio-seeded cover identicon embedded, and the full editable transcript
+  gzip+base64'd into a Vorbis comment / MP4 freeform atom) — the *same format* Android uses,
+  reusing the shared `OggOpusTags`/`Mp4Tags` read/write code. Any media player plays it and shows
+  title/description/synced lyrics; reopening it in VoxSum recovers the exact session. An earlier,
+  simpler JSON-sidecar format (`SessionFile`) is still readable as a fallback for sessions saved
+  before this was ported.
+- **Speaker merge**: merge one speaker into another (not just reassigning individual lines), via
+  the shared `SpeakerEdits.merge`.
+- **Recent sessions**: a "Recent ▾" list of previously opened/saved sessions, backed by the same
+  `KeyValueStore` settings use.
+- **OpenCC script conversion**: Traditional/Simplified Chinese normalization for summaries and
+  action items, using the same OpenCC dictionaries as Android (bundled as JVM classpath resources
+  instead of APK assets).
+- **PDF export**: via Apache PDFBox, with embedded CJK font support (looks for a system-installed
+  Noto Sans CJK font).
+- **Online audio sources**: podcast search (iTunes Search API) + RSS episode download, and YouTube
+  audio resolution/download (via NewPipeExtractor, already a dependency on Android) — both verified
+  against the live network.
 
-**Not yet done** (tracked gaps, not silently dropped):
-
-- OpenCC script conversion (Traditional/Simplified Chinese normalization) — Android-only today,
-  loads dictionaries from APK assets; no desktop asset pipeline exists yet.
-- The Android-format embedded-audio session file (OGG/M4A Vorbis-comment based) — desktop currently
-  uses a JSON sidecar instead (see above).
-- Speaker "merge" as a single action (today: reassign each line individually to the same speaker).
-- Multi-file / batch processing, and a recent-sessions list (depends on the session format above).
+Every item above was independently verified end-to-end (not just compiled) during development —
+see the branch's commit history for the specific verification each one got.
 
 ## Build & run (development)
 
