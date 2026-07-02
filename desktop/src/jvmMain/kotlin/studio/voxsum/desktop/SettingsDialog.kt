@@ -65,6 +65,7 @@ fun SettingsDialog(
         title = "Settings",
         state = androidx.compose.ui.window.rememberDialogState(width = 480.dp, height = 700.dp),
     ) {
+        studio.voxsum.desktop.ui.HiDpiScaled {
         val pal = LocalVoxSumPalette.current
         // One ModelManager, and the downloaded-state maps computed once per dialog open — these
         // are filesystem stats (asrReady/llmReady each stat several files), so computing them in
@@ -185,6 +186,7 @@ fun SettingsDialog(
                     )
                 }) { Text("Save") }
             }
+        }
         }
         }
     }

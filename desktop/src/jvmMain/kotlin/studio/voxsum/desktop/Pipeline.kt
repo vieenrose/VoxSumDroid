@@ -39,6 +39,8 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
         it.copy(
             audioFile = file, fileName = file.name, running = true, error = null,
             utterances = emptyList(), speakerNames = emptyMap(), title = "", summary = "", actionItems = "",
+            // A full run refreshes the whole tree — clear every staleness marker.
+            transcriptDirty = false, summaryStale = false, transcribeStale = false, titleEdited = false,
         )
     }
     try {
@@ -73,6 +75,7 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
             audioFile = null, fileName = "Recording…", running = true, error = null,
             utterances = emptyList(), speakerNames = emptyMap(), title = "", summary = "", actionItems = "",
             status = "Recording…",
+            transcriptDirty = false, summaryStale = false, transcribeStale = false, titleEdited = false,
         )
     }
     try {

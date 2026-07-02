@@ -31,8 +31,13 @@ data class AppState(
     val editingActions: Boolean = false,
     // Dependency-invalidation tree (mirrors Android): a hand-edit to the transcript marks the
     // summary/action-items stale so the UI can offer a re-summarize; titleEdited is sticky so a
-    // re-summarize won't clobber a title the user typed.
+    // re-summarize won't clobber a title the user typed. summaryStale = a summary-shaping setting
+    // (target language / style / model / prompt) changed; transcribeStale = a recognition setting
+    // (backend / language / ITN / VAD / diarization) changed, so the transcript itself is stale
+    // and a re-transcribe refreshes the whole tree.
     val transcriptDirty: Boolean = false,
+    val summaryStale: Boolean = false,
+    val transcribeStale: Boolean = false,
     val titleEdited: Boolean = false,
 ) {
     /** True once a transcript exists — re-run/export/detect-names actions key off this rather

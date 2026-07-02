@@ -38,6 +38,7 @@ fun ModelsDialog(onDismiss: () -> Unit) {
         title = "Downloaded models",
         state = androidx.compose.ui.window.rememberDialogState(width = 520.dp, height = 480.dp),
     ) {
+        studio.voxsum.desktop.ui.HiDpiScaled {
         val pal = LocalVoxSumPalette.current
         Box(Modifier.fillMaxSize().background(pal.Slate900)) {
         Column(
@@ -67,6 +68,7 @@ fun ModelsDialog(onDismiss: () -> Unit) {
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
                 Button(onClick = onDismiss) { Text("Close") }
             }
+        }
         }
         }
     }

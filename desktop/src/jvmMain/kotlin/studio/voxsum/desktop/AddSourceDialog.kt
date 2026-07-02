@@ -52,6 +52,7 @@ fun AddSourceDialog(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
         title = "Add online audio",
         state = androidx.compose.ui.window.rememberDialogState(width = 760.dp, height = 620.dp),
     ) {
+        studio.voxsum.desktop.ui.HiDpiScaled {
         val pal = LocalVoxSumPalette.current
         Column(Modifier.fillMaxSize().background(pal.Slate900).padding(20.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -69,6 +70,7 @@ fun AddSourceDialog(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
                 SourceTab.PODCAST -> PodcastTab(onDismiss, onDownloaded)
                 SourceTab.YOUTUBE -> YouTubeTab(onDismiss, onDownloaded)
             }
+        }
         }
     }
 }

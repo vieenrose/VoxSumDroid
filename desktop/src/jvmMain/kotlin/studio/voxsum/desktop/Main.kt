@@ -68,6 +68,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import kotlinx.coroutines.launch
 import studio.voxsum.core.config.ConfigStore
+import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.ThemeMode
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.prefs.JvmKeyValueStore
@@ -85,45 +86,12 @@ fun main() {
     // Stock OpenJDK's Linux X11 toolkit doesn't reliably auto-detect HiDPI outside GNOME (KDE/XFCE
     // don't publish the same XSETTINGS key), so on a 2K/4K screen the app renders at 1x — tiny text
     // and icons. Must run before any AWT/Skiko initialization (the first Window { } call), which is
-    // why this is the very first thing in main().
-    detectLinuxUiScale()?.let { System.setProperty("sun.java2d.uiScale", it.toString()) }
+    // why this is the very first thing in main(). (The Compose-level density override in
+    // ui/HiDpi.kt is the reliable path; this property is best-effort for AWT-side surfaces.)
+    studio.voxsum.desktop.ui.detectLinuxUiScale()?.let { System.setProperty("sun.java2d.uiScale", it.toString()) }
     NativeLibs.ensureLoaded()
     KeyValueStore.forName = { name -> JvmKeyValueStore(name) }
     mainApplication()
-}
-
-/**
- * Best-effort HiDPI scale for Linux X11 desktops. Doesn't touch java.awt.Toolkit (that would
- * initialize AWT before we can set the system property), so it shells out to read the values
- * desktop environments actually publish, in priority order:
- * 1. VOXSUM_UI_SCALE — explicit user override, for the rare case detection guesses wrong.
- * 2. GDK_SCALE / QT_SCALE_FACTOR — set directly by some desktops/session managers.
- * 3. Xft.dpi (via `xrdb -query`) — set by KDE, XFCE, and most X11 desktops; 96 dpi = 1x.
- * Returns null (no override — Java's own default) if nothing is found or on Wayland/headless,
- * where forcing a wrong scale would be worse than the current under-scaling.
- */
-private fun detectLinuxUiScale(): Double? {
-    System.getenv("VOXSUM_UI_SCALE")?.toDoubleOrNull()?.let { return it }
-    System.getenv("GDK_SCALE")?.toDoubleOrNull()?.let { return it }
-    System.getenv("QT_SCALE_FACTOR")?.toDoubleOrNull()?.let { return it }
-    val dpi = runCatching {
-        ProcessBuilder("sh", "-c", "xrdb -query 2>/dev/null | grep -i '^Xft.dpi:' | awk '{print \$2}'")
-            .start()
-            .let { p -> val out = p.inputStream.bufferedReader().readText().trim(); p.waitFor(); out }
-            .toDoubleOrNull()
-    }.getOrNull() ?: return null
-    val raw = dpi / 96.0
-    // Snap to the scale steps desktops actually offer, so text renders crisp rather than
-    // interpolated at an odd in-between ratio.
-    return when {
-        raw >= 3.5 -> 4.0
-        raw >= 2.75 -> 3.0
-        raw >= 2.25 -> 2.5
-        raw >= 1.75 -> 2.0
-        raw >= 1.35 -> 1.5
-        raw >= 1.15 -> 1.25
-        else -> 1.0
-    }
 }
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -239,16 +207,10 @@ private fun mainApplication() = application {
             }
         }
 
-        // HiDPI: override Compose's density from the detected desktop scale. This is the reliable
-        // path (sun.java2d.uiScale is timing-sensitive and often ignored in the packaged app),
-        // guarded so we only apply it when AWT hasn't already scaled (density ~1.0) — on a desktop
-        // that auto-scales (e.g. GNOME) baseDensity is already >1 and we leave it alone.
-        val detectedScale = remember { detectLinuxUiScale() }
-        val baseDensity = LocalDensity.current
-        val effectiveDensity = if (detectedScale != null && detectedScale > 1.0 && baseDensity.density <= 1.05f) {
-            Density(detectedScale.toFloat(), baseDensity.fontScale)
-        } else baseDensity
-        CompositionLocalProvider(LocalDensity provides effectiveDensity) {
+        // HiDPI: Compose-level density override (the reliable path — sun.java2d.uiScale is
+        // timing-sensitive and often ignored in the packaged app). Each DialogWindow body wraps
+        // itself in the same HiDpiScaled, since a new window resets LocalDensity.
+        studio.voxsum.desktop.ui.HiDpiScaled {
         studio.voxsum.desktop.ui.DesktopTheme(themeMode = themeMode) {
             // Dialogs live inside the theme so their DialogWindow content inherits the neutral
             // desktop palette via LocalVoxSumPalette (a separate window otherwise falls back to
@@ -261,9 +223,46 @@ private fun mainApplication() = application {
                     onSave = { newConfig, newStyle ->
                         // Fold the style into the persisted config (config.summaryStyle is what
                         // ConfigStore saves) so the choice survives a restart, not just this session.
+                        val old = state.config
+                        val oldStyle = state.summaryStyle
                         val cfg = newConfig.copy(summaryStyle = newStyle.id)
                         ConfigStore.save(cfg)
-                        state = state.copy(config = cfg, summaryStyle = newStyle)
+                        var next = state.copy(config = cfg, summaryStyle = newStyle)
+
+                        // --- Settings-change invalidation (Android's ConfigSheet onChange) ---
+                        val hasContent = next.utterances.isNotEmpty()
+                        val hasSummary = next.summary.isNotEmpty() || next.actionItems.isNotEmpty()
+                        // Target-language: a pure Traditional↔Simplified switch is only a script
+                        // re-render — convert every text node in place (OpenCC, instant, no LLM).
+                        // Any other language change needs the LLM → summary stale.
+                        if (cfg.targetLanguage != old.targetLanguage) {
+                            val zh = setOf(TargetLanguage.TRADITIONAL.id, TargetLanguage.SIMPLIFIED.id)
+                            val newScript = TargetLanguage.scriptFor(cfg.targetLanguage)
+                            if (old.targetLanguage in zh && cfg.targetLanguage in zh && newScript != null && hasContent) {
+                                val cc = OpenCcConverter.get(newScript)
+                                next = next.copy(
+                                    utterances = next.utterances.map { u -> u.copy(text = cc.convert(u.text)) },
+                                    title = cc.convert(next.title),
+                                    summary = cc.convert(next.summary),
+                                    actionItems = cc.convert(next.actionItems),
+                                    speakerNames = next.speakerNames.mapValues { (_, n) -> n.copy(name = cc.convert(n.name)) },
+                                )
+                            } else if (hasSummary) next = next.copy(summaryStale = true)
+                        }
+                        // Summary-shaping changes (style / model / prompt) → summary stale.
+                        if (hasSummary && (newStyle != oldStyle || cfg.llmModelId != old.llmModelId || cfg.summaryPrompt != old.summaryPrompt)) {
+                            next = next.copy(summaryStale = true)
+                        }
+                        // Recognition-affecting changes → the transcript itself is stale; offer a
+                        // re-transcribe (which refreshes the whole tree).
+                        if (hasContent && (cfg.asrBackend != old.asrBackend || cfg.language != old.language ||
+                                cfg.useItn != old.useItn || cfg.vadThreshold != old.vadThreshold ||
+                                cfg.diarizationEnabled != old.diarizationEnabled || cfg.numSpeakers != old.numSpeakers ||
+                                cfg.clusterThreshold != old.clusterThreshold)
+                        ) {
+                            next = next.copy(transcribeStale = true)
+                        }
+                        state = next
                         showSettings = false
                     },
                 )
@@ -304,6 +303,30 @@ private fun mainApplication() = application {
                     recording = false
                 }
             }
+            // Re-run the whole pipeline on the current audio — refreshes the entire dependency
+            // tree (transcript → summary → title; action items re-extracted after if they existed).
+            val reTranscribe: () -> Unit = {
+                val src = state.audioFile
+                if (src != null && !state.running) {
+                    val hadActions = state.actionItems.isNotEmpty()
+                    scope.launch {
+                        runPipeline(src, state.config, state.summaryStyle, update)
+                        if (hadActions && state.error == null) extractActionItems(state, update)
+                    }
+                }
+            }
+            // Android's regenerateStaleChildren: re-summarize (keeping a user-edited title), then
+            // re-extract action items if they existed — the "update tree" refresh in one click.
+            val regenerateStaleChildren: () -> Unit = {
+                if (!state.running) {
+                    val hadActions = state.actionItems.isNotEmpty()
+                    scope.launch {
+                        update { it.copy(summaryStale = false) }
+                        rerunSummary(state, update)
+                        if (hadActions && state.error == null) extractActionItems(state, update)
+                    }
+                }
+            }
 
             Column(Modifier.fillMaxSize().background(pal.Slate900)) {
                 // ---- Toolbar (flat, desktop-native icon+label buttons) ----
@@ -324,8 +347,13 @@ private fun mainApplication() = application {
                         Box {
                             ToolButton(Icons.Filled.Refresh, "Re-run", enabled = state.transcriptReady && !state.running) { showRerunMenu = true }
                             DropdownMenu(expanded = showRerunMenu, onDismissRequest = { showRerunMenu = false }) {
+                                DropdownMenuItem(
+                                    enabled = state.audioFile != null,
+                                    text = { Text("Re-transcribe") },
+                                    onClick = { showRerunMenu = false; reTranscribe() },
+                                )
                                 DropdownMenuItem(text = { Text("Re-summarize") }, onClick = {
-                                    showRerunMenu = false; scope.launch { rerunSummary(state, update) }
+                                    showRerunMenu = false; regenerateStaleChildren()
                                 })
                                 DropdownMenuItem(text = { Text("Detect speaker names") }, onClick = {
                                     showRerunMenu = false; scope.launch { detectSpeakerNames(state, update) }
@@ -439,6 +467,24 @@ private fun mainApplication() = application {
                             )
                         } else {
                             Column(Modifier.weight(1f).fillMaxWidth().padding(16.dp)) {
+                                // Staleness banners (the update tree). Outside the summary card so a
+                                // re-transcribe hint shows even when no summary exists yet.
+                                // Re-transcribe refreshes everything, so it wins when both are stale.
+                                if (state.transcribeStale) {
+                                    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Recognition settings changed — transcript may be out of date.", color = VoxSumPalette.Warning, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                                        Button(enabled = !state.running && state.audioFile != null, onClick = reTranscribe) { Text("Re-transcribe") }
+                                    }
+                                } else if (state.transcriptDirty || state.summaryStale) {
+                                    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            if (state.transcriptDirty) "Transcript edited — summary may be out of date."
+                                            else "Summary settings changed — summary may be out of date.",
+                                            color = VoxSumPalette.Warning, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f),
+                                        )
+                                        Button(enabled = !state.running, onClick = regenerateStaleChildren) { Text("Re-summarize") }
+                                    }
+                                }
                                 if (state.title.isNotEmpty() || state.summary.isNotEmpty()) {
                                     // Audio-seeded identicon cover (parity with Android's session cover):
                                     // deterministic from the audio marker + title, regenerated only when
@@ -450,14 +496,6 @@ private fun mainApplication() = application {
                                             .toComposeImageBitmap()
                                     }
                                     studio.voxsum.desktop.ui.SectionCard {
-                                        // Transcript edited → the summary/action-items are stale; offer a
-                                        // one-click re-summarize (the update-tree affordance, like Android).
-                                        if (state.transcriptDirty) {
-                                            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                Text("Transcript edited — summary may be out of date.", color = VoxSumPalette.Warning, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                                                Button(enabled = !state.running, onClick = { scope.launch { rerunSummary(state, update) } }) { Text("Re-summarize") }
-                                            }
-                                        }
                                         Row(verticalAlignment = Alignment.Top) {
                                             Image(
                                                 cover, contentDescription = "Session cover",
