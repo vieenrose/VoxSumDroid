@@ -162,6 +162,48 @@ export SHERPA_ONNXRUNTIME_INCLUDE_DIR="$HOME/ort-headers"
 See [`SPIKE.md`](SPIKE.md) for the proven recipe and [`RELEASING.md`](RELEASING.md) for how tagging
 `v*` produces a signed release APK via CI.
 
+## Linux (desktop) — work in progress
+
+This `linux` branch adds a Compose Multiplatform desktop target (Ubuntu/Kubuntu) alongside the
+Android app, reusing as much of the Android app's Kotlin code as possible rather than porting the
+older [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak) Python backend.
+
+**Modules:** `:app` (Android, unchanged) · `:shared` (Kotlin Multiplatform library — jvm +
+androidTarget — holding the code both platforms use) · `:desktop` (Compose Multiplatform app).
+
+**Done and verified:**
+- The real theme system (`VoxSumTheme`, Light/Dark/E-ink) — shared and screenshotted rendering.
+- Settings persistence (`ConfigStore`/`ThemeStore`) and model provisioning (`ModelManager`, same
+  HuggingFace-first downloads as Android) — Android's `Context` dependency swapped for a small
+  `KeyValueStore` interface and plain `File` paths.
+- Summarization business logic (`LlmEngine`, `Summarizer`, `SpeakerNamer`, `ActionItemExtractor`)
+  and audio/export I/O (WAV/MP4/OGG tag read-write, transcript export) — shared as-is.
+- **Native summarization runs on Linux**: `llama.cpp` + VoxSum's own JNI bridge build natively for
+  linux-x86_64 (`desktop/scripts/build-native.sh`) — verified by loading a real GGUF and generating
+  real text through the exact same `LlmEngine.kt` Android uses.
+- The sherpa-onnx (ASR/VAD/diarization) native library also builds for linux-x86_64 and exports the
+  expected JNI surface, but its Kotlin wrapper isn't reachable from `:shared` yet (see below).
+- A desktop audio decoder (`AudioDecoder`, ffmpeg-backed — see the class doc for why that's fine
+  here even though Android intentionally avoids bundling ffmpeg) — verified against real WAV/MP3
+  files, matching Android's `decodeToPcm16k`/`decodeToWav16k`/`waveformPeaks` contract.
+
+**Not yet done:**
+- sherpa-onnx's upstream Kotlin API wrapper inlines Android-only `AssetManager` constructors in
+  every file, so it needs a small hand-written desktop JNI wrapper (or a patched copy) before ASR/
+  diarization actually run on Linux — the native library side is ready and waiting for it.
+- Desktop replacements for file picking (SAF → a native file dialog) and the foreground-Service
+  execution model (→ a plain coroutine scope).
+- Wiring the real VoxSum UI into `:desktop/Main.kt` (currently a minimal theme-picker placeholder)
+  and an end-to-end transcribe+summarize run on Linux.
+
+```bash
+# Build & run the desktop shell (theme placeholder UI only, for now)
+./gradlew :desktop:run
+
+# Build the native libs it needs for summarization
+./desktop/scripts/build-native.sh
+```
+
 ## License
 
 [GPL-3.0-or-later](LICENSE). Bundled source dependencies retain their own licenses; the summarization
