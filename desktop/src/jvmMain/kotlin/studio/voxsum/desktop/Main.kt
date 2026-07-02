@@ -104,6 +104,12 @@ private fun mainApplication() = application {
         val scope = rememberVoxSumScope()
         val update: ((AppState) -> AppState) -> Unit = { fn -> state = fn(state) }
 
+        // Recents cached in state and refreshed only when the list actually changes — reading
+        // RecentSessions.list() (a KeyValueStore read + JSON parse) directly in the sidebar body
+        // would re-run on every recomposition (each search keystroke / incoming utterance).
+        var recents by remember { mutableStateOf(RecentSessions.list()) }
+        val refreshRecents: () -> Unit = { recents = RecentSessions.list() }
+
         // Open a local audio file (or reopen a saved session) — shared by the toolbar "Add audio"
         // button and the empty-state hero CTA, so the blank slate can actually pick a local file
         // (the hero must not be an online-only entry point when the toolbar is hidden).
@@ -118,6 +124,7 @@ private fun mainApplication() = application {
                 if (saved != null) {
                     state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
                     RecentSessions.add(picked.absolutePath, saved.title.ifBlank { picked.name }, System.currentTimeMillis())
+                    refreshRecents()
                 } else {
                     scope.launch { runPipeline(picked, state.config, state.summaryStyle, update) }
                 }
@@ -142,6 +149,9 @@ private fun mainApplication() = application {
                             )
                         }
                         RecentSessions.add(dest.absolutePath, state.title.ifBlank { dest.name }, System.currentTimeMillis())
+                        // The saved file is now the active session — highlight it in the sidebar.
+                        currentSessionPath = dest.absolutePath
+                        refreshRecents()
                         update {
                             it.copy(status = when (outcome) {
                                 studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.FULL -> "Session saved"
@@ -179,7 +189,11 @@ private fun mainApplication() = application {
             if (showAddSource) {
                 AddSourceDialog(
                     onDismiss = { showAddSource = false },
-                    onDownloaded = { file -> scope.launch { runPipeline(file, state.config, state.summaryStyle, update) } },
+                    onDownloaded = { file ->
+                        // Fresh unsaved content — no sidebar row to highlight until it's saved.
+                        currentSessionPath = null
+                        scope.launch { runPipeline(file, state.config, state.summaryStyle, update) }
+                    },
                 )
             }
 
@@ -193,8 +207,11 @@ private fun mainApplication() = application {
                     state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
                     RecentSessions.add(r.path, r.title, System.currentTimeMillis())
                 } else RecentSessions.remove(r.path)
+                refreshRecents()
             }
             val startRecording: () -> Unit = {
+                // Fresh unsaved content — clear the highlight so no stale sidebar row stays selected.
+                currentSessionPath = null
                 recordStopFlag.set(false)
                 recording = true
                 scope.launch {
@@ -269,7 +286,6 @@ private fun mainApplication() = application {
                             color = pal.Slate400,
                             modifier = Modifier.padding(start = 14.dp, top = 12.dp, bottom = 6.dp),
                         )
-                        val recents = RecentSessions.list()
                         if (recents.isEmpty()) {
                             Text(
                                 "No sessions yet",
@@ -348,11 +364,14 @@ private fun mainApplication() = application {
                                 }
                                 state.error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
 
-                                val speakerIds = state.utterances.mapNotNull { it.speaker }.distinct().sorted()
-                                val visibleUtterances = if (state.searchQuery.isBlank()) {
-                                    state.utterances
-                                } else {
-                                    state.utterances.filter { it.text.contains(state.searchQuery, ignoreCase = true) }
+                                // remember-keyed so a search keystroke / incoming utterance doesn't
+                                // re-scan+sort and re-filter the whole transcript on every recompose.
+                                val speakerIds = remember(state.utterances) {
+                                    state.utterances.mapNotNull { it.speaker }.distinct().sorted()
+                                }
+                                val visibleUtterances = remember(state.utterances, state.searchQuery) {
+                                    if (state.searchQuery.isBlank()) state.utterances
+                                    else state.utterances.filter { it.text.contains(state.searchQuery, ignoreCase = true) }
                                 }
                                 LazyColumn(Modifier.fillMaxSize().padding(top = 12.dp)) {
                                     items(visibleUtterances, key = { it.index }) { u ->
@@ -373,8 +392,11 @@ private fun mainApplication() = application {
                     ) {
                         val statusText = when {
                             state.error != null -> "Error: ${state.error}"
+                            // Show the loaded source name alongside the status (e.g. "clip.wav ·
+                            // Done") so a freshly-transcribed, not-yet-saved file is still named.
+                            state.fileName.isNotEmpty() ->
+                                if (state.status.isNotEmpty()) "${state.fileName} · ${state.status}" else state.fileName
                             state.status.isNotEmpty() -> state.status
-                            !isEmptyState && state.fileName.isNotEmpty() -> state.fileName
                             else -> "Ready"
                         }
                         Text(statusText, style = MaterialTheme.typography.labelSmall, color = pal.Slate400, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))

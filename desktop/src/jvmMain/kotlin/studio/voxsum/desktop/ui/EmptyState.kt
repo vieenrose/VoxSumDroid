@@ -1,7 +1,6 @@
 package studio.voxsum.desktop.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,13 +12,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.Icon
@@ -31,15 +28,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import studio.voxsum.desktop.RecentSession
 import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /**
  * Desktop copy of app/ui/EmptyState.kt — the blank-slate hero shown before any audio is loaded:
- * product promise, three feature pillars, the primary CTA, and a recents list. Android's string
- * resources (R.string.*) become plain literals (no desktop resource-bundle system exists yet),
+ * product promise, three feature pillars, and the primary CTA (recents live in the sessions
+ * sidebar). Android's string resources (R.string.*) become plain literals (no desktop
+ * resource-bundle system exists yet),
  * and the landscape/portrait split (LocalConfiguration) is dropped — desktop windows are
  * arbitrarily resizable rather than having two fixed orientations, so a single centered layout
  * that scrolls on a short window covers the same ground.
@@ -47,8 +43,6 @@ import studio.voxsum.ui.theme.LocalVoxSumPalette
 @Composable
 fun EmptyState(
     onAddSource: () -> Unit,
-    recents: List<RecentSession> = emptyList(),
-    onOpenRecent: (RecentSession) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -66,46 +60,9 @@ fun EmptyState(
         ) {
             Pillars()
         }
+        // Recents live in the always-visible sessions sidebar now, so the hero only carries the
+        // primary "Add audio" CTA (no in-hero recents list).
         GradientButton("Add audio", Icons.Filled.Add, onClick = onAddSource)
-        RecentList(recents, onOpenRecent)
-    }
-}
-
-@Composable
-private fun RecentList(recents: List<RecentSession>, onOpen: (RecentSession) -> Unit) {
-    val pal = LocalVoxSumPalette.current
-    if (recents.isEmpty()) return
-    Column(
-        Modifier.widthIn(max = 360.dp).fillMaxWidth().padding(top = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Text(
-            "Recent",
-            style = MaterialTheme.typography.labelLarge,
-            color = pal.Slate400,
-            modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
-        )
-        recents.forEach { r ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onOpen(r) }
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Filled.History, contentDescription = null, tint = pal.Sky, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    r.title.ifBlank { "Untitled session" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = pal.Slate200,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
     }
 }
 

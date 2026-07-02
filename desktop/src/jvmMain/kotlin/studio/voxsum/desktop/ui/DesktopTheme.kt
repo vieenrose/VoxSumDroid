@@ -84,9 +84,11 @@ private val DesktopShapes = Shapes(
 private fun schemeFor(pal: VoxSumColors) =
     (if (pal.isDark) darkColorScheme() else lightColorScheme()).copy(
         primary = pal.Sky,
-        onPrimary = pal.OnBrand,
+        // Dark ink on the light-blue accent (like the shared theme and GradientButton) — white
+        // "OnBrand" text on Sky is only ~2.3:1 and fails contrast on every default filled Button.
+        onPrimary = pal.Slate900,
         secondary = pal.Sky,
-        onSecondary = pal.OnBrand,
+        onSecondary = pal.Slate900,
         background = pal.Slate900,
         onBackground = pal.Slate200,
         surface = pal.Slate800,
