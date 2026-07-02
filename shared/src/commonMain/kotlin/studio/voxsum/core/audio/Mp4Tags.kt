@@ -1,5 +1,6 @@
 package studio.voxsum.core.audio
 
+import studio.voxsum.core.util.voxLogWarn
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
@@ -90,7 +91,7 @@ object Mp4Tags {
             }
         }
         true
-    }.getOrElse { android.util.Log.w("voxsum-m4a", "mp4 tag write failed", it); dest.delete(); false }
+    }.getOrElse { voxLogWarn("voxsum-m4a", "mp4 tag write failed", it); dest.delete(); false }
 
     /** Recurse the known container boxes and add [shift] to every stco (32-bit) / co64 (64-bit) entry. */
     private fun adjustChunkOffsets(buf: ByteArray, start: Int, end: Int, shift: Long) {
