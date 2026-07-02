@@ -1,9 +1,8 @@
-package studio.voxsum
+package studio.voxsum.core.models
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import studio.voxsum.core.models.ModelManager
 import java.io.File
 
 /**

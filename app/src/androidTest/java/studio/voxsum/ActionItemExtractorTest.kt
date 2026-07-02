@@ -27,7 +27,7 @@ class ActionItemExtractorTest {
 
     @Test(timeout = 1_200_000) fun extractsActionItemsFromAMeeting() = runBlocking {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val models = ModelManager(ctx)
+        val models = ModelManager(ctx.filesDir)
         val spec = LlmRegistry.byId(LlmRegistry.DEFAULT_ID)
         if (!models.llmReady(spec)) {
             Log.i(TAG, "downloading ${spec.displayName}…")

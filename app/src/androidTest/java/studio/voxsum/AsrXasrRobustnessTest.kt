@@ -32,7 +32,7 @@ class AsrXasrRobustnessTest {
     @Test(timeout = 1_200_000) fun xasrFilePathCompletesEvenIfASegmentFails() = runBlocking {
         val inst = InstrumentationRegistry.getInstrumentation()
         val app = inst.targetContext
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         if (!models.asrReady(AsrBackend.XASR)) {
             Log.i(TAG, "downloading x-asr models…")
             models.ensureAsrModels(AsrBackend.XASR) { }

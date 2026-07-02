@@ -25,7 +25,7 @@ class DiarizationTest {
     fun detectsTwoSpeakers() = runBlocking {
         val inst = InstrumentationRegistry.getInstrumentation()
         val app = inst.targetContext
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         // Self-provision (download what's missing) so this test is order-independent — it previously
         // failed on a fresh device when it ran before EmbeddingBenchmarkTest fetched the speaker model.
         if (!models.asrReady()) models.ensureAsrModels { }

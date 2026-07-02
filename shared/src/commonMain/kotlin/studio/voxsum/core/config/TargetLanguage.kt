@@ -1,6 +1,5 @@
 package studio.voxsum.core.config
 
-import android.content.Context
 import studio.voxsum.core.text.ChineseScript
 import java.util.Locale
 
@@ -41,8 +40,12 @@ enum class TargetLanguage(
          * Best default for a fresh install — the user's own display language ("summarize in the
          * user's language"). Chinese resolves to Traditional/Simplified by script then region;
          * a language we don't offer falls back to [AUTO] (match the transcript).
+         *
+         * [locale] defaults to the JVM default locale; on Android, callers should pass
+         * `context.resources.configuration.locales[0]` instead — that reflects Android 13+'s
+         * per-app language override, which [Locale.getDefault] alone does not always pick up.
          */
-        fun defaultFor(locale: Locale): TargetLanguage = when (locale.language) {
+        fun defaultFor(locale: Locale = Locale.getDefault()): TargetLanguage = when (locale.language) {
             "zh" -> {
                 val script = locale.script  // "Hant" / "Hans" / "" (older tags)
                 val region = locale.country.uppercase(Locale.ROOT)
@@ -55,20 +58,17 @@ enum class TargetLanguage(
             else -> AUTO
         }
 
-        fun defaultFor(context: Context): TargetLanguage =
-            defaultFor(context.resources.configuration.locales[0] ?: Locale.getDefault())
-
         /**
          * The Han script ALL Chinese output (transcript, summary, title, speaker names → and the lyrics
          * built from them) should be normalized to, or `null` to skip OpenCC entirely. Explicit
-         * 繁體中文/简体中文 pick directly; AUTO follows the device locale (a Traditional region → Traditional,
+         * 繁體中文/简体中文 pick directly; AUTO follows [locale] (a Traditional region → Traditional,
          * a Simplified region → Simplified, anything else → skip); any non-Chinese target (English, …)
          * skips. This is the single rule that keeps every out-coming text in one consistent script.
          */
-        fun scriptFor(id: String?, context: Context): ChineseScript? = when (fromId(id)) {
+        fun scriptFor(id: String?, locale: Locale = Locale.getDefault()): ChineseScript? = when (fromId(id)) {
             TRADITIONAL -> ChineseScript.TRADITIONAL
             SIMPLIFIED -> ChineseScript.SIMPLIFIED
-            AUTO -> when (defaultFor(context)) {
+            AUTO -> when (defaultFor(locale)) {
                 TRADITIONAL -> ChineseScript.TRADITIONAL
                 SIMPLIFIED -> ChineseScript.SIMPLIFIED
                 else -> null

@@ -61,7 +61,7 @@ class RobustnessInstrumentedTest {
     // --- AsrEngine on degenerate PCM ---------------------------------------------------------
 
     @Test(timeout = 60_000) fun asrHandlesEmptySilentAndTinyPcm() = runBlocking {
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         if (!models.asrReady()) models.ensureAsrModels { }
         for ((name, pcm) in listOf(
             "empty" to FloatArray(0),
@@ -81,7 +81,7 @@ class RobustnessInstrumentedTest {
     }
 
     @Test(timeout = 60_000) fun asrLiveHandlesImmediatelyClosedStream() = runBlocking {
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         if (!models.asrReady()) models.ensureAsrModels { }
         val utts = mutableListOf<TranscriptEvent.Utterance>()
         AsrEngine(
@@ -95,7 +95,7 @@ class RobustnessInstrumentedTest {
     // --- DiarizationEngine on degenerate input -----------------------------------------------
 
     @Test(timeout = 60_000) fun diarizationHandlesZeroAndOneUtterance() = runBlocking {
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         if (!models.diarizationReady()) models.ensureDiarizationModels { }
         val pcm = FloatArray(32_000)   // 2 s of silence — a valid (if quiet) waveform to embed
 
@@ -114,7 +114,7 @@ class RobustnessInstrumentedTest {
     }
 
     @Test(timeout = 30_000) fun diarizationCapsPathologicallyManyUtterances() = runBlocking {
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         if (!models.diarizationReady()) models.ensureDiarizationModels { }
         DiarizationEngine(models.embeddingModel.absolutePath, numThreads = 4).use { de ->
             // Above MAX_CLUSTER_N (2000): must short-circuit BEFORE building the n×n matrix / running
@@ -128,7 +128,7 @@ class RobustnessInstrumentedTest {
     }
 
     @Test(timeout = 60_000) fun diarizationHandlesOutOfRangeTimestamps() = runBlocking {
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         if (!models.diarizationReady()) models.ensureDiarizationModels { }
         val pcm = FloatArray(16_000)   // 1 s
         DiarizationEngine(models.embeddingModel.absolutePath, numThreads = 4).use {

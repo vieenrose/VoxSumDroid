@@ -28,7 +28,7 @@ class PipelineE2ETest {
     fun fullPipelineProducesTranscriptSpeakersAndSummary() = runBlocking {
         val inst = InstrumentationRegistry.getInstrumentation()
         val app = inst.targetContext
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
 
         // Self-provision every model (downloads what's missing) — validates the real
         // download/extract/SHA path on whatever hardware runs this (incl. a non-rooted phone

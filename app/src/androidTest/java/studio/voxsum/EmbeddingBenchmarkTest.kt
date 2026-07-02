@@ -39,7 +39,7 @@ class EmbeddingBenchmarkTest {
     fun camppVsEres2netOnCrossLingualClip() = runBlocking<Unit> {
         val inst = InstrumentationRegistry.getInstrumentation()
         val app = inst.targetContext
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         if (!models.asrReady()) models.ensureAsrModels { }
         if (!models.diarizationReady()) models.ensureDiarizationModels { }
         val dir = models.embeddingModel.parentFile!!

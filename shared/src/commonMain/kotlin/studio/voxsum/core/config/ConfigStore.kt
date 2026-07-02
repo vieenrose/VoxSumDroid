@@ -1,17 +1,23 @@
 package studio.voxsum.core.config
 
-import android.content.Context
+import studio.voxsum.core.prefs.KeyValueStore
+import java.util.Locale
 
 /**
- * Persists [TranscriptionConfig] across app restarts via SharedPreferences, so the user's
+ * Persists [TranscriptionConfig] across app restarts via [KeyValueStore], so the user's
  * chosen ASR backend / LLM / language / diarization / prompt sticks instead of resetting to
  * defaults each launch. Field-by-field (the config is all primitives) — no extra dependency.
  */
 object ConfigStore {
     private const val PREFS = "voxsum_config"
+    private val store: KeyValueStore by lazy { KeyValueStore.forName(PREFS) }
 
-    fun load(context: Context): TranscriptionConfig {
-        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    /**
+     * [defaultLocale] defaults to the JVM default locale; Android callers should pass
+     * `context.resources.configuration.locales[0]` instead — see [TargetLanguage.defaultFor].
+     */
+    fun load(defaultLocale: Locale = Locale.getDefault()): TranscriptionConfig {
+        val p = store
         val d = TranscriptionConfig()
         // Target language: a saved value wins; else migrate the legacy boolean (true→Traditional);
         // a truly fresh install defaults to the user's display language. The prefs KEY stays the legacy
@@ -20,7 +26,7 @@ object ConfigStore {
         val targetLanguage = when {
             p.contains("summaryLanguage") -> p.getString("summaryLanguage", d.targetLanguage) ?: d.targetLanguage
             p.contains("traditionalChinese") -> if (p.getBoolean("traditionalChinese", true)) "zh-Hant" else "auto"
-            else -> TargetLanguage.defaultFor(context).id
+            else -> TargetLanguage.defaultFor(defaultLocale).id
         }
         return TranscriptionConfig(
             asrBackend = p.getString("asrBackend", d.asrBackend) ?: d.asrBackend,
@@ -38,21 +44,18 @@ object ConfigStore {
         )
     }
 
-    fun save(context: Context, c: TranscriptionConfig) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
-            putString("asrBackend", c.asrBackend)
-            putString("asrModelId", c.asrModelId)
-            putString("language", c.language)
-            putBoolean("useItn", c.useItn)
-            putFloat("vadThreshold", c.vadThreshold)
-            putBoolean("diarizationEnabled", c.diarizationEnabled)
-            putInt("numSpeakers", c.numSpeakers)
-            putFloat("clusterThreshold", c.clusterThreshold)
-            putString("llmModelId", c.llmModelId)
-            putString("summaryPrompt", c.summaryPrompt)
-            putString("summaryLanguage", c.targetLanguage)   // legacy key (see load())
-            putString("summaryStyle", c.summaryStyle)
-            apply()
-        }
+    fun save(c: TranscriptionConfig) {
+        store.putString("asrBackend", c.asrBackend)
+        store.putString("asrModelId", c.asrModelId)
+        store.putString("language", c.language)
+        store.putBoolean("useItn", c.useItn)
+        store.putFloat("vadThreshold", c.vadThreshold)
+        store.putBoolean("diarizationEnabled", c.diarizationEnabled)
+        store.putInt("numSpeakers", c.numSpeakers)
+        store.putFloat("clusterThreshold", c.clusterThreshold)
+        store.putString("llmModelId", c.llmModelId)
+        store.putString("summaryPrompt", c.summaryPrompt)
+        store.putString("summaryLanguage", c.targetLanguage)   // legacy key (see load())
+        store.putString("summaryStyle", c.summaryStyle)
     }
 }

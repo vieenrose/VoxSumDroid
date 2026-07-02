@@ -2,9 +2,6 @@ package studio.voxsum.core.text
 
 import android.content.Context
 
-/** Which Han script to normalize Chinese text into. */
-enum class ChineseScript { TRADITIONAL, SIMPLIFIED }
-
 /**
  * Minimal on-device OpenCC converter, both directions, used to keep ALL output text (transcript,
  * summary, title, speaker names → and the lyrics built from them) in one consistent script:

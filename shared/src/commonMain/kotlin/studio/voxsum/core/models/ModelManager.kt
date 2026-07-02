@@ -1,6 +1,5 @@
 package studio.voxsum.core.models
 
-import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -27,12 +26,15 @@ import java.util.concurrent.ConcurrentHashMap
  * lean and the APK FOSS); they download once into app-private storage, or can be
  * side-loaded (adb push / file copy) so the app works fully network-free.
  *
+ * [appFilesDir] is the platform's private-app-storage root (Android: `context.filesDir`;
+ * desktop: e.g. `~/.local/share/VoxSum`) — the only platform-specific input this class needs.
+ *
  * Phase 1 provisions the ASR models only (SenseVoice + Silero VAD). The LLM (Phase 2) and
  * diarization models (Phase 3) extend this with the same pattern.
  */
-class ModelManager(context: Context) {
+class ModelManager(appFilesDir: File) {
 
-    val modelsDir: File = File(context.filesDir, "models").apply { mkdirs() }
+    val modelsDir: File = File(appFilesDir, "models").apply { mkdirs() }
 
     private val senseVoiceDir = File(modelsDir, SENSE_VOICE_DIR)
     val senseVoiceModel: File get() = File(senseVoiceDir, "model.int8.onnx")

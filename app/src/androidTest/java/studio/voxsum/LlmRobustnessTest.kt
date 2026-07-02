@@ -24,7 +24,7 @@ class LlmRobustnessTest {
 
     @Test(timeout = 180_000) fun survivesPromptInTheNBatchWindow() {
         val app = InstrumentationRegistry.getInstrumentation().targetContext
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         assertTrue("push the default GGUF first", models.llmReady())
 
         LlmEngine.load(models.llmModel.absolutePath, nThreads = 4, nCtx = 4096).use { llm ->

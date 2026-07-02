@@ -30,7 +30,7 @@ class AsrEngineTest {
         val inst = InstrumentationRegistry.getInstrumentation()
         val app = inst.targetContext
 
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         if (!models.asrReady()) {
             Log.i(TAG, "models not present, downloading…")
             models.ensureAsrModels { }
@@ -67,7 +67,7 @@ class AsrEngineTest {
     fun transcribesLiveChunkedWav() = runBlocking {
         val inst = InstrumentationRegistry.getInstrumentation()
         val app = inst.targetContext
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         if (!models.asrReady()) models.ensureAsrModels { }
 
         val pcm = readWav16kMono(inst.context.assets.open("en.wav"))

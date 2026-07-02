@@ -143,6 +143,7 @@ import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.config.ConfigStore
+import studio.voxsum.core.config.displayLocale
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.text.ChineseScript
@@ -259,13 +260,13 @@ class MainActivity : ComponentActivity() {
         maybeRequestNotifications()
         // Reclaim space from any download the app was killed mid-way through (stale "*.part" temp
         // files). Safe here: nothing is downloading yet at launch. Off the main thread — it's file IO.
-        Thread { ModelManager(applicationContext).sweepStalePartFiles() }.start()
+        Thread { ModelManager(applicationContext.filesDir).sweepStalePartFiles() }.start()
         handleIncoming(intent)
         setContent {
-            var themeMode by remember { mutableStateOf(ThemeStore.load(this)) }
+            var themeMode by remember { mutableStateOf(ThemeStore.load()) }
             val controller = ThemeController(themeMode) { mode ->
                 themeMode = mode
-                ThemeStore.save(this, mode)
+                ThemeStore.save(mode)
             }
             CompositionLocalProvider(LocalThemeController provides controller) {
                 VoxSumTheme(themeMode) {
@@ -369,7 +370,7 @@ private fun TranscribeScreen(
     var progress by remember { mutableFloatStateOf(0f) }
     // Load the user's persisted settings (survives restarts) and seed the process-wide Holder.
     var config by remember {
-        mutableStateOf(ConfigStore.load(context).also { TranscriptionConfig.Holder.config = it })
+        mutableStateOf(ConfigStore.load(context.displayLocale()).also { TranscriptionConfig.Holder.config = it })
     }
     var showConfigSheet by remember { mutableStateOf(false) }
     // Dependency tree (audio → transcript → {summary → title, speaker names, action items}): a change to
@@ -931,14 +932,14 @@ private fun TranscribeScreen(
             status = context.getString(R.string.status_detecting_names)
             val result = runCatching {
                 withContext(Dispatchers.Default) {
-                    val models = ModelManager(context)
+                    val models = ModelManager(context.filesDir)
                     val spec = LlmRegistry.byId(config.llmModelId)
                     if (!models.llmReady(spec)) models.ensureLlmModel(spec) { }
                     val raw = LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = 4, sampler = spec.sampler).use { llm ->
                         SpeakerNamer(llm, spec.chatTemplate).detect(snapshot)
                     }
                     // Keep detected names in the same script as the rest of the output (Target language × locale).
-                    val cc = TargetLanguage.scriptFor(config.targetLanguage, context)?.let { OpenCcConverter.get(context, it) }
+                    val cc = TargetLanguage.scriptFor(config.targetLanguage, context.displayLocale())?.let { OpenCcConverter.get(context, it) }
                     if (cc != null) raw.mapValues { (_, n) -> n.copy(name = cc.convert(n.name)) } else raw
                 }
             }
@@ -1083,7 +1084,7 @@ private fun TranscribeScreen(
     var downloadPending by remember { mutableStateOf(false) }
     LaunchedEffect(config.asrBackend, config.llmModelId) {
         downloadPending = withContext(Dispatchers.IO) {
-            val m = ModelManager(context)
+            val m = ModelManager(context.filesDir)
             !(runCatching { m.asrReady(AsrBackend.fromId(config.asrBackend)) }.getOrDefault(false) &&
                 runCatching { m.llmReady(LlmRegistry.byId(config.llmModelId)) }.getOrDefault(false))
         }
@@ -1389,13 +1390,13 @@ private fun TranscribeScreen(
             onChange = { newCfg ->
                 val old = config
                 config = newCfg
-                ConfigStore.save(context, newCfg)
+                ConfigStore.save(newCfg)
                 // Target-language change: a pure Traditional↔Simplified switch is only a script re-render,
                 // so convert every text node in place (OpenCC, instant, no LLM) — even user-edited ones,
                 // since conversion preserves wording. Any other language change needs the LLM (→ snackbar).
                 if (newCfg.targetLanguage != old.targetLanguage) {
                     val zh = setOf(TargetLanguage.TRADITIONAL.id, TargetLanguage.SIMPLIFIED.id)
-                    val newScript = TargetLanguage.scriptFor(newCfg.targetLanguage, context)
+                    val newScript = TargetLanguage.scriptFor(newCfg.targetLanguage, context.displayLocale())
                     if (old.targetLanguage in zh && newCfg.targetLanguage in zh && newScript != null) {
                         if (utterances.isNotEmpty()) applyChineseScript(newScript)
                     } else if (!summary.isNullOrBlank() || actionItems != null) summaryStale = true

@@ -33,6 +33,10 @@ class TranscriptUiTest {
         .outerRule(GrantPermissionRule.grant(Manifest.permission.POST_NOTIFICATIONS))
         .around(compose)
 
+    /** Inject an event tagged UNTAGGED — every session's collector accepts UNTAGGED events
+     *  regardless of its own run generation (see TranscriptionService's event-tagging). */
+    private fun emit(e: TranscriptEvent) = TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to e)
+
     @Test
     fun rendersUtterancesAsEventsArrive() {
         // Initial state — a single "Add audio" CTA opens the source chooser. Resolve the label
@@ -42,11 +46,11 @@ class TranscriptUiTest {
         compose.onAllNodesWithText(addAudio).onFirst().assertIsDisplayed()
 
         // Simulate the pipeline emitting a status then two utterances.
-        TranscriptionService.events.tryEmit(TranscriptEvent.Status("Transcribing…"))
-        TranscriptionService.events.tryEmit(
+        emit(TranscriptEvent.Status("Transcribing…"))
+        emit(
             TranscriptEvent.Utterance(0, "hello world", 0.0, 1.0)
         )
-        TranscriptionService.events.tryEmit(
+        emit(
             TranscriptEvent.Utterance(1, "second line", 1.0, 2.0)
         )
 

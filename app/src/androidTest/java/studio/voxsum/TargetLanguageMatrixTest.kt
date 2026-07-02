@@ -33,7 +33,7 @@ class TargetLanguageMatrixTest {
     @Test
     fun everyLlmSummarizesInEveryTargetLanguage() = runBlocking {
         val app = InstrumentationRegistry.getInstrumentation().targetContext
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         val opencc = OpenCcConverter.get(app, ChineseScript.TRADITIONAL)
         var checked = 0
 

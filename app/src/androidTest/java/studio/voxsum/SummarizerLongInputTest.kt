@@ -29,7 +29,7 @@ class SummarizerLongInputTest {
 
     @Test(timeout = 600_000) fun summarizesLongCjkTranscriptToNonEmpty() = runBlocking {
         val app = InstrumentationRegistry.getInstrumentation().targetContext
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         assertTrue("push the default GGUF first", models.llmReady())
 
         // ~1400 CJK chars — the minimal discriminating case at nCtx=2048: as ONE old 3500-char chunk it

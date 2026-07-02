@@ -52,7 +52,7 @@ fun ConfigSheet(
 
     LaunchedEffect(Unit) {
         val res = withContext(Dispatchers.IO) {
-            val m = ModelManager(context)
+            val m = ModelManager(context.filesDir)
             val a = AsrBackend.entries.filter { runCatching { m.asrReady(it) }.getOrDefault(false) }.map { it.id }.toSet()
             val l = LlmRegistry.ALL.filter { runCatching { m.llmReady(it) }.getOrDefault(false) }.map { it.id }.toSet()
             a to l

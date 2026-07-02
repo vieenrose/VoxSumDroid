@@ -23,10 +23,14 @@ kotlin {
             implementation(compose.foundation)
             implementation(compose.runtime)
             implementation(compose.ui)
+            implementation(libs.commons.compress) // ModelManager: .tar.bz2 model extraction
         }
         androidMain.dependencies {
             // WindowCompat, for the Android status-bar actual.
             implementation(libs.androidx.core.ktx)
+        }
+        jvmTest.dependencies {
+            implementation("junit:junit:4.13.2")
         }
     }
 }

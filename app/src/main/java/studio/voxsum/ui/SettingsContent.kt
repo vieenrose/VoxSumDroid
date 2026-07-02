@@ -274,7 +274,7 @@ private fun StoragePanel(enabled: Boolean) {
     var models by remember { mutableStateOf<List<ModelManager.StoredModel>>(emptyList()) }
     var version by remember { mutableIntStateOf(0) }
     LaunchedEffect(version) {
-        models = withContext(Dispatchers.IO) { ModelManager(context).storedModels() }
+        models = withContext(Dispatchers.IO) { ModelManager(context.filesDir).storedModels() }
     }
     if (models.isEmpty()) {
         Text(stringResource(R.string.storage_none), style = MaterialTheme.typography.bodySmall, color = pal.Slate400)

@@ -22,7 +22,7 @@ class LlmEngineTest {
     @Test
     fun generatesCompletion() {
         val app = InstrumentationRegistry.getInstrumentation().targetContext
-        val models = ModelManager(app)
+        val models = ModelManager(app.filesDir)
         assertTrue("push a GGUF to files/models/llm.gguf first", models.llmReady())
 
         val streamed = StringBuilder()

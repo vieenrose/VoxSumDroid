@@ -23,6 +23,7 @@
         android:maxSdkVersion="32" />
 
     <application
+        android:name=".VoxSumApplication"
         android:allowBackup="true"
         android:largeHeap="true"
         android:icon="@mipmap/ic_launcher"

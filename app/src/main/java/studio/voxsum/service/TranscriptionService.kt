@@ -30,6 +30,7 @@ import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioRecorder
 import studio.voxsum.core.audio.WavSlicer
 import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.config.displayLocale
 import studio.voxsum.core.config.SummaryStyle
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
@@ -315,7 +316,7 @@ class TranscriptionService : LifecycleService() {
             ?: run { emitEvent(TranscriptEvent.Failed("No audio source")); return }
         val cfg = TranscriptionConfig.Holder.config
 
-        val models = ModelManager(this)
+        val models = ModelManager(filesDir)
         val backend = AsrBackend.fromId(cfg.asrBackend)
         if (!models.asrReady(backend)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_models)))
@@ -397,7 +398,7 @@ class TranscriptionService : LifecycleService() {
      */
     private suspend fun runRecordingPipeline() {
         val cfg = TranscriptionConfig.Holder.config
-        val models = ModelManager(this)
+        val models = ModelManager(filesDir)
         val backend = AsrBackend.fromId(cfg.asrBackend)
         if (!models.asrReady(backend)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_models)))
@@ -546,7 +547,7 @@ class TranscriptionService : LifecycleService() {
      *  existing title — swapping models for a better summary shouldn't churn a title the user likes. */
     private suspend fun runSummarizeOnly(transcript: String, withTitle: Boolean = false) {
         val cfg = TranscriptionConfig.Holder.config
-        val models = ModelManager(this)
+        val models = ModelManager(filesDir)
         summarize(transcript, cfg, models, outputConverter(cfg), withTitle = withTitle)
     }
 
@@ -558,7 +559,7 @@ class TranscriptionService : LifecycleService() {
             return
         }
         val cfg = TranscriptionConfig.Holder.config
-        val models = ModelManager(this)
+        val models = ModelManager(filesDir)
         val spec = LlmRegistry.byId(cfg.llmModelId)
         if (!models.llmReady(spec)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
@@ -593,7 +594,7 @@ class TranscriptionService : LifecycleService() {
     private suspend fun runExtractActions(transcript: String) {
         if (transcript.isBlank()) { emitEvent(TranscriptEvent.ActionItemsComplete("-")); return }
         val cfg = TranscriptionConfig.Holder.config
-        val models = ModelManager(this)
+        val models = ModelManager(filesDir)
         val spec = LlmRegistry.byId(cfg.llmModelId)
         if (!models.llmReady(spec)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
@@ -626,7 +627,7 @@ class TranscriptionService : LifecycleService() {
      * Traditional → s2tw, Simplified → t2s, otherwise null (skip). Built once per script and cached.
      */
     private fun outputConverter(cfg: TranscriptionConfig): OpenCcConverter? =
-        TargetLanguage.scriptFor(cfg.targetLanguage, this)?.let { OpenCcConverter.get(this, it) }
+        TargetLanguage.scriptFor(cfg.targetLanguage, displayLocale())?.let { OpenCcConverter.get(this, it) }
 
     /** Small thread budget — phone big-core count, not all cores (cf. num_vcpus). */
     private fun asrThreads(): Int =
