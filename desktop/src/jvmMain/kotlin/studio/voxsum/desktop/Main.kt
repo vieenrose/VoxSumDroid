@@ -15,9 +15,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -128,7 +135,7 @@ private fun mainApplication() = application {
                         ) { Text("Add online audio") }
 
                         Box {
-                            Button(onClick = { showRecentMenu = true }) { Text("Recent ▾") }
+                            DropdownButton("Recent", onClick = { showRecentMenu = true })
                             DropdownMenu(expanded = showRecentMenu, onDismissRequest = { showRecentMenu = false }) {
                                 val recents = RecentSessions.list()
                                 if (recents.isEmpty()) {
@@ -169,7 +176,7 @@ private fun mainApplication() = application {
                         ) { Text(if (recording) "Stop" else "Record") }
 
                         Box {
-                            Button(enabled = state.transcriptReady && !state.running, onClick = { showRerunMenu = true }) { Text("Re-run ▾") }
+                            DropdownButton("Re-run", enabled = state.transcriptReady && !state.running, onClick = { showRerunMenu = true })
                             DropdownMenu(expanded = showRerunMenu, onDismissRequest = { showRerunMenu = false }) {
                                 DropdownMenuItem(text = { Text("Re-summarize") }, onClick = {
                                     showRerunMenu = false; scope.launch { rerunSummary(state, update) }
@@ -184,7 +191,7 @@ private fun mainApplication() = application {
                         }
 
                         Box {
-                            Button(enabled = state.transcriptReady, onClick = { showExportMenu = true }) { Text("Export ▾") }
+                            DropdownButton("Export", enabled = state.transcriptReady, onClick = { showExportMenu = true })
                             ExportMenu(expanded = showExportMenu, onDismiss = { showExportMenu = false }, state = state)
                         }
 
@@ -215,12 +222,16 @@ private fun mainApplication() = application {
                             },
                         ) { Text("Save session") }
 
-                        Button(onClick = { showSearch = !showSearch }) { Text("🔍") }
+                        IconButton(onClick = { showSearch = !showSearch }) {
+                            Icon(Icons.Filled.Search, contentDescription = "Search", tint = pal.Slate200)
+                        }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         ThemeMode.entries.forEach { m -> Button(onClick = { themeMode = m }) { Text(m.name) } }
                         Button(onClick = { showModels = true }) { Text("Models") }
-                        Button(onClick = { showSettings = true }) { Text("⚙") }
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = pal.Slate200)
+                        }
                     }
                 }
 
@@ -331,8 +342,11 @@ private fun UtteranceRow(
                     )
                     if (u.speaker != null && speakerIds.size > 1) {
                         Box {
-                            Text("⇄", color = pal.Slate400, modifier = Modifier.padding(horizontal = 4.dp)
-                                .clickable(onClick = { showSpeakerMenu = true }))
+                            Icon(
+                                Icons.Filled.SwapHoriz, contentDescription = "Reassign speaker", tint = pal.Slate400,
+                                modifier = Modifier.size(16.dp).padding(horizontal = 2.dp)
+                                    .clickable(onClick = { showSpeakerMenu = true }),
+                            )
                             DropdownMenu(expanded = showSpeakerMenu, onDismissRequest = { showSpeakerMenu = false }) {
                                 Text("Move this line to:", color = pal.Slate400, modifier = Modifier.padding(8.dp))
                                 speakerIds.filter { it != u.speaker }.forEach { target ->
@@ -382,6 +396,16 @@ private fun UtteranceRow(
 
 @androidx.compose.runtime.Composable
 private fun rememberVoxSumScope() = androidx.compose.runtime.rememberCoroutineScope()
+
+/** A toolbar button that opens a dropdown menu — label + a real trailing chevron icon instead of
+ *  a literal "▾" character in the text, matching Android's icon-based affordances. */
+@androidx.compose.runtime.Composable
+private fun DropdownButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Button(enabled = enabled, onClick = onClick) {
+        Text(label)
+        Icon(Icons.Filled.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
+    }
+}
 
 /** Reopen [file] as a session if it carries one — tries the real embedded VoxsumSession format
  *  first (an .ogg/.m4a saved by this app or Android), then the JSON sidecar (SessionFile, this

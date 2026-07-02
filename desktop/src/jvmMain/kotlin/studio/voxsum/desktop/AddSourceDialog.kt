@@ -8,12 +8,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Podcasts
+import androidx.compose.material.icons.filled.SmartDisplay
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -50,8 +55,14 @@ fun AddSourceDialog(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
         val pal = LocalVoxSumPalette.current
         Column(Modifier.fillMaxSize().background(pal.Slate900).padding(20.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Button(onClick = { tab = SourceTab.PODCAST }) { Text("Podcast") }
-                Button(onClick = { tab = SourceTab.YOUTUBE }) { Text("YouTube") }
+                Button(onClick = { tab = SourceTab.PODCAST }) {
+                    Icon(Icons.Filled.Podcasts, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(" Podcast")
+                }
+                Button(onClick = { tab = SourceTab.YOUTUBE }) {
+                    Icon(Icons.Filled.SmartDisplay, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(" YouTube")
+                }
             }
             androidx.compose.foundation.layout.Spacer(Modifier.padding(top = 8.dp))
             when (tab) {
