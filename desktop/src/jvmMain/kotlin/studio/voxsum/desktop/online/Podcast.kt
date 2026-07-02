@@ -84,9 +84,7 @@ object Podcast {
         val dir = File(appDataDir, "audio").apply { mkdirs() }
         val ext = ep.audioUrl.substringAfterLast('.', "mp3").substringBefore('?').take(4).ifBlank { "mp3" }
         val out = File(dir, "podcast_${ep.audioUrl.hashCode().toUInt()}.$ext")
-        val conn = (URL(ep.audioUrl).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 30_000; readTimeout = 30_000; instanceFollowRedirects = true
-        }
+        val conn = openConn(ep.audioUrl, 30_000)
         conn.inputStream.use { input ->
             val total = conn.contentLengthLong.takeIf { it > 0 }
             val tmp = File(dir, "${out.name}.part")
@@ -109,12 +107,17 @@ object Podcast {
 
     private fun httpGetString(url: String): String = openStream(url).bufferedReader().use { it.readText() }
 
-    /** HttpURLConnection's instanceFollowRedirects never follows a redirect that changes protocol
-     *  (http<->https) — a JDK limitation, not a bug in the server. Many podcast feeds (Feedburner
-     *  and similar) 301/302 from http to https, so that case is handled manually here. */
-    private fun openStream(url: String, redirectsLeft: Int = 5): java.io.InputStream {
+    private fun openStream(url: String): java.io.InputStream = openConn(url, 15_000).inputStream
+
+    /** Returns a connected HttpURLConnection at the final URL, following redirects manually.
+     *  HttpURLConnection's instanceFollowRedirects never follows a redirect that changes protocol
+     *  (http<->https) — a JDK limitation, not a server bug — and podcast feeds AND their episode
+     *  audio URLs both do this constantly (Feedburner feeds; podtrac/chartable/… tracking CDNs that
+     *  chain several 302s across protocols before the real media). Used by both the RSS fetch and
+     *  the episode download, so both survive those redirect chains. */
+    private fun openConn(url: String, timeoutMs: Int, redirectsLeft: Int = 6): HttpURLConnection {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000; readTimeout = 15_000; instanceFollowRedirects = true
+            connectTimeout = timeoutMs; readTimeout = timeoutMs; instanceFollowRedirects = true
             setRequestProperty("User-Agent", "VoxSum/1.0")
         }
         val code = conn.responseCode
@@ -123,10 +126,10 @@ object Podcast {
                 ?: error("Redirected (HTTP $code) with no Location header")
             conn.disconnect()
             val next = java.net.URI(url).resolve(location).toString()
-            return openStream(next, redirectsLeft - 1)
+            return openConn(next, timeoutMs, redirectsLeft - 1)
         }
         if (code !in 200..299) error("HTTP $code fetching $url")
-        return conn.inputStream
+        return conn
     }
 
     private fun enforceRetentionCap(dir: File, max: Int) {
