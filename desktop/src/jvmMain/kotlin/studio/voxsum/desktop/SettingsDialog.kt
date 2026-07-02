@@ -157,7 +157,9 @@ fun SettingsDialog(
                             asrBackend = asrBackend.id,
                             llmModelId = llmModelId,
                             diarizationEnabled = diarizationEnabled,
-                            numSpeakers = numSpeakersText.toIntOrNull() ?: -1,
+                            // Only 1..10 is a valid explicit count; blank / 0 / out-of-range = auto (-1),
+                            // matching Android's -1..10 clamp (its +/- stepper never yields 0).
+                            numSpeakers = numSpeakersText.toIntOrNull()?.takeIf { it in 1..10 } ?: -1,
                             targetLanguage = targetLanguage.id,
                             useItn = useItn,
                             vadThreshold = vadThreshold,

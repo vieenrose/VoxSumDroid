@@ -69,7 +69,12 @@ private fun mainApplication() = application {
         state = androidx.compose.ui.window.rememberWindowState(width = 1000.dp, height = 700.dp),
     ) {
         var themeMode by remember { mutableStateOf(ThemeMode.AUTO) }
-        var state by remember { mutableStateOf(AppState(config = ConfigStore.load())) }
+        var state by remember {
+            val loaded = ConfigStore.load()
+            // Seed summaryStyle from the persisted config — it lives in state, not config, at
+            // runtime, so without this the saved choice is ignored and every launch starts on BULLET.
+            mutableStateOf(AppState(config = loaded, summaryStyle = SummaryStyle.fromId(loaded.summaryStyle)))
+        }
         var showSettings by remember { mutableStateOf(false) }
         var showModels by remember { mutableStateOf(false) }
         var showExportMenu by remember { mutableStateOf(false) }
@@ -82,14 +87,36 @@ private fun mainApplication() = application {
         val scope = rememberVoxSumScope()
         val update: ((AppState) -> AppState) -> Unit = { fn -> state = fn(state) }
 
+        // Open a local audio file (or reopen a saved session) — shared by the toolbar "Add audio"
+        // button and the empty-state hero CTA, so the blank slate can actually pick a local file
+        // (the hero must not be an online-only entry point when the toolbar is hidden).
+        val openLocalAudio: () -> Unit = {
+            val picked = FilePicker.openFile(
+                "Pick an audio file",
+                extensions = listOf("wav", "mp3", "m4a", "flac", "ogg"),
+            )
+            if (picked != null) {
+                val saved = loadAnySession(picked)
+                if (saved != null) {
+                    state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
+                    RecentSessions.add(picked.absolutePath, saved.title.ifBlank { picked.name }, System.currentTimeMillis())
+                } else {
+                    scope.launch { runPipeline(picked, state.config, state.summaryStyle, update) }
+                }
+            }
+        }
+
         if (showSettings) {
             SettingsDialog(
                 config = state.config,
                 summaryStyle = state.summaryStyle,
                 onDismiss = { showSettings = false },
                 onSave = { newConfig, newStyle ->
-                    ConfigStore.save(newConfig)
-                    state = state.copy(config = newConfig, summaryStyle = newStyle)
+                    // Fold the style into the persisted config (config.summaryStyle is what
+                    // ConfigStore saves) so the choice survives a restart, not just this session.
+                    val cfg = newConfig.copy(summaryStyle = newStyle.id)
+                    ConfigStore.save(cfg)
+                    state = state.copy(config = cfg, summaryStyle = newStyle)
                     showSettings = false
                 },
             )
@@ -114,26 +141,19 @@ private fun mainApplication() = application {
                 studio.voxsum.desktop.ui.AppHeader()
                 Column(Modifier.fillMaxSize().padding(20.dp)) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (!isEmptyState) androidx.compose.foundation.layout.FlowRow(
+                    androidx.compose.foundation.layout.FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Button(
+                        // On the blank slate the hero already carries a big "Add audio" CTA + the
+                        // recents list, so the toolbar hides the duplicate "Add audio" and the
+                        // content-only actions (Recent / Re-run / Export / Save / Search) — matching
+                        // Android's showSourceActions. "Add online audio" and "Record" have no hero
+                        // equivalent, so they stay visible even on the empty state.
+                        if (!isEmptyState) Button(
                             enabled = !state.running && !recording,
-                            onClick = {
-                                val picked = FilePicker.openFile(
-                                    "Pick an audio file",
-                                    extensions = listOf("wav", "mp3", "m4a", "flac", "ogg"),
-                                ) ?: return@Button
-                                val saved = loadAnySession(picked)
-                                if (saved != null) {
-                                    state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
-                                    RecentSessions.add(picked.absolutePath, saved.title.ifBlank { picked.name }, System.currentTimeMillis())
-                                } else {
-                                    scope.launch { runPipeline(picked, state.config, state.summaryStyle, update) }
-                                }
-                            },
+                            onClick = openLocalAudio,
                         ) { Text("Add audio") }
 
                         Button(
@@ -141,7 +161,7 @@ private fun mainApplication() = application {
                             onClick = { showAddSource = true },
                         ) { Text("Add online audio") }
 
-                        Box {
+                        if (!isEmptyState) Box {
                             DropdownButton("Recent", onClick = { showRecentMenu = true })
                             DropdownMenu(expanded = showRecentMenu, onDismissRequest = { showRecentMenu = false }) {
                                 val recents = RecentSessions.list()
@@ -169,7 +189,10 @@ private fun mainApplication() = application {
                         }
 
                         Button(
-                            enabled = !state.running,
+                            // Stay enabled while recording so the user can actually stop it —
+                            // recordAndTranscribe holds state.running=true for the whole capture,
+                            // so `!running` alone would grey out the "Stop" button (unstoppable).
+                            enabled = recording || !state.running,
                             onClick = {
                                 if (recording) {
                                     recordStopFlag.set(true)
@@ -185,7 +208,7 @@ private fun mainApplication() = application {
                             },
                         ) { Text(if (recording) "Stop" else "Record") }
 
-                        Box {
+                        if (!isEmptyState) Box {
                             DropdownButton("Re-run", enabled = state.transcriptReady && !state.running, onClick = { showRerunMenu = true })
                             DropdownMenu(expanded = showRerunMenu, onDismissRequest = { showRerunMenu = false }) {
                                 DropdownMenuItem(text = { Text("Re-summarize") }, onClick = {
@@ -200,12 +223,14 @@ private fun mainApplication() = application {
                             }
                         }
 
-                        Box {
-                            DropdownButton("Export", enabled = state.transcriptReady, onClick = { showExportMenu = true })
+                        if (!isEmptyState) Box {
+                            // Guard on !running like Android: utterances populate before summarization
+                            // finishes, so without this a mid-run export could write a summary-less session.
+                            DropdownButton("Export", enabled = state.transcriptReady && !state.running, onClick = { showExportMenu = true })
                             ExportMenu(expanded = showExportMenu, onDismiss = { showExportMenu = false }, state = state)
                         }
 
-                        Button(
+                        if (!isEmptyState) Button(
                             enabled = state.transcriptReady && state.audioFile != null && !state.running,
                             onClick = {
                                 val source = state.audioFile ?: return@Button
@@ -232,7 +257,7 @@ private fun mainApplication() = application {
                             },
                         ) { Text("Save session") }
 
-                        IconButton(onClick = { showSearch = !showSearch }) {
+                        if (!isEmptyState) IconButton(onClick = { showSearch = !showSearch }) {
                             Icon(Icons.Filled.Search, contentDescription = "Search", tint = pal.Slate200)
                         }
                     }
@@ -258,7 +283,7 @@ private fun mainApplication() = application {
 
                 if (isEmptyState) {
                     studio.voxsum.desktop.ui.EmptyState(
-                        onAddSource = { showAddSource = true },
+                        onAddSource = openLocalAudio,
                         recents = RecentSessions.list(),
                         onOpenRecent = { r ->
                             val f = java.io.File(r.path)
@@ -321,7 +346,10 @@ private fun UtteranceRow(
 ) {
     var showSpeakerMenu by remember { mutableStateOf(false) }
     val isEditingText = state.editingUtteranceIndex == u.index
-    val isEditingSpeakerName = state.editingSpeakerId == u.speaker
+    // Require a non-null speaker: editingSpeakerId defaults to null and an un-diarized utterance
+    // also has speaker == null, so a bare `editingSpeakerId == u.speaker` would be true (null==null)
+    // for every row before diarization runs / when diarization is off — showing a stray edit field.
+    val isEditingSpeakerName = u.speaker != null && state.editingSpeakerId == u.speaker
     var editText by remember(isEditingText) { mutableStateOf(u.text) }
     var editSpeakerName by remember(isEditingSpeakerName) { mutableStateOf(u.speaker?.let { speakerLabel(it, state.speakerNames) } ?: "") }
 
