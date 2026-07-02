@@ -1899,8 +1899,9 @@ private fun UtteranceRow(
                 )
             }
             Spacer(Modifier.weight(1f))
-            if (!isEditing && utt.speaker != null && speakerIds.size > 1) {
-                SpeakerReassignMenu(utt.speaker, speakerIds, speakerNames, onReassignLine, onMergeSpeaker)
+            val uttSpeaker = utt.speaker
+            if (!isEditing && uttSpeaker != null && speakerIds.size > 1) {
+                SpeakerReassignMenu(uttSpeaker, speakerIds, speakerNames, onReassignLine, onMergeSpeaker)
             }
             if (!isEditing) {
                 IconButton(onClick = onBeginEdit, modifier = Modifier.size(28.dp)) {

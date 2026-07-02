@@ -24,3 +24,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "VoxSumDroid"
 include(":app")
+include(":shared")
+include(":desktop")

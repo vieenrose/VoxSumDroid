@@ -89,6 +89,8 @@ android {
 }
 
 dependencies {
+    // Pure Kotlin business logic shared with the :desktop (Linux) target — see the "linux" branch.
+    implementation(project(":shared"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.service)
