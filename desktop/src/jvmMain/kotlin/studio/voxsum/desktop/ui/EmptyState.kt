@@ -80,7 +80,7 @@ private fun RecentList(recents: List<RecentSession>, onOpen: (RecentSession) -> 
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(
-            "Recent sessions",
+            "Recent",
             style = MaterialTheme.typography.labelLarge,
             color = pal.Slate400,
             modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
@@ -114,13 +114,13 @@ private fun Hero() {
     val pal = LocalVoxSumPalette.current
     Icon(Icons.Filled.GraphicEq, contentDescription = null, tint = pal.Sky, modifier = Modifier.size(64.dp))
     Text(
-        "Turn audio into transcripts and summaries",
+        "Transcribe & summarize, fully offline",
         style = MaterialTheme.typography.titleMedium,
         color = pal.Slate200,
         textAlign = TextAlign.Center,
     )
     Text(
-        "Pick a file, record, or add a podcast/YouTube link to get started",
+        "Add an audio file, record a meeting, or paste a YouTube link to begin.",
         style = MaterialTheme.typography.bodyMedium,
         color = pal.Slate400,
         textAlign = TextAlign.Center,
@@ -129,9 +129,9 @@ private fun Hero() {
 
 @Composable
 private fun Pillars() {
-    Pillar(Icons.Filled.Lock, "Private", "Everything stays on your machine")
-    Pillar(Icons.Filled.CloudOff, "Offline", "No account, no internet required to transcribe")
-    Pillar(Icons.Filled.Savings, "Free", "No API costs, no subscription")
+    Pillar(Icons.Filled.Lock, "Private by design", "Audio never leaves your device")
+    Pillar(Icons.Filled.CloudOff, "Works offline", "On a plane, a train, anywhere — no network")
+    Pillar(Icons.Filled.Savings, "No subscription", "Yours to keep, no cloud fees")
 }
 
 @Composable
