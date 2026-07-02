@@ -50,7 +50,7 @@ fun AddSourceDialog(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
     DialogWindow(
         onCloseRequest = onDismiss,
         title = "Add online audio",
-        state = androidx.compose.ui.window.rememberDialogState(width = 560.dp, height = 620.dp),
+        state = androidx.compose.ui.window.rememberDialogState(width = 760.dp, height = 620.dp),
     ) {
         val pal = LocalVoxSumPalette.current
         Column(Modifier.fillMaxSize().background(pal.Slate900).padding(20.dp)) {
@@ -79,62 +79,86 @@ private fun PodcastTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
     var series by remember { mutableStateOf<List<PodcastSeries>>(emptyList()) }
+    var selected by remember { mutableStateOf<PodcastSeries?>(null) }
     var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
     var status by remember { mutableStateOf("") }
+    var episodesStatus by remember { mutableStateOf("") }
     var progress by remember { mutableStateOf<Float?>(null) }
 
-    Column {
+    Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
-                modifier = Modifier.width(360.dp), placeholder = { Text("Search podcasts…") },
+                modifier = Modifier.weight(1f), placeholder = { Text("Search podcasts…") },
             )
+            androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
             Button(onClick = {
                 scope.launch {
-                    status = "Searching…"; episodes = emptyList()
+                    status = "Searching…"; series = emptyList(); selected = null; episodes = emptyList()
                     series = runCatching { Podcast.searchSeries(query) }.getOrElse { status = "Search failed: ${it.message}"; emptyList() }
-                    if (series.isNotEmpty()) status = ""
+                    status = if (series.isEmpty()) "No podcasts found" else ""
                 }
             }) { Text("Search") }
         }
-        if (status.isNotEmpty()) Text(status, color = pal.Slate400, modifier = Modifier.padding(top = 8.dp))
         progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) }
 
-        LazyColumn(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            items(series) { s ->
-                Column(
-                    Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                        .clickable(onClick = {
-                            scope.launch {
-                                status = "Loading episodes…"; episodes = emptyList()
-                                episodes = runCatching { Podcast.fetchEpisodes(s.feedUrl) }.getOrElse { status = "Failed: ${it.message}"; emptyList() }
-                                status = ""
-                            }
-                        }),
-                ) {
-                    Text(s.title, color = pal.Slate200, style = MaterialTheme.typography.bodyMedium)
-                    Text("${s.artist} · ${s.episodeCount} episodes", color = pal.Slate400, style = MaterialTheme.typography.labelSmall)
+        // Two columns: series on the left, episodes of the selected series on the right.
+        Row(Modifier.fillMaxSize().padding(top = 8.dp)) {
+            Column(Modifier.weight(0.42f).fillMaxSize()) {
+                Text("PODCASTS", color = pal.Slate400, style = MaterialTheme.typography.labelSmall)
+                if (status.isNotEmpty()) Text(status, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                LazyColumn(Modifier.fillMaxSize().padding(top = 4.dp)) {
+                    items(series) { s ->
+                        val isSel = s.feedUrl == selected?.feedUrl
+                        Column(
+                            Modifier.fillMaxWidth()
+                                .background(if (isSel) pal.ActiveTint else androidx.compose.ui.graphics.Color.Transparent)
+                                .clickable(onClick = {
+                                    selected = s
+                                    scope.launch {
+                                        episodesStatus = "Loading episodes…"; episodes = emptyList()
+                                        episodes = runCatching { Podcast.fetchEpisodes(s.feedUrl) }
+                                            .getOrElse { episodesStatus = "Failed: ${it.message}"; emptyList() }
+                                        episodesStatus = if (episodes.isEmpty()) "No episodes" else ""
+                                    }
+                                })
+                                .padding(horizontal = 6.dp, vertical = 6.dp),
+                        ) {
+                            Text(s.title, color = if (isSel) pal.Slate200 else pal.Slate400, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text("${s.artist} · ${s.episodeCount} ep", color = pal.Slate400, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
-            items(episodes) { ep ->
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.width(380.dp)) {
-                        Text(ep.title, color = pal.Slate200, style = MaterialTheme.typography.bodyMedium)
-                        Text(ep.published, color = pal.Slate400, style = MaterialTheme.typography.labelSmall)
-                    }
-                    Button(onClick = {
-                        scope.launch {
-                            progress = 0f
-                            val file = runCatching { Podcast.downloadEpisode(ep) { p -> progress = p } }
-                                .getOrElse { status = "Download failed: ${it.message}"; null }
-                            progress = null
-                            if (file != null) { onDismiss(); onDownloaded(file) }
+            androidx.compose.material3.VerticalDivider(color = pal.Hairline, modifier = Modifier.padding(horizontal = 8.dp))
+            Column(Modifier.weight(0.58f).fillMaxSize()) {
+                Text("EPISODES", color = pal.Slate400, style = MaterialTheme.typography.labelSmall)
+                when {
+                    selected == null -> Text("Select a podcast to see episodes.", color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                    episodesStatus.isNotEmpty() -> Text(episodesStatus, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                }
+                LazyColumn(Modifier.fillMaxSize().padding(top = 4.dp)) {
+                    items(episodes) { ep ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text(ep.title, color = pal.Slate200, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                Text(ep.published, color = pal.Slate400, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            }
+                            Button(onClick = {
+                                scope.launch {
+                                    progress = 0f
+                                    val file = runCatching { Podcast.downloadEpisode(ep) { p -> progress = p } }
+                                        .getOrElse { episodesStatus = "Download failed: ${it.message}"; null }
+                                    progress = null
+                                    if (file != null) { onDismiss(); onDownloaded(file) }
+                                }
+                            }) { Text("Get") }
                         }
-                    }) { Text("Download") }
+                    }
                 }
             }
         }

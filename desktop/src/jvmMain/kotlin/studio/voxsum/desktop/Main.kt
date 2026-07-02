@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
@@ -49,6 +50,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +61,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -235,6 +239,16 @@ private fun mainApplication() = application {
             }
         }
 
+        // HiDPI: override Compose's density from the detected desktop scale. This is the reliable
+        // path (sun.java2d.uiScale is timing-sensitive and often ignored in the packaged app),
+        // guarded so we only apply it when AWT hasn't already scaled (density ~1.0) — on a desktop
+        // that auto-scales (e.g. GNOME) baseDensity is already >1 and we leave it alone.
+        val detectedScale = remember { detectLinuxUiScale() }
+        val baseDensity = LocalDensity.current
+        val effectiveDensity = if (detectedScale != null && detectedScale > 1.0 && baseDensity.density <= 1.05f) {
+            Density(detectedScale.toFloat(), baseDensity.fontScale)
+        } else baseDensity
+        CompositionLocalProvider(LocalDensity provides effectiveDensity) {
         studio.voxsum.desktop.ui.DesktopTheme(themeMode = themeMode) {
             // Dialogs live inside the theme so their DialogWindow content inherits the neutral
             // desktop palette via LocalVoxSumPalette (a separate window otherwise falls back to
@@ -424,7 +438,7 @@ private fun mainApplication() = application {
                                 modifier = Modifier.weight(1f),
                             )
                         } else {
-                            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                            Column(Modifier.weight(1f).fillMaxWidth().padding(16.dp)) {
                                 if (state.title.isNotEmpty() || state.summary.isNotEmpty()) {
                                     // Audio-seeded identicon cover (parity with Android's session cover):
                                     // deterministic from the audio marker + title, regenerated only when
@@ -476,37 +490,36 @@ private fun mainApplication() = application {
                                 }
                             }
                         }
-                    }
-                }
-
-                // ---- Player bar (bottom-docked, above the status bar) ----
-                if (playerReady && state.audioFile != null && !isEmptyState) {
-                    HorizontalDivider(color = pal.Hairline)
-                    Surface(color = pal.Slate800) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            IconButton(onClick = { player.toggle() }) {
-                                Icon(
-                                    if (player.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = if (player.isPlaying) "Pause" else "Play",
-                                    tint = pal.Slate200,
-                                )
+                        // ---- Player bar: docked at the bottom of the detail (right) pane ----
+                        if (playerReady && state.audioFile != null && !isEmptyState) {
+                            HorizontalDivider(color = pal.Hairline)
+                            Surface(color = pal.Slate800) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    IconButton(onClick = { player.toggle() }) {
+                                        Icon(
+                                            if (player.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                            contentDescription = if (player.isPlaying) "Pause" else "Play",
+                                            tint = pal.Slate200,
+                                        )
+                                    }
+                                    Slider(
+                                        value = playerPositionSec.toFloat(),
+                                        valueRange = 0f..player.durationSec.toFloat().coerceAtLeast(0.01f),
+                                        onValueChange = { player.seekTo(it.toDouble()); playerPositionSec = it.toDouble() },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        "${formatDuration(playerPositionSec)} / ${formatDuration(player.durationSec)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = pal.Slate400,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
                             }
-                            Slider(
-                                value = playerPositionSec.toFloat(),
-                                valueRange = 0f..player.durationSec.toFloat().coerceAtLeast(0.01f),
-                                onValueChange = { player.seekTo(it.toDouble()); playerPositionSec = it.toDouble() },
-                                modifier = Modifier.weight(1f),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "${formatDuration(playerPositionSec)} / ${formatDuration(player.durationSec)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = pal.Slate400,
-                            )
-                            Spacer(Modifier.width(8.dp))
                         }
                     }
                 }
@@ -537,6 +550,7 @@ private fun mainApplication() = application {
                     }
                 }
             }
+        }
         }
     }
 }
@@ -663,10 +677,20 @@ private fun UtteranceRow(
                     Button(onClick = { update { s -> s.copy(editingUtteranceIndex = null) } }) { Text("Cancel") }
                 }
             } else {
-                Text(
-                    u.text, color = pal.Slate200,
-                    modifier = Modifier.clickable(onClick = { update { s -> s.copy(editingUtteranceIndex = u.index) } }),
-                )
+                // Match Android: tapping the utterance text seeks+plays from there; editing is a
+                // separate pencil affordance (previously tapping the text opened edit, which broke
+                // the click-to-seek the player sync needs).
+                Row(verticalAlignment = Alignment.Top) {
+                    Text(
+                        u.text, color = pal.Slate200,
+                        modifier = Modifier.weight(1f).let { m -> if (onSeek != null) m.clickable(onClick = onSeek) else m },
+                    )
+                    Icon(
+                        Icons.Filled.Edit, contentDescription = "Edit line", tint = pal.Slate400,
+                        modifier = Modifier.padding(start = 6.dp, top = 2.dp).size(15.dp)
+                            .clickable(onClick = { update { s -> s.copy(editingUtteranceIndex = u.index) } }),
+                    )
+                }
             }
         }
     }
