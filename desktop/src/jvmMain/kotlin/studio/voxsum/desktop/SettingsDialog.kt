@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -29,6 +31,8 @@ import androidx.compose.ui.window.DialogWindow
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.TranscriptionConfig
+import studio.voxsum.core.models.ModelManager
+import studio.voxsum.desktop.ui.ModelOptionCard
 import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /** Desktop counterpart of Android's ConfigSheet — ASR backend, diarization on/off + speaker-count
@@ -65,7 +69,18 @@ fun SettingsDialog(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             SettingsSection("Speech recognition") {
-                PickerRow(pal, AsrBackend.entries, asrBackend, { asrBackend = it }) { it.displayName }
+                val models = remember { ModelManager(appDataDir) }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AsrBackend.entries.forEach { b ->
+                        ModelOptionCard(
+                            title = b.shortName,
+                            subtitle = b.tagline,
+                            selected = asrBackend == b,
+                            downloaded = models.asrReady(b),
+                            onClick = { asrBackend = b },
+                        )
+                    }
+                }
                 Row(Modifier.padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Switch(checked = useItn, onCheckedChange = { useItn = it })
                     Text("  Inverse text normalization (numbers, punctuation)", color = pal.Slate200)
@@ -95,13 +110,13 @@ fun SettingsDialog(
             }
 
             SettingsSection("Target language") {
-                PickerRow(pal, TargetLanguage.entries, targetLanguage, { targetLanguage = it }) {
+                ChipRow(pal, TargetLanguage.entries, targetLanguage, { targetLanguage = it }) {
                     it.autonym.ifBlank { "Auto" }
                 }
             }
 
             SettingsSection("Summary style") {
-                PickerRow(pal, SummaryStyle.entries, style, { style = it }) { it.label }
+                ChipRow(pal, SummaryStyle.entries, style, { style = it }) { it.label }
                 OutlinedTextField(
                     value = summaryPrompt,
                     onValueChange = { summaryPrompt = it },
@@ -143,9 +158,12 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
     }
 }
 
+/** Real FilterChips, matching Android's SettingsContent.kt language/summary-style pickers
+ *  (selectedContainerColor = pal.Sky @ 15% alpha, selectedLabelColor = pal.Sky) instead of a
+ *  generic Button whose only "selected" cue was font color. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun <T> PickerRow(
+private fun <T> ChipRow(
     pal: studio.voxsum.ui.theme.VoxSumColors,
     options: List<T>,
     selected: T,
@@ -155,9 +173,16 @@ private fun <T> PickerRow(
     FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { opt ->
             val isSelected = opt == selected
-            Button(onClick = { onSelect(opt) }) {
-                Text(label(opt), color = if (isSelected) pal.OnBrand else pal.Slate400)
-            }
+            FilterChip(
+                selected = isSelected,
+                onClick = { onSelect(opt) },
+                label = { Text(label(opt)) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
+                    selectedLabelColor = pal.Sky,
+                    labelColor = pal.Slate400,
+                ),
+            )
         }
     }
 }
