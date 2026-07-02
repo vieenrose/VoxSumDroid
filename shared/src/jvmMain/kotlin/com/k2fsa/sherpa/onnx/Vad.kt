@@ -79,9 +79,4 @@ class Vad(var config: VadModelConfig) {
     private external fun reset(ptr: Long)
     private external fun flush(ptr: Long)
 
-    companion object {
-        init {
-            System.loadLibrary("sherpa-onnx-jni")
-        }
-    }
 }

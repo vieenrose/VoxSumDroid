@@ -2,6 +2,12 @@ package studio.voxsum.core.llm
 
 import studio.voxsum.core.models.SamplerProfile
 
+/** Loads the voxsum-llm JNI bridge. Android: System.loadLibrary resolves it fine (bundled in the
+ *  APK, found via the platform's native lib path). Desktop: a no-op -- studio.voxsum.desktop.
+ *  NativeLibs already System.load()s it by absolute path before this class is ever touched,
+ *  since java.library.path isn't reliably known there (see NativeLibs' own comment). */
+internal expect fun loadVoxsumLlmLibrary()
+
 /**
  * Thin Kotlin handle over llama.cpp (JNI bridge in app/src/main/cpp/llm_jni.cpp).
  * Counterpart of get_llm() in src/summarization.py — one model resident at a time.
@@ -33,7 +39,7 @@ class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : A
     private external fun nativeFree(ptr: Long)
 
     companion object {
-        init { System.loadLibrary("voxsum-llm") }
+        init { loadVoxsumLlmLibrary() }
 
         /** @param nThreads keep small on mobile — big-core count, not all cores.
          *  @param sampler per-model llama.cpp sampler chain (see [SamplerProfile]). */

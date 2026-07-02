@@ -32,9 +32,4 @@ class OfflineStream(var ptr: Long) {
     private external fun getOption(ptr: Long, key: String): String
     private external fun delete(ptr: Long)
 
-    companion object {
-        init {
-            System.loadLibrary("sherpa-onnx-jni")
-        }
-    }
 }

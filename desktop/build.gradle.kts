@@ -24,21 +24,19 @@ kotlin {
 compose.desktop {
     application {
         mainClass = "studio.voxsum.desktop.MainKt"
-        // Points java.library.path at desktop/scripts/build-native.sh's output — libvoxsum-llm.so
-        // (+ llama/ggml), libsherpa-onnx-jni.so (+ its bundled onnxruntime). Run that script once
-        // before `:desktop:run`/packaging, or ASR/diarization/summarization all fail to load.
-        jvmArgs += listOf(
-            "-Djava.library.path=" +
-                "${rootProject.projectDir}/desktop/build-native:" +
-                "${rootProject.projectDir}/desktop/build-native/lib:" +
-                "${rootProject.projectDir}/desktop/build-native/bin:" +
-                "${rootProject.projectDir}/desktop/build-native/_deps/onnxruntime-src/lib",
-        )
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.AppImage)
             packageName = "VoxSum"
             packageVersion = "0.1.0"
             description = "Offline audio transcription and summarization"
+            // Native libs (llama.cpp/ggml, sherpa-onnx+onnxruntime, the voxsum-llm JNI bridge) —
+            // see desktop/scripts/{build-native,flatten-native-libs}.sh. Files here are copied
+            // into the packaged app image and exposed at runtime via the
+            // `compose.application.resources.dir` system property (both dev :desktop:run and the
+            // installed .deb/AppImage); studio.voxsum.desktop.NativeLibs reads that property.
+            // Each .so's RPATH is rewritten to $ORIGIN by flatten-native-libs.sh so the whole set
+            // stays loadable regardless of where jpackage/dpkg ultimately installs it.
+            appResourcesRootDir.set(project.layout.projectDirectory.dir("appResources"))
             linux {
                 packageName = "voxsum"
             }

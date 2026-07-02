@@ -8,6 +8,7 @@
 /shared/build
 /desktop/build
 /desktop/build-native
+/desktop/appResources
 /captures
 .externalNativeBuild
 .cxx/

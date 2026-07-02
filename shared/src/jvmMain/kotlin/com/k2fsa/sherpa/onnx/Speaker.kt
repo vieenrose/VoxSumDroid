@@ -37,9 +37,4 @@ class SpeakerEmbeddingExtractor(config: SpeakerEmbeddingExtractorConfig) {
 
     private external fun dim(ptr: Long): Int
 
-    companion object {
-        init {
-            System.loadLibrary("sherpa-onnx-jni")
-        }
-    }
 }

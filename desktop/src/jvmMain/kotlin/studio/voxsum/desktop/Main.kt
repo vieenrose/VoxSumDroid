@@ -71,7 +71,12 @@ private data class PipelineState(
     val error: String? = null,
 )
 
-fun main() = application {
+fun main() {
+    NativeLibs.ensureLoaded()
+    mainApplication()
+}
+
+private fun mainApplication() = application {
     Window(onCloseRequest = ::exitApplication, title = "VoxSum for Linux") {
         var themeMode by remember { mutableStateOf(ThemeMode.AUTO) }
         var state by remember { mutableStateOf(PipelineState()) }

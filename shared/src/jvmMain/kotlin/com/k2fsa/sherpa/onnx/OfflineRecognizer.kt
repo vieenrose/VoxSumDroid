@@ -226,9 +226,4 @@ class OfflineRecognizer(val config: OfflineRecognizerConfig) {
 
     private external fun getResult(streamPtr: Long): OfflineRecognizerResult
 
-    companion object {
-        init {
-            System.loadLibrary("sherpa-onnx-jni")
-        }
-    }
 }
