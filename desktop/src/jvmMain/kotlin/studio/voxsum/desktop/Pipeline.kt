@@ -154,12 +154,13 @@ suspend fun extractActionItems(state: AppState, update: Update) {
         val llmSpec = LlmRegistry.byId(state.config.llmModelId)
         ensureLlm(models, llmSpec, update)
         val targetName = TargetLanguage.fromId(state.config.targetLanguage).promptName
-        // TODO(desktop): OpenCC script conversion not ported yet (Android-only, asset-based dictionaries)
+        val script = TargetLanguage.scriptFor(state.config.targetLanguage)
+        val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
         val text = state.utterances.joinToString("\n") { u -> "${speakerLabel(u.speaker, state.speakerNames) ?: ""}: ${u.text}" }
         val result = withContext(Dispatchers.Default) {
             val llm = LlmEngine.load(models.llmFile(llmSpec).absolutePath, nThreads = 4, sampler = llmSpec.sampler)
             try {
-                ActionItemExtractor(llm, llmSpec.chatTemplate, targetName)
+                ActionItemExtractor(llm, llmSpec.chatTemplate, targetName, convert)
                     .extract(text) { p -> update { it.copy(progress = p) } }
             } finally {
                 llm.close()
@@ -246,15 +247,16 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
     ensureLlm(models, llmSpec, update)
 
     update { it.copy(status = "Summarizing…", progress = null) }
-    // TODO(desktop): OpenCC script conversion not ported yet (Android-only, asset-based dictionaries)
     val targetName = TargetLanguage.fromId(config.targetLanguage).promptName
+    val script = TargetLanguage.scriptFor(config.targetLanguage)
+    val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
     val transcriptText = tagged.joinToString("\n") { u -> "${speakerLabel(u.speaker, emptyMap()) ?: ""}: ${u.text}" }
     withContext(Dispatchers.Default) {
         val llm = LlmEngine.load(models.llmFile(llmSpec).absolutePath, nThreads = 4, sampler = llmSpec.sampler)
         try {
             Summarizer(
-                llm, llmSpec.chatTemplate, targetName, mapInstruction = style.mapInstruction,
-                reduceInstruction = style.reduceInstruction, mapMaxTokens = style.mapTokens, reduceMaxTokens = style.reduceTokens,
+                llm, llmSpec.chatTemplate, targetName, convert, style.mapInstruction,
+                style.reduceInstruction, style.mapTokens, style.reduceTokens,
             ).summarize(transcript = transcriptText, userPrompt = config.summaryPrompt).collect { e ->
                 when (e) {
                     is TranscriptEvent.Title -> update { it.copy(title = e.title) }
