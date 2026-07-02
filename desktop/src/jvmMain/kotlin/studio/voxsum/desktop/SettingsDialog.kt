@@ -53,6 +53,7 @@ fun SettingsDialog(
         mutableStateOf(if (config.numSpeakers > 0) config.numSpeakers.toString() else "")
     }
     var targetLanguage by remember { mutableStateOf(TargetLanguage.fromId(config.targetLanguage)) }
+    var language by remember { mutableStateOf(config.language) }
     var style by remember { mutableStateOf(summaryStyle) }
     var useItn by remember { mutableStateOf(config.useItn) }
     var vadThreshold by remember { mutableStateOf(config.vadThreshold) }
@@ -65,34 +66,47 @@ fun SettingsDialog(
         state = androidx.compose.ui.window.rememberDialogState(width = 480.dp, height = 700.dp),
     ) {
         val pal = LocalVoxSumPalette.current
+        // One ModelManager, and the downloaded-state maps computed once per dialog open — these
+        // are filesystem stats (asrReady/llmReady each stat several files), so computing them in
+        // the composable body would re-run on every recomposition (each slider drag / chip tap).
+        // remember caches them across recompositions; a fresh dialog instance re-reads on reopen.
+        val models = remember { ModelManager(appDataDir) }
+        val asrReady = remember { AsrBackend.entries.associateWith { models.asrReady(it) } }
+        val llmReady = remember { LlmRegistry.ALL.associate { it.id to models.llmReady(it) } }
         Box(Modifier.fillMaxSize().background(pal.Slate900)) {
         Column(
             Modifier.fillMaxWidth().padding(20.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             SettingsSection("Speech recognition") {
-                val models = remember { ModelManager(appDataDir) }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     AsrBackend.entries.forEach { b ->
                         ModelOptionCard(
                             title = b.shortName,
                             subtitle = b.tagline,
                             selected = asrBackend == b,
-                            downloaded = models.asrReady(b),
+                            downloaded = asrReady[b] == true,
                             onClick = { asrBackend = b },
                         )
                     }
                 }
-                Row(Modifier.padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Switch(checked = useItn, onCheckedChange = { useItn = it })
-                    Text("  Inverse text normalization (numbers, punctuation)", color = pal.Slate200)
+                // Language + ITN only apply to SenseVoice (the multilingual backend); the zipformer/
+                // qwen3 backends ignore them, so — like Android — show these controls only for it.
+                if (asrBackend == AsrBackend.SENSEVOICE) {
+                    Text("Language", color = pal.Slate400, modifier = Modifier.padding(top = 8.dp))
+                    val selectedLang = TranscriptionConfig.LANGUAGES.firstOrNull { it.first == language }
+                        ?: TranscriptionConfig.LANGUAGES.first()
+                    ChipRow(pal, TranscriptionConfig.LANGUAGES, selectedLang, { language = it.first }) { it.second }
+                    Row(Modifier.padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Switch(checked = useItn, onCheckedChange = { useItn = it })
+                        Text("  Inverse text normalization (numbers, punctuation)", color = pal.Slate200)
+                    }
                 }
                 Text("VAD sensitivity: ${"%.1f".format(java.util.Locale.US, vadThreshold)}", color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
                 Slider(value = vadThreshold, onValueChange = { vadThreshold = it }, valueRange = 0.1f..0.9f)
             }
 
             SettingsSection("Summary model") {
-                val models = remember { ModelManager(appDataDir) }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     LlmRegistry.ALL.forEach { spec ->
                         val mb = spec.sizeBytes / 1_000_000
@@ -105,7 +119,7 @@ fun SettingsDialog(
                             title = spec.displayName,
                             subtitle = "$mb MB · $ram",
                             selected = llmModelId == spec.id,
-                            downloaded = models.llmReady(spec),
+                            downloaded = llmReady[spec.id] == true,
                             onClick = { llmModelId = spec.id },
                         )
                     }
@@ -161,6 +175,7 @@ fun SettingsDialog(
                             // matching Android's -1..10 clamp (its +/- stepper never yields 0).
                             numSpeakers = numSpeakersText.toIntOrNull()?.takeIf { it in 1..10 } ?: -1,
                             targetLanguage = targetLanguage.id,
+                            language = language,
                             useItn = useItn,
                             vadThreshold = vadThreshold,
                             clusterThreshold = clusterThreshold,
