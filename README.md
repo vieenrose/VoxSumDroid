@@ -62,12 +62,32 @@ from the dev tree. Every item below was actually executed and observed:
   building it) and launching the actual binary from a directory unrelated to the build tree — every
   native library (llama.cpp/ggml, onnxruntime, sherpa-onnx, the voxsum-llm JNI bridge) was confirmed
   loaded and mapped into the running process's memory from inside the package layout.
+- **Settings screen**: ASR backend, diarization on/off + speaker-count hint, target language, and
+  summary style, persisted via a JVM `KeyValueStore` (`java.util.prefs`) and the same shared
+  `ConfigStore`/`TranscriptionConfig` Android uses.
+- **Re-run actions**: re-summarize, LLM-based speaker-name detection, and action-item extraction —
+  all reuse Android's shared `SpeakerNamer`/`ActionItemExtractor`, verified with a real run that
+  correctly renamed a speaker and produced a real action-item list.
+- **Export**: plain text, Markdown, SRT, and VTT via the shared `TranscriptExport`.
+- **Speaker/text editing**: rename a speaker, reassign a single line to a different speaker, edit
+  any utterance's text inline; a search bar filters the visible transcript.
+- **Live recording**: mic capture → live ASR → diarize → summarize, verified with a real recording
+  through the system's default input device end to end to a "Done" summary.
+- **Model management**: a Models screen listing every downloaded model with size/kind and a Delete
+  action to reclaim space (`ModelManager.storedModels()`, shared with Android).
+- **Session save/reopen**: "Save session" writes a `<audio>.voxsum.json` sidecar; reopening the same
+  audio file loads it back instantly with no re-transcription. This is a *different, simpler* format
+  than Android's `VoxsumSession` (which embeds the session in the audio file's own OGG/M4A tags via
+  Android-only APIs) — tracked as a follow-up to reach true format parity.
 
-**Not yet done** (next layer of work, not blockers):
+**Not yet done** (tracked gaps, not silently dropped):
 
-- Live recording, session save/export, multi-file support, and a settings screen (model/language
-  picker) in the UI.
-- A model-management screen (the storage/delete UI Android has under Settings → Storage).
+- OpenCC script conversion (Traditional/Simplified Chinese normalization) — Android-only today,
+  loads dictionaries from APK assets; no desktop asset pipeline exists yet.
+- The Android-format embedded-audio session file (OGG/M4A Vorbis-comment based) — desktop currently
+  uses a JSON sidecar instead (see above).
+- Speaker "merge" as a single action (today: reassign each line individually to the same speaker).
+- Multi-file / batch processing, and a recent-sessions list (depends on the session format above).
 
 ## Build & run (development)
 
