@@ -8,9 +8,10 @@ import studio.voxsum.core.export.TranscriptExport
 import studio.voxsum.data.speakerLabel
 import studio.voxsum.desktop.files.FilePicker
 import java.io.File
+import java.io.FileOutputStream
 
-/** Export the transcript/summary to a portable text format — the desktop counterpart of Android's
- *  ⋮ export menu (minus session .m4a/.ogg round-trip and PDF, tracked separately). */
+/** Export the transcript/summary to a portable text or PDF format — the desktop counterpart of
+ *  Android's ⋮ export menu (minus session .m4a/.ogg round-trip, tracked separately). */
 @Composable
 fun ExportMenu(expanded: Boolean, onDismiss: () -> Unit, state: AppState) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
@@ -30,6 +31,14 @@ fun ExportMenu(expanded: Boolean, onDismiss: () -> Unit, state: AppState) {
         DropdownMenuItem(text = { Text("Save as subtitles (.vtt)") }, onClick = {
             onDismiss()
             saveExport(state, "vtt") { TranscriptExport.vtt(state.utterances, label) }
+        })
+        DropdownMenuItem(text = { Text("Save as PDF (.pdf)") }, onClick = {
+            onDismiss()
+            val base = state.fileName.substringBeforeLast('.').ifBlank { "transcript" }
+            val dest = FilePicker.saveFile("Save as .pdf", "$base.pdf") ?: return@DropdownMenuItem
+            FileOutputStream(dest).use { out ->
+                PdfExport.write(out, state.utterances, label, state.title, state.summary, "Summary", "Transcript")
+            }
         })
     }
 }

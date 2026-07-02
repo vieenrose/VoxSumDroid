@@ -17,6 +17,9 @@ kotlin {
             implementation(compose.material3)
             implementation(compose.foundation)
             implementation(compose.runtime)
+            // Pure-JVM PDF writer (Apache-2.0) for PDF export — Android uses the platform's
+            // android.graphics.pdf.PdfDocument, which has no desktop equivalent.
+            implementation("org.apache.pdfbox:pdfbox:3.0.3")
         }
     }
 }
