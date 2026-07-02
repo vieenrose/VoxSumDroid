@@ -22,7 +22,7 @@ android {
         ndk {
             // arm64 is the only ABI worth shipping for on-device LLM perf. Override with
             // -PvoxsumAbi=x86_64 to build for an emulator (provide a matching ORT via
-            // SHERPA_ONNXRUNTIME_LIB_DIR). See RELEASING.md / the emulator test in SPIKE.md.
+            // SHERPA_ONNXRUNTIME_LIB_DIR) — see the emulator test in SPIKE.md.
             abiFilters += ((project.findProperty("voxsumAbi") as String?) ?: "arm64-v8a")
         }
         externalNativeBuild {
@@ -44,7 +44,7 @@ android {
     }
 
     // Release signing is driven by env vars so CI can inject a keystore from secrets and
-    // local/debug builds still work without any. See RELEASING.md.
+    // local/debug builds still work without any.
     val keystorePath = System.getenv("VOXSUM_KEYSTORE")
     signingConfigs {
         if (keystorePath != null) {

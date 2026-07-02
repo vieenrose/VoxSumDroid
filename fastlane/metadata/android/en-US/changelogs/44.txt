@@ -1,2 +1,0 @@
-• Saving/sharing a session (and transcript/subtitle exports) is now disabled until the run finishes, so you can't accidentally export a half-transcribed, summary-less session — matching how Settings locks during a run.
-• The player no longer jumps back to the start when transcription finishes: it keeps your position, and keeps playing, across the internal switch to the decoded audio.

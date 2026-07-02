@@ -1,1 +1,0 @@
-• More reliable model downloads: speech models now download from HuggingFace first (a faster, more widely-reachable CDN), with GitHub kept as an automatic fallback — this fixes the repeated x-asr download failures seen on some networks (e.g. Taiwan / mainland China).

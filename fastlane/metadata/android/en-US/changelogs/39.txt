@@ -1,3 +1,0 @@
-• New Light and E-ink themes alongside Dark. Auto is now the default and follows your system light/dark setting.
-• E-ink is a flat, high-contrast theme for e-paper readers (e.g. Boox) — select it manually under Settings → Appearance.
-• Switch themes instantly from the new Appearance selector at the top of Settings (localized in English, 繁體中文, and French).

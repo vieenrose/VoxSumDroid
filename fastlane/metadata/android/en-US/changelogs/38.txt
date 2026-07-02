@@ -1,3 +1,0 @@
-• The session identicon now appears in-app (top bar) and updates live as you edit the title.
-• Saving an already-saved session overwrites the original file instead of creating a duplicate.
-• Model downloads are far more robust: transient network/checksum failures retry automatically, and failures show a clear, actionable message (no connection, timed out, corrupted, not enough storage, 404).

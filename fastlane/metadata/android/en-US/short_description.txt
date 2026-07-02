@@ -1,1 +1,0 @@
-Offline, on-device audio transcription and summarization. No server, no cloud.
