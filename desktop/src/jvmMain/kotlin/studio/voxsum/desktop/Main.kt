@@ -235,6 +235,24 @@ private fun mainApplication() = application {
                     )
                 }
 
+                if (!state.running && state.fileName.isEmpty() && state.utterances.isEmpty() && state.error == null) {
+                    studio.voxsum.desktop.ui.EmptyState(
+                        onAddSource = { showAddSource = true },
+                        recents = RecentSessions.list(),
+                        onOpenRecent = { r ->
+                            val f = java.io.File(r.path)
+                            val saved = loadAnySession(f)
+                            if (saved != null) {
+                                state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
+                                RecentSessions.add(r.path, r.title, System.currentTimeMillis())
+                            } else {
+                                RecentSessions.remove(r.path)
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
                 Column(Modifier.padding(top = 12.dp)) {
                     if (state.fileName.isNotEmpty()) Text(state.fileName, color = pal.Slate400)
                     if (state.status.isNotEmpty()) Text(state.status, color = pal.Slate200)
