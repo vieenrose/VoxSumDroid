@@ -106,7 +106,9 @@ private fun mainApplication() = application {
 
         VoxSumTheme(themeMode = themeMode) {
             val pal = LocalVoxSumPalette.current
-            Column(Modifier.fillMaxSize().background(pal.Slate900).padding(20.dp)) {
+            Column(Modifier.fillMaxSize().background(pal.Slate900)) {
+                studio.voxsum.desktop.ui.AppHeader()
+                Column(Modifier.fillMaxSize().padding(20.dp)) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     androidx.compose.foundation.layout.FlowRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -298,6 +300,7 @@ private fun mainApplication() = application {
                     items(visibleUtterances, key = { it.index }) { u ->
                         UtteranceRow(u, state, speakerIds, pal, update)
                     }
+                }
                 }
             }
         }
