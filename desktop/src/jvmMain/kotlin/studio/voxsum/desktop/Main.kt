@@ -112,7 +112,7 @@ private fun mainApplication() = application {
                                     "Pick an audio file",
                                     extensions = listOf("wav", "mp3", "m4a", "flac", "ogg"),
                                 ) ?: return@Button
-                                val saved = SessionFile.load(picked)
+                                val saved = loadAnySession(picked)
                                 if (saved != null) {
                                     state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
                                     RecentSessions.add(picked.absolutePath, saved.title.ifBlank { picked.name }, System.currentTimeMillis())
@@ -138,7 +138,7 @@ private fun mainApplication() = application {
                                         DropdownMenuItem(text = { Text(r.title.ifBlank { r.path.substringAfterLast('/') }) }, onClick = {
                                             showRecentMenu = false
                                             val f = java.io.File(r.path)
-                                            val saved = SessionFile.load(f)
+                                            val saved = loadAnySession(f)
                                             if (saved != null) {
                                                 state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
                                                 RecentSessions.add(r.path, r.title, System.currentTimeMillis())
@@ -189,11 +189,28 @@ private fun mainApplication() = application {
                         }
 
                         Button(
-                            enabled = state.transcriptReady && state.audioFile != null,
+                            enabled = state.transcriptReady && state.audioFile != null && !state.running,
                             onClick = {
-                                state.audioFile?.let {
-                                    SessionFile.save(it, state)
-                                    RecentSessions.add(it.absolutePath, state.title.ifBlank { it.name }, System.currentTimeMillis())
+                                val source = state.audioFile ?: return@Button
+                                val suggested = studio.voxsum.desktop.session.VoxsumSession.suggestFileName(state.title)
+                                val dest = FilePicker.saveFile("Save session as .ogg", suggested) ?: return@Button
+                                scope.launch {
+                                    update { it.copy(status = "Saving session…") }
+                                    val outcome = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        studio.voxsum.desktop.session.VoxsumSession.save(
+                                            dest, source, state.utterances, state.speakerNames,
+                                            state.summary, state.actionItems, state.title,
+                                            state.config.asrBackend, state.config.llmModelId,
+                                        )
+                                    }
+                                    RecentSessions.add(dest.absolutePath, state.title.ifBlank { dest.name }, System.currentTimeMillis())
+                                    update {
+                                        it.copy(status = when (outcome) {
+                                            studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.FULL -> "Session saved"
+                                            studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.PARTIAL -> "Saved (transcript too large to embed)"
+                                            studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.FAILED -> "Save failed"
+                                        })
+                                    }
                                 }
                             },
                         ) { Text("Save session") }
@@ -347,3 +364,21 @@ private fun UtteranceRow(
 
 @androidx.compose.runtime.Composable
 private fun rememberVoxSumScope() = androidx.compose.runtime.rememberCoroutineScope()
+
+/** Reopen [file] as a session if it carries one — tries the real embedded VoxsumSession format
+ *  first (an .ogg/.m4a saved by this app or Android), then the JSON sidecar (SessionFile, this
+ *  branch's earlier substitute format), returning null if neither applies so the caller falls
+ *  through to plain transcription. */
+private fun loadAnySession(file: java.io.File): AppState? {
+    if (studio.voxsum.desktop.session.VoxsumSession.hasEmbeddedSession(file)) {
+        val loaded = studio.voxsum.desktop.session.VoxsumSession.open(file)
+        if (loaded.recovered) {
+            return AppState(
+                audioFile = loaded.audio, fileName = file.name, title = loaded.title.orEmpty(),
+                summary = loaded.summary.orEmpty(), actionItems = loaded.actionItems.orEmpty(),
+                speakerNames = loaded.speakerNames, utterances = loaded.utterances, status = "Done",
+            )
+        }
+    }
+    return SessionFile.load(file)
+}
