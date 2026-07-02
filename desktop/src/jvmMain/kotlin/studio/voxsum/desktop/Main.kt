@@ -62,6 +62,7 @@ private fun mainApplication() = application {
         var themeMode by remember { mutableStateOf(ThemeMode.AUTO) }
         var state by remember { mutableStateOf(AppState(config = ConfigStore.load())) }
         var showSettings by remember { mutableStateOf(false) }
+        var showModels by remember { mutableStateOf(false) }
         var showExportMenu by remember { mutableStateOf(false) }
         var showRerunMenu by remember { mutableStateOf(false) }
         var showSearch by remember { mutableStateOf(false) }
@@ -81,6 +82,9 @@ private fun mainApplication() = application {
                     showSettings = false
                 },
             )
+        }
+        if (showModels) {
+            ModelsDialog(onDismiss = { showModels = false })
         }
 
         VoxSumTheme(themeMode = themeMode) {
@@ -140,6 +144,7 @@ private fun mainApplication() = application {
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         ThemeMode.entries.forEach { m -> Button(onClick = { themeMode = m }) { Text(m.name) } }
+                        Button(onClick = { showModels = true }) { Text("Models") }
                         Button(onClick = { showSettings = true }) { Text("⚙") }
                     }
                 }

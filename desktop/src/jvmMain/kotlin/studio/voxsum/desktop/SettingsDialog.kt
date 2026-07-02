@@ -44,7 +44,11 @@ fun SettingsDialog(
     var targetLanguage by remember { mutableStateOf(TargetLanguage.fromId(config.targetLanguage)) }
     var style by remember { mutableStateOf(summaryStyle) }
 
-    DialogWindow(onCloseRequest = onDismiss, title = "Settings") {
+    DialogWindow(
+        onCloseRequest = onDismiss,
+        title = "Settings",
+        state = androidx.compose.ui.window.rememberDialogState(width = 480.dp, height = 560.dp),
+    ) {
         val pal = LocalVoxSumPalette.current
         Column(
             Modifier.background(pal.Slate900).padding(20.dp).width(420.dp).verticalScroll(rememberScrollState()),
