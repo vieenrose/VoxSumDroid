@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,14 +19,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Tune
@@ -37,7 +41,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,11 +94,11 @@ private fun mainApplication() = application {
         var showSettings by remember { mutableStateOf(false) }
         var showModels by remember { mutableStateOf(false) }
         var showExportMenu by remember { mutableStateOf(false) }
-        var showRecentMenu by remember { mutableStateOf(false) }
         var showAddSource by remember { mutableStateOf(false) }
         var showRerunMenu by remember { mutableStateOf(false) }
-        var showOverflowMenu by remember { mutableStateOf(false) }
+        var showThemeMenu by remember { mutableStateOf(false) }
         var showSearch by remember { mutableStateOf(false) }
+        var currentSessionPath by remember { mutableStateOf<String?>(null) }
         var recording by remember { mutableStateOf(false) }
         val recordStopFlag = remember { AtomicBoolean(false) }
         val scope = rememberVoxSumScope()
@@ -106,6 +113,7 @@ private fun mainApplication() = application {
                 extensions = listOf("wav", "mp3", "m4a", "flac", "ogg"),
             )
             if (picked != null) {
+                currentSessionPath = picked.absolutePath
                 val saved = loadAnySession(picked)
                 if (saved != null) {
                     state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
@@ -146,87 +154,73 @@ private fun mainApplication() = application {
             }
         }
 
-        if (showSettings) {
-            SettingsDialog(
-                config = state.config,
-                summaryStyle = state.summaryStyle,
-                onDismiss = { showSettings = false },
-                onSave = { newConfig, newStyle ->
-                    // Fold the style into the persisted config (config.summaryStyle is what
-                    // ConfigStore saves) so the choice survives a restart, not just this session.
-                    val cfg = newConfig.copy(summaryStyle = newStyle.id)
-                    ConfigStore.save(cfg)
-                    state = state.copy(config = cfg, summaryStyle = newStyle)
-                    showSettings = false
-                },
-            )
-        }
-        if (showModels) {
-            ModelsDialog(onDismiss = { showModels = false })
-        }
-        if (showAddSource) {
-            AddSourceDialog(
-                onDismiss = { showAddSource = false },
-                onDownloaded = { file -> scope.launch { runPipeline(file, state.config, state.summaryStyle, update) } },
-            )
-        }
+        studio.voxsum.desktop.ui.DesktopTheme(themeMode = themeMode) {
+            // Dialogs live inside the theme so their DialogWindow content inherits the neutral
+            // desktop palette via LocalVoxSumPalette (a separate window otherwise falls back to
+            // the default Android dark palette, leaving them slate-blue while the app is grey).
+            if (showSettings) {
+                SettingsDialog(
+                    config = state.config,
+                    summaryStyle = state.summaryStyle,
+                    onDismiss = { showSettings = false },
+                    onSave = { newConfig, newStyle ->
+                        // Fold the style into the persisted config (config.summaryStyle is what
+                        // ConfigStore saves) so the choice survives a restart, not just this session.
+                        val cfg = newConfig.copy(summaryStyle = newStyle.id)
+                        ConfigStore.save(cfg)
+                        state = state.copy(config = cfg, summaryStyle = newStyle)
+                        showSettings = false
+                    },
+                )
+            }
+            if (showModels) {
+                ModelsDialog(onDismiss = { showModels = false })
+            }
+            if (showAddSource) {
+                AddSourceDialog(
+                    onDismiss = { showAddSource = false },
+                    onDownloaded = { file -> scope.launch { runPipeline(file, state.config, state.summaryStyle, update) } },
+                )
+            }
 
-        VoxSumTheme(themeMode = themeMode) {
             val pal = LocalVoxSumPalette.current
-            // Matches Android's showSourceActions: the blank slate's hero already carries its own
-            // "Add audio" CTA + Recent list, so the toolbar's source-picking actions are redundant
-            // there and hidden — same source-of-truth condition as the EmptyState visibility below.
             val isEmptyState = !state.running && state.fileName.isEmpty() && state.utterances.isEmpty() && state.error == null
-            Column(Modifier.fillMaxSize().background(pal.Slate900)) {
-                // Android bundles the app's functions into the gradient top bar as icon buttons.
-                // Matching it: source/content actions show only when there's content (Android's
-                // showSourceActions), so the blank slate keeps just Settings + overflow — the same
-                // two icons Android shows there. Add-online / Record / theme / Models live in the
-                // overflow menu (always reachable), so every source path works on the empty state.
-                studio.voxsum.desktop.ui.AppHeader {
-                    val onBrand = pal.OnBrand
-                    fun tint(on: Boolean) = if (on) onBrand else onBrand.copy(alpha = 0.38f)
+            val openRecent: (RecentSession) -> Unit = { r ->
+                currentSessionPath = r.path
+                val f = java.io.File(r.path)
+                val saved = loadAnySession(f)
+                if (saved != null) {
+                    state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
+                    RecentSessions.add(r.path, r.title, System.currentTimeMillis())
+                } else RecentSessions.remove(r.path)
+            }
+            val startRecording: () -> Unit = {
+                recordStopFlag.set(false)
+                recording = true
+                scope.launch {
+                    recordAndTranscribe(state.config, state.summaryStyle, { recordStopFlag.get() }, update)
+                    recording = false
+                }
+            }
 
-                    if (recording) {
-                        IconButton(onClick = { recordStopFlag.set(true); recording = false }) {
-                            Icon(Icons.Filled.Stop, contentDescription = "Stop recording", tint = VoxSumPalette.Red)
+            Column(Modifier.fillMaxSize().background(pal.Slate900)) {
+                // ---- Toolbar (flat, desktop-native icon+label buttons) ----
+                Surface(color = pal.Slate800) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        ToolButton(Icons.Filled.FolderOpen, "Open", enabled = !state.running && !recording, onClick = openLocalAudio)
+                        ToolButton(Icons.Filled.CloudDownload, "Online", enabled = !state.running && !recording) { showAddSource = true }
+                        if (recording) {
+                            ToolButton(Icons.Filled.Stop, "Stop", tint = VoxSumPalette.Red) { recordStopFlag.set(true); recording = false }
+                        } else {
+                            ToolButton(Icons.Filled.Mic, "Record", enabled = !state.running, onClick = startRecording)
                         }
-                    }
-                    if (!isEmptyState && !recording) {
-                        IconButton(enabled = !state.running, onClick = openLocalAudio) {
-                            Icon(Icons.Filled.Add, contentDescription = "Add audio", tint = tint(!state.running))
-                        }
-                    }
-                    if (!isEmptyState) {
+                        ToolbarSeparator(pal)
                         Box {
-                            IconButton(onClick = { showRecentMenu = true }) {
-                                Icon(Icons.Filled.History, contentDescription = "Recent", tint = onBrand)
-                            }
-                            DropdownMenu(expanded = showRecentMenu, onDismissRequest = { showRecentMenu = false }) {
-                                val recents = RecentSessions.list()
-                                if (recents.isEmpty()) {
-                                    Text("No recent sessions", color = pal.Slate400, modifier = Modifier.padding(8.dp))
-                                } else recents.forEach { r ->
-                                    DropdownMenuItem(
-                                        text = { Text(r.title.ifBlank { r.path.substringAfterLast('/') }) },
-                                        leadingIcon = { Icon(Icons.Filled.History, contentDescription = null) },
-                                        onClick = {
-                                            showRecentMenu = false
-                                            val f = java.io.File(r.path)
-                                            val saved = loadAnySession(f)
-                                            if (saved != null) {
-                                                state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
-                                                RecentSessions.add(r.path, r.title, System.currentTimeMillis())
-                                            } else RecentSessions.remove(r.path)
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                        Box {
-                            IconButton(enabled = state.transcriptReady && !state.running, onClick = { showRerunMenu = true }) {
-                                Icon(Icons.Filled.Refresh, contentDescription = "Re-run", tint = tint(state.transcriptReady && !state.running))
-                            }
+                            ToolButton(Icons.Filled.Refresh, "Re-run", enabled = state.transcriptReady && !state.running) { showRerunMenu = true }
                             DropdownMenu(expanded = showRerunMenu, onDismissRequest = { showRerunMenu = false }) {
                                 DropdownMenuItem(text = { Text("Re-summarize") }, onClick = {
                                     showRerunMenu = false; scope.launch { rerunSummary(state, update) }
@@ -239,125 +233,188 @@ private fun mainApplication() = application {
                                 })
                             }
                         }
-                        IconButton(onClick = { showSearch = !showSearch }) {
-                            Icon(Icons.Filled.Search, contentDescription = "Search", tint = onBrand)
-                        }
+                        ToolButton(Icons.Filled.Search, "Find", enabled = !isEmptyState) { showSearch = !showSearch }
                         Box {
-                            // Guard on !running like Android: utterances populate before summarization
-                            // finishes, so a mid-run export could otherwise write a summary-less session.
-                            IconButton(enabled = state.transcriptReady && !state.running, onClick = { showExportMenu = true }) {
-                                Icon(Icons.Filled.Download, contentDescription = "Export", tint = tint(state.transcriptReady && !state.running))
-                            }
+                            // Guard on !running (utterances populate before the summary finishes, so a
+                            // mid-run export could otherwise write a summary-less session).
+                            ToolButton(Icons.Filled.Download, "Export", enabled = state.transcriptReady && !state.running) { showExportMenu = true }
                             ExportMenu(expanded = showExportMenu, onDismiss = { showExportMenu = false }, state = state)
                         }
-                        IconButton(enabled = state.transcriptReady && state.audioFile != null && !state.running, onClick = saveSession) {
-                            Icon(Icons.Filled.Save, contentDescription = "Save session", tint = tint(state.transcriptReady && state.audioFile != null && !state.running))
+                        ToolButton(Icons.Filled.Save, "Save", enabled = state.transcriptReady && state.audioFile != null && !state.running, onClick = saveSession)
+                        Spacer(Modifier.weight(1f))
+                        Box {
+                            ToolButton(Icons.Filled.Palette, "Theme") { showThemeMenu = true }
+                            DropdownMenu(expanded = showThemeMenu, onDismissRequest = { showThemeMenu = false }) {
+                                ThemeMode.entries.forEach { m ->
+                                    DropdownMenuItem(
+                                        text = { Text("${m.name}${if (themeMode == m) "  ✓" else ""}") },
+                                        onClick = { themeMode = m; showThemeMenu = false },
+                                    )
+                                }
+                            }
                         }
+                        ToolButton(Icons.Filled.Storage, "Models") { showModels = true }
+                        ToolButton(Icons.Filled.Tune, "Preferences") { showSettings = true }
                     }
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Filled.Tune, contentDescription = "Settings", tint = onBrand)
-                    }
-                    Box {
-                        IconButton(onClick = { showOverflowMenu = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = onBrand)
-                        }
-                        DropdownMenu(expanded = showOverflowMenu, onDismissRequest = { showOverflowMenu = false }) {
-                            DropdownMenuItem(
-                                enabled = !state.running && !recording,
-                                text = { Text("Add online audio") },
-                                onClick = { showOverflowMenu = false; showAddSource = true },
+                }
+                HorizontalDivider(color = pal.Hairline)
+
+                // ---- Two-pane: sessions sidebar | detail ----
+                Row(Modifier.fillMaxWidth().weight(1f)) {
+                    // Sidebar
+                    Column(Modifier.width(240.dp).fillMaxHeight().background(pal.InsetSurface)) {
+                        Text(
+                            "SESSIONS",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = pal.Slate400,
+                            modifier = Modifier.padding(start = 14.dp, top = 12.dp, bottom = 6.dp),
+                        )
+                        val recents = RecentSessions.list()
+                        if (recents.isEmpty()) {
+                            Text(
+                                "No sessions yet",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = pal.Slate400,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
                             )
-                            DropdownMenuItem(
-                                enabled = !state.running,
-                                text = { Text("Record") },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    recordStopFlag.set(false)
-                                    recording = true
-                                    scope.launch {
-                                        recordAndTranscribe(state.config, state.summaryStyle, { recordStopFlag.get() }, update)
-                                        recording = false
+                            Spacer(Modifier.weight(1f))
+                        } else {
+                            LazyColumn(Modifier.weight(1f)) {
+                                items(recents, key = { it.path }) { r ->
+                                    val selected = r.path == currentSessionPath
+                                    Row(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .background(if (selected) pal.ActiveTint else Color.Transparent)
+                                            .clickable { openRecent(r) }
+                                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(Icons.Filled.History, contentDescription = null, tint = if (selected) pal.Sky else pal.Slate400, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            r.title.ifBlank { r.path.substringAfterLast('/') },
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = if (selected) pal.Slate200 else pal.Slate400,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        )
                                     }
-                                },
-                            )
-                            HorizontalDivider()
-                            ThemeMode.entries.forEach { m ->
-                                DropdownMenuItem(
-                                    text = { Text("Theme: ${m.name}${if (themeMode == m) "  ✓" else ""}") },
-                                    onClick = { themeMode = m; showOverflowMenu = false },
-                                )
+                                }
                             }
-                            HorizontalDivider()
-                            DropdownMenuItem(text = { Text("Models…") }, onClick = { showModels = true; showOverflowMenu = false })
+                        }
+                        HorizontalDivider(color = pal.Hairline)
+                        TextButton(
+                            onClick = openLocalAudio,
+                            enabled = !state.running && !recording,
+                            modifier = Modifier.fillMaxWidth().padding(6.dp),
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Add audio")
+                        }
+                    }
+                    VerticalDivider(color = pal.Hairline)
+
+                    // Detail
+                    Column(Modifier.weight(1f).fillMaxHeight()) {
+                        if (showSearch && !isEmptyState) {
+                            OutlinedTextField(
+                                value = state.searchQuery,
+                                onValueChange = { update { s -> s.copy(searchQuery = it) } },
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                placeholder = { Text("Search transcript…") },
+                                singleLine = true,
+                            )
+                        }
+                        if (isEmptyState) {
+                            studio.voxsum.desktop.ui.EmptyState(
+                                onAddSource = openLocalAudio,
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                                if (state.title.isNotEmpty() || state.summary.isNotEmpty()) {
+                                    studio.voxsum.desktop.ui.SectionCard {
+                                        if (state.title.isNotEmpty()) Text(state.title, color = pal.Slate200, style = MaterialTheme.typography.titleMedium)
+                                        if (state.summary.isNotEmpty()) Text(state.summary, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                                    }
+                                }
+                                if (state.actionItems.isNotEmpty()) {
+                                    studio.voxsum.desktop.ui.SectionCard(Modifier.padding(top = 12.dp)) {
+                                        Text("Action items", color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
+                                        Text(state.actionItems, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                                    }
+                                }
+                                state.error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
+
+                                val speakerIds = state.utterances.mapNotNull { it.speaker }.distinct().sorted()
+                                val visibleUtterances = if (state.searchQuery.isBlank()) {
+                                    state.utterances
+                                } else {
+                                    state.utterances.filter { it.text.contains(state.searchQuery, ignoreCase = true) }
+                                }
+                                LazyColumn(Modifier.fillMaxSize().padding(top = 12.dp)) {
+                                    items(visibleUtterances, key = { it.index }) { u ->
+                                        UtteranceRow(u, state, speakerIds, pal, update)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-                Column(Modifier.fillMaxSize().padding(20.dp)) {
 
-
-                if (showSearch) {
-                    OutlinedTextField(
-                        value = state.searchQuery,
-                        onValueChange = { update { s -> s.copy(searchQuery = it) } },
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        placeholder = { Text("Search transcript…") },
-                        singleLine = true,
-                    )
-                }
-
-                if (isEmptyState) {
-                    studio.voxsum.desktop.ui.EmptyState(
-                        onAddSource = openLocalAudio,
-                        recents = RecentSessions.list(),
-                        onOpenRecent = { r ->
-                            val f = java.io.File(r.path)
-                            val saved = loadAnySession(f)
-                            if (saved != null) {
-                                state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
-                                RecentSessions.add(r.path, r.title, System.currentTimeMillis())
-                            } else {
-                                RecentSessions.remove(r.path)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-
-                Column(Modifier.padding(top = 12.dp)) {
-                    if (state.fileName.isNotEmpty()) Text(state.fileName, color = pal.Slate400)
-                    if (state.status.isNotEmpty()) Text(state.status, color = pal.Slate200)
-                    state.error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error) }
-                    state.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) }
-                }
-
-                if (state.title.isNotEmpty() || state.summary.isNotEmpty()) {
-                    studio.voxsum.desktop.ui.SectionCard(Modifier.padding(top = 12.dp)) {
-                        if (state.title.isNotEmpty()) Text(state.title, color = pal.Slate200, style = MaterialTheme.typography.titleMedium)
-                        if (state.summary.isNotEmpty()) Text(state.summary, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                // ---- Status bar ----
+                HorizontalDivider(color = pal.Hairline)
+                Surface(color = pal.Slate800) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val statusText = when {
+                            state.error != null -> "Error: ${state.error}"
+                            state.status.isNotEmpty() -> state.status
+                            !isEmptyState && state.fileName.isNotEmpty() -> state.fileName
+                            else -> "Ready"
+                        }
+                        Text(statusText, style = MaterialTheme.typography.labelSmall, color = pal.Slate400, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Spacer(Modifier.width(12.dp))
+                        Text(state.config.asrBackend, style = MaterialTheme.typography.labelSmall, color = pal.Slate400)
+                        state.progress?.takeIf { state.running }?.let {
+                            Spacer(Modifier.width(12.dp))
+                            LinearProgressIndicator(progress = { it }, modifier = Modifier.width(120.dp))
+                        }
                     }
-                }
-                if (state.actionItems.isNotEmpty()) {
-                    studio.voxsum.desktop.ui.SectionCard(Modifier.padding(top = 12.dp)) {
-                        Text("Action items", color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
-                        Text(state.actionItems, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
-                    }
-                }
-
-                val speakerIds = state.utterances.mapNotNull { it.speaker }.distinct().sorted()
-                val visibleUtterances = if (state.searchQuery.isBlank()) {
-                    state.utterances
-                } else {
-                    state.utterances.filter { it.text.contains(state.searchQuery, ignoreCase = true) }
-                }
-                LazyColumn(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    items(visibleUtterances, key = { it.index }) { u ->
-                        UtteranceRow(u, state, speakerIds, pal, update)
-                    }
-                }
                 }
             }
         }
     }
+}
+
+/** A flat desktop-toolbar button: leading icon + small label, no fill until hovered/pressed. */
+@androidx.compose.runtime.Composable
+private fun ToolButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean = true,
+    tint: Color? = null,
+    onClick: () -> Unit,
+) {
+    val pal = LocalVoxSumPalette.current
+    TextButton(onClick = onClick, enabled = enabled) {
+        Icon(icon, contentDescription = label, tint = tint ?: if (enabled) pal.Slate200 else pal.Slate400.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge, color = tint ?: if (enabled) pal.Slate200 else pal.Slate400.copy(alpha = 0.5f))
+    }
+}
+
+/** A short vertical rule separating toolbar groups. */
+@androidx.compose.runtime.Composable
+private fun ToolbarSeparator(pal: studio.voxsum.ui.theme.VoxSumColors) {
+    VerticalDivider(
+        modifier = Modifier.padding(horizontal = 4.dp).height(20.dp),
+        color = pal.Hairline,
+    )
 }
 
 @androidx.compose.runtime.Composable
