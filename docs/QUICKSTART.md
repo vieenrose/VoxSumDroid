@@ -15,8 +15,9 @@ This is a 5-minute tour of everything VoxSum can do. Nothing here needs an accou
 one-time model download nothing leaves your phone.
 
 > **First run downloads models.** The first time you transcribe, VoxSum fetches the speech model; the
-> first time you summarize, it fetches the summary model. A progress bar shows the download. After
-> that you can go fully offline.
+> first time you summarize, it fetches the summary model (from Hugging Face, integrity-checked). A
+> progress bar shows the download. After that you can go fully offline. If a download breaks or a model
+> file is corrupt, VoxSum cleans it up and shows a one-tap **Retry**.
 
 <p align="center"><img src="screenshots/qs-home.png" width="260" alt="VoxSum home screen"></p>
 <p align="center"><i>The home screen: the offline promise up front, one <b>Add audio</b> button, and your
@@ -82,7 +83,10 @@ player. Right: tap 🔍 to search — matches highlight and you step through the
 - **Fix the speakers** — on any line, the ⇄ menu lets you move a misattributed line to the right
   person or merge two speakers into one.
 - **Re-run** — the top-bar ↻ menu re-runs transcription, the summary, name detection, or action-item
-  extraction (e.g. switch the summary language, then re-summarize).
+  extraction. VoxSum also tracks what depends on what: change the summary language or style, or edit
+  the transcript, and it offers a one-tap **re-summarize** (which also refreshes the title, unless you
+  wrote your own). Switching only between **繁體中文 ↔ 简体中文** converts the title, summary, and
+  transcript **instantly** — no re-run needed.
 
 ## 4. Save, share, export
 
@@ -90,7 +94,8 @@ player. Right: tap 🔍 to search — matches highlight and you step through the
 <p align="center"><i>The Export menu: save/share the whole session as <code>.ogg</code> or <code>.m4a</code>,
 or export the transcript as text, subtitles, Markdown, or PDF.</i></p>
 
-Open the **⋮ (Export)** menu in the top bar:
+Open the **⋮ (Export)** menu in the top bar. (While a transcription is still running, exports and
+settings are briefly locked so a session can't be saved half-finished — they unlock on completion.)
 
 - **Save / Share session (.ogg or .m4a)** — packs the whole session (audio + transcript + summary +
   speakers + a cover) into one `.ogg` *or* `.m4a` that **plays in any music app** (showing the title,

@@ -13,7 +13,7 @@
 
 Voici un tour en 5 minutes de tout ce que VoxSum sait faire. Rien ici ne nécessite de compte, et après le téléchargement unique des modèles, plus rien ne quitte votre téléphone.
 
-> **Le premier lancement télécharge des modèles.** À la première transcription, VoxSum récupère le modèle de reconnaissance vocale ; au premier résumé, le modèle de résumé. Une barre de progression suit le téléchargement. Ensuite, vous pouvez passer entièrement hors ligne.
+> **Le premier lancement télécharge des modèles.** À la première transcription, VoxSum récupère le modèle de reconnaissance vocale ; au premier résumé, le modèle de résumé (depuis Hugging Face, avec vérification d'intégrité). Une barre de progression suit le téléchargement. Ensuite, vous pouvez passer entièrement hors ligne. Si un téléchargement échoue ou qu'un modèle est corrompu, VoxSum le nettoie et affiche un **Réessayer** en un geste.
 
 <p align="center"><img src="screenshots/qs-home-fr.png" width="260" alt="Écran d'accueil de VoxSum"></p>
 <p align="center"><i>L'écran d'accueil : la promesse hors ligne en évidence, un seul bouton <b>Ajouter de l'audio</b>, et vos sessions <b>Récentes</b> à portée d'un geste.</i></p>
@@ -66,14 +66,14 @@ Vous pouvez aussi **partager** une note vocale ou un fichier audio/vidéo *vers*
 
 - **Modifiez tout** — corrigez un mot, renommez un intervenant, ou ajustez le titre/résumé, sur place.
 - **Corrigez les intervenants** — sur n'importe quelle ligne, le menu ⇄ déplace une ligne mal attribuée vers la bonne personne, ou fusionne deux intervenants.
-- **Relancez** — le menu ↻ de la barre du haut relance la transcription, le résumé, la détection des noms, ou l'extraction des actions (p. ex. changez la langue du résumé, puis re-résumez).
+- **Relancez** — le menu ↻ de la barre du haut relance la transcription, le résumé, la détection des noms, ou l'extraction des actions. VoxSum suit aussi les dépendances entre contenus : changez la langue ou le style du résumé, ou modifiez la transcription, et il propose un **re-résumé** en un geste (qui rafraîchit aussi le titre, sauf si vous l'avez écrit vous-même). Un simple passage entre **繁體中文 ↔ 简体中文** convertit le titre, le résumé et la transcription **instantanément**, sans relance.
 
 ## 4. Enregistrer, partager, exporter
 
 <p align="center"><img src="screenshots/qs-export-menu-fr.png" width="260" alt="Menu Exporter"></p>
 <p align="center"><i>Le menu Exporter : enregistrer/partager toute la session en <code>.ogg</code> ou <code>.m4a</code>, ou exporter la transcription en texte, sous-titres, Markdown ou PDF.</i></p>
 
-Ouvrez le menu **⋮ (Exporter)** de la barre du haut :
+Ouvrez le menu **⋮ (Exporter)** de la barre du haut. (Pendant une transcription, les exports et les réglages sont brièvement verrouillés pour éviter d'enregistrer une session à moitié finie — ils se déverrouillent dès la fin.)
 
 - **Enregistrer / Partager la session (.ogg ou .m4a)** — réunit toute la session (audio + transcription + résumé + intervenants + une pochette) dans un seul `.ogg` *ou* `.m4a` qui **se lit dans n'importe quelle appli musicale** (en affichant le titre, la pochette et la transcription en paroles) et **se rouvre dans VoxSum** avec tout intact. C'est votre archive — rouvrez-la quand vous voulez via *Ajouter de l'audio → Ouvrir une session*. Choisissez `.m4a` pour la compatibilité maximale (iPhone, autoradios, tous les lecteurs).
 - **Copier / Partager la transcription** — amenez le texte dans n'importe quelle autre appli.

@@ -65,7 +65,7 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 - **Fix the speakers** — move a misattributed line to the right person, or merge two speakers into one.
 - **Copy** the whole summary with one tap.
 - **Export the words** — copy or share the transcript as text, or save **subtitles (`.srt`/`.vtt`)**, plain text, Markdown, or a printable **PDF** for any other app.
-- **Re-run** the transcription, the summary, or the speaker-name detection whenever you like — e.g. switch the summary language and re-summarize.
+- **Re-run** the transcription, the summary, or the speaker-name detection whenever you like — and VoxSum keeps everything consistent: change the summary language or style (or edit the transcript) and it offers a one-tap **re-summarize**, which also refreshes the title (unless you wrote your own). Switching just between **繁體中文 ↔ 简体中文** converts the title, summary, and transcript **instantly**, no re-run needed.
 - **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) packs into a single **`.m4a`**. It **plays in any music app** — showing the title, cover, summary, and the **time-synced transcript** as [scrolling lyrics](#synced-lyrics-in-android-music-players) — and **reopens in VoxSum** with everything intact. `.m4a` reaches the widest set of players (iPhones, cars, every app); older `.ogg` sessions still open too.
 
 ## Languages
@@ -98,7 +98,11 @@ after that, updates arrive automatically.
 ## Good to know
 
 - **First run downloads models.** The first time you use a feature, VoxSum fetches the model it needs
-  (verified for integrity) and caches it. After that you can go fully offline.
+  from **Hugging Face** (with a GitHub fallback), verifies its integrity, and caches it. After that you
+  can go fully offline. If a download is interrupted or a model file ends up corrupt, VoxSum cleans it
+  up automatically and offers a one-tap **Retry**.
+- **While a transcription is running,** exports and settings are briefly locked so the session can't be
+  saved half-finished — they unlock the moment it completes.
 - **The only thing it ever sends** is an optional, once-a-day check to GitHub for a new version — no
   tracking, and skipped when you're offline. (F-Droid users get updates through their client instead.)
 - **Runs on Android 8.0+.** A recent phone with a few GB of free storage is comfortable; the higher-

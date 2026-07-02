@@ -65,7 +65,7 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 - **Corrigez les intervenants** — déplacez une ligne mal attribuée vers la bonne personne, ou fusionnez deux intervenants.
 - **Copiez** tout le résumé d'un seul geste.
 - **Exportez le texte** — copiez ou partagez la transcription en texte, ou enregistrez des **sous-titres (`.srt`/`.vtt`)**, du texte brut, du Markdown ou un **PDF** imprimable pour d'autres applis.
-- **Relancez** la transcription, le résumé ou la détection des noms quand vous voulez — p. ex. changez la langue du résumé puis relancez-le.
+- **Relancez** la transcription, le résumé ou la détection des noms quand vous voulez — et VoxSum garde le tout cohérent : changez la langue ou le style du résumé (ou modifiez la transcription) et il propose un **re-résumé** en un geste, qui rafraîchit aussi le titre (sauf si vous l'avez écrit vous-même). Un simple passage entre **繁體中文 ↔ 简体中文** convertit le titre, le résumé et la transcription **instantanément**, sans relance.
 - **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique **`.m4a`** qui **se lit dans n'importe quelle appli musicale** (avec le titre, la pochette, le résumé et la **transcription synchronisée** en paroles — voir [*Paroles synchronisées dans les lecteurs Android*](#paroles-synchronisées-dans-les-lecteurs-android)) et **se rouvre dans VoxSum** avec tout intact. (`.m4a` a la plus large compatibilité — iPhone, autoradios, tous les lecteurs ; les anciennes sessions `.ogg` s'ouvrent toujours.)
 
 ## Langues
@@ -98,8 +98,12 @@ l'installer (Android peut demander l'autorisation d'installer depuis votre navig
 ## Bon à savoir
 
 - **Le premier lancement télécharge des modèles.** La première fois que vous utilisez une fonction,
-  VoxSum récupère le modèle nécessaire (avec vérification d'intégrité) et le met en cache. Ensuite,
-  vous pouvez passer entièrement hors ligne.
+  VoxSum récupère le modèle nécessaire depuis **Hugging Face** (avec GitHub en secours), vérifie son
+  intégrité et le met en cache. Ensuite, vous pouvez passer entièrement hors ligne. Si un téléchargement
+  s'interrompt ou qu'un fichier de modèle est corrompu, VoxSum le nettoie automatiquement et propose un
+  **Réessayer** en un geste.
+- **Pendant une transcription,** les exports et les réglages sont brièvement verrouillés pour éviter
+  d'enregistrer une session à moitié finie — ils se déverrouillent dès la fin.
 - **La seule chose jamais envoyée** est une vérification facultative, une fois par jour, vers GitHub
   pour une nouvelle version — sans aucun pistage, et ignorée hors ligne. (Les utilisateurs F-Droid
   reçoivent les mises à jour via leur client.)
