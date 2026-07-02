@@ -19,52 +19,46 @@
 This `linux` branch adds a **Compose Multiplatform desktop target** (Ubuntu/Kubuntu, x86_64) to
 [VoxSumDroid](https://github.com/vieenrose/VoxSumDroid), the on-device Android port of
 [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak). It reuses the Android app's actual
-Kotlin code — theme, settings, model provisioning, summarization pipeline — rather than porting the
-older Python backend. For the Android app itself, see `README.md` on `main`.
+Kotlin code — theme, settings, model provisioning, the full ASR/diarization/summarization pipeline
+— rather than porting the older Python backend. For the Android app itself, see `README.md` on `main`.
 
 ## Module layout
 
 - **`:app`** — the Android app, unchanged.
 - **`:shared`** — a Kotlin Multiplatform library (`jvm` + `androidTarget`) holding the code both
-  platforms use: the theme system, settings persistence, model provisioning/downloads, and the
-  summarization business logic (`LlmEngine`, `Summarizer`, `SpeakerNamer`, `ActionItemExtractor`),
-  plus WAV/MP4/OGG tag I/O and transcript export.
-- **`:desktop`** — the Compose Multiplatform desktop app.
+  platforms use: the theme system, settings persistence, model provisioning/downloads, the ASR
+  (`AsrEngine`) and diarization (`DiarizationEngine`) engines, the summarization business logic
+  (`LlmEngine`, `Summarizer`, `SpeakerNamer`, `ActionItemExtractor`), plus WAV/MP4/OGG tag I/O and
+  transcript export. Its `jvmMain` also carries a desktop-only Kotlin JNI wrapper for sherpa-onnx
+  (`com.k2fsa.sherpa.onnx`) — adapted from the upstream submodule, which is Android-only as shipped.
+- **`:desktop`** — the Compose Multiplatform desktop app: a real (if minimal) screen driving the
+  full pipeline, plus the desktop-native `AudioDecoder` (ffmpeg-backed), `AudioRecorder`
+  (`javax.sound.sampled`), and `FilePicker` (native AWT/GTK dialogs).
 
 ## Status
 
-**Done and verified** (each of these was actually run, not just compiled):
+**The full pipeline runs end-to-end on Linux, verified against real audio, real models, and a real
+running window** — not just compiled. Every item below was actually executed and observed, not
+assumed:
 
-- The real theme system (`VoxSumTheme`, Light/Dark/E-ink) — shared with `:app`, screenshotted
-  rendering correctly on desktop.
-- Settings persistence (`ConfigStore`/`ThemeStore`) and model provisioning (`ModelManager`, the
-  same HuggingFace-first downloads as Android) — Android's `Context` dependency swapped for a
-  small `KeyValueStore` interface and plain `File` paths.
-- **Native summarization runs on Linux.** `llama.cpp` + VoxSum's own JNI bridge build natively for
-  linux-x86_64 (`desktop/scripts/build-native.sh`) — verified by loading a real GGUF and
-  generating real text through the exact same `LlmEngine.kt` Android uses.
-- The sherpa-onnx (ASR/VAD/diarization) native library also builds for linux-x86_64 and exports
-  the expected JNI surface (`nm -D` confirms `Java_com_k2fsa_sherpa_onnx_OfflineRecognizer_*`
-  etc.), but its Kotlin wrapper isn't reachable from `:shared` yet — see below.
-- A desktop audio decoder (`AudioDecoder`, ffmpeg-backed) and recorder (`AudioRecorder`,
-  `javax.sound.sampled`) — verified by actually decoding real WAV/MP3 files (sample counts and
-  waveform peaks cross-checked) and opening a real microphone line, matching Android's
-  `decodeToPcm16k`/`decodeToWav16k`/`waveformPeaks`/`record` contracts. That verification caught
-  a real bug: a blocking mic read with no dispatcher hint could deadlock a single-threaded caller
-  — fixed with `flowOn(Dispatchers.IO)`.
-- A desktop file picker (`FilePicker`, native AWT/GTK dialogs) replacing Android's SAF launchers —
-  verified against a real, screenshotted native dialog with a working extension filter, and a real
-  file selection returning a correct, existing path.
+- The real theme system (`VoxSumTheme`, Light/Dark/E-ink), settings persistence, and model
+  provisioning (`ModelManager`, the same HuggingFace-first downloads as Android) all run as on
+  Android — `Context` swapped for a small `KeyValueStore` interface and plain `File` paths.
+- `llama.cpp` + sherpa-onnx (ASR/VAD/diarization) both build natively for linux-x86_64
+  (`desktop/scripts/build-native.sh`) — a host build, not a cross-compile.
+- Desktop counterparts of Android's platform APIs: `AudioDecoder` (ffmpeg), `AudioRecorder`
+  (`javax.sound.sampled`), `FilePicker` (native AWT/GTK dialogs) — each verified against real
+  files/devices/dialogs, not mocks.
+- **A real transcribe → diarize → summarize run, in the real UI**: picking a two-speaker test clip
+  produced a correct transcript in both English and Chinese, correctly split by speaker (2 speakers
+  detected), a generated title, and a bullet-point summary — screenshotted mid-run and on
+  completion.
 
-**Not yet done:**
+**Not yet done** (next layer of work, not blockers):
 
-- sherpa-onnx's upstream Kotlin API wrapper inlines Android-only `AssetManager` constructors in
-  every file, so it needs a small hand-written desktop JNI wrapper (or a patched copy) before
-  ASR/diarization actually run on Linux — the native library side is ready and waiting for it.
-- Wiring the real VoxSum UI into `:desktop/Main.kt` (currently a minimal theme-picker placeholder)
-  and an end-to-end transcribe+summarize run on Linux. This is also where the Android foreground
-  `Service`'s execution model gets its desktop counterpart — just a plain `CoroutineScope` tied to
-  the app's lifetime, no dedicated replacement needed ahead of time.
+- Model selection/download UI — currently hardcoded to models already verified present on disk;
+  `ModelManager`'s HuggingFace-first download flow is shared but not yet wired into `:desktop`'s UI.
+- Live recording, session save/export, multi-file support, and a settings screen.
 
 ## Build & run
 
@@ -75,17 +69,15 @@ git clone --recurse-submodules https://github.com/vieenrose/VoxSumDroid.git
 cd VoxSumDroid
 git checkout linux
 
-# Desktop shell (theme-picker placeholder UI only, for now)
-./gradlew :desktop:run
-
-# Native libs needed for summarization (llama.cpp + the JNI bridge; plain CMake/Ninja,
-# no NDK involved — this is a host build, not a cross-compile)
+# Native libs needed for ASR/diarization/summarization (llama.cpp + sherpa-onnx + the JNI
+# bridge; plain CMake/Ninja, no NDK involved — a host build, not a cross-compile)
 ./desktop/scripts/build-native.sh
+
+# Desktop app — pick an audio file and it transcribes, diarizes, and summarizes it
+./gradlew :desktop:run
 ```
 
-See the root `CMakeLists.txt` at `desktop/src/jvmMain/cpp/CMakeLists.txt` for what the native
-build produces and doesn't yet cover (sherpa-onnx's C++ side builds too, but nothing on the
-Kotlin side reaches it yet).
+See `desktop/src/jvmMain/cpp/CMakeLists.txt` for what the native build produces.
 
 ## License
 
