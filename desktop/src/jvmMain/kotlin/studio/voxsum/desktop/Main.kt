@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -142,7 +143,10 @@ private fun mainApplication() = application {
                                     Text("No recent sessions", color = pal.Slate400, modifier = Modifier.padding(8.dp))
                                 } else {
                                     recents.forEach { r ->
-                                        DropdownMenuItem(text = { Text(r.title.ifBlank { r.path.substringAfterLast('/') }) }, onClick = {
+                                        DropdownMenuItem(
+                                            text = { Text(r.title.ifBlank { r.path.substringAfterLast('/') }) },
+                                            leadingIcon = { Icon(Icons.Filled.History, contentDescription = null) },
+                                            onClick = {
                                             showRecentMenu = false
                                             val f = java.io.File(r.path)
                                             val saved = loadAnySession(f)
@@ -272,15 +276,15 @@ private fun mainApplication() = application {
                 }
 
                 if (state.title.isNotEmpty() || state.summary.isNotEmpty()) {
-                    Column(Modifier.padding(vertical = 12.dp)) {
+                    studio.voxsum.desktop.ui.SectionCard(Modifier.padding(top = 12.dp)) {
                         if (state.title.isNotEmpty()) Text(state.title, color = pal.Slate200, style = MaterialTheme.typography.titleMedium)
-                        if (state.summary.isNotEmpty()) Text(state.summary, color = pal.Slate400)
+                        if (state.summary.isNotEmpty()) Text(state.summary, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
                     }
                 }
                 if (state.actionItems.isNotEmpty()) {
-                    Column(Modifier.padding(bottom = 12.dp)) {
+                    studio.voxsum.desktop.ui.SectionCard(Modifier.padding(top = 12.dp)) {
                         Text("Action items", color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
-                        Text(state.actionItems, color = pal.Slate400)
+                        Text(state.actionItems, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
                     }
                 }
 

@@ -50,15 +50,17 @@ fun ModelsDialog(onDismiss: () -> Unit) {
                 val totalMb = entries.sumOf { it.bytes } / (1024 * 1024)
                 Text("Total: ${totalMb} MB", color = pal.Slate400, style = MaterialTheme.typography.labelMedium)
                 entries.forEach { m ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column {
-                            Text(m.name, color = pal.Slate200)
-                            Text("${m.kind}  ·  ${m.bytes / (1024 * 1024)} MB", color = pal.Slate400, style = MaterialTheme.typography.labelSmall)
+                    studio.voxsum.desktop.ui.SectionCard {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                                Text(m.name, color = pal.Slate200, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                Text("${m.kind}  ·  ${m.bytes / (1024 * 1024)} MB", color = pal.Slate400, style = MaterialTheme.typography.labelSmall)
+                            }
+                            Button(onClick = {
+                                m.delete()
+                                entries = models.storedModels()
+                            }) { Text("Delete") }
                         }
-                        Button(onClick = {
-                            m.delete()
-                            entries = models.storedModels()
-                        }) { Text("Delete") }
                     }
                 }
             }
