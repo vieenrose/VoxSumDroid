@@ -2,45 +2,218 @@ package studio.voxsum.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import studio.voxsum.core.asr.AsrBackend
+import studio.voxsum.core.asr.AsrEngine
+import studio.voxsum.core.asr.AsrModelFiles
 import studio.voxsum.core.config.ThemeMode
+import studio.voxsum.core.diarization.DiarizationEngine
+import studio.voxsum.core.events.TranscriptEvent
+import studio.voxsum.core.llm.LlmEngine
+import studio.voxsum.core.llm.Summarizer
+import studio.voxsum.core.models.ChatTemplate
+import studio.voxsum.core.models.SamplerProfile
+import studio.voxsum.data.SpeakerNames
+import studio.voxsum.data.speakerColor
+import studio.voxsum.data.speakerLabel
+import studio.voxsum.desktop.audio.AudioDecoder
+import studio.voxsum.desktop.files.FilePicker
 import studio.voxsum.ui.theme.LocalVoxSumPalette
 import studio.voxsum.ui.theme.VoxSumTheme
+import java.io.File
 
-// Placeholder screen: proves :desktop reuses the *real* shared theme system (VoxSumTheme,
-// VoxSumColors, DarkColors/LightColors/EinkColors — the same code app/ MainActivity.kt renders
-// through) rather than a desktop-only re-implementation. The rest of the actual VoxSum UI
-// (transcript, player, settings…) still needs porting — tracked separately.
+// Hardcoded to the models this branch has been verified against — model selection/download via
+// ModelManager (already shared with :app) is a follow-up, not blocking this proof that the real
+// pipeline can drive a real screen end to end.
+private object DevModels {
+    const val VAD = "/home/luigi/silero_vad.onnx"
+    const val SENSE_VOICE_DIR = "/home/luigi/.cache/voxsum-verify/sensevoice/" +
+        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
+    const val EMBEDDING = "/home/luigi/.cache/voxsum-verify/campplus_zh_en_fp16.onnx"
+    const val LLM_GGUF = "/home/luigi/q35-08b.gguf"
+}
+
+private data class PipelineState(
+    val fileName: String = "",
+    val status: String = "",
+    val progress: Float? = null,
+    val running: Boolean = false,
+    val utterances: List<TranscriptEvent.Utterance> = emptyList(),
+    val speakerCount: Int = 0,
+    val title: String = "",
+    val summary: String = "",
+    val error: String? = null,
+)
+
 fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "VoxSum (Linux — early scaffold)") {
-        var mode by remember { mutableStateOf(ThemeMode.AUTO) }
-        VoxSumTheme(themeMode = mode) {
+    Window(onCloseRequest = ::exitApplication, title = "VoxSum for Linux") {
+        var themeMode by remember { mutableStateOf(ThemeMode.AUTO) }
+        var state by remember { mutableStateOf(PipelineState()) }
+        val scope = rememberVoxSumScope()
+
+        VoxSumTheme(themeMode = themeMode) {
             val pal = LocalVoxSumPalette.current
-            Column(
-                modifier = Modifier.fillMaxSize().background(pal.Slate900).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Text("VoxSum for Linux — scaffold smoke test", color = pal.Slate200)
-                Text("Theme mode: $mode (real VoxSumTheme/VoxSumColors from :shared)", color = pal.Slate200)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ThemeMode.entries.forEach { candidate ->
-                        Button(onClick = { mode = candidate }) { Text(candidate.name) }
+            Column(Modifier.fillMaxSize().background(pal.Slate900).padding(20.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Button(
+                        enabled = !state.running,
+                        onClick = {
+                            val picked = FilePicker.openFile(
+                                "Pick an audio file",
+                                extensions = listOf("wav", "mp3", "m4a", "flac", "ogg"),
+                            ) ?: return@Button
+                            scope.launch {
+                                runPipeline(picked) { state = it(state) }
+                            }
+                        },
+                    ) { Text("Add audio") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ThemeMode.entries.forEach { m ->
+                            Button(onClick = { themeMode = m }) { Text(m.name) }
+                        }
+                    }
+                }
+
+                Column(Modifier.padding(top = 12.dp)) {
+                    if (state.fileName.isNotEmpty()) Text(state.fileName, color = pal.Slate400)
+                    if (state.status.isNotEmpty()) Text(state.status, color = pal.Slate200)
+                    state.error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error) }
+                    state.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) }
+                }
+
+                if (state.title.isNotEmpty() || state.summary.isNotEmpty()) {
+                    Column(Modifier.padding(vertical = 12.dp)) {
+                        if (state.title.isNotEmpty()) Text(state.title, color = pal.Slate200, style = MaterialTheme.typography.titleMedium)
+                        if (state.summary.isNotEmpty()) Text(state.summary, color = pal.Slate400)
+                    }
+                }
+
+                val names: SpeakerNames = emptyMap()
+                LazyColumn(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    items(state.utterances) { u ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.Top,
+                        ) {
+                            Box(
+                                Modifier.size(10.dp).padding(top = 4.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(speakerColor(u.speaker))),
+                            )
+                            Column(Modifier.padding(start = 8.dp)) {
+                                Text(
+                                    speakerLabel(u.speaker, names) ?: "",
+                                    color = pal.Slate400,
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                                Text(u.text, color = pal.Slate200)
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
+
+/** Decode -> ASR -> diarize -> summarize, reporting progress through [update]. Heavy work runs
+ *  on Dispatchers.Default/IO; [update] mutations are posted back via the caller's (UI) dispatcher. */
+private suspend fun runPipeline(file: File, update: ((PipelineState) -> PipelineState) -> Unit) {
+    update { it.copy(fileName = file.name, running = true, error = null, utterances = emptyList(), title = "", summary = "") }
+    try {
+        update { it.copy(status = "Decoding…") }
+        val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(file) }
+
+        update { it.copy(status = "Transcribing…", progress = 0f) }
+        val utterances = ArrayList<TranscriptEvent.Utterance>()
+        withContext(Dispatchers.Default) {
+            AsrEngine(
+                backend = AsrBackend.SENSEVOICE,
+                files = AsrModelFiles(
+                    model = "${DevModels.SENSE_VOICE_DIR}/model.int8.onnx",
+                    tokens = "${DevModels.SENSE_VOICE_DIR}/tokens.txt",
+                ),
+                vadModel = DevModels.VAD,
+                numThreads = 2,
+            ).use { asr ->
+                asr.transcribe(pcm).collect { e ->
+                    when (e) {
+                        is TranscriptEvent.Utterance -> { utterances += e; update { it.copy(utterances = utterances.toList()) } }
+                        is TranscriptEvent.Progress -> update { it.copy(progress = e.fraction) }
+                        is TranscriptEvent.Status -> update { it.copy(status = e.message) }
+                        else -> {}
+                    }
+                }
+            }
+        }
+
+        update { it.copy(status = "Identifying speakers…", progress = null) }
+        val diarResult: Pair<List<TranscriptEvent.Utterance>, Int> = withContext(Dispatchers.Default) {
+            val diar = DiarizationEngine(embeddingModel = DevModels.EMBEDDING, numThreads = 2)
+            try {
+                diar.assignSpeakers(
+                    pcm16k = pcm,
+                    utterances = utterances,
+                )
+            } finally {
+                diar.close()
+            }
+        }
+        val tagged = diarResult.first
+        val speakerCount = diarResult.second
+        update { it.copy(utterances = tagged, speakerCount = speakerCount, progress = null) }
+
+        update { it.copy(status = "Summarizing…") }
+        val transcriptText = tagged.joinToString("\n") { u -> "${speakerLabel(u.speaker, emptyMap()) ?: ""}: ${u.text}" }
+        withContext(Dispatchers.Default) {
+            LlmEngine.load(DevModels.LLM_GGUF, nThreads = 4, sampler = SamplerProfile.QWEN35).use { llm ->
+                Summarizer(llm, ChatTemplate.QWEN3).summarize(
+                    transcript = transcriptText,
+                    userPrompt = "Summarize the key points of this transcript.",
+                ).collect { e ->
+                    when (e) {
+                        is TranscriptEvent.Title -> update { it.copy(title = e.title) }
+                        is TranscriptEvent.Partial -> update { it.copy(summary = it.summary + e.chunk) }
+                        is TranscriptEvent.SummaryComplete -> update { it.copy(summary = e.summary) }
+                        else -> {}
+                    }
+                }
+            }
+        }
+        update { it.copy(status = "Done", running = false) }
+    } catch (t: Throwable) {
+        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun rememberVoxSumScope() = androidx.compose.runtime.rememberCoroutineScope()
