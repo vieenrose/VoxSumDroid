@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -47,7 +48,7 @@ fun AddSourceDialog(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
         state = androidx.compose.ui.window.rememberDialogState(width = 560.dp, height = 620.dp),
     ) {
         val pal = LocalVoxSumPalette.current
-        Column(Modifier.background(pal.Slate900).padding(20.dp).fillMaxWidth()) {
+        Column(Modifier.fillMaxSize().background(pal.Slate900).padding(20.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { tab = SourceTab.PODCAST }) { Text("Podcast") }
                 Button(onClick = { tab = SourceTab.YOUTUBE }) { Text("YouTube") }

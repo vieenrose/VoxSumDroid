@@ -2,8 +2,10 @@ package studio.voxsum.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -37,8 +39,9 @@ fun ModelsDialog(onDismiss: () -> Unit) {
         state = androidx.compose.ui.window.rememberDialogState(width = 520.dp, height = 480.dp),
     ) {
         val pal = LocalVoxSumPalette.current
+        Box(Modifier.fillMaxSize().background(pal.Slate900)) {
         Column(
-            Modifier.background(pal.Slate900).padding(20.dp).width(480.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth().padding(20.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (entries.isEmpty()) {
@@ -62,6 +65,7 @@ fun ModelsDialog(onDismiss: () -> Unit) {
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
                 Button(onClick = onDismiss) { Text("Close") }
             }
+        }
         }
     }
 }

@@ -2,9 +2,11 @@ package studio.voxsum.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -57,8 +59,9 @@ fun SettingsDialog(
         state = androidx.compose.ui.window.rememberDialogState(width = 480.dp, height = 700.dp),
     ) {
         val pal = LocalVoxSumPalette.current
+        Box(Modifier.fillMaxSize().background(pal.Slate900)) {
         Column(
-            Modifier.background(pal.Slate900).padding(20.dp).width(420.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth().padding(20.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             SettingsSection("Speech recognition") {
@@ -67,7 +70,7 @@ fun SettingsDialog(
                     Switch(checked = useItn, onCheckedChange = { useItn = it })
                     Text("  Inverse text normalization (numbers, punctuation)", color = pal.Slate200)
                 }
-                Text("VAD sensitivity: ${"%.1f".format(vadThreshold)}", color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                Text("VAD sensitivity: ${"%.1f".format(java.util.Locale.US, vadThreshold)}", color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
                 Slider(value = vadThreshold, onValueChange = { vadThreshold = it }, valueRange = 0.1f..0.9f)
             }
 
@@ -86,7 +89,7 @@ fun SettingsDialog(
                             singleLine = true,
                         )
                     }
-                    Text("Clustering sensitivity: ${"%.2f".format(clusterThreshold)}", color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                    Text("Clustering sensitivity: ${"%.2f".format(java.util.Locale.US, clusterThreshold)}", color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
                     Slider(value = clusterThreshold, onValueChange = { clusterThreshold = it }, valueRange = 0.1f..1.0f)
                 }
             }
@@ -126,6 +129,7 @@ fun SettingsDialog(
                     )
                 }) { Text("Save") }
             }
+        }
         }
     }
 }
