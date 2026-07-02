@@ -116,6 +116,9 @@ data class OfflineCanaryModelConfig(
 data class OfflineCohereTranscribeModelConfig(
     var encoder: String = "",
     var decoder: String = "",
+    var language: String = "",
+    var usePunct: Boolean = true,
+    var useItn: Boolean = true,
 )
 
 data class OfflineFireRedAsrModelConfig(
@@ -128,6 +131,7 @@ data class OfflineMoonshineModelConfig(
     var encoder: String = "",
     var uncachedDecoder: String = "",
     var cachedDecoder: String = "",
+    var mergedDecoder: String = "",
 )
 
 data class OfflineSenseVoiceModelConfig(
