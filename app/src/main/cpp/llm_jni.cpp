@@ -10,7 +10,11 @@
 // re-verify these symbols in Phase 0 — llama.cpp's API moves between tags.
 
 #include <jni.h>
+#ifdef __ANDROID__
 #include <android/log.h>
+#else
+#include <cstdio>
+#endif
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -19,8 +23,13 @@
 #include "llama.h"
 
 #define LOG_TAG "voxsum-llm"
+#ifdef __ANDROID__
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#else
+#define LOGI(...) do { std::fprintf(stderr, "I/" LOG_TAG ": " __VA_ARGS__); std::fprintf(stderr, "\n"); } while (0)
+#define LOGE(...) do { std::fprintf(stderr, "E/" LOG_TAG ": " __VA_ARGS__); std::fprintf(stderr, "\n"); } while (0)
+#endif
 
 namespace {
 
