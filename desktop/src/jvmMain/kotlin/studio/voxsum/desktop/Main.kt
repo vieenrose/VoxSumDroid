@@ -31,14 +31,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
-import studio.voxsum.core.asr.AsrModelFiles
 import studio.voxsum.core.config.ThemeMode
 import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.Summarizer
-import studio.voxsum.core.models.ChatTemplate
-import studio.voxsum.core.models.SamplerProfile
+import studio.voxsum.core.models.LlmRegistry
+import studio.voxsum.core.models.ModelManager
 import studio.voxsum.data.SpeakerNames
 import studio.voxsum.data.speakerColor
 import studio.voxsum.data.speakerLabel
@@ -48,15 +47,13 @@ import studio.voxsum.ui.theme.LocalVoxSumPalette
 import studio.voxsum.ui.theme.VoxSumTheme
 import java.io.File
 
-// Hardcoded to the models this branch has been verified against — model selection/download via
-// ModelManager (already shared with :app) is a follow-up, not blocking this proof that the real
-// pipeline can drive a real screen end to end.
-private object DevModels {
-    const val VAD = "/home/luigi/silero_vad.onnx"
-    const val SENSE_VOICE_DIR = "/home/luigi/.cache/voxsum-verify/sensevoice/" +
-        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
-    const val EMBEDDING = "/home/luigi/.cache/voxsum-verify/campplus_zh_en_fp16.onnx"
-    const val LLM_GGUF = "/home/luigi/q35-08b.gguf"
+/** Per-user app-private storage, XDG Base Directory-compliant: $XDG_DATA_HOME/VoxSum, falling
+ *  back to ~/.local/share/VoxSum — the same role app/'s Context.filesDir plays on Android.
+ *  ModelManager creates its own "models" subdirectory under whatever it's given. */
+private val appDataDir: File by lazy {
+    val xdgDataHome = System.getenv("XDG_DATA_HOME")?.takeIf { it.isNotBlank() }
+        ?: "${System.getProperty("user.home")}/.local/share"
+    File(xdgDataHome, "VoxSum").apply { mkdirs() }
 }
 
 private data class PipelineState(
@@ -155,7 +152,19 @@ private fun mainApplication() = application {
 private suspend fun runPipeline(file: File, update: ((PipelineState) -> PipelineState) -> Unit) {
     update { it.copy(fileName = file.name, running = true, error = null, utterances = emptyList(), title = "", summary = "") }
     try {
-        update { it.copy(status = "Decoding…") }
+        val models = ModelManager(appDataDir)
+        val llmSpec = LlmRegistry.byId(LlmRegistry.DEFAULT_ID)
+
+        if (!models.asrReady(AsrBackend.SENSEVOICE)) {
+            update { it.copy(status = "Downloading speech model…", progress = 0f) }
+            models.ensureAsrModels(AsrBackend.SENSEVOICE) { p -> update { it.copy(progress = p) } }
+        }
+        if (!models.diarizationReady()) {
+            update { it.copy(status = "Downloading speaker model…", progress = 0f) }
+            models.ensureDiarizationModels { p -> update { it.copy(progress = p) } }
+        }
+
+        update { it.copy(status = "Decoding…", progress = null) }
         val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(file) }
 
         update { it.copy(status = "Transcribing…", progress = 0f) }
@@ -163,11 +172,8 @@ private suspend fun runPipeline(file: File, update: ((PipelineState) -> Pipeline
         withContext(Dispatchers.Default) {
             AsrEngine(
                 backend = AsrBackend.SENSEVOICE,
-                files = AsrModelFiles(
-                    model = "${DevModels.SENSE_VOICE_DIR}/model.int8.onnx",
-                    tokens = "${DevModels.SENSE_VOICE_DIR}/tokens.txt",
-                ),
-                vadModel = DevModels.VAD,
+                files = models.asrFiles(AsrBackend.SENSEVOICE),
+                vadModel = models.vadModel.absolutePath,
                 numThreads = 2,
             ).use { asr ->
                 asr.transcribe(pcm).collect { e ->
@@ -183,7 +189,7 @@ private suspend fun runPipeline(file: File, update: ((PipelineState) -> Pipeline
 
         update { it.copy(status = "Identifying speakers…", progress = null) }
         val diarResult: Pair<List<TranscriptEvent.Utterance>, Int> = withContext(Dispatchers.Default) {
-            val diar = DiarizationEngine(embeddingModel = DevModels.EMBEDDING, numThreads = 2)
+            val diar = DiarizationEngine(embeddingModel = models.embeddingModel.absolutePath, numThreads = 2)
             try {
                 diar.assignSpeakers(
                     pcm16k = pcm,
@@ -197,11 +203,16 @@ private suspend fun runPipeline(file: File, update: ((PipelineState) -> Pipeline
         val speakerCount = diarResult.second
         update { it.copy(utterances = tagged, speakerCount = speakerCount, progress = null) }
 
-        update { it.copy(status = "Summarizing…") }
+        if (!models.llmReady(llmSpec)) {
+            update { it.copy(status = "Downloading summarization model…", progress = 0f) }
+            models.ensureLlmModel(llmSpec) { p -> update { it.copy(progress = p) } }
+        }
+
+        update { it.copy(status = "Summarizing…", progress = null) }
         val transcriptText = tagged.joinToString("\n") { u -> "${speakerLabel(u.speaker, emptyMap()) ?: ""}: ${u.text}" }
         withContext(Dispatchers.Default) {
-            LlmEngine.load(DevModels.LLM_GGUF, nThreads = 4, sampler = SamplerProfile.QWEN35).use { llm ->
-                Summarizer(llm, ChatTemplate.QWEN3).summarize(
+            LlmEngine.load(models.llmFile(llmSpec).absolutePath, nThreads = 4, sampler = llmSpec.sampler).use { llm ->
+                Summarizer(llm, llmSpec.chatTemplate).summarize(
                     transcript = transcriptText,
                     userPrompt = "Summarize the key points of this transcript.",
                 ).collect { e ->
