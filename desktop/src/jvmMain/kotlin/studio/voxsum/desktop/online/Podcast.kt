@@ -109,11 +109,25 @@ object Podcast {
 
     private fun httpGetString(url: String): String = openStream(url).bufferedReader().use { it.readText() }
 
-    private fun openStream(url: String) =
-        (URL(url).openConnection() as HttpURLConnection).apply {
+    /** HttpURLConnection's instanceFollowRedirects never follows a redirect that changes protocol
+     *  (http<->https) — a JDK limitation, not a bug in the server. Many podcast feeds (Feedburner
+     *  and similar) 301/302 from http to https, so that case is handled manually here. */
+    private fun openStream(url: String, redirectsLeft: Int = 5): java.io.InputStream {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000; readTimeout = 15_000; instanceFollowRedirects = true
             setRequestProperty("User-Agent", "VoxSum/1.0")
-        }.inputStream
+        }
+        val code = conn.responseCode
+        if (code in 300..399 && redirectsLeft > 0) {
+            val location = conn.getHeaderField("Location")
+                ?: error("Redirected (HTTP $code) with no Location header")
+            conn.disconnect()
+            val next = java.net.URI(url).resolve(location).toString()
+            return openStream(next, redirectsLeft - 1)
+        }
+        if (code !in 200..299) error("HTTP $code fetching $url")
+        return conn.inputStream
+    }
 
     private fun enforceRetentionCap(dir: File, max: Int) {
         val files = dir.listFiles()?.filter { it.isFile }?.sortedBy { it.lastModified() } ?: return

@@ -25,6 +25,8 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
@@ -41,6 +43,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -72,9 +75,48 @@ import studio.voxsum.ui.theme.VoxSumTheme
 import java.util.concurrent.atomic.AtomicBoolean
 
 fun main() {
+    // Stock OpenJDK's Linux X11 toolkit doesn't reliably auto-detect HiDPI outside GNOME (KDE/XFCE
+    // don't publish the same XSETTINGS key), so on a 2K/4K screen the app renders at 1x — tiny text
+    // and icons. Must run before any AWT/Skiko initialization (the first Window { } call), which is
+    // why this is the very first thing in main().
+    detectLinuxUiScale()?.let { System.setProperty("sun.java2d.uiScale", it.toString()) }
     NativeLibs.ensureLoaded()
     KeyValueStore.forName = { name -> JvmKeyValueStore(name) }
     mainApplication()
+}
+
+/**
+ * Best-effort HiDPI scale for Linux X11 desktops. Doesn't touch java.awt.Toolkit (that would
+ * initialize AWT before we can set the system property), so it shells out to read the values
+ * desktop environments actually publish, in priority order:
+ * 1. VOXSUM_UI_SCALE — explicit user override, for the rare case detection guesses wrong.
+ * 2. GDK_SCALE / QT_SCALE_FACTOR — set directly by some desktops/session managers.
+ * 3. Xft.dpi (via `xrdb -query`) — set by KDE, XFCE, and most X11 desktops; 96 dpi = 1x.
+ * Returns null (no override — Java's own default) if nothing is found or on Wayland/headless,
+ * where forcing a wrong scale would be worse than the current under-scaling.
+ */
+private fun detectLinuxUiScale(): Double? {
+    System.getenv("VOXSUM_UI_SCALE")?.toDoubleOrNull()?.let { return it }
+    System.getenv("GDK_SCALE")?.toDoubleOrNull()?.let { return it }
+    System.getenv("QT_SCALE_FACTOR")?.toDoubleOrNull()?.let { return it }
+    val dpi = runCatching {
+        ProcessBuilder("sh", "-c", "xrdb -query 2>/dev/null | grep -i '^Xft.dpi:' | awk '{print \$2}'")
+            .start()
+            .let { p -> val out = p.inputStream.bufferedReader().readText().trim(); p.waitFor(); out }
+            .toDoubleOrNull()
+    }.getOrNull() ?: return null
+    val raw = dpi / 96.0
+    // Snap to the scale steps desktops actually offer, so text renders crisp rather than
+    // interpolated at an odd in-between ratio.
+    return when {
+        raw >= 3.5 -> 4.0
+        raw >= 2.75 -> 3.0
+        raw >= 2.25 -> 2.5
+        raw >= 1.75 -> 2.0
+        raw >= 1.35 -> 1.5
+        raw >= 1.15 -> 1.25
+        else -> 1.0
+    }
 }
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -103,6 +145,32 @@ private fun mainApplication() = application {
         val recordStopFlag = remember { AtomicBoolean(false) }
         val scope = rememberVoxSumScope()
         val update: ((AppState) -> AppState) -> Unit = { fn -> state = fn(state) }
+
+        // Playback (feature parity with Android's PlayerBar): a Clip-backed player, loaded lazily
+        // from state.audioFile, with a polled position used both by the seek bar and to highlight
+        // the utterance whose [startSec, endSec) currently contains the playhead.
+        val player = remember { studio.voxsum.desktop.audio.AudioPlayer() }
+        var playerPositionSec by remember { mutableStateOf(0.0) }
+        var playerReady by remember { mutableStateOf(false) }
+        androidx.compose.runtime.LaunchedEffect(state.audioFile) {
+            playerReady = false
+            val f = state.audioFile
+            if (f != null && f.exists()) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { player.load(f, java.io.File(appDataDir, "playback")) }
+                }
+                playerReady = true
+            } else {
+                player.stop()
+            }
+        }
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            while (true) {
+                if (player.isPlaying) playerPositionSec = player.positionSec
+                kotlinx.coroutines.delay(150)
+            }
+        }
+        androidx.compose.runtime.DisposableEffect(Unit) { onDispose { player.stop() } }
 
         // Recents cached in state and refreshed only when the list actually changes — reading
         // RecentSessions.list() (a KeyValueStore read + JSON parse) directly in the sidebar body
@@ -319,15 +387,19 @@ private fun mainApplication() = application {
                                 }
                             }
                         }
-                        HorizontalDivider(color = pal.Hairline)
-                        TextButton(
-                            onClick = openLocalAudio,
-                            enabled = !state.running && !recording,
-                            modifier = Modifier.fillMaxWidth().padding(6.dp),
-                        ) {
-                            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Add audio")
+                        // Hidden on the empty state: the hero's own "Add audio" CTA already covers
+                        // this, and showing both here and there is a plain duplicate button.
+                        if (!isEmptyState) {
+                            HorizontalDivider(color = pal.Hairline)
+                            TextButton(
+                                onClick = openLocalAudio,
+                                enabled = !state.running && !recording,
+                                modifier = Modifier.fillMaxWidth().padding(6.dp),
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Add audio")
+                            }
                         }
                     }
                     VerticalDivider(color = pal.Hairline)
@@ -350,6 +422,28 @@ private fun mainApplication() = application {
                             )
                         } else {
                             Column(Modifier.fillMaxSize().padding(16.dp)) {
+                                if (playerReady && state.audioFile != null) {
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(onClick = { player.toggle() }) {
+                                            Icon(
+                                                if (player.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                                contentDescription = if (player.isPlaying) "Pause" else "Play",
+                                                tint = pal.Slate200,
+                                            )
+                                        }
+                                        Slider(
+                                            value = playerPositionSec.toFloat(),
+                                            valueRange = 0f..player.durationSec.toFloat().coerceAtLeast(0.01f),
+                                            onValueChange = { player.seekTo(it.toDouble()); playerPositionSec = it.toDouble() },
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        Text(
+                                            "${formatDuration(playerPositionSec)} / ${formatDuration(player.durationSec)}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = pal.Slate400,
+                                        )
+                                    }
+                                }
                                 if (state.title.isNotEmpty() || state.summary.isNotEmpty()) {
                                     studio.voxsum.desktop.ui.SectionCard {
                                         if (state.title.isNotEmpty()) Text(state.title, color = pal.Slate200, style = MaterialTheme.typography.titleMedium)
@@ -375,7 +469,10 @@ private fun mainApplication() = application {
                                 }
                                 LazyColumn(Modifier.fillMaxSize().padding(top = 12.dp)) {
                                     items(visibleUtterances, key = { it.index }) { u ->
-                                        UtteranceRow(u, state, speakerIds, pal, update)
+                                        val isActive = playerReady && playerPositionSec >= u.startSec && playerPositionSec < u.endSec
+                                        UtteranceRow(u, state, speakerIds, pal, update, isActive = isActive) {
+                                            player.seekTo(u.startSec); playerPositionSec = u.startSec; player.play()
+                                        }
                                     }
                                 }
                             }
@@ -446,6 +543,8 @@ private fun UtteranceRow(
     speakerIds: List<Int>,
     pal: studio.voxsum.ui.theme.VoxSumColors,
     update: ((AppState) -> AppState) -> Unit,
+    isActive: Boolean = false,
+    onSeek: (() -> Unit)? = null,
 ) {
     var showSpeakerMenu by remember { mutableStateOf(false) }
     val isEditingText = state.editingUtteranceIndex == u.index
@@ -456,9 +555,15 @@ private fun UtteranceRow(
     var editText by remember(isEditingText) { mutableStateOf(u.text) }
     var editSpeakerName by remember(isEditingSpeakerName) { mutableStateOf(u.speaker?.let { speakerLabel(it, state.speakerNames) } ?: "") }
 
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+    Row(
+        Modifier.fillMaxWidth()
+            .background(if (isActive) pal.ActiveTint else Color.Transparent)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
         Box(
-            Modifier.size(10.dp).padding(top = 4.dp).clip(CircleShape).background(Color(speakerColor(u.speaker))),
+            Modifier.size(10.dp).padding(top = 4.dp).clip(CircleShape).background(Color(speakerColor(u.speaker)))
+                .let { m -> if (onSeek != null) m.clickable(onClick = onSeek) else m },
         )
         Column(Modifier.padding(start = 8.dp).fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -538,6 +643,11 @@ private fun UtteranceRow(
 
 @androidx.compose.runtime.Composable
 private fun rememberVoxSumScope() = androidx.compose.runtime.rememberCoroutineScope()
+
+private fun formatDuration(sec: Double): String {
+    val total = sec.toInt().coerceAtLeast(0)
+    return "%d:%02d".format(total / 60, total % 60)
+}
 
 /** Reopen [file] as a session if it carries one — tries the real embedded VoxsumSession format
  *  first (an .ogg/.m4a saved by this app or Android), then the JSON sidecar (SessionFile, this
