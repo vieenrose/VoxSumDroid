@@ -36,6 +36,7 @@ compose.desktop {
             packageName = "VoxSum"
             packageVersion = "0.1.0"
             description = "Offline audio transcription and summarization"
+            vendor = "VoxSum"
             // Native libs (llama.cpp/ggml, sherpa-onnx+onnxruntime, the voxsum-llm JNI bridge) —
             // see desktop/scripts/{build-native,flatten-native-libs}.sh. Files here are copied
             // into the packaged app image and exposed at runtime via the
@@ -46,6 +47,13 @@ compose.desktop {
             appResourcesRootDir.set(project.layout.projectDirectory.dir("appResources"))
             linux {
                 packageName = "voxsum"
+                debMaintainer = "louis_liu@pesi.com.tw"
+                menuGroup = "AudioVideo"
+                appCategory = "AudioVideo"
+                // Install a .desktop launcher (app-menu entry) + icon, so the app is reachable from
+                // the KDE/GNOME menu after `apt install`, not just via /opt/voxsum/bin/VoxSum.
+                shortcut = true
+                iconFile.set(project.layout.projectDirectory.file("packaging/voxsum.png"))
             }
         }
     }
