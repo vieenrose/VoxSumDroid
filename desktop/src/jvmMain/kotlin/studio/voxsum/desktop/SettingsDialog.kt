@@ -31,6 +31,7 @@ import androidx.compose.ui.window.DialogWindow
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.TranscriptionConfig
+import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.desktop.ui.ModelOptionCard
 import studio.voxsum.ui.theme.LocalVoxSumPalette
@@ -46,6 +47,7 @@ fun SettingsDialog(
     onSave: (TranscriptionConfig, SummaryStyle) -> Unit,
 ) {
     var asrBackend by remember { mutableStateOf(AsrBackend.fromId(config.asrBackend)) }
+    var llmModelId by remember { mutableStateOf(config.llmModelId) }
     var diarizationEnabled by remember { mutableStateOf(config.diarizationEnabled) }
     var numSpeakersText by remember {
         mutableStateOf(if (config.numSpeakers > 0) config.numSpeakers.toString() else "")
@@ -87,6 +89,27 @@ fun SettingsDialog(
                 }
                 Text("VAD sensitivity: ${"%.1f".format(java.util.Locale.US, vadThreshold)}", color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
                 Slider(value = vadThreshold, onValueChange = { vadThreshold = it }, valueRange = 0.1f..0.9f)
+            }
+
+            SettingsSection("Summary model") {
+                val models = remember { ModelManager(appDataDir) }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LlmRegistry.ALL.forEach { spec ->
+                        val mb = spec.sizeBytes / 1_000_000
+                        val ram = when {
+                            spec.sizeBytes < 1_500_000_000L -> "low RAM"
+                            spec.sizeBytes < 3_500_000_000L -> "needs ~4 GB RAM"
+                            else -> "needs ~6 GB RAM"
+                        }
+                        ModelOptionCard(
+                            title = spec.displayName,
+                            subtitle = "$mb MB · $ram",
+                            selected = llmModelId == spec.id,
+                            downloaded = models.llmReady(spec),
+                            onClick = { llmModelId = spec.id },
+                        )
+                    }
+                }
             }
 
             SettingsSection("Speakers") {
@@ -132,6 +155,7 @@ fun SettingsDialog(
                     onSave(
                         config.copy(
                             asrBackend = asrBackend.id,
+                            llmModelId = llmModelId,
                             diarizationEnabled = diarizationEnabled,
                             numSpeakers = numSpeakersText.toIntOrNull() ?: -1,
                             targetLanguage = targetLanguage.id,
