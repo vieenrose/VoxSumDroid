@@ -1,6 +1,5 @@
 package studio.voxsum.ui.theme
 
-import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
@@ -10,13 +9,10 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import androidx.core.view.WindowCompat
 import studio.voxsum.core.config.ThemeMode
 
 /**
@@ -199,6 +195,10 @@ private val VoxSumShapes = Shapes(
     large = RoundedCornerShape(16.dp),
 )
 
+/** Platform hook for status-bar icon appearance; no-op where there's no system status bar (desktop). */
+@Composable
+internal expect fun ApplyPlatformStatusBarAppearance(isDark: Boolean)
+
 @Composable
 fun VoxSumTheme(themeMode: ThemeMode = ThemeMode.AUTO, content: @Composable () -> Unit) {
     val pal = when (themeMode) {
@@ -207,13 +207,7 @@ fun VoxSumTheme(themeMode: ThemeMode = ThemeMode.AUTO, content: @Composable () -
         ThemeMode.DARK -> DarkColors
         ThemeMode.EINK -> EinkColors
     }
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            val window = (view.context as Activity).window
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !pal.isDark
-        }
-    }
+    ApplyPlatformStatusBarAppearance(pal.isDark)
     CompositionLocalProvider(LocalVoxSumPalette provides pal) {
         MaterialTheme(colorScheme = schemeFor(pal), shapes = VoxSumShapes, content = content)
     }
