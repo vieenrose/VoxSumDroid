@@ -255,7 +255,23 @@ private fun UtteranceRow(
                                 speakerIds.filter { it != u.speaker }.forEach { target ->
                                     DropdownMenuItem(text = { Text(speakerLabel(target, state.speakerNames) ?: "Speaker ${target + 1}") }, onClick = {
                                         showSpeakerMenu = false
-                                        update { s -> s.copy(utterances = s.utterances.map { line -> if (line.index == u.index) line.copy(speaker = target) else line }) }
+                                        update { s ->
+                                            val (utts, names) = studio.voxsum.data.SpeakerEdits.reassign(s.utterances, s.speakerNames, u.index, target)
+                                            s.copy(utterances = utts, speakerNames = names)
+                                        }
+                                    })
+                                }
+                                Text("Merge this speaker into:", color = pal.Slate400, modifier = Modifier.padding(8.dp))
+                                speakerIds.filter { it != u.speaker }.forEach { target ->
+                                    val from = u.speaker
+                                    DropdownMenuItem(text = { Text(speakerLabel(target, state.speakerNames) ?: "Speaker ${target + 1}") }, onClick = {
+                                        showSpeakerMenu = false
+                                        if (from != null) {
+                                            update { s ->
+                                                val (utts, names) = studio.voxsum.data.SpeakerEdits.merge(s.utterances, s.speakerNames, from, target)
+                                                s.copy(utterances = utts, speakerNames = names)
+                                            }
+                                        }
                                     })
                                 }
                             }

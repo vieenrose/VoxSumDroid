@@ -3,6 +3,7 @@ package studio.voxsum.desktop
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,6 +12,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,11 +46,15 @@ fun SettingsDialog(
     }
     var targetLanguage by remember { mutableStateOf(TargetLanguage.fromId(config.targetLanguage)) }
     var style by remember { mutableStateOf(summaryStyle) }
+    var useItn by remember { mutableStateOf(config.useItn) }
+    var vadThreshold by remember { mutableStateOf(config.vadThreshold) }
+    var clusterThreshold by remember { mutableStateOf(config.clusterThreshold) }
+    var summaryPrompt by remember { mutableStateOf(config.summaryPrompt) }
 
     DialogWindow(
         onCloseRequest = onDismiss,
         title = "Settings",
-        state = androidx.compose.ui.window.rememberDialogState(width = 480.dp, height = 560.dp),
+        state = androidx.compose.ui.window.rememberDialogState(width = 480.dp, height = 700.dp),
     ) {
         val pal = LocalVoxSumPalette.current
         Column(
@@ -56,6 +63,12 @@ fun SettingsDialog(
         ) {
             SettingsSection("Speech recognition") {
                 PickerRow(pal, AsrBackend.entries, asrBackend, { asrBackend = it }) { it.displayName }
+                Row(Modifier.padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Switch(checked = useItn, onCheckedChange = { useItn = it })
+                    Text("  Inverse text normalization (numbers, punctuation)", color = pal.Slate200)
+                }
+                Text("VAD sensitivity: ${"%.1f".format(vadThreshold)}", color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                Slider(value = vadThreshold, onValueChange = { vadThreshold = it }, valueRange = 0.1f..0.9f)
             }
 
             SettingsSection("Speakers") {
@@ -66,13 +79,15 @@ fun SettingsDialog(
                 if (diarizationEnabled) {
                     Row(Modifier.padding(top = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Text("Speaker count hint (blank = auto): ", color = pal.Slate400)
-                        androidx.compose.material3.OutlinedTextField(
+                        OutlinedTextField(
                             value = numSpeakersText,
                             onValueChange = { v -> if (v.all { c -> c.isDigit() }) numSpeakersText = v },
                             modifier = Modifier.width(80.dp),
                             singleLine = true,
                         )
                     }
+                    Text("Clustering sensitivity: ${"%.2f".format(clusterThreshold)}", color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                    Slider(value = clusterThreshold, onValueChange = { clusterThreshold = it }, valueRange = 0.1f..1.0f)
                 }
             }
 
@@ -84,6 +99,12 @@ fun SettingsDialog(
 
             SettingsSection("Summary style") {
                 PickerRow(pal, SummaryStyle.entries, style, { style = it }) { it.label }
+                OutlinedTextField(
+                    value = summaryPrompt,
+                    onValueChange = { summaryPrompt = it },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    label = { Text("Custom summary prompt") },
+                )
             }
 
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
@@ -96,6 +117,10 @@ fun SettingsDialog(
                             diarizationEnabled = diarizationEnabled,
                             numSpeakers = numSpeakersText.toIntOrNull() ?: -1,
                             targetLanguage = targetLanguage.id,
+                            useItn = useItn,
+                            vadThreshold = vadThreshold,
+                            clusterThreshold = clusterThreshold,
+                            summaryPrompt = summaryPrompt,
                         ),
                         style,
                     )
@@ -114,6 +139,7 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun <T> PickerRow(
     pal: studio.voxsum.ui.theme.VoxSumColors,
@@ -122,7 +148,7 @@ private fun <T> PickerRow(
     onSelect: (T) -> Unit,
     label: (T) -> String,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { opt ->
             val isSelected = opt == selected
             Button(onClick = { onSelect(opt) }) {
