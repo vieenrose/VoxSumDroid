@@ -450,23 +450,51 @@ private fun mainApplication() = application {
                                             .toComposeImageBitmap()
                                     }
                                     studio.voxsum.desktop.ui.SectionCard {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // Transcript edited → the summary/action-items are stale; offer a
+                                        // one-click re-summarize (the update-tree affordance, like Android).
+                                        if (state.transcriptDirty) {
+                                            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                Text("Transcript edited — summary may be out of date.", color = VoxSumPalette.Warning, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                                                Button(enabled = !state.running, onClick = { scope.launch { rerunSummary(state, update) } }) { Text("Re-summarize") }
+                                            }
+                                        }
+                                        Row(verticalAlignment = Alignment.Top) {
                                             Image(
                                                 cover, contentDescription = "Session cover",
                                                 modifier = Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)),
                                             )
                                             Spacer(Modifier.width(12.dp))
-                                            Column {
-                                                if (state.title.isNotEmpty()) Text(state.title, color = pal.Slate200, style = MaterialTheme.typography.titleMedium)
-                                                if (state.summary.isNotEmpty()) Text(state.summary, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                                            Column(Modifier.weight(1f)) {
+                                                EditableField(
+                                                    value = state.title, editing = state.editingTitle,
+                                                    style = MaterialTheme.typography.titleMedium, color = pal.Slate200, placeholder = "Untitled",
+                                                    onBeginEdit = { update { it.copy(editingTitle = true) } },
+                                                    onSave = { t -> update { it.copy(title = t, editingTitle = false, titleEdited = true) } },
+                                                    onCancel = { update { it.copy(editingTitle = false) } },
+                                                )
+                                                Spacer(Modifier.height(4.dp))
+                                                EditableField(
+                                                    value = state.summary, editing = state.editingSummary,
+                                                    style = MaterialTheme.typography.bodyMedium, color = pal.Slate400, placeholder = "No summary yet", minLines = 3,
+                                                    onBeginEdit = { update { it.copy(editingSummary = true) } },
+                                                    onSave = { t -> update { it.copy(summary = t, editingSummary = false) } },
+                                                    onCancel = { update { it.copy(editingSummary = false) } },
+                                                )
                                             }
                                         }
                                     }
                                 }
-                                if (state.actionItems.isNotEmpty()) {
+                                if (state.actionItems.isNotEmpty() || state.editingActions) {
                                     studio.voxsum.desktop.ui.SectionCard(Modifier.padding(top = 12.dp)) {
                                         Text("Action items", color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
-                                        Text(state.actionItems, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                                        Spacer(Modifier.height(4.dp))
+                                        EditableField(
+                                            value = state.actionItems, editing = state.editingActions,
+                                            style = MaterialTheme.typography.bodyMedium, color = pal.Slate400, placeholder = "No action items", minLines = 2,
+                                            onBeginEdit = { update { it.copy(editingActions = true) } },
+                                            onSave = { t -> update { it.copy(actionItems = t, editingActions = false) } },
+                                            onCancel = { update { it.copy(editingActions = false) } },
+                                        )
                                     }
                                 }
                                 state.error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
@@ -620,7 +648,13 @@ private fun UtteranceRow(
                     Button(onClick = {
                         val sid = u.speaker
                         if (sid != null) {
-                            update { s -> s.copy(speakerNames = s.speakerNames + (sid to SpeakerName(editSpeakerName)), editingSpeakerId = null) }
+                            update { s ->
+                                // Blank clears the override (falls back to "Speaker N"); a real name
+                                // is stamped confidence="user" so detectSpeakerNames won't clobber it.
+                                val names = if (editSpeakerName.isBlank()) s.speakerNames - sid
+                                    else s.speakerNames + (sid to SpeakerName(editSpeakerName, confidence = "user"))
+                                s.copy(speakerNames = names, editingSpeakerId = null)
+                            }
                         }
                     }) { Text("OK") }
                 } else {
@@ -672,7 +706,14 @@ private fun UtteranceRow(
                 OutlinedTextField(value = editText, onValueChange = { editText = it }, modifier = Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(onClick = {
-                        update { s -> s.copy(utterances = s.utterances.map { line -> if (line.index == u.index) line.copy(text = editText) else line }, editingUtteranceIndex = null) }
+                        update { s ->
+                            s.copy(
+                                utterances = s.utterances.map { line -> if (line.index == u.index) line.copy(text = editText) else line },
+                                editingUtteranceIndex = null,
+                                // Mark summary/action-items stale (the update tree) only if they exist.
+                                transcriptDirty = s.transcriptDirty || s.summary.isNotEmpty() || s.actionItems.isNotEmpty(),
+                            )
+                        }
                     }) { Text("Save") }
                     Button(onClick = { update { s -> s.copy(editingUtteranceIndex = null) } }) { Text("Cancel") }
                 }
@@ -698,6 +739,46 @@ private fun UtteranceRow(
 
 @androidx.compose.runtime.Composable
 private fun rememberVoxSumScope() = androidx.compose.runtime.rememberCoroutineScope()
+
+/** Inline-editable text: shows [value] with an edit pencil; on edit, a field + Save/Cancel.
+ *  The desktop counterpart of Android's TitleCard/SummaryCard/ActionItemsCard EditPencil pattern. */
+@androidx.compose.runtime.Composable
+private fun EditableField(
+    value: String,
+    editing: Boolean,
+    style: androidx.compose.ui.text.TextStyle,
+    color: Color,
+    placeholder: String,
+    minLines: Int = 1,
+    onBeginEdit: () -> Unit,
+    onSave: (String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    val pal = LocalVoxSumPalette.current
+    if (editing) {
+        var draft by remember { mutableStateOf(value) }
+        OutlinedTextField(
+            value = draft, onValueChange = { draft = it },
+            modifier = Modifier.fillMaxWidth(), minLines = minLines, textStyle = style,
+        )
+        Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Button(onClick = { onSave(draft) }) { Text("Save") }
+            Button(onClick = onCancel) { Text("Cancel") }
+        }
+    } else {
+        Row(verticalAlignment = Alignment.Top) {
+            Text(
+                value.ifBlank { placeholder }, style = style,
+                color = if (value.isBlank()) pal.Slate400.copy(alpha = 0.6f) else color,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                Icons.Filled.Edit, contentDescription = "Edit", tint = pal.Slate400,
+                modifier = Modifier.padding(start = 6.dp, top = 2.dp).size(15.dp).clickable(onClick = onBeginEdit),
+            )
+        }
+    }
+}
 
 private fun formatDuration(sec: Double): String {
     val total = sec.toInt().coerceAtLeast(0)

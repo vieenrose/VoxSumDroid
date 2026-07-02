@@ -26,6 +26,14 @@ data class AppState(
     val searchQuery: String = "",
     val editingUtteranceIndex: Int? = null,
     val editingSpeakerId: Int? = null,
+    val editingTitle: Boolean = false,
+    val editingSummary: Boolean = false,
+    val editingActions: Boolean = false,
+    // Dependency-invalidation tree (mirrors Android): a hand-edit to the transcript marks the
+    // summary/action-items stale so the UI can offer a re-summarize; titleEdited is sticky so a
+    // re-summarize won't clobber a title the user typed.
+    val transcriptDirty: Boolean = false,
+    val titleEdited: Boolean = false,
 ) {
     /** True once a transcript exists — re-run/export/detect-names actions key off this rather
      *  than !running, matching Android's transcriptReady flag (summary can still be streaming). */

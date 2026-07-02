@@ -113,10 +113,14 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
  *  the desktop counterpart of Android's re-summarize action. */
 suspend fun rerunSummary(state: AppState, update: Update) {
     if (state.utterances.isEmpty()) return
-    update { it.copy(running = true, error = null, title = "", summary = "") }
+    // Preserve a user-typed title (titleEdited sticky, like Android); otherwise clear it so
+    // summarize() regenerates it. Clearing transcriptDirty here: the summary now matches the
+    // current transcript again.
+    val keepTitle = state.titleEdited
+    update { it.copy(running = true, error = null, title = if (keepTitle) it.title else "", summary = "", transcriptDirty = false) }
     try {
         val models = ModelManager(appDataDir)
-        summarize(models, state.config, state.summaryStyle, state.utterances, update)
+        summarize(models, state.config, state.summaryStyle, state.utterances, update, regenerateTitle = !keepTitle)
         update { it.copy(status = "Done", running = false) }
     } catch (t: Throwable) {
         update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
@@ -139,7 +143,13 @@ suspend fun detectSpeakerNames(state: AppState, update: Update) {
                 llm.close()
             }
         }
-        update { it.copy(speakerNames = it.speakerNames + names, running = false, status = "Done") }
+        // Preserve hand-set names (confidence "user") — a detect run must not clobber a rename,
+        // matching Android's `if (speakerNames[id]?.confidence != "user")` merge guard.
+        update { s ->
+            val merged = s.speakerNames.toMutableMap()
+            names.forEach { (id, n) -> if (merged[id]?.confidence != "user") merged[id] = n }
+            s.copy(speakerNames = merged, running = false, status = "Done")
+        }
     } catch (t: Throwable) {
         update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
     }
@@ -242,7 +252,7 @@ private suspend fun diarize(
     }
 }
 
-private suspend fun summarize(models: ModelManager, config: TranscriptionConfig, style: SummaryStyle, tagged: List<TranscriptEvent.Utterance>, update: Update) {
+private suspend fun summarize(models: ModelManager, config: TranscriptionConfig, style: SummaryStyle, tagged: List<TranscriptEvent.Utterance>, update: Update, regenerateTitle: Boolean = true) {
     val llmSpec = LlmRegistry.byId(config.llmModelId)
     ensureLlm(models, llmSpec, update)
 
@@ -259,7 +269,7 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
                 style.reduceInstruction, style.mapTokens, style.reduceTokens,
             ).summarize(transcript = transcriptText, userPrompt = config.summaryPrompt).collect { e ->
                 when (e) {
-                    is TranscriptEvent.Title -> update { it.copy(title = e.title) }
+                    is TranscriptEvent.Title -> if (regenerateTitle) update { it.copy(title = e.title) }
                     is TranscriptEvent.Partial -> update { it.copy(summary = it.summary + e.chunk) }
                     is TranscriptEvent.SummaryComplete -> update { it.copy(summary = e.summary) }
                     else -> {}
