@@ -106,11 +106,15 @@ private fun mainApplication() = application {
 
         VoxSumTheme(themeMode = themeMode) {
             val pal = LocalVoxSumPalette.current
+            // Matches Android's showSourceActions: the blank slate's hero already carries its own
+            // "Add audio" CTA + Recent list, so the toolbar's source-picking actions are redundant
+            // there and hidden — same source-of-truth condition as the EmptyState visibility below.
+            val isEmptyState = !state.running && state.fileName.isEmpty() && state.utterances.isEmpty() && state.error == null
             Column(Modifier.fillMaxSize().background(pal.Slate900)) {
                 studio.voxsum.desktop.ui.AppHeader()
                 Column(Modifier.fillMaxSize().padding(20.dp)) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    androidx.compose.foundation.layout.FlowRow(
+                    if (!isEmptyState) androidx.compose.foundation.layout.FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -252,7 +256,7 @@ private fun mainApplication() = application {
                     )
                 }
 
-                if (!state.running && state.fileName.isEmpty() && state.utterances.isEmpty() && state.error == null) {
+                if (isEmptyState) {
                     studio.voxsum.desktop.ui.EmptyState(
                         onAddSource = { showAddSource = true },
                         recents = RecentSessions.list(),
