@@ -16,14 +16,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -52,6 +60,7 @@ import studio.voxsum.data.speakerColor
 import studio.voxsum.data.speakerLabel
 import studio.voxsum.desktop.files.FilePicker
 import studio.voxsum.ui.theme.LocalVoxSumPalette
+import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.VoxSumTheme
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -81,6 +90,7 @@ private fun mainApplication() = application {
         var showRecentMenu by remember { mutableStateOf(false) }
         var showAddSource by remember { mutableStateOf(false) }
         var showRerunMenu by remember { mutableStateOf(false) }
+        var showOverflowMenu by remember { mutableStateOf(false) }
         var showSearch by remember { mutableStateOf(false) }
         var recording by remember { mutableStateOf(false) }
         val recordStopFlag = remember { AtomicBoolean(false) }
@@ -102,6 +112,36 @@ private fun mainApplication() = application {
                     RecentSessions.add(picked.absolutePath, saved.title.ifBlank { picked.name }, System.currentTimeMillis())
                 } else {
                     scope.launch { runPipeline(picked, state.config, state.summaryStyle, update) }
+                }
+            }
+        }
+
+        // Save the current session to a .ogg (embedded transcript) — extracted so the header's
+        // Save-session icon button stays a one-liner.
+        val saveSession: () -> Unit = {
+            val source = state.audioFile
+            if (source != null) {
+                val suggested = studio.voxsum.desktop.session.VoxsumSession.suggestFileName(state.title)
+                val dest = FilePicker.saveFile("Save session as .ogg", suggested)
+                if (dest != null) {
+                    scope.launch {
+                        update { it.copy(status = "Saving session…") }
+                        val outcome = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            studio.voxsum.desktop.session.VoxsumSession.save(
+                                dest, source, state.utterances, state.speakerNames,
+                                state.summary, state.actionItems, state.title,
+                                state.config.asrBackend, state.config.llmModelId,
+                            )
+                        }
+                        RecentSessions.add(dest.absolutePath, state.title.ifBlank { dest.name }, System.currentTimeMillis())
+                        update {
+                            it.copy(status = when (outcome) {
+                                studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.FULL -> "Session saved"
+                                studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.PARTIAL -> "Saved (transcript too large to embed)"
+                                studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.FAILED -> "Save failed"
+                            })
+                        }
+                    }
                 }
             }
         }
@@ -138,78 +178,55 @@ private fun mainApplication() = application {
             // there and hidden — same source-of-truth condition as the EmptyState visibility below.
             val isEmptyState = !state.running && state.fileName.isEmpty() && state.utterances.isEmpty() && state.error == null
             Column(Modifier.fillMaxSize().background(pal.Slate900)) {
-                studio.voxsum.desktop.ui.AppHeader()
-                Column(Modifier.fillMaxSize().padding(20.dp)) {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    androidx.compose.foundation.layout.FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        // On the blank slate the hero already carries a big "Add audio" CTA + the
-                        // recents list, so the toolbar hides the duplicate "Add audio" and the
-                        // content-only actions (Recent / Re-run / Export / Save / Search) — matching
-                        // Android's showSourceActions. "Add online audio" and "Record" have no hero
-                        // equivalent, so they stay visible even on the empty state.
-                        if (!isEmptyState) Button(
-                            enabled = !state.running && !recording,
-                            onClick = openLocalAudio,
-                        ) { Text("Add audio") }
+                // Android bundles the app's functions into the gradient top bar as icon buttons.
+                // Matching it: source/content actions show only when there's content (Android's
+                // showSourceActions), so the blank slate keeps just Settings + overflow — the same
+                // two icons Android shows there. Add-online / Record / theme / Models live in the
+                // overflow menu (always reachable), so every source path works on the empty state.
+                studio.voxsum.desktop.ui.AppHeader {
+                    val onBrand = pal.OnBrand
+                    fun tint(on: Boolean) = if (on) onBrand else onBrand.copy(alpha = 0.38f)
 
-                        Button(
-                            enabled = !state.running && !recording,
-                            onClick = { showAddSource = true },
-                        ) { Text("Add online audio") }
-
-                        if (!isEmptyState) Box {
-                            DropdownButton("Recent", onClick = { showRecentMenu = true })
+                    if (recording) {
+                        IconButton(onClick = { recordStopFlag.set(true); recording = false }) {
+                            Icon(Icons.Filled.Stop, contentDescription = "Stop recording", tint = VoxSumPalette.Red)
+                        }
+                    }
+                    if (!isEmptyState && !recording) {
+                        IconButton(enabled = !state.running, onClick = openLocalAudio) {
+                            Icon(Icons.Filled.Add, contentDescription = "Add audio", tint = tint(!state.running))
+                        }
+                    }
+                    if (!isEmptyState) {
+                        Box {
+                            IconButton(onClick = { showRecentMenu = true }) {
+                                Icon(Icons.Filled.History, contentDescription = "Recent", tint = onBrand)
+                            }
                             DropdownMenu(expanded = showRecentMenu, onDismissRequest = { showRecentMenu = false }) {
                                 val recents = RecentSessions.list()
                                 if (recents.isEmpty()) {
                                     Text("No recent sessions", color = pal.Slate400, modifier = Modifier.padding(8.dp))
-                                } else {
-                                    recents.forEach { r ->
-                                        DropdownMenuItem(
-                                            text = { Text(r.title.ifBlank { r.path.substringAfterLast('/') }) },
-                                            leadingIcon = { Icon(Icons.Filled.History, contentDescription = null) },
-                                            onClick = {
+                                } else recents.forEach { r ->
+                                    DropdownMenuItem(
+                                        text = { Text(r.title.ifBlank { r.path.substringAfterLast('/') }) },
+                                        leadingIcon = { Icon(Icons.Filled.History, contentDescription = null) },
+                                        onClick = {
                                             showRecentMenu = false
                                             val f = java.io.File(r.path)
                                             val saved = loadAnySession(f)
                                             if (saved != null) {
                                                 state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
                                                 RecentSessions.add(r.path, r.title, System.currentTimeMillis())
-                                            } else {
-                                                RecentSessions.remove(r.path)
-                                            }
-                                        })
-                                    }
+                                            } else RecentSessions.remove(r.path)
+                                        },
+                                    )
                                 }
                             }
                         }
-
-                        Button(
-                            // Stay enabled while recording so the user can actually stop it —
-                            // recordAndTranscribe holds state.running=true for the whole capture,
-                            // so `!running` alone would grey out the "Stop" button (unstoppable).
-                            enabled = recording || !state.running,
-                            onClick = {
-                                if (recording) {
-                                    recordStopFlag.set(true)
-                                    recording = false
-                                } else {
-                                    recordStopFlag.set(false)
-                                    recording = true
-                                    scope.launch {
-                                        recordAndTranscribe(state.config, state.summaryStyle, { recordStopFlag.get() }, update)
-                                        recording = false
-                                    }
-                                }
-                            },
-                        ) { Text(if (recording) "Stop" else "Record") }
-
-                        if (!isEmptyState) Box {
-                            DropdownButton("Re-run", enabled = state.transcriptReady && !state.running, onClick = { showRerunMenu = true })
+                        Box {
+                            IconButton(enabled = state.transcriptReady && !state.running, onClick = { showRerunMenu = true }) {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Re-run", tint = tint(state.transcriptReady && !state.running))
+                            }
                             DropdownMenu(expanded = showRerunMenu, onDismissRequest = { showRerunMenu = false }) {
                                 DropdownMenuItem(text = { Text("Re-summarize") }, onClick = {
                                     showRerunMenu = false; scope.launch { rerunSummary(state, update) }
@@ -222,53 +239,60 @@ private fun mainApplication() = application {
                                 })
                             }
                         }
-
-                        if (!isEmptyState) Box {
+                        IconButton(onClick = { showSearch = !showSearch }) {
+                            Icon(Icons.Filled.Search, contentDescription = "Search", tint = onBrand)
+                        }
+                        Box {
                             // Guard on !running like Android: utterances populate before summarization
-                            // finishes, so without this a mid-run export could write a summary-less session.
-                            DropdownButton("Export", enabled = state.transcriptReady && !state.running, onClick = { showExportMenu = true })
+                            // finishes, so a mid-run export could otherwise write a summary-less session.
+                            IconButton(enabled = state.transcriptReady && !state.running, onClick = { showExportMenu = true }) {
+                                Icon(Icons.Filled.Download, contentDescription = "Export", tint = tint(state.transcriptReady && !state.running))
+                            }
                             ExportMenu(expanded = showExportMenu, onDismiss = { showExportMenu = false }, state = state)
                         }
-
-                        if (!isEmptyState) Button(
-                            enabled = state.transcriptReady && state.audioFile != null && !state.running,
-                            onClick = {
-                                val source = state.audioFile ?: return@Button
-                                val suggested = studio.voxsum.desktop.session.VoxsumSession.suggestFileName(state.title)
-                                val dest = FilePicker.saveFile("Save session as .ogg", suggested) ?: return@Button
-                                scope.launch {
-                                    update { it.copy(status = "Saving session…") }
-                                    val outcome = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                        studio.voxsum.desktop.session.VoxsumSession.save(
-                                            dest, source, state.utterances, state.speakerNames,
-                                            state.summary, state.actionItems, state.title,
-                                            state.config.asrBackend, state.config.llmModelId,
-                                        )
-                                    }
-                                    RecentSessions.add(dest.absolutePath, state.title.ifBlank { dest.name }, System.currentTimeMillis())
-                                    update {
-                                        it.copy(status = when (outcome) {
-                                            studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.FULL -> "Session saved"
-                                            studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.PARTIAL -> "Saved (transcript too large to embed)"
-                                            studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.FAILED -> "Save failed"
-                                        })
-                                    }
-                                }
-                            },
-                        ) { Text("Save session") }
-
-                        if (!isEmptyState) IconButton(onClick = { showSearch = !showSearch }) {
-                            Icon(Icons.Filled.Search, contentDescription = "Search", tint = pal.Slate200)
+                        IconButton(enabled = state.transcriptReady && state.audioFile != null && !state.running, onClick = saveSession) {
+                            Icon(Icons.Filled.Save, contentDescription = "Save session", tint = tint(state.transcriptReady && state.audioFile != null && !state.running))
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        ThemeMode.entries.forEach { m -> Button(onClick = { themeMode = m }) { Text(m.name) } }
-                        Button(onClick = { showModels = true }) { Text("Models") }
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = pal.Slate200)
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Filled.Tune, contentDescription = "Settings", tint = onBrand)
+                    }
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = onBrand)
+                        }
+                        DropdownMenu(expanded = showOverflowMenu, onDismissRequest = { showOverflowMenu = false }) {
+                            DropdownMenuItem(
+                                enabled = !state.running && !recording,
+                                text = { Text("Add online audio") },
+                                onClick = { showOverflowMenu = false; showAddSource = true },
+                            )
+                            DropdownMenuItem(
+                                enabled = !state.running,
+                                text = { Text("Record") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    recordStopFlag.set(false)
+                                    recording = true
+                                    scope.launch {
+                                        recordAndTranscribe(state.config, state.summaryStyle, { recordStopFlag.get() }, update)
+                                        recording = false
+                                    }
+                                },
+                            )
+                            HorizontalDivider()
+                            ThemeMode.entries.forEach { m ->
+                                DropdownMenuItem(
+                                    text = { Text("Theme: ${m.name}${if (themeMode == m) "  ✓" else ""}") },
+                                    onClick = { themeMode = m; showOverflowMenu = false },
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(text = { Text("Models…") }, onClick = { showModels = true; showOverflowMenu = false })
                         }
                     }
                 }
+                Column(Modifier.fillMaxSize().padding(20.dp)) {
 
 
                 if (showSearch) {
@@ -435,16 +459,6 @@ private fun UtteranceRow(
 
 @androidx.compose.runtime.Composable
 private fun rememberVoxSumScope() = androidx.compose.runtime.rememberCoroutineScope()
-
-/** A toolbar button that opens a dropdown menu — label + a real trailing chevron icon instead of
- *  a literal "▾" character in the text, matching Android's icon-based affordances. */
-@androidx.compose.runtime.Composable
-private fun DropdownButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
-    Button(enabled = enabled, onClick = onClick) {
-        Text(label)
-        Icon(Icons.Filled.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
-    }
-}
 
 /** Reopen [file] as a session if it carries one — tries the real embedded VoxsumSession format
  *  first (an .ogg/.m4a saved by this app or Android), then the JSON sidecar (SessionFile, this

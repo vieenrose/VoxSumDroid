@@ -2,6 +2,7 @@ package studio.voxsum.desktop.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -23,21 +24,21 @@ import androidx.compose.ui.unit.dp
 import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /**
- * Desktop counterpart of app/ui/VoxSumTopBar.kt's brand header strip — the gradient bar with the
- * GraphicEq wordmark icon, "VoxSum" title, and an "On-device" badge. Android's top bar bundles all
- * the source/re-run/export actions into this same strip; those already live in desktop's own
- * toolbar rows below, so this composable is scoped to just the branding portion (no duplicate
- * action buttons) — the piece desktop had none of at all before this.
+ * Desktop counterpart of app/ui/VoxSumTopBar.kt's brand header strip — the sky→indigo gradient bar
+ * carrying the GraphicEq wordmark, "VoxSum" title, and an "On-device" badge on the left, with the
+ * app's action affordances as icon buttons on the right (via [actions]). Android bundles the same
+ * functions into this strip as icons, so — matching it — desktop no longer keeps a separate
+ * text-button toolbar in the body; callers pass the icon buttons through the trailing slot.
  */
 @Composable
-fun AppHeader() {
+fun AppHeader(actions: @Composable RowScope.() -> Unit = {}) {
     val pal = LocalVoxSumPalette.current
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
             .background(pal.BrandGradient)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Filled.GraphicEq, contentDescription = null, tint = pal.OnBrand)
@@ -45,6 +46,8 @@ fun AppHeader() {
         Text("VoxSum", style = MaterialTheme.typography.titleLarge, color = pal.OnBrand, fontWeight = FontWeight.Bold)
         Spacer(Modifier.width(10.dp))
         OnDeviceBadge()
+        Spacer(Modifier.weight(1f))
+        actions()
     }
 }
 
