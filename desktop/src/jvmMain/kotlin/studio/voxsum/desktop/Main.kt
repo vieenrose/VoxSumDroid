@@ -66,6 +66,7 @@ private fun mainApplication() = application {
         var showModels by remember { mutableStateOf(false) }
         var showExportMenu by remember { mutableStateOf(false) }
         var showRecentMenu by remember { mutableStateOf(false) }
+        var showAddSource by remember { mutableStateOf(false) }
         var showRerunMenu by remember { mutableStateOf(false) }
         var showSearch by remember { mutableStateOf(false) }
         var recording by remember { mutableStateOf(false) }
@@ -87,6 +88,12 @@ private fun mainApplication() = application {
         }
         if (showModels) {
             ModelsDialog(onDismiss = { showModels = false })
+        }
+        if (showAddSource) {
+            AddSourceDialog(
+                onDismiss = { showAddSource = false },
+                onDownloaded = { file -> scope.launch { runPipeline(file, state.config, state.summaryStyle, update) } },
+            )
         }
 
         VoxSumTheme(themeMode = themeMode) {
@@ -114,6 +121,11 @@ private fun mainApplication() = application {
                                 }
                             },
                         ) { Text("Add audio") }
+
+                        Button(
+                            enabled = !state.running && !recording,
+                            onClick = { showAddSource = true },
+                        ) { Text("Add online audio") }
 
                         Box {
                             Button(onClick = { showRecentMenu = true }) { Text("Recent ▾") }

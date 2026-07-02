@@ -20,6 +20,9 @@ kotlin {
             // Pure-JVM PDF writer (Apache-2.0) for PDF export — Android uses the platform's
             // android.graphics.pdf.PdfDocument, which has no desktop equivalent.
             implementation("org.apache.pdfbox:pdfbox:3.0.3")
+            // Same version :app uses — a pure-JVM library (not Android-specific), for YouTube
+            // audio-source resolution.
+            implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.3")
         }
     }
 }
