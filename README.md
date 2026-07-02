@@ -26,24 +26,26 @@ Kotlin code — theme, settings, model provisioning, the full ASR/diarization/su
 
 - **`:app`** — the Android app, unchanged.
 - **`:shared`** — a Kotlin Multiplatform library (`jvm` + `androidTarget`) holding the code both
-  platforms use: the theme system, settings persistence, model provisioning/downloads, the ASR
-  (`AsrEngine`) and diarization (`DiarizationEngine`) engines, the summarization business logic
-  (`LlmEngine`, `Summarizer`, `SpeakerNamer`, `ActionItemExtractor`), plus WAV/MP4/OGG tag I/O and
-  transcript export. Its `jvmMain` also carries a desktop-only Kotlin JNI wrapper for sherpa-onnx
-  (`com.k2fsa.sherpa.onnx`) — adapted from the upstream submodule, which is Android-only as shipped.
+  platforms use: the theme system, settings persistence, model provisioning/downloads (`ModelManager`,
+  HuggingFace-first), the ASR (`AsrEngine`) and diarization (`DiarizationEngine`) engines, the
+  summarization business logic (`LlmEngine`, `Summarizer`, `SpeakerNamer`, `ActionItemExtractor`),
+  plus WAV/MP4/OGG tag I/O and transcript export. Its `jvmMain` also carries a desktop-only Kotlin
+  JNI wrapper for sherpa-onnx (`com.k2fsa.sherpa.onnx`) — adapted from the upstream submodule, which
+  is Android-only as shipped.
 - **`:desktop`** — the Compose Multiplatform desktop app: a real (if minimal) screen driving the
   full pipeline, plus the desktop-native `AudioDecoder` (ffmpeg-backed), `AudioRecorder`
-  (`javax.sound.sampled`), and `FilePicker` (native AWT/GTK dialogs).
+  (`javax.sound.sampled`), `FilePicker` (native AWT/GTK dialogs), and `NativeLibs` (package-portable
+  native library loading — see below).
 
 ## Status
 
-**The full pipeline runs end-to-end on Linux, verified against real audio, real models, and a real
-running window** — not just compiled. Every item below was actually executed and observed, not
-assumed:
+**Builds and runs as a real, installable `.deb`, verified end-to-end** — not just compiled or run
+from the dev tree. Every item below was actually executed and observed:
 
 - The real theme system (`VoxSumTheme`, Light/Dark/E-ink), settings persistence, and model
-  provisioning (`ModelManager`, the same HuggingFace-first downloads as Android) all run as on
-  Android — `Context` swapped for a small `KeyValueStore` interface and plain `File` paths.
+  provisioning (`ModelManager`, the same HuggingFace-first downloads as Android, downloading to
+  `$XDG_DATA_HOME/VoxSum`) all run as on Android — `Context` swapped for a small `KeyValueStore`
+  interface and plain `File` paths.
 - `llama.cpp` + sherpa-onnx (ASR/VAD/diarization) both build natively for linux-x86_64
   (`desktop/scripts/build-native.sh`) — a host build, not a cross-compile.
 - Desktop counterparts of Android's platform APIs: `AudioDecoder` (ffmpeg), `AudioRecorder`
@@ -51,18 +53,26 @@ assumed:
   files/devices/dialogs, not mocks.
 - **A real transcribe → diarize → summarize run, in the real UI**: picking a two-speaker test clip
   produced a correct transcript in both English and Chinese, correctly split by speaker (2 speakers
-  detected), a generated title, and a bullet-point summary — screenshotted mid-run and on
-  completion.
+  detected), a generated title, and a bullet-point summary.
+- **First-run model downloads work from the UI**: with no models present, the app correctly shows
+  "Downloading speech/speaker/summarization model…" with a live progress bar and streams real bytes
+  from HuggingFace over HTTPS; verified with a genuinely fresh, empty model directory.
+- **Packages into a real, installable `.deb`** (`./gradlew :desktop:packageDeb`) containing a fully
+  self-contained JRE and all native libraries. Verified by extracting the package outright (not just
+  building it) and launching the actual binary from a directory unrelated to the build tree — every
+  native library (llama.cpp/ggml, onnxruntime, sherpa-onnx, the voxsum-llm JNI bridge) was confirmed
+  loaded and mapped into the running process's memory from inside the package layout.
 
 **Not yet done** (next layer of work, not blockers):
 
-- Model selection/download UI — currently hardcoded to models already verified present on disk;
-  `ModelManager`'s HuggingFace-first download flow is shared but not yet wired into `:desktop`'s UI.
-- Live recording, session save/export, multi-file support, and a settings screen.
+- Live recording, session save/export, multi-file support, and a settings screen (model/language
+  picker) in the UI.
+- A model-management screen (the storage/delete UI Android has under Settings → Storage).
 
-## Build & run
+## Build & run (development)
 
-Requires a JDK (21 tested), and `ffmpeg` on `PATH` for audio decoding.
+Requires a JDK (21 tested), `ffmpeg` on `PATH` for audio decoding, and `patchelf` (native-lib
+packaging step; `pip install --user patchelf` if not packaged for your distro).
 
 ```bash
 git clone --recurse-submodules https://github.com/vieenrose/VoxSumDroid.git
@@ -70,14 +80,34 @@ cd VoxSumDroid
 git checkout linux
 
 # Native libs needed for ASR/diarization/summarization (llama.cpp + sherpa-onnx + the JNI
-# bridge; plain CMake/Ninja, no NDK involved — a host build, not a cross-compile)
+# bridge; plain CMake/Ninja, no NDK involved — a host build, not a cross-compile). Also
+# flattens + relocates them for packaging — see desktop/scripts/flatten-native-libs.sh.
 ./desktop/scripts/build-native.sh
 
-# Desktop app — pick an audio file and it transcribes, diarizes, and summarizes it
+# Desktop app — pick an audio file and it transcribes, diarizes, and summarizes it. Models
+# download automatically on first use (see Status above).
 ./gradlew :desktop:run
 ```
 
 See `desktop/src/jvmMain/cpp/CMakeLists.txt` for what the native build produces.
+
+## Building a release `.deb`
+
+After `./desktop/scripts/build-native.sh` (above):
+
+```bash
+./gradlew :desktop:packageDeb
+```
+
+Produces `desktop/build/compose/binaries/main/deb/voxsum_<version>_amd64.deb` — a self-contained
+package (bundled JRE + all native libs) that installs to `/opt/voxsum`. Install normally:
+
+```bash
+sudo dpkg -i desktop/build/compose/binaries/main/deb/voxsum_*_amd64.deb
+```
+
+(An `AppImage` target is also configured — `./gradlew :desktop:packageAppImage` — for a
+no-install-needed alternative.)
 
 ## License
 
