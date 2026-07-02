@@ -90,7 +90,7 @@ private fun mainApplication() = application {
         VoxSumTheme(themeMode = themeMode) {
             val pal = LocalVoxSumPalette.current
             Column(Modifier.fillMaxSize().background(pal.Slate900).padding(20.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(
                             enabled = !state.running && !recording,
@@ -99,7 +99,12 @@ private fun mainApplication() = application {
                                     "Pick an audio file",
                                     extensions = listOf("wav", "mp3", "m4a", "flac", "ogg"),
                                 ) ?: return@Button
-                                scope.launch { runPipeline(picked, state.config, state.summaryStyle, update) }
+                                val saved = SessionFile.load(picked)
+                                if (saved != null) {
+                                    state = saved.copy(config = state.config, summaryStyle = state.summaryStyle)
+                                } else {
+                                    scope.launch { runPipeline(picked, state.config, state.summaryStyle, update) }
+                                }
                             },
                         ) { Text("Add audio") }
 
@@ -140,6 +145,11 @@ private fun mainApplication() = application {
                             ExportMenu(expanded = showExportMenu, onDismiss = { showExportMenu = false }, state = state)
                         }
 
+                        Button(
+                            enabled = state.transcriptReady && state.audioFile != null,
+                            onClick = { state.audioFile?.let { SessionFile.save(it, state) } },
+                        ) { Text("Save session") }
+
                         Button(onClick = { showSearch = !showSearch }) { Text("🔍") }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -148,6 +158,7 @@ private fun mainApplication() = application {
                         Button(onClick = { showSettings = true }) { Text("⚙") }
                     }
                 }
+
 
                 if (showSearch) {
                     OutlinedTextField(

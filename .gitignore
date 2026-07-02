@@ -19,3 +19,6 @@ local.properties
 /models/*.onnx
 /models/*.tar.bz2
 .kotlin/
+
+# Desktop session sidecars (SessionFile) — written next to whatever audio the user picks
+*.voxsum.json
