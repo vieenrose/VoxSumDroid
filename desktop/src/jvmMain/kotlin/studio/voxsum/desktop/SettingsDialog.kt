@@ -1,0 +1,129 @@
+package studio.voxsum.desktop
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogWindow
+import studio.voxsum.core.asr.AsrBackend
+import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.config.TranscriptionConfig
+import studio.voxsum.ui.theme.LocalVoxSumPalette
+
+/** Desktop counterpart of Android's ConfigSheet — ASR backend, diarization on/off + speaker-count
+ *  hint, target language, and summary style. Plain field-by-field state, saved as one unit on
+ *  "Save" (matches Android: settings only take effect on the next re-run, not live). */
+@Composable
+fun SettingsDialog(
+    config: TranscriptionConfig,
+    summaryStyle: SummaryStyle,
+    onDismiss: () -> Unit,
+    onSave: (TranscriptionConfig, SummaryStyle) -> Unit,
+) {
+    var asrBackend by remember { mutableStateOf(AsrBackend.fromId(config.asrBackend)) }
+    var diarizationEnabled by remember { mutableStateOf(config.diarizationEnabled) }
+    var numSpeakersText by remember {
+        mutableStateOf(if (config.numSpeakers > 0) config.numSpeakers.toString() else "")
+    }
+    var targetLanguage by remember { mutableStateOf(TargetLanguage.fromId(config.targetLanguage)) }
+    var style by remember { mutableStateOf(summaryStyle) }
+
+    DialogWindow(onCloseRequest = onDismiss, title = "Settings") {
+        val pal = LocalVoxSumPalette.current
+        Column(
+            Modifier.background(pal.Slate900).padding(20.dp).width(420.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            SettingsSection("Speech recognition") {
+                PickerRow(pal, AsrBackend.entries, asrBackend, { asrBackend = it }) { it.displayName }
+            }
+
+            SettingsSection("Speakers") {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Switch(checked = diarizationEnabled, onCheckedChange = { diarizationEnabled = it })
+                    Text("  Identify speakers", color = pal.Slate200)
+                }
+                if (diarizationEnabled) {
+                    Row(Modifier.padding(top = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text("Speaker count hint (blank = auto): ", color = pal.Slate400)
+                        androidx.compose.material3.OutlinedTextField(
+                            value = numSpeakersText,
+                            onValueChange = { v -> if (v.all { c -> c.isDigit() }) numSpeakersText = v },
+                            modifier = Modifier.width(80.dp),
+                            singleLine = true,
+                        )
+                    }
+                }
+            }
+
+            SettingsSection("Target language") {
+                PickerRow(pal, TargetLanguage.entries, targetLanguage, { targetLanguage = it }) {
+                    it.autonym.ifBlank { "Auto" }
+                }
+            }
+
+            SettingsSection("Summary style") {
+                PickerRow(pal, SummaryStyle.entries, style, { style = it }) { it.label }
+            }
+
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
+                Button(onClick = onDismiss) { Text("Cancel") }
+                androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+                Button(onClick = {
+                    onSave(
+                        config.copy(
+                            asrBackend = asrBackend.id,
+                            diarizationEnabled = diarizationEnabled,
+                            numSpeakers = numSpeakersText.toIntOrNull() ?: -1,
+                            targetLanguage = targetLanguage.id,
+                        ),
+                        style,
+                    )
+                }) { Text("Save") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(title: String, content: @Composable () -> Unit) {
+    val pal = LocalVoxSumPalette.current
+    Column {
+        Text(title, color = pal.Slate400, style = MaterialTheme.typography.labelMedium)
+        Column(Modifier.padding(top = 4.dp)) { content() }
+    }
+}
+
+@Composable
+private fun <T> PickerRow(
+    pal: studio.voxsum.ui.theme.VoxSumColors,
+    options: List<T>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    label: (T) -> String,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.forEach { opt ->
+            val isSelected = opt == selected
+            Button(onClick = { onSelect(opt) }) {
+                Text(label(opt), color = if (isSelected) pal.OnBrand else pal.Slate400)
+            }
+        }
+    }
+}
