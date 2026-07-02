@@ -1,5 +1,6 @@
 package studio.voxsum.desktop
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -54,8 +55,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -422,32 +425,28 @@ private fun mainApplication() = application {
                             )
                         } else {
                             Column(Modifier.fillMaxSize().padding(16.dp)) {
-                                if (playerReady && state.audioFile != null) {
-                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(onClick = { player.toggle() }) {
-                                            Icon(
-                                                if (player.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                                contentDescription = if (player.isPlaying) "Pause" else "Play",
-                                                tint = pal.Slate200,
-                                            )
-                                        }
-                                        Slider(
-                                            value = playerPositionSec.toFloat(),
-                                            valueRange = 0f..player.durationSec.toFloat().coerceAtLeast(0.01f),
-                                            onValueChange = { player.seekTo(it.toDouble()); playerPositionSec = it.toDouble() },
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                        Text(
-                                            "${formatDuration(playerPositionSec)} / ${formatDuration(player.durationSec)}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = pal.Slate400,
-                                        )
-                                    }
-                                }
                                 if (state.title.isNotEmpty() || state.summary.isNotEmpty()) {
+                                    // Audio-seeded identicon cover (parity with Android's session cover):
+                                    // deterministic from the audio marker + title, regenerated only when
+                                    // one of those changes.
+                                    val cover = remember(state.title, state.audioFile) {
+                                        val seed = (state.audioFile?.absolutePath ?: state.title)
+                                            .ifBlank { "voxsum" }.toByteArray()
+                                        studio.voxsum.desktop.cover.CoverGenerator.render(state.title, seed)
+                                            .toComposeImageBitmap()
+                                    }
                                     studio.voxsum.desktop.ui.SectionCard {
-                                        if (state.title.isNotEmpty()) Text(state.title, color = pal.Slate200, style = MaterialTheme.typography.titleMedium)
-                                        if (state.summary.isNotEmpty()) Text(state.summary, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Image(
+                                                cover, contentDescription = "Session cover",
+                                                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)),
+                                            )
+                                            Spacer(Modifier.width(12.dp))
+                                            Column {
+                                                if (state.title.isNotEmpty()) Text(state.title, color = pal.Slate200, style = MaterialTheme.typography.titleMedium)
+                                                if (state.summary.isNotEmpty()) Text(state.summary, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                                            }
+                                        }
                                     }
                                 }
                                 if (state.actionItems.isNotEmpty()) {
@@ -476,6 +475,38 @@ private fun mainApplication() = application {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                // ---- Player bar (bottom-docked, above the status bar) ----
+                if (playerReady && state.audioFile != null && !isEmptyState) {
+                    HorizontalDivider(color = pal.Hairline)
+                    Surface(color = pal.Slate800) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(onClick = { player.toggle() }) {
+                                Icon(
+                                    if (player.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = if (player.isPlaying) "Pause" else "Play",
+                                    tint = pal.Slate200,
+                                )
+                            }
+                            Slider(
+                                value = playerPositionSec.toFloat(),
+                                valueRange = 0f..player.durationSec.toFloat().coerceAtLeast(0.01f),
+                                onValueChange = { player.seekTo(it.toDouble()); playerPositionSec = it.toDouble() },
+                                modifier = Modifier.weight(1f),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "${formatDuration(playerPositionSec)} / ${formatDuration(player.durationSec)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = pal.Slate400,
+                            )
+                            Spacer(Modifier.width(8.dp))
                         }
                     }
                 }
