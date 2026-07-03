@@ -6,11 +6,37 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Single source of truth for the app version — drives both the packaged .deb/AppImage version and
+// the AppInfo.VERSION constant the About screen shows (generated below, so they never drift).
+val appVersion = "0.3.0"
+
+val generateVersion by tasks.registering {
+    // Capture into task-local vals (not script-level references) so the configuration cache can
+    // serialize the task action.
+    val version = appVersion
+    val outFile = layout.buildDirectory.file("generated/version/studio/voxsum/desktop/AppInfo.kt")
+    inputs.property("version", version)
+    outputs.file(outFile)
+    doLast {
+        outFile.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(
+                "package studio.voxsum.desktop\n\n" +
+                    "/** Generated from build.gradle.kts `appVersion` — do not edit by hand. */\n" +
+                    "object AppInfo { const val VERSION = \"$version\" }\n",
+            )
+        }
+    }
+}
+
 kotlin {
     jvmToolchain(21)
     jvm()
 
     sourceSets {
+        jvmMain {
+            kotlin.srcDir(layout.buildDirectory.dir("generated/version"))
+        }
         jvmMain.dependencies {
             implementation(project(":shared"))
             implementation(compose.desktop.currentOs)
@@ -28,13 +54,15 @@ kotlin {
     }
 }
 
+tasks.named("compileKotlinJvm") { dependsOn(generateVersion) }
+
 compose.desktop {
     application {
         mainClass = "studio.voxsum.desktop.MainKt"
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.AppImage)
             packageName = "VoxSum"
-            packageVersion = "0.3.0"
+            packageVersion = appVersion
             description = "Offline audio transcription and summarization"
             vendor = "VoxSum"
             // Native libs (llama.cpp/ggml, sherpa-onnx+onnxruntime, the voxsum-llm JNI bridge) —

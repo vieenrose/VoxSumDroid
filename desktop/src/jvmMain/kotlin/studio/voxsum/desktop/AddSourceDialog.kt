@@ -46,7 +46,7 @@ private enum class SourceTab { PODCAST, YOUTUBE }
  *  online audio source into a local file, then hand it to the same onDownloaded(File) callback
  *  "Add audio" already uses to kick off the pipeline. */
 @Composable
-fun AddSourceDialog(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
+fun AddSourceDialog(onDismiss: () -> Unit, onDownloaded: (File, String?) -> Unit) {
     var tab by remember { mutableStateOf(SourceTab.PODCAST) }
     DialogWindow(
         onCloseRequest = onDismiss,
@@ -77,7 +77,7 @@ fun AddSourceDialog(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
 }
 
 @Composable
-private fun PodcastTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
+private fun PodcastTab(onDismiss: () -> Unit, onDownloaded: (File, String?) -> Unit) {
     val pal = LocalVoxSumPalette.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
@@ -157,7 +157,7 @@ private fun PodcastTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
                                     val file = runCatching { Podcast.downloadEpisode(ep) { p -> progress = p } }
                                         .getOrElse { episodesStatus = Strings.downloadFailed(it.message); null }
                                     progress = null
-                                    if (file != null) { onDismiss(); onDownloaded(file) }
+                                    if (file != null) { onDismiss(); onDownloaded(file, ep.title) }
                                 }
                             }) { Text(Strings.get) }
                         }
@@ -169,7 +169,7 @@ private fun PodcastTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
 }
 
 @Composable
-private fun YouTubeTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
+private fun YouTubeTab(onDismiss: () -> Unit, onDownloaded: (File, String?) -> Unit) {
     val pal = LocalVoxSumPalette.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
@@ -177,7 +177,7 @@ private fun YouTubeTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
     var status by remember { mutableStateOf("") }
     var progress by remember { mutableStateOf<Float?>(null) }
 
-    fun fetch(url: String) {
+    fun fetch(url: String, title: String?) {
         scope.launch {
             status = Strings.resolving; progress = 0f
             val result = runCatching {
@@ -186,7 +186,7 @@ private fun YouTubeTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
             }
             progress = null
             result.fold(
-                onSuccess = { onDismiss(); onDownloaded(it) },
+                onSuccess = { onDismiss(); onDownloaded(it, title) },
                 onFailure = { status = Strings.failed(it.message) },
             )
         }
@@ -200,7 +200,7 @@ private fun YouTubeTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
             )
             Button(onClick = {
                 if (YouTube.looksLikeUrl(query)) {
-                    fetch(query)
+                    fetch(query, null)
                 } else {
                     scope.launch {
                         status = Strings.searching; videos = emptyList()
@@ -224,7 +224,7 @@ private fun YouTubeTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
                         Text(v.title, color = pal.Slate200, style = MaterialTheme.typography.bodyMedium)
                         Text("${v.uploader} · ${v.durationText}", color = pal.Slate400, style = MaterialTheme.typography.labelSmall)
                     }
-                    Button(onClick = { fetch(v.url) }) { Text(Strings.download) }
+                    Button(onClick = { fetch(v.url, v.title) }) { Text(Strings.download) }
                 }
             }
         }

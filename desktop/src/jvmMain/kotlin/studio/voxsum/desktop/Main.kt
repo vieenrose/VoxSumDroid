@@ -284,10 +284,12 @@ private fun mainApplication() = application {
             if (showAddSource) {
                 AddSourceDialog(
                     onDismiss = { showAddSource = false },
-                    onDownloaded = { file ->
+                    onDownloaded = { file, srcTitle ->
                         // Fresh unsaved content — no sidebar row to highlight until it's saved.
                         currentSessionPath = null
-                        pipelineJob = scope.launch { runPipeline(file, state.config, state.summaryStyle, update) }
+                        // Podcast/YouTube: use the episode/video title (kept out of the update tree)
+                        // rather than an AI-generated one; blank falls back to AI.
+                        pipelineJob = scope.launch { runPipeline(file, state.config, state.summaryStyle, update, presetTitle = srcTitle) }
                     },
                 )
             }
@@ -379,6 +381,11 @@ private fun mainApplication() = application {
                                 DropdownMenuItem(text = { Text(Strings.reSummarize) }, onClick = {
                                     showRerunMenu = false; regenerateStaleChildren()
                                 })
+                                DropdownMenuItem(
+                                    enabled = state.summary.isNotEmpty(),
+                                    text = { Text(Strings.reTitle) },
+                                    onClick = { showRerunMenu = false; scope.launch { reTitle(state, update) } },
+                                )
                                 DropdownMenuItem(text = { Text(Strings.detectSpeakerNames) }, onClick = {
                                     showRerunMenu = false; scope.launch { detectSpeakerNames(state, update) }
                                 })
@@ -648,6 +655,8 @@ private fun mainApplication() = application {
                         Text(state.config.asrBackend, style = MaterialTheme.typography.labelSmall, color = pal.Slate400)
                         state.progress?.takeIf { state.running }?.let {
                             Spacer(Modifier.width(12.dp))
+                            Text("${(it * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = pal.Slate200)
+                            Spacer(Modifier.width(6.dp))
                             LinearProgressIndicator(progress = { it }, modifier = Modifier.width(120.dp))
                         }
                     }

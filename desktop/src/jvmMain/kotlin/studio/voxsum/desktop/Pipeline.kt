@@ -34,13 +34,19 @@ private typealias Update = ((AppState) -> AppState) -> Unit
 
 /** Decode -> ASR -> diarize -> summarize, reporting progress through [update]. Heavy work runs
  *  on Dispatchers.Default/IO; [update] mutations are posted back via the caller's (UI) dispatcher. */
-suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryStyle, update: Update) {
+suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryStyle, update: Update, presetTitle: String? = null) {
+    // A supplied source title (podcast episode / YouTube video) is used verbatim and marked
+    // titleEdited so it stays out of the update tree — only an explicit Re-title changes it. Blank
+    // → summarize() generates a title as usual.
+    val useSourceTitle = !presetTitle.isNullOrBlank()
     update {
         it.copy(
             audioFile = file, fileName = file.name, running = true, error = null,
-            utterances = emptyList(), speakerNames = emptyMap(), title = "", summary = "", actionItems = "",
-            // A full run refreshes the whole tree — clear every staleness marker.
-            transcriptDirty = false, summaryStale = false, transcribeStale = false, titleEdited = false,
+            utterances = emptyList(), speakerNames = emptyMap(),
+            title = if (useSourceTitle) presetTitle!!.trim() else "", summary = "", actionItems = "",
+            // A full run refreshes the whole tree — clear staleness. titleEdited sticks if a source
+            // title was supplied so re-summarize won't overwrite it.
+            transcriptDirty = false, summaryStale = false, transcribeStale = false, titleEdited = useSourceTitle,
         )
     }
     try {
@@ -60,7 +66,7 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
         }
         update { it.copy(utterances = tagged, speakerCount = speakerCount, progress = null) }
 
-        summarize(models, config, style, tagged, update)
+        summarize(models, config, style, tagged, update, regenerateTitle = !useSourceTitle)
         update { it.copy(status = "Done", running = false) }
     } catch (t: Throwable) {
         if (t is kotlinx.coroutines.CancellationException) throw t
@@ -129,6 +135,39 @@ suspend fun rerunSummary(state: AppState, update: Update) {
         val models = ModelManager(appDataDir)
         summarize(models, state.config, state.summaryStyle, state.utterances, update, regenerateTitle = !keepTitle)
         update { it.copy(status = "Done", running = false) }
+    } catch (t: Throwable) {
+        if (t is kotlinx.coroutines.CancellationException) throw t
+        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
+    }
+}
+
+/** Regenerate just the title from the current summary (Android's re-title). Explicitly requested,
+ *  so it clears titleEdited — the fresh AI title is no longer treated as user/source-pinned. */
+suspend fun reTitle(state: AppState, update: Update) {
+    if (state.summary.isEmpty()) return
+    update { it.copy(running = true, error = null, status = "Generating title…") }
+    try {
+        val models = ModelManager(appDataDir)
+        val llmSpec = LlmRegistry.byId(state.config.llmModelId)
+        ensureLlm(models, llmSpec, update)
+        val targetName = TargetLanguage.fromId(state.config.targetLanguage).promptName
+        val script = TargetLanguage.scriptFor(state.config.targetLanguage)
+        val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
+        val style = state.summaryStyle
+        withContext(Dispatchers.Default) {
+            val llm = LlmEngine.load(models.llmFile(llmSpec).absolutePath, nThreads = 4, sampler = llmSpec.sampler)
+            try {
+                Summarizer(
+                    llm, llmSpec.chatTemplate, targetName, convert, style.mapInstruction,
+                    style.reduceInstruction, style.mapTokens, style.reduceTokens,
+                ).title(state.summary).collect { e ->
+                    if (e is TranscriptEvent.Title) update { it.copy(title = e.title) }
+                }
+            } finally {
+                llm.close()
+            }
+        }
+        update { it.copy(running = false, status = "Done", titleEdited = false) }
     } catch (t: Throwable) {
         if (t is kotlinx.coroutines.CancellationException) throw t
         update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }

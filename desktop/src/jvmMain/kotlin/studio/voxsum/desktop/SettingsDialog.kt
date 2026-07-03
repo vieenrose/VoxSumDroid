@@ -167,6 +167,13 @@ fun SettingsDialog(
             SettingsSection(Strings.about) {
                 Text("VoxSum ${AppInfo.VERSION}", color = pal.Slate200, style = MaterialTheme.typography.bodyMedium)
                 Text(Strings.aboutLicense, color = pal.Slate400, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
+                Text(Strings.openSourceComponents, color = pal.Slate400, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
+                Text(
+                    Licenses.COMPONENTS,
+                    color = pal.Slate400,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
             }
 
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {

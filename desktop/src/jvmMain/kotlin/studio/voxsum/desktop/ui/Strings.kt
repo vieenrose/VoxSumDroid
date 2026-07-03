@@ -51,6 +51,7 @@ object Strings {
     val reRun: String get() = t("Re-run", "Relancer", "重新執行")
     val reTranscribe: String get() = t("Re-transcribe", "Retranscrire", "重新轉錄")
     val reSummarize: String get() = t("Re-summarize", "Refaire le résumé", "重新摘要")
+    val reTitle: String get() = t("Re-title", "Regénérer le titre", "重新產生標題")
     val detectSpeakerNames: String get() = t("Detect speaker names", "Détecter les noms des locuteurs", "偵測語者名稱")
     val extractActionItems: String get() = t("Extract action items", "Extraire les actions", "擷取行動項目")
     val find: String get() = t("Find", "Rechercher", "尋找")
@@ -137,6 +138,7 @@ object Strings {
     val customSummaryPrompt: String get() = t("Custom summary prompt", "Invite de résumé personnalisée", "自訂摘要提示詞")
     val about: String get() = t("About", "À propos", "關於")
     val aboutLicense: String get() = t("Free & open source · GPL-3.0", "Libre et open source · GPL-3.0", "自由開放原始碼 · GPL-3.0")
+    val openSourceComponents: String get() = t("Open-source components", "Composants open source", "開放原始碼元件")
 
     // ---- Add-source dialog ----
     val addOnlineAudio: String get() = t("Add online audio", "Ajouter de l'audio en ligne", "加入線上音訊")
