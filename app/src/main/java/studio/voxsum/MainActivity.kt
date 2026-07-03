@@ -1399,9 +1399,17 @@ private fun TranscribeScreen(
                 if (newCfg.targetLanguage != old.targetLanguage) {
                     val zh = setOf(TargetLanguage.TRADITIONAL.id, TargetLanguage.SIMPLIFIED.id)
                     val newScript = TargetLanguage.scriptFor(newCfg.targetLanguage, context)
-                    if (old.targetLanguage in zh && newCfg.targetLanguage in zh && newScript != null) {
-                        if (utterances.isNotEmpty()) applyChineseScript(newScript)
-                    } else if (!summary.isNullOrBlank() || actionItems != null) summaryStale = true
+                    // The transcript is raw ASR Chinese regardless of the OLD target, so whenever the new
+                    // target is a Chinese script, normalize it in place (OpenCC, instant, no LLM). This
+                    // also covers switching TO zh from a non-zh target (e.g. Français → 繁體中文), not just
+                    // zh↔zh — otherwise the transcript stays Simplified under a zh-Hant target. Title /
+                    // summary / names ride along; the converter leaves non-Chinese text untouched.
+                    if (newScript != null && utterances.isNotEmpty()) applyChineseScript(newScript)
+                    // Summary/title/actions are LLM output in the target LANGUAGE. A pure Traditional↔
+                    // Simplified switch is only a re-render (done above, no LLM); any other language
+                    // change needs an LLM re-run to rewrite them in the new language.
+                    val pureScriptSwitch = old.targetLanguage in zh && newCfg.targetLanguage in zh
+                    if (!pureScriptSwitch && (!summary.isNullOrBlank() || actionItems != null)) summaryStale = true
                 }
                 // Summary-shaping changes (model / style / prompt) need an LLM re-run of the summary
                 // (and, via regenerateStaleChildren, the action items).
