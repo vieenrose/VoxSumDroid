@@ -88,6 +88,8 @@ object Strings {
     val untitled: String get() = t("Untitled", "Sans titre", "未命名")
     val noSummaryYet: String get() = t("No summary yet", "Pas encore de résumé", "尚無摘要")
     val sessionCover: String get() = t("Session cover", "Couverture de la session", "工作階段封面")
+    val asrLabel: String get() = t("ASR:", "ASR :", "辨識：")
+    val llmLabel: String get() = t("LLM:", "LLM :", "摘要：")
     val ready: String get() = t("Ready", "Prêt", "就緒")
     val done: String get() = t("Done", "Terminé", "完成")
     val stopped: String get() = t("Stopped", "Arrêté", "已停止")

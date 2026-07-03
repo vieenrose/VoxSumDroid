@@ -652,7 +652,11 @@ private fun mainApplication() = application {
                         }
                         Text(statusText, style = MaterialTheme.typography.labelSmall, color = pal.Slate400, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         Spacer(Modifier.width(12.dp))
-                        Text(state.config.asrBackend, style = MaterialTheme.typography.labelSmall, color = pal.Slate400)
+                        // The active models: ASR (transcription) + LLM (summary).
+                        val asrName = studio.voxsum.core.asr.AsrBackend.fromId(state.config.asrBackend).shortName
+                        val llmName = studio.voxsum.core.models.LlmRegistry.byId(state.config.llmModelId)
+                            .let { it.shortName.ifBlank { it.displayName } }
+                        Text("${Strings.asrLabel} $asrName  ·  ${Strings.llmLabel} $llmName", style = MaterialTheme.typography.labelSmall, color = pal.Slate400)
                         state.progress?.takeIf { state.running }?.let {
                             Spacer(Modifier.width(12.dp))
                             Text("${(it * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = pal.Slate200)
