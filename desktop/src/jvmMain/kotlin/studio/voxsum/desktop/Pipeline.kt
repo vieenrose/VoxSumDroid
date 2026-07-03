@@ -87,12 +87,14 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
         val dest = File(recordingsDir, "recording_${System.currentTimeMillis()}.wav")
         val recorder = AudioRecorder()
         val utterances = ArrayList<TranscriptEvent.Utterance>()
+        val script = TargetLanguage.scriptFor(config.targetLanguage)
+        val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
         withContext(Dispatchers.Default) {
             AsrEngine(
                 backend = backend, files = models.asrFiles(backend), vadModel = models.vadModel.absolutePath,
                 numThreads = 2, language = config.language, useItn = config.useItn, vadThreshold = config.vadThreshold,
             ).use { asr ->
-                collectTranscribeEvents(asr.transcribeLive(recorder.record(dest, shouldStop)), utterances, update)
+                collectTranscribeEvents(asr.transcribeLive(recorder.record(dest, shouldStop)), utterances, update, convert)
             }
         }
         update { it.copy(audioFile = dest, fileName = dest.name, progress = null) }
@@ -210,6 +212,11 @@ private suspend fun transcribe(
 ): List<TranscriptEvent.Utterance> {
     update { it.copy(status = "Transcribing…", progress = 0f) }
     val utterances = ArrayList<TranscriptEvent.Utterance>()
+    // Convert each utterance to the target Chinese script at ASR-emit time, like Android's
+    // outputConverter (TranscriptionService) — SenseVoice emits Simplified, so without this a
+    // zh-Hant target shows a Simplified transcript. Same converter the summary/actions use.
+    val script = TargetLanguage.scriptFor(config.targetLanguage)
+    val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
     withContext(Dispatchers.Default) {
         AsrEngine(
             backend = backend,
@@ -219,15 +226,15 @@ private suspend fun transcribe(
             language = config.language,
             useItn = config.useItn,
             vadThreshold = config.vadThreshold,
-        ).use { asr -> collectTranscribeEvents(asr.transcribe(pcm), utterances, update) }
+        ).use { asr -> collectTranscribeEvents(asr.transcribe(pcm), utterances, update, convert) }
     }
     return utterances
 }
 
-private suspend fun collectTranscribeEvents(flow: Flow<TranscriptEvent>, utterances: MutableList<TranscriptEvent.Utterance>, update: Update) {
+private suspend fun collectTranscribeEvents(flow: Flow<TranscriptEvent>, utterances: MutableList<TranscriptEvent.Utterance>, update: Update, convert: (String) -> String) {
     flow.collect { e ->
         when (e) {
-            is TranscriptEvent.Utterance -> { utterances += e; update { it.copy(utterances = utterances.toList()) } }
+            is TranscriptEvent.Utterance -> { utterances += e.copy(text = convert(e.text)); update { it.copy(utterances = utterances.toList()) } }
             is TranscriptEvent.Progress -> update { it.copy(progress = e.fraction) }
             is TranscriptEvent.Status -> update { it.copy(status = e.message) }
             else -> {}
