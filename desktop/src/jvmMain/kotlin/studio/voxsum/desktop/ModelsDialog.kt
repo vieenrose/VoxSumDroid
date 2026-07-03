@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
 import studio.voxsum.core.models.ModelManager
+import studio.voxsum.desktop.ui.Strings
 import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /** Desktop counterpart of Android's Settings -> Storage screen: lists every downloaded model with
@@ -35,7 +36,7 @@ fun ModelsDialog(onDismiss: () -> Unit) {
 
     DialogWindow(
         onCloseRequest = onDismiss,
-        title = "Downloaded models",
+        title = Strings.downloadedModels,
         state = androidx.compose.ui.window.rememberDialogState(width = 520.dp, height = 480.dp),
     ) {
         studio.voxsum.desktop.ui.HiDpiScaled {
@@ -46,10 +47,10 @@ fun ModelsDialog(onDismiss: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (entries.isEmpty()) {
-                Text("No models downloaded yet.", color = pal.Slate400)
+                Text(Strings.noModelsDownloadedYet, color = pal.Slate400)
             } else {
                 val totalMb = entries.sumOf { it.bytes } / (1024 * 1024)
-                Text("Total: ${totalMb} MB", color = pal.Slate400, style = MaterialTheme.typography.labelMedium)
+                Text(Strings.totalMb(totalMb), color = pal.Slate400, style = MaterialTheme.typography.labelMedium)
                 entries.forEach { m ->
                     studio.voxsum.desktop.ui.SectionCard {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -60,13 +61,13 @@ fun ModelsDialog(onDismiss: () -> Unit) {
                             Button(onClick = {
                                 m.delete()
                                 entries = models.storedModels()
-                            }) { Text("Delete") }
+                            }) { Text(Strings.delete) }
                         }
                     }
                 }
             }
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
-                Button(onClick = onDismiss) { Text("Close") }
+                Button(onClick = onDismiss) { Text(Strings.close) }
             }
         }
         }

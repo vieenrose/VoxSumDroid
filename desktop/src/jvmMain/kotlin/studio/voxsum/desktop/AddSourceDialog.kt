@@ -36,6 +36,7 @@ import studio.voxsum.desktop.online.Episode
 import studio.voxsum.desktop.online.Podcast
 import studio.voxsum.desktop.online.PodcastSeries
 import studio.voxsum.desktop.online.YouTube
+import studio.voxsum.desktop.ui.Strings
 import studio.voxsum.ui.theme.LocalVoxSumPalette
 import java.io.File
 
@@ -49,7 +50,7 @@ fun AddSourceDialog(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
     var tab by remember { mutableStateOf(SourceTab.PODCAST) }
     DialogWindow(
         onCloseRequest = onDismiss,
-        title = "Add online audio",
+        title = Strings.addOnlineAudio,
         state = androidx.compose.ui.window.rememberDialogState(width = 760.dp, height = 620.dp),
     ) {
         studio.voxsum.desktop.ui.HiDpiScaled {
@@ -58,11 +59,11 @@ fun AddSourceDialog(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { tab = SourceTab.PODCAST }) {
                     Icon(Icons.Filled.Podcasts, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(" Podcast")
+                    Text(Strings.podcastTab)
                 }
                 Button(onClick = { tab = SourceTab.YOUTUBE }) {
                     Icon(Icons.Filled.SmartDisplay, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(" YouTube")
+                    Text(Strings.youtubeTab)
                 }
             }
             androidx.compose.foundation.layout.Spacer(Modifier.padding(top = 8.dp))
@@ -91,23 +92,23 @@ private fun PodcastTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
-                modifier = Modifier.weight(1f), placeholder = { Text("Search podcasts…") },
+                modifier = Modifier.weight(1f), placeholder = { Text(Strings.searchPodcastsHint) },
             )
             androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
             Button(onClick = {
                 scope.launch {
-                    status = "Searching…"; series = emptyList(); selected = null; episodes = emptyList()
-                    series = runCatching { Podcast.searchSeries(query) }.getOrElse { status = "Search failed: ${it.message}"; emptyList() }
-                    status = if (series.isEmpty()) "No podcasts found" else ""
+                    status = Strings.searching; series = emptyList(); selected = null; episodes = emptyList()
+                    series = runCatching { Podcast.searchSeries(query) }.getOrElse { status = Strings.searchFailed(it.message); emptyList() }
+                    status = if (series.isEmpty()) Strings.noPodcastsFound else ""
                 }
-            }) { Text("Search") }
+            }) { Text(Strings.search) }
         }
         progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) }
 
         // Two columns: series on the left, episodes of the selected series on the right.
         Row(Modifier.fillMaxSize().padding(top = 8.dp)) {
             Column(Modifier.weight(0.42f).fillMaxSize()) {
-                Text("PODCASTS", color = pal.Slate400, style = MaterialTheme.typography.labelSmall)
+                Text(Strings.podcastsHeader, color = pal.Slate400, style = MaterialTheme.typography.labelSmall)
                 if (status.isNotEmpty()) Text(status, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
                 LazyColumn(Modifier.fillMaxSize().padding(top = 4.dp)) {
                     items(series) { s ->
@@ -118,25 +119,25 @@ private fun PodcastTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
                                 .clickable(onClick = {
                                     selected = s
                                     scope.launch {
-                                        episodesStatus = "Loading episodes…"; episodes = emptyList()
+                                        episodesStatus = Strings.loadingEpisodes; episodes = emptyList()
                                         episodes = runCatching { Podcast.fetchEpisodes(s.feedUrl) }
-                                            .getOrElse { episodesStatus = "Failed: ${it.message}"; emptyList() }
-                                        episodesStatus = if (episodes.isEmpty()) "No episodes" else ""
+                                            .getOrElse { episodesStatus = Strings.failed(it.message); emptyList() }
+                                        episodesStatus = if (episodes.isEmpty()) Strings.noEpisodes else ""
                                     }
                                 })
                                 .padding(horizontal = 6.dp, vertical = 6.dp),
                         ) {
                             Text(s.title, color = if (isSel) pal.Slate200 else pal.Slate400, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                            Text("${s.artist} · ${s.episodeCount} ep", color = pal.Slate400, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(Strings.artistEpisodeCount(s.artist, s.episodeCount), color = pal.Slate400, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         }
                     }
                 }
             }
             androidx.compose.material3.VerticalDivider(color = pal.Hairline, modifier = Modifier.padding(horizontal = 8.dp))
             Column(Modifier.weight(0.58f).fillMaxSize()) {
-                Text("EPISODES", color = pal.Slate400, style = MaterialTheme.typography.labelSmall)
+                Text(Strings.episodesHeader, color = pal.Slate400, style = MaterialTheme.typography.labelSmall)
                 when {
-                    selected == null -> Text("Select a podcast to see episodes.", color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                    selected == null -> Text(Strings.selectPodcastToSeeEpisodes, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
                     episodesStatus.isNotEmpty() -> Text(episodesStatus, color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
                 }
                 LazyColumn(Modifier.fillMaxSize().padding(top = 4.dp)) {
@@ -154,11 +155,11 @@ private fun PodcastTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
                                 scope.launch {
                                     progress = 0f
                                     val file = runCatching { Podcast.downloadEpisode(ep) { p -> progress = p } }
-                                        .getOrElse { episodesStatus = "Download failed: ${it.message}"; null }
+                                        .getOrElse { episodesStatus = Strings.downloadFailed(it.message); null }
                                     progress = null
                                     if (file != null) { onDismiss(); onDownloaded(file) }
                                 }
-                            }) { Text("Get") }
+                            }) { Text(Strings.get) }
                         }
                     }
                 }
@@ -178,7 +179,7 @@ private fun YouTubeTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
 
     fun fetch(url: String) {
         scope.launch {
-            status = "Resolving…"; progress = 0f
+            status = Strings.resolving; progress = 0f
             val result = runCatching {
                 val audio = YouTube.resolve(url)
                 YouTube.download(audio) { p -> progress = p }
@@ -186,7 +187,7 @@ private fun YouTubeTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
             progress = null
             result.fold(
                 onSuccess = { onDismiss(); onDownloaded(it) },
-                onFailure = { status = "Failed: ${it.message}" },
+                onFailure = { status = Strings.failed(it.message) },
             )
         }
     }
@@ -195,19 +196,19 @@ private fun YouTubeTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
-                modifier = Modifier.width(360.dp), placeholder = { Text("YouTube URL or search…") },
+                modifier = Modifier.width(360.dp), placeholder = { Text(Strings.youtubeUrlOrSearchHint) },
             )
             Button(onClick = {
                 if (YouTube.looksLikeUrl(query)) {
                     fetch(query)
                 } else {
                     scope.launch {
-                        status = "Searching…"; videos = emptyList()
-                        videos = runCatching { YouTube.search(query) }.getOrElse { status = "Search failed: ${it.message}"; emptyList() }
+                        status = Strings.searching; videos = emptyList()
+                        videos = runCatching { YouTube.search(query) }.getOrElse { status = Strings.searchFailed(it.message); emptyList() }
                         if (videos.isNotEmpty()) status = ""
                     }
                 }
-            }) { Text("Go") }
+            }) { Text(Strings.go) }
         }
         if (status.isNotEmpty()) Text(status, color = pal.Slate400, modifier = Modifier.padding(top = 8.dp))
         progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) }
@@ -223,7 +224,7 @@ private fun YouTubeTab(onDismiss: () -> Unit, onDownloaded: (File) -> Unit) {
                         Text(v.title, color = pal.Slate200, style = MaterialTheme.typography.bodyMedium)
                         Text("${v.uploader} · ${v.durationText}", color = pal.Slate400, style = MaterialTheme.typography.labelSmall)
                     }
-                    Button(onClick = { fetch(v.url) }) { Text("Download") }
+                    Button(onClick = { fetch(v.url) }) { Text(Strings.download) }
                 }
             }
         }

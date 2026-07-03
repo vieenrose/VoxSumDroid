@@ -2,6 +2,7 @@ package studio.voxsum.desktop
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -77,6 +78,7 @@ import studio.voxsum.data.SpeakerName
 import studio.voxsum.data.speakerColor
 import studio.voxsum.data.speakerLabel
 import studio.voxsum.desktop.files.FilePicker
+import studio.voxsum.desktop.ui.Strings
 import studio.voxsum.ui.theme.LocalVoxSumPalette
 import studio.voxsum.ui.theme.VoxSumPalette
 import studio.voxsum.ui.theme.VoxSumTheme
@@ -98,7 +100,7 @@ fun main() {
 private fun mainApplication() = application {
     Window(
         onCloseRequest = ::exitApplication,
-        title = "VoxSum for Linux",
+        title = Strings.windowTitle,
         state = androidx.compose.ui.window.rememberWindowState(width = 1000.dp, height = 700.dp),
     ) {
         var themeMode by remember { mutableStateOf(ThemeMode.AUTO) }
@@ -153,12 +155,12 @@ private fun mainApplication() = application {
         var recents by remember { mutableStateOf(RecentSessions.list()) }
         val refreshRecents: () -> Unit = { recents = RecentSessions.list() }
 
-        // Open a local audio file (or reopen a saved session) — shared by the toolbar "Add audio"
+        // Open a local audio file (or reopen a saved session) — shared by the toolbar Strings.addAudio
         // button and the empty-state hero CTA, so the blank slate can actually pick a local file
         // (the hero must not be an online-only entry point when the toolbar is hidden).
         val openLocalAudio: () -> Unit = {
             val picked = FilePicker.openFile(
-                "Pick an audio file",
+                Strings.pickAudioFile,
                 extensions = listOf("wav", "mp3", "m4a", "flac", "ogg"),
             )
             if (picked != null) {
@@ -180,10 +182,10 @@ private fun mainApplication() = application {
             val source = state.audioFile
             if (source != null) {
                 val suggested = studio.voxsum.desktop.session.VoxsumSession.suggestFileName(state.title)
-                val dest = FilePicker.saveFile("Save session as .ogg", suggested)
+                val dest = FilePicker.saveFile(Strings.saveSessionAsOgg, suggested)
                 if (dest != null) {
                     scope.launch {
-                        update { it.copy(status = "Saving session…") }
+                        update { it.copy(status = Strings.savingSession) }
                         val outcome = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                             studio.voxsum.desktop.session.VoxsumSession.save(
                                 dest, source, state.utterances, state.speakerNames,
@@ -197,9 +199,9 @@ private fun mainApplication() = application {
                         refreshRecents()
                         update {
                             it.copy(status = when (outcome) {
-                                studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.FULL -> "Session saved"
-                                studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.PARTIAL -> "Saved (transcript too large to embed)"
-                                studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.FAILED -> "Save failed"
+                                studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.FULL -> Strings.sessionSaved
+                                studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.PARTIAL -> Strings.savedTranscriptTooLarge
+                                studio.voxsum.desktop.session.VoxsumSession.SaveOutcome.FAILED -> Strings.saveFailed
                             })
                         }
                     }
@@ -330,50 +332,54 @@ private fun mainApplication() = application {
 
             Column(Modifier.fillMaxSize().background(pal.Slate900)) {
                 // ---- Toolbar (flat, desktop-native icon+label buttons) ----
+                // Horizontally scrollable so longer-language labels (FR/ZH) never push actions like
+                // Preferences off-screen — the whole toolbar stays reachable at any window width.
                 Surface(color = pal.Slate800) {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 3.dp),
+                        Modifier.fillMaxWidth()
+                            .horizontalScroll(androidx.compose.foundation.rememberScrollState())
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        ToolButton(Icons.Filled.FolderOpen, "Open", enabled = !state.running && !recording, onClick = openLocalAudio)
-                        ToolButton(Icons.Filled.CloudDownload, "Online", enabled = !state.running && !recording) { showAddSource = true }
+                        ToolButton(Icons.Filled.FolderOpen, Strings.open, enabled = !state.running && !recording, onClick = openLocalAudio)
+                        ToolButton(Icons.Filled.CloudDownload, Strings.online, enabled = !state.running && !recording) { showAddSource = true }
                         if (recording) {
-                            ToolButton(Icons.Filled.Stop, "Stop", tint = VoxSumPalette.Red) { recordStopFlag.set(true); recording = false }
+                            ToolButton(Icons.Filled.Stop, Strings.stop, tint = VoxSumPalette.Red) { recordStopFlag.set(true); recording = false }
                         } else {
-                            ToolButton(Icons.Filled.Mic, "Record", enabled = !state.running, onClick = startRecording)
+                            ToolButton(Icons.Filled.Mic, Strings.record, enabled = !state.running, onClick = startRecording)
                         }
                         ToolbarSeparator(pal)
                         Box {
-                            ToolButton(Icons.Filled.Refresh, "Re-run", enabled = state.transcriptReady && !state.running) { showRerunMenu = true }
+                            ToolButton(Icons.Filled.Refresh, Strings.reRun, enabled = state.transcriptReady && !state.running) { showRerunMenu = true }
                             DropdownMenu(expanded = showRerunMenu, onDismissRequest = { showRerunMenu = false }) {
                                 DropdownMenuItem(
                                     enabled = state.audioFile != null,
-                                    text = { Text("Re-transcribe") },
+                                    text = { Text(Strings.reTranscribe) },
                                     onClick = { showRerunMenu = false; reTranscribe() },
                                 )
-                                DropdownMenuItem(text = { Text("Re-summarize") }, onClick = {
+                                DropdownMenuItem(text = { Text(Strings.reSummarize) }, onClick = {
                                     showRerunMenu = false; regenerateStaleChildren()
                                 })
-                                DropdownMenuItem(text = { Text("Detect speaker names") }, onClick = {
+                                DropdownMenuItem(text = { Text(Strings.detectSpeakerNames) }, onClick = {
                                     showRerunMenu = false; scope.launch { detectSpeakerNames(state, update) }
                                 })
-                                DropdownMenuItem(text = { Text("Extract action items") }, onClick = {
+                                DropdownMenuItem(text = { Text(Strings.extractActionItems) }, onClick = {
                                     showRerunMenu = false; scope.launch { extractActionItems(state, update) }
                                 })
                             }
                         }
-                        ToolButton(Icons.Filled.Search, "Find", enabled = !isEmptyState) { showSearch = !showSearch }
+                        ToolButton(Icons.Filled.Search, Strings.find, enabled = !isEmptyState) { showSearch = !showSearch }
                         Box {
                             // Guard on !running (utterances populate before the summary finishes, so a
                             // mid-run export could otherwise write a summary-less session).
-                            ToolButton(Icons.Filled.Download, "Export", enabled = state.transcriptReady && !state.running) { showExportMenu = true }
+                            ToolButton(Icons.Filled.Download, Strings.export, enabled = state.transcriptReady && !state.running) { showExportMenu = true }
                             ExportMenu(expanded = showExportMenu, onDismiss = { showExportMenu = false }, state = state)
                         }
-                        ToolButton(Icons.Filled.Save, "Save", enabled = state.transcriptReady && state.audioFile != null && !state.running, onClick = saveSession)
-                        Spacer(Modifier.weight(1f))
+                        ToolButton(Icons.Filled.Save, Strings.save, enabled = state.transcriptReady && state.audioFile != null && !state.running, onClick = saveSession)
+                        Spacer(Modifier.width(24.dp))
                         Box {
-                            ToolButton(Icons.Filled.Palette, "Theme") { showThemeMenu = true }
+                            ToolButton(Icons.Filled.Palette, Strings.theme) { showThemeMenu = true }
                             DropdownMenu(expanded = showThemeMenu, onDismissRequest = { showThemeMenu = false }) {
                                 ThemeMode.entries.forEach { m ->
                                     DropdownMenuItem(
@@ -383,8 +389,8 @@ private fun mainApplication() = application {
                                 }
                             }
                         }
-                        ToolButton(Icons.Filled.Storage, "Models") { showModels = true }
-                        ToolButton(Icons.Filled.Tune, "Preferences") { showSettings = true }
+                        ToolButton(Icons.Filled.Storage, Strings.models) { showModels = true }
+                        ToolButton(Icons.Filled.Tune, Strings.preferences) { showSettings = true }
                     }
                 }
                 HorizontalDivider(color = pal.Hairline)
@@ -394,14 +400,14 @@ private fun mainApplication() = application {
                     // Sidebar
                     Column(Modifier.width(240.dp).fillMaxHeight().background(pal.InsetSurface)) {
                         Text(
-                            "SESSIONS",
+                            Strings.sessions,
                             style = MaterialTheme.typography.labelMedium,
                             color = pal.Slate400,
                             modifier = Modifier.padding(start = 14.dp, top = 12.dp, bottom = 6.dp),
                         )
                         if (recents.isEmpty()) {
                             Text(
-                                "No sessions yet",
+                                Strings.noSessionsYet,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = pal.Slate400,
                                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
@@ -432,7 +438,7 @@ private fun mainApplication() = application {
                                 }
                             }
                         }
-                        // Hidden on the empty state: the hero's own "Add audio" CTA already covers
+                        // Hidden on the empty state: the hero's own Strings.addAudio CTA already covers
                         // this, and showing both here and there is a plain duplicate button.
                         if (!isEmptyState) {
                             HorizontalDivider(color = pal.Hairline)
@@ -443,7 +449,7 @@ private fun mainApplication() = application {
                             ) {
                                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Add audio")
+                                Text(Strings.addAudio)
                             }
                         }
                     }
@@ -456,7 +462,7 @@ private fun mainApplication() = application {
                                 value = state.searchQuery,
                                 onValueChange = { update { s -> s.copy(searchQuery = it) } },
                                 modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                placeholder = { Text("Search transcript…") },
+                                placeholder = { Text(Strings.searchTranscriptHint) },
                                 singleLine = true,
                             )
                         }
@@ -472,17 +478,17 @@ private fun mainApplication() = application {
                                 // Re-transcribe refreshes everything, so it wins when both are stale.
                                 if (state.transcribeStale) {
                                     Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Text("Recognition settings changed — transcript may be out of date.", color = VoxSumPalette.Warning, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                                        Button(enabled = !state.running && state.audioFile != null, onClick = reTranscribe) { Text("Re-transcribe") }
+                                        Text(Strings.recognitionSettingsChanged, color = VoxSumPalette.Warning, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                                        Button(enabled = !state.running && state.audioFile != null, onClick = reTranscribe) { Text(Strings.reTranscribe) }
                                     }
                                 } else if (state.transcriptDirty || state.summaryStale) {
                                     Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            if (state.transcriptDirty) "Transcript edited — summary may be out of date."
-                                            else "Summary settings changed — summary may be out of date.",
+                                            if (state.transcriptDirty) Strings.transcriptEditedSummaryStale
+                                            else Strings.summarySettingsChanged,
                                             color = VoxSumPalette.Warning, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f),
                                         )
-                                        Button(enabled = !state.running, onClick = regenerateStaleChildren) { Text("Re-summarize") }
+                                        Button(enabled = !state.running, onClick = regenerateStaleChildren) { Text(Strings.reSummarize) }
                                     }
                                 }
                                 if (state.title.isNotEmpty() || state.summary.isNotEmpty()) {
@@ -498,14 +504,14 @@ private fun mainApplication() = application {
                                     studio.voxsum.desktop.ui.SectionCard {
                                         Row(verticalAlignment = Alignment.Top) {
                                             Image(
-                                                cover, contentDescription = "Session cover",
+                                                cover, contentDescription = Strings.sessionCover,
                                                 modifier = Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)),
                                             )
                                             Spacer(Modifier.width(12.dp))
                                             Column(Modifier.weight(1f)) {
                                                 EditableField(
                                                     value = state.title, editing = state.editingTitle,
-                                                    style = MaterialTheme.typography.titleMedium, color = pal.Slate200, placeholder = "Untitled",
+                                                    style = MaterialTheme.typography.titleMedium, color = pal.Slate200, placeholder = Strings.untitled,
                                                     onBeginEdit = { update { it.copy(editingTitle = true) } },
                                                     onSave = { t -> update { it.copy(title = t, editingTitle = false, titleEdited = true) } },
                                                     onCancel = { update { it.copy(editingTitle = false) } },
@@ -513,7 +519,7 @@ private fun mainApplication() = application {
                                                 Spacer(Modifier.height(4.dp))
                                                 EditableField(
                                                     value = state.summary, editing = state.editingSummary,
-                                                    style = MaterialTheme.typography.bodyMedium, color = pal.Slate400, placeholder = "No summary yet", minLines = 3,
+                                                    style = MaterialTheme.typography.bodyMedium, color = pal.Slate400, placeholder = Strings.noSummaryYet, minLines = 3,
                                                     onBeginEdit = { update { it.copy(editingSummary = true) } },
                                                     onSave = { t -> update { it.copy(summary = t, editingSummary = false) } },
                                                     onCancel = { update { it.copy(editingSummary = false) } },
@@ -524,18 +530,18 @@ private fun mainApplication() = application {
                                 }
                                 if (state.actionItems.isNotEmpty() || state.editingActions) {
                                     studio.voxsum.desktop.ui.SectionCard(Modifier.padding(top = 12.dp)) {
-                                        Text("Action items", color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
+                                        Text(Strings.actionItems, color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
                                         Spacer(Modifier.height(4.dp))
                                         EditableField(
                                             value = state.actionItems, editing = state.editingActions,
-                                            style = MaterialTheme.typography.bodyMedium, color = pal.Slate400, placeholder = "No action items", minLines = 2,
+                                            style = MaterialTheme.typography.bodyMedium, color = pal.Slate400, placeholder = Strings.noActionItems, minLines = 2,
                                             onBeginEdit = { update { it.copy(editingActions = true) } },
                                             onSave = { t -> update { it.copy(actionItems = t, editingActions = false) } },
                                             onCancel = { update { it.copy(editingActions = false) } },
                                         )
                                     }
                                 }
-                                state.error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
+                                state.error?.let { Text(Strings.error(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
 
                                 // remember-keyed so a search keystroke / incoming utterance doesn't
                                 // re-scan+sort and re-filter the whole transcript on every recompose.
@@ -567,7 +573,7 @@ private fun mainApplication() = application {
                                     IconButton(onClick = { player.toggle() }) {
                                         Icon(
                                             if (player.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                            contentDescription = if (player.isPlaying) "Pause" else "Play",
+                                            contentDescription = if (player.isPlaying) Strings.pause else Strings.play,
                                             tint = pal.Slate200,
                                         )
                                     }
@@ -598,13 +604,13 @@ private fun mainApplication() = application {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         val statusText = when {
-                            state.error != null -> "Error: ${state.error}"
+                            state.error != null -> Strings.error(state.error)
                             // Show the loaded source name alongside the status (e.g. "clip.wav ·
                             // Done") so a freshly-transcribed, not-yet-saved file is still named.
                             state.fileName.isNotEmpty() ->
                                 if (state.status.isNotEmpty()) "${state.fileName} · ${state.status}" else state.fileName
                             state.status.isNotEmpty() -> state.status
-                            else -> "Ready"
+                            else -> Strings.ready
                         }
                         Text(statusText, style = MaterialTheme.typography.labelSmall, color = pal.Slate400, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         Spacer(Modifier.width(12.dp))
@@ -694,7 +700,7 @@ private fun UtteranceRow(
                                 s.copy(speakerNames = names, editingSpeakerId = null)
                             }
                         }
-                    }) { Text("OK") }
+                    }) { Text(Strings.ok) }
                 } else {
                     Text(
                         speakerLabel(u.speaker, state.speakerNames) ?: "",
@@ -707,14 +713,14 @@ private fun UtteranceRow(
                     if (u.speaker != null && speakerIds.size > 1) {
                         Box {
                             Icon(
-                                Icons.Filled.SwapHoriz, contentDescription = "Reassign speaker", tint = pal.Slate400,
+                                Icons.Filled.SwapHoriz, contentDescription = Strings.reassignSpeaker, tint = pal.Slate400,
                                 modifier = Modifier.size(16.dp).padding(horizontal = 2.dp)
                                     .clickable(onClick = { showSpeakerMenu = true }),
                             )
                             DropdownMenu(expanded = showSpeakerMenu, onDismissRequest = { showSpeakerMenu = false }) {
-                                Text("Move this line to:", color = pal.Slate400, modifier = Modifier.padding(8.dp))
+                                Text(Strings.moveThisLineTo, color = pal.Slate400, modifier = Modifier.padding(8.dp))
                                 speakerIds.filter { it != u.speaker }.forEach { target ->
-                                    DropdownMenuItem(text = { Text(speakerLabel(target, state.speakerNames) ?: "Speaker ${target + 1}") }, onClick = {
+                                    DropdownMenuItem(text = { Text(speakerLabel(target, state.speakerNames) ?: Strings.speakerN(target + 1)) }, onClick = {
                                         showSpeakerMenu = false
                                         update { s ->
                                             val (utts, names) = studio.voxsum.data.SpeakerEdits.reassign(s.utterances, s.speakerNames, u.index, target)
@@ -722,10 +728,10 @@ private fun UtteranceRow(
                                         }
                                     })
                                 }
-                                Text("Merge this speaker into:", color = pal.Slate400, modifier = Modifier.padding(8.dp))
+                                Text(Strings.mergeThisSpeakerInto, color = pal.Slate400, modifier = Modifier.padding(8.dp))
                                 speakerIds.filter { it != u.speaker }.forEach { target ->
                                     val from = u.speaker
-                                    DropdownMenuItem(text = { Text(speakerLabel(target, state.speakerNames) ?: "Speaker ${target + 1}") }, onClick = {
+                                    DropdownMenuItem(text = { Text(speakerLabel(target, state.speakerNames) ?: Strings.speakerN(target + 1)) }, onClick = {
                                         showSpeakerMenu = false
                                         if (from != null) {
                                             update { s ->
@@ -752,8 +758,8 @@ private fun UtteranceRow(
                                 transcriptDirty = s.transcriptDirty || s.summary.isNotEmpty() || s.actionItems.isNotEmpty(),
                             )
                         }
-                    }) { Text("Save") }
-                    Button(onClick = { update { s -> s.copy(editingUtteranceIndex = null) } }) { Text("Cancel") }
+                    }) { Text(Strings.save) }
+                    Button(onClick = { update { s -> s.copy(editingUtteranceIndex = null) } }) { Text(Strings.cancel) }
                 }
             } else {
                 // Match Android: tapping the utterance text seeks+plays from there; editing is a
@@ -765,7 +771,7 @@ private fun UtteranceRow(
                         modifier = Modifier.weight(1f).let { m -> if (onSeek != null) m.clickable(onClick = onSeek) else m },
                     )
                     Icon(
-                        Icons.Filled.Edit, contentDescription = "Edit line", tint = pal.Slate400,
+                        Icons.Filled.Edit, contentDescription = Strings.editLine, tint = pal.Slate400,
                         modifier = Modifier.padding(start = 6.dp, top = 2.dp).size(15.dp)
                             .clickable(onClick = { update { s -> s.copy(editingUtteranceIndex = u.index) } }),
                     )
@@ -800,8 +806,8 @@ private fun EditableField(
             modifier = Modifier.fillMaxWidth(), minLines = minLines, textStyle = style,
         )
         Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Button(onClick = { onSave(draft) }) { Text("Save") }
-            Button(onClick = onCancel) { Text("Cancel") }
+            Button(onClick = { onSave(draft) }) { Text(Strings.save) }
+            Button(onClick = onCancel) { Text(Strings.cancel) }
         }
     } else {
         Row(verticalAlignment = Alignment.Top) {
@@ -811,7 +817,7 @@ private fun EditableField(
                 modifier = Modifier.weight(1f),
             )
             Icon(
-                Icons.Filled.Edit, contentDescription = "Edit", tint = pal.Slate400,
+                Icons.Filled.Edit, contentDescription = Strings.edit, tint = pal.Slate400,
                 modifier = Modifier.padding(start = 6.dp, top = 2.dp).size(15.dp).clickable(onClick = onBeginEdit),
             )
         }

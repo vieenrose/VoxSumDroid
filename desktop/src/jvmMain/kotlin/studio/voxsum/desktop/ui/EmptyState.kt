@@ -62,7 +62,7 @@ fun EmptyState(
         }
         // Recents live in the always-visible sessions sidebar now, so the hero only carries the
         // primary "Add audio" CTA (no in-hero recents list).
-        GradientButton("Add audio", Icons.Filled.Add, onClick = onAddSource)
+        GradientButton(Strings.addAudio, Icons.Filled.Add, onClick = onAddSource)
     }
 }
 
@@ -71,13 +71,13 @@ private fun Hero() {
     val pal = LocalVoxSumPalette.current
     Icon(Icons.Filled.GraphicEq, contentDescription = null, tint = pal.Sky, modifier = Modifier.size(64.dp))
     Text(
-        "Transcribe & summarize, fully offline",
+        Strings.emptyHeadline,
         style = MaterialTheme.typography.titleMedium,
         color = pal.Slate200,
         textAlign = TextAlign.Center,
     )
     Text(
-        "Add an audio file, record a meeting, or paste a YouTube link to begin.",
+        Strings.emptySubtitle,
         style = MaterialTheme.typography.bodyMedium,
         color = pal.Slate400,
         textAlign = TextAlign.Center,
@@ -86,9 +86,9 @@ private fun Hero() {
 
 @Composable
 private fun Pillars() {
-    Pillar(Icons.Filled.Lock, "Private by design", "Audio never leaves your device")
-    Pillar(Icons.Filled.CloudOff, "Works offline", "On a plane, a train, anywhere — no network")
-    Pillar(Icons.Filled.Savings, "No subscription", "Yours to keep, no cloud fees")
+    Pillar(Icons.Filled.Lock, Strings.pillarPrivateTitle, Strings.pillarPrivateDesc)
+    Pillar(Icons.Filled.CloudOff, Strings.pillarOfflineTitle, Strings.pillarOfflineDesc)
+    Pillar(Icons.Filled.Savings, Strings.pillarCostTitle, Strings.pillarCostDesc)
 }
 
 @Composable

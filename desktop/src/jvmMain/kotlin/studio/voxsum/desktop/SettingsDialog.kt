@@ -34,11 +34,12 @@ import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.desktop.ui.ModelOptionCard
+import studio.voxsum.desktop.ui.Strings
 import studio.voxsum.ui.theme.LocalVoxSumPalette
 
 /** Desktop counterpart of Android's ConfigSheet — ASR backend, diarization on/off + speaker-count
  *  hint, target language, and summary style. Plain field-by-field state, saved as one unit on
- *  "Save" (matches Android: settings only take effect on the next re-run, not live). */
+ *  Save (matches Android: settings only take effect on the next re-run, not live). */
 @Composable
 fun SettingsDialog(
     config: TranscriptionConfig,
@@ -62,7 +63,7 @@ fun SettingsDialog(
 
     DialogWindow(
         onCloseRequest = onDismiss,
-        title = "Settings",
+        title = Strings.settings,
         state = androidx.compose.ui.window.rememberDialogState(width = 480.dp, height = 700.dp),
     ) {
         studio.voxsum.desktop.ui.HiDpiScaled {
@@ -79,7 +80,7 @@ fun SettingsDialog(
             Modifier.fillMaxWidth().padding(20.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            SettingsSection("Speech recognition") {
+            SettingsSection(Strings.speechRecognition) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     AsrBackend.entries.forEach { b ->
                         ModelOptionCard(
@@ -94,31 +95,31 @@ fun SettingsDialog(
                 // Language + ITN only apply to SenseVoice (the multilingual backend); the zipformer/
                 // qwen3 backends ignore them, so — like Android — show these controls only for it.
                 if (asrBackend == AsrBackend.SENSEVOICE) {
-                    Text("Language", color = pal.Slate400, modifier = Modifier.padding(top = 8.dp))
+                    Text(Strings.language, color = pal.Slate400, modifier = Modifier.padding(top = 8.dp))
                     val selectedLang = TranscriptionConfig.LANGUAGES.firstOrNull { it.first == language }
                         ?: TranscriptionConfig.LANGUAGES.first()
                     ChipRow(pal, TranscriptionConfig.LANGUAGES, selectedLang, { language = it.first }) { it.second }
                     Row(Modifier.padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Switch(checked = useItn, onCheckedChange = { useItn = it })
-                        Text("  Inverse text normalization (numbers, punctuation)", color = pal.Slate200)
+                        Text(Strings.itnCheckbox, color = pal.Slate200)
                     }
                 }
-                Text("VAD sensitivity: ${"%.1f".format(java.util.Locale.US, vadThreshold)}", color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                Text(Strings.vadSensitivity("%.1f".format(java.util.Locale.US, vadThreshold)), color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
                 Slider(value = vadThreshold, onValueChange = { vadThreshold = it }, valueRange = 0.1f..0.9f)
             }
 
-            SettingsSection("Summary model") {
+            SettingsSection(Strings.summaryModel) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     LlmRegistry.ALL.forEach { spec ->
                         val mb = spec.sizeBytes / 1_000_000
                         val ram = when {
-                            spec.sizeBytes < 1_500_000_000L -> "low RAM"
-                            spec.sizeBytes < 3_500_000_000L -> "needs ~4 GB RAM"
-                            else -> "needs ~6 GB RAM"
+                            spec.sizeBytes < 1_500_000_000L -> Strings.lowRam
+                            spec.sizeBytes < 3_500_000_000L -> Strings.needs4gb
+                            else -> Strings.needs6gb
                         }
                         ModelOptionCard(
                             title = spec.displayName,
-                            subtitle = "$mb MB · $ram",
+                            subtitle = Strings.modelSubtitle(mb, ram),
                             selected = llmModelId == spec.id,
                             downloaded = llmReady[spec.id] == true,
                             onClick = { llmModelId = spec.id },
@@ -127,14 +128,14 @@ fun SettingsDialog(
                 }
             }
 
-            SettingsSection("Speakers") {
+            SettingsSection(Strings.speakers) {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Switch(checked = diarizationEnabled, onCheckedChange = { diarizationEnabled = it })
-                    Text("  Identify speakers", color = pal.Slate200)
+                    Text(Strings.identifySpeakers, color = pal.Slate200)
                 }
                 if (diarizationEnabled) {
                     Row(Modifier.padding(top = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Text("Speaker count hint (blank = auto): ", color = pal.Slate400)
+                        Text(Strings.speakerCountHint, color = pal.Slate400)
                         OutlinedTextField(
                             value = numSpeakersText,
                             onValueChange = { v -> if (v.all { c -> c.isDigit() }) numSpeakersText = v },
@@ -142,29 +143,29 @@ fun SettingsDialog(
                             singleLine = true,
                         )
                     }
-                    Text("Clustering sensitivity: ${"%.2f".format(java.util.Locale.US, clusterThreshold)}", color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                    Text(Strings.clusteringSensitivity("%.2f".format(java.util.Locale.US, clusterThreshold)), color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
                     Slider(value = clusterThreshold, onValueChange = { clusterThreshold = it }, valueRange = 0.1f..1.0f)
                 }
             }
 
-            SettingsSection("Target language") {
+            SettingsSection(Strings.targetLanguage) {
                 ChipRow(pal, TargetLanguage.entries, targetLanguage, { targetLanguage = it }) {
-                    it.autonym.ifBlank { "Auto" }
+                    it.autonym.ifBlank { Strings.auto }
                 }
             }
 
-            SettingsSection("Summary style") {
+            SettingsSection(Strings.summaryStyle) {
                 ChipRow(pal, SummaryStyle.entries, style, { style = it }) { it.label }
                 OutlinedTextField(
                     value = summaryPrompt,
                     onValueChange = { summaryPrompt = it },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    label = { Text("Custom summary prompt") },
+                    label = { Text(Strings.customSummaryPrompt) },
                 )
             }
 
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
-                Button(onClick = onDismiss) { Text("Cancel") }
+                Button(onClick = onDismiss) { Text(Strings.cancel) }
                 androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
                 Button(onClick = {
                     onSave(
@@ -184,7 +185,7 @@ fun SettingsDialog(
                         ),
                         style,
                     )
-                }) { Text("Save") }
+                }) { Text(Strings.save) }
             }
         }
         }
