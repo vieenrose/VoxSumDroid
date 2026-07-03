@@ -27,7 +27,7 @@ Kotlin code — theme, settings, model provisioning, the full ASR/diarization/su
 <table>
   <tr>
     <td align="center"><img src="docs/screenshots/linux-empty-state.png" width="420" alt="Empty state"/><br/><sub>Two-pane desktop layout — sessions sidebar + detail</sub></td>
-    <td align="center"><img src="docs/screenshots/linux-transcript.png" width="420" alt="Transcript"/><br/><sub>Transcribed, diarized &amp; summarized</sub></td>
+    <td align="center"><img src="docs/screenshots/linux-transcript.png" width="420" alt="Transcript"/><br/><sub>Transcribed, diarized &amp; summarized — editable, synced audio player</sub></td>
   </tr>
   <tr>
     <td align="center"><img src="docs/screenshots/linux-settings.png" width="420" alt="Settings"/><br/><sub>Settings — ASR/LLM model pickers, language, diarization, summary options</sub></td>
