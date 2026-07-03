@@ -34,7 +34,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.AppImage)
             packageName = "VoxSum"
-            packageVersion = "0.2.0"
+            packageVersion = "0.3.0"
             description = "Offline audio transcription and summarization"
             vendor = "VoxSum"
             // Native libs (llama.cpp/ggml, sherpa-onnx+onnxruntime, the voxsum-llm JNI bridge) —
