@@ -1184,7 +1184,10 @@ private fun TranscribeScreen(
                 // All re-run actions are disabled while a run is in flight (each fun also guards `running`);
                 // this also blocks Re-transcribe/Detect-names from starting a second run whose buffered
                 // events would otherwise land on the freshly-reset session.
-                canReTranscribe = transcriptReady && !running && audioUri != null,
+                // Re-transcribe only needs the audio source, NOT a completed transcript — otherwise
+                // stopping the first transcription (transcriptReady stays false) leaves no way to
+                // retry (and no summary/title, which depend on a transcript that never finished).
+                canReTranscribe = !running && audioUri != null,
                 onReTranscribe = { audioUri?.let { launchAudio(it) } },
                 canReSummarize = transcriptReady && !running,
                 onReSummarize = { regenerateStaleChildren() },
