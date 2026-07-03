@@ -63,6 +63,7 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
         summarize(models, config, style, tagged, update)
         update { it.copy(status = "Done", running = false) }
     } catch (t: Throwable) {
+        if (t is kotlinx.coroutines.CancellationException) throw t
         update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
     }
 }
@@ -110,6 +111,7 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
         summarize(models, config, style, tagged, update)
         update { it.copy(status = "Done", running = false) }
     } catch (t: Throwable) {
+        if (t is kotlinx.coroutines.CancellationException) throw t
         update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
     }
 }
@@ -128,6 +130,7 @@ suspend fun rerunSummary(state: AppState, update: Update) {
         summarize(models, state.config, state.summaryStyle, state.utterances, update, regenerateTitle = !keepTitle)
         update { it.copy(status = "Done", running = false) }
     } catch (t: Throwable) {
+        if (t is kotlinx.coroutines.CancellationException) throw t
         update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
     }
 }
@@ -156,6 +159,7 @@ suspend fun detectSpeakerNames(state: AppState, update: Update) {
             s.copy(speakerNames = merged, running = false, status = "Done")
         }
     } catch (t: Throwable) {
+        if (t is kotlinx.coroutines.CancellationException) throw t
         update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
     }
 }
@@ -183,6 +187,7 @@ suspend fun extractActionItems(state: AppState, update: Update) {
         }
         update { it.copy(actionItems = result, running = false, status = "Done", progress = null) }
     } catch (t: Throwable) {
+        if (t is kotlinx.coroutines.CancellationException) throw t
         update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed", progress = null) }
     }
 }

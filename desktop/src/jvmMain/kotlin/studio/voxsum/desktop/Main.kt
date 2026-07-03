@@ -1,9 +1,16 @@
 package studio.voxsum.desktop
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -81,7 +88,6 @@ import studio.voxsum.desktop.files.FilePicker
 import studio.voxsum.desktop.ui.Strings
 import studio.voxsum.ui.theme.LocalVoxSumPalette
 import studio.voxsum.ui.theme.VoxSumPalette
-import studio.voxsum.ui.theme.VoxSumTheme
 import java.util.concurrent.atomic.AtomicBoolean
 
 fun main() {
@@ -119,6 +125,9 @@ private fun mainApplication() = application {
         var showSearch by remember { mutableStateOf(false) }
         var currentSessionPath by remember { mutableStateOf<String?>(null) }
         var recording by remember { mutableStateOf(false) }
+        // The current file-transcription/summary coroutine, so a Stop can cancel it mid-run (e.g.
+        // to switch ASR backend and re-transcribe) — the recording path uses recordStopFlag instead.
+        var pipelineJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
         val recordStopFlag = remember { AtomicBoolean(false) }
         val scope = rememberVoxSumScope()
         val update: ((AppState) -> AppState) -> Unit = { fn -> state = fn(state) }
@@ -171,7 +180,7 @@ private fun mainApplication() = application {
                     RecentSessions.add(picked.absolutePath, saved.title.ifBlank { picked.name }, System.currentTimeMillis())
                     refreshRecents()
                 } else {
-                    scope.launch { runPipeline(picked, state.config, state.summaryStyle, update) }
+                    pipelineJob = scope.launch { runPipeline(picked, state.config, state.summaryStyle, update) }
                 }
             }
         }
@@ -278,7 +287,7 @@ private fun mainApplication() = application {
                     onDownloaded = { file ->
                         // Fresh unsaved content — no sidebar row to highlight until it's saved.
                         currentSessionPath = null
-                        scope.launch { runPipeline(file, state.config, state.summaryStyle, update) }
+                        pipelineJob = scope.launch { runPipeline(file, state.config, state.summaryStyle, update) }
                     },
                 )
             }
@@ -311,7 +320,7 @@ private fun mainApplication() = application {
                 val src = state.audioFile
                 if (src != null && !state.running) {
                     val hadActions = state.actionItems.isNotEmpty()
-                    scope.launch {
+                    pipelineJob = scope.launch {
                         runPipeline(src, state.config, state.summaryStyle, update)
                         if (hadActions && state.error == null) extractActionItems(state, update)
                     }
@@ -344,10 +353,19 @@ private fun mainApplication() = application {
                     ) {
                         ToolButton(Icons.Filled.FolderOpen, Strings.open, enabled = !state.running && !recording, onClick = openLocalAudio)
                         ToolButton(Icons.Filled.CloudDownload, Strings.online, enabled = !state.running && !recording) { showAddSource = true }
-                        if (recording) {
-                            ToolButton(Icons.Filled.Stop, Strings.stop, tint = VoxSumPalette.Red) { recordStopFlag.set(true); recording = false }
+                        if (state.running) {
+                            // Stop any run: a recording stops via its flag; a file transcription/
+                            // summary cancels its coroutine — so you can e.g. switch ASR backend in
+                            // Preferences and Re-transcribe, matching Android.
+                            ToolButton(Icons.Filled.Stop, Strings.stop, tint = VoxSumPalette.Red) {
+                                if (recording) { recordStopFlag.set(true); recording = false }
+                                else {
+                                    pipelineJob?.cancel()
+                                    update { it.copy(running = false, status = Strings.stopped) }
+                                }
+                            }
                         } else {
-                            ToolButton(Icons.Filled.Mic, Strings.record, enabled = !state.running, onClick = startRecording)
+                            ToolButton(Icons.Filled.Mic, Strings.record, onClick = startRecording)
                         }
                         ToolbarSeparator(pal)
                         Box {
@@ -577,12 +595,25 @@ private fun mainApplication() = application {
                                             tint = pal.Slate200,
                                         )
                                     }
-                                    Slider(
-                                        value = playerPositionSec.toFloat(),
-                                        valueRange = 0f..player.durationSec.toFloat().coerceAtLeast(0.01f),
-                                        onValueChange = { player.seekTo(it.toDouble()); playerPositionSec = it.toDouble() },
-                                        modifier = Modifier.weight(1f),
-                                    )
+                                    // Speaker-diarization timeline doubles as the scrubber (tap to
+                                    // seek). Falls back to a plain slider when there are no speaker
+                                    // segments to show (diarization off / not yet run).
+                                    if (state.utterances.any { it.speaker != null }) {
+                                        TimelineStrip(
+                                            utterances = state.utterances,
+                                            durationSec = player.durationSec,
+                                            positionSec = playerPositionSec,
+                                            onSeek = { player.seekTo(it); playerPositionSec = it },
+                                            modifier = Modifier.weight(1f).height(24.dp),
+                                        )
+                                    } else {
+                                        Slider(
+                                            value = playerPositionSec.toFloat(),
+                                            valueRange = 0f..player.durationSec.toFloat().coerceAtLeast(0.01f),
+                                            onValueChange = { player.seekTo(it.toDouble()); playerPositionSec = it.toDouble() },
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
                                     Spacer(Modifier.width(8.dp))
                                     Text(
                                         "${formatDuration(playerPositionSec)} / ${formatDuration(player.durationSec)}",
@@ -821,6 +852,52 @@ private fun EditableField(
                 modifier = Modifier.padding(start = 6.dp, top = 2.dp).size(15.dp).clickable(onClick = onBeginEdit),
             )
         }
+    }
+}
+
+/** Speaker-diarization timeline (port of Android's TimelineStrip): each utterance is a
+ *  speaker-colored segment placed by its [startSec, endSec) over the total duration; the active
+ *  segment is highlighted and a playhead marks the position. Tap to seek. */
+@androidx.compose.runtime.Composable
+private fun TimelineStrip(
+    utterances: List<TranscriptEvent.Utterance>,
+    durationSec: Double,
+    positionSec: Double,
+    onSeek: (Double) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val pal = LocalVoxSumPalette.current
+    val dur = durationSec.coerceAtLeast(0.001)
+    Canvas(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(pal.InsetSurface)
+            .pointerInput(dur) {
+                detectTapGestures { o -> if (size.width > 0) onSeek((o.x / size.width).coerceIn(0f, 1f) * dur) }
+            },
+    ) {
+        val w = size.width; val h = size.height
+        utterances.forEach { u ->
+            val startX = (u.startSec / dur).toFloat().coerceIn(0f, 1f) * w
+            val endX = (u.endSec / dur).toFloat().coerceIn(0f, 1f) * w
+            val segW = (endX - startX).coerceAtLeast(1.5f)
+            val active = positionSec >= u.startSec && positionSec < u.endSec
+            val base = Color(speakerColor(u.speaker))
+            drawRoundRect(
+                color = if (active) base else base.copy(alpha = 0.5f),
+                topLeft = Offset(startX, 0f), size = Size(segW, h),
+                cornerRadius = CornerRadius(2f, 2f),
+            )
+            if (active) drawRoundRect(
+                color = Color.White.copy(alpha = 0.4f),
+                topLeft = Offset(startX, 0f), size = Size(segW, h),
+                cornerRadius = CornerRadius(2f, 2f), style = Stroke(width = 2f),
+            )
+        }
+        val cx = (positionSec / dur).toFloat().coerceIn(0f, 1f) * w
+        drawLine(Color.White, Offset(cx, 0f), Offset(cx, h), strokeWidth = 2f)
+        drawCircle(pal.Sky, radius = h * 0.4f, center = Offset(cx, h / 2f))
+        drawCircle(Color.White, radius = h * 0.4f, center = Offset(cx, h / 2f), style = Stroke(width = 2f))
     }
 }
 

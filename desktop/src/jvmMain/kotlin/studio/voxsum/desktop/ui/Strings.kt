@@ -89,6 +89,7 @@ object Strings {
     val sessionCover: String get() = t("Session cover", "Couverture de la session", "工作階段封面")
     val ready: String get() = t("Ready", "Prêt", "就緒")
     val done: String get() = t("Done", "Terminé", "完成")
+    val stopped: String get() = t("Stopped", "Arrêté", "已停止")
     fun error(msg: String?): String = t("Error: $msg", "Erreur : $msg", "錯誤：$msg")
 
     // ---- Player ----
@@ -134,6 +135,8 @@ object Strings {
     val auto: String get() = t("Auto", "Auto", "自動")
     val summaryStyle: String get() = t("Summary style", "Style du résumé", "摘要風格")
     val customSummaryPrompt: String get() = t("Custom summary prompt", "Invite de résumé personnalisée", "自訂摘要提示詞")
+    val about: String get() = t("About", "À propos", "關於")
+    val aboutLicense: String get() = t("Free & open source · GPL-3.0", "Libre et open source · GPL-3.0", "自由開放原始碼 · GPL-3.0")
 
     // ---- Add-source dialog ----
     val addOnlineAudio: String get() = t("Add online audio", "Ajouter de l'audio en ligne", "加入線上音訊")

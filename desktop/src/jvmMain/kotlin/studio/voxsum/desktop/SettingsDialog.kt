@@ -164,6 +164,11 @@ fun SettingsDialog(
                 )
             }
 
+            SettingsSection(Strings.about) {
+                Text("VoxSum ${AppInfo.VERSION}", color = pal.Slate200, style = MaterialTheme.typography.bodyMedium)
+                Text(Strings.aboutLicense, color = pal.Slate400, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
+            }
+
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
                 Button(onClick = onDismiss) { Text(Strings.cancel) }
                 androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
