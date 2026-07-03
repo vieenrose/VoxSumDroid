@@ -14,6 +14,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Keep the CPU awake for the duration of a run so transcription/summarization don't stall
+         when the screen turns off (battery-aggressive OEMs otherwise doze the SoC). -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Live "transcribe while recording": mic capture in a foreground service. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
