@@ -227,4 +227,13 @@
     <string name="cover_remove">移除</string>
     <string name="cover_use">使用</string>
     <string name="status_session_loaded">已載入工作階段 — %d 行</string>
+
+    <!-- 背景可靠性（設定區） -->
+    <string name="settings_background">背景可靠性</string>
+    <string name="bg_explainer">轉錄與摘要在螢幕關閉時仍會繼續。若裝置將其暫停或凍結，請於下方授予例外。</string>
+    <string name="bg_battery_exempt">已略過電池最佳化 ✓</string>
+    <string name="bg_battery_optimized">電池最佳化仍啟用中 — 螢幕關閉時的處理可能被暫停。</string>
+    <string name="bg_allow">允許背景執行</string>
+    <string name="bg_oem_hint">%1$s 會強制凍結背景應用程式。請另於裝置設定中關閉 VoxSum 的自動啟動／自動凍結。</string>
+    <string name="bg_open_oem">開啟裝置設定</string>
 </resources>

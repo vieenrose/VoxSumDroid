@@ -17,6 +17,10 @@
     <!-- Keep the CPU awake for the duration of a run so transcription/summarization don't stall
          when the screen turns off (battery-aggressive OEMs otherwise doze the SoC). -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Let the user grant a Doze/battery-optimization exemption so screen-off runs aren't frozen.
+         Portable across OEMs (one system dialog). On the official f-droid.org repo this is flagged as
+         an anti-feature (like REQUEST_INSTALL_PACKAGES above) — fine for the self-hosted repo. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Live "transcribe while recording": mic capture in a foreground service. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />

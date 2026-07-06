@@ -228,4 +228,13 @@
     <string name="cover_remove">Retirer</string>
     <string name="cover_use">Utiliser</string>
     <string name="status_session_loaded">Session chargée — %d lignes</string>
+
+    <!-- Fiabilité en arrière-plan (section Réglages) -->
+    <string name="settings_background">Fiabilité en arrière-plan</string>
+    <string name="bg_explainer">La transcription et le résumé continuent écran éteint. Si votre appareil les met en pause ou les gèle, accordez les exemptions ci-dessous.</string>
+    <string name="bg_battery_exempt">Optimisation de la batterie ignorée ✓</string>
+    <string name="bg_battery_optimized">L\'optimisation de la batterie est active — les traitements écran éteint peuvent être suspendus.</string>
+    <string name="bg_allow">Autoriser l\'activité en arrière-plan</string>
+    <string name="bg_oem_hint">%1$s gèle agressivement les applis en arrière-plan. Désactivez aussi le démarrage auto / gel auto pour VoxSum dans les réglages de l\'appareil.</string>
+    <string name="bg_open_oem">Ouvrir les réglages de l\'appareil</string>
 </resources>

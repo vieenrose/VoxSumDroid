@@ -228,4 +228,13 @@
     <string name="cover_remove">Remove</string>
     <string name="cover_use">Use</string>
     <string name="status_session_loaded">Loaded session — %d lines</string>
+
+    <!-- Background reliability (Settings section) -->
+    <string name="settings_background">Background reliability</string>
+    <string name="bg_explainer">Transcription and summarization keep running with the screen off. If your device pauses or freezes them, grant the exemptions below.</string>
+    <string name="bg_battery_exempt">Ignoring battery optimization ✓</string>
+    <string name="bg_battery_optimized">Battery optimization is active — screen-off runs may be paused.</string>
+    <string name="bg_allow">Allow background activity</string>
+    <string name="bg_oem_hint">%1$s aggressively freezes background apps. Also turn off auto-start / auto-freeze for VoxSum in the device settings.</string>
+    <string name="bg_open_oem">Open device settings</string>
 </resources>

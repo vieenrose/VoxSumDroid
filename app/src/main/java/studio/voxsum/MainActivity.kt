@@ -145,6 +145,7 @@ import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.TranscriptionConfig
+import studio.voxsum.core.power.BackgroundReliability
 import studio.voxsum.core.text.ChineseScript
 import studio.voxsum.core.text.OpenCcConverter
 import studio.voxsum.core.cover.CoverGenerator
@@ -277,7 +278,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * The first time the user kicks off background work, ask (once) for a battery-optimization
+     * exemption so screen-off runs aren't frozen. Portable across OEMs; the dialog is a separate
+     * activity so it never blocks the run that's starting. Manual re-entry lives in Settings.
+     */
+    private fun maybeRequestBackgroundExemptionOnce() {
+        val prefs = getSharedPreferences("voxsum", MODE_PRIVATE)
+        if (prefs.getBoolean("bg_opt_prompted", false)) return
+        if (BackgroundReliability.isIgnoringBatteryOptimizations(this)) return
+        prefs.edit().putBoolean("bg_opt_prompted", true).apply()
+        BackgroundReliability.requestIgnoreBatteryOptimizations(this)
+    }
+
     private fun startRecording(gen: Int) {
+        maybeRequestBackgroundExemptionOnce()
         ContextCompat.startForegroundService(
             this,
             Intent(this, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_RECORD)
@@ -292,6 +307,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startTranscription(uri: Uri, gen: Int) {
+        maybeRequestBackgroundExemptionOnce()
         // content:// (SAF) needs a persistable grant; file:// from our own filesDir/audio
         // (podcast downloads) is already owned by the app.
         if (uri.scheme == "content") {
