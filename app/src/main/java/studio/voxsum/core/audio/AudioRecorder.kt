@@ -49,6 +49,7 @@ class AudioRecorder(private val sampleRate: Int = 16_000) {
         dest.parentFile?.mkdirs()
         val writer = WavWriter(dest)
         val shorts = ShortArray(BLOCK)
+        var sinceCheckpoint = 0L
         rec.startRecording()
         try {
             while (!shouldStop() && currentCoroutineContext().isActive) {
@@ -59,6 +60,13 @@ class AudioRecorder(private val sampleRate: Int = 16_000) {
                         writer.write(f, n)          // stream straight to disk
                         totalSamples += n
                         emit(f)                      // and to the live ASR
+                        // Periodically flush + finalize the header so a process kill mid-meeting
+                        // (OEM freeze, OOM, swipe-away) leaves a recoverable file, losing at most the
+                        // last CHECKPOINT_SEC of audio instead of the whole recording.
+                        sinceCheckpoint += n
+                        if (sinceCheckpoint >= sampleRate.toLong() * CHECKPOINT_SEC) {
+                            writer.checkpoint(); sinceCheckpoint = 0
+                        }
                     }
                     // A negative count is a persistent AudioRecord error (e.g. ERROR_DEAD_OBJECT
                     // after the audio server/HAL dies, or the mic device — BT SCO / USB / wired —
@@ -79,6 +87,7 @@ class AudioRecorder(private val sampleRate: Int = 16_000) {
 
     private companion object {
         const val BLOCK = 2048 // 4 × Silero VAD window (512); ~128 ms at 16 kHz
+        const val CHECKPOINT_SEC = 3L  // flush + finalize the WAV header this often (crash-safety window)
         const val TAG = "AudioRecorder"
     }
 }

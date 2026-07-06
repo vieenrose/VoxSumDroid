@@ -237,4 +237,10 @@
     <string name="bg_allow">Allow background activity</string>
     <string name="bg_oem_hint">%1$s aggressively freezes background apps. Also turn off auto-start / auto-freeze for VoxSum in the device settings.</string>
     <string name="bg_open_oem">Open device settings</string>
+
+    <!-- Interrupted-recording recovery dialog -->
+    <string name="recover_title">Recover interrupted recording?</string>
+    <string name="recover_message">A recording of about %d min was interrupted before it finished. Finish transcribing it now?</string>
+    <string name="recover_finish">Finish transcribing</string>
+    <string name="recover_discard">Discard</string>
 </resources>
