@@ -58,6 +58,8 @@ object Strings {
     val export: String get() = t("Export", "Exporter", "匯出")
     val save: String get() = t("Save", "Enregistrer", "儲存")
     val theme: String get() = t("Theme", "Thème", "主題")
+    val fontSmaller: String get() = t("Smaller text", "Texte plus petit", "縮小文字")
+    val fontLarger: String get() = t("Larger text", "Texte plus grand", "放大文字")
     val models: String get() = t("Models", "Modèles", "模型")
     val preferences: String get() = t("Preferences", "Préférences", "偏好設定")
 

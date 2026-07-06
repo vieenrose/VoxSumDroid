@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -35,6 +36,8 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.TextDecrease
+import androidx.compose.material.icons.filled.TextIncrease
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
@@ -59,6 +62,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,6 +81,7 @@ import androidx.compose.ui.window.application
 import kotlinx.coroutines.launch
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.config.FontScaleStore
 import studio.voxsum.core.config.ThemeMode
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.prefs.JvmKeyValueStore
@@ -110,6 +115,7 @@ private fun mainApplication() = application {
         state = androidx.compose.ui.window.rememberWindowState(width = 1000.dp, height = 700.dp),
     ) {
         var themeMode by remember { mutableStateOf(ThemeMode.AUTO) }
+        var fontScale by remember { mutableStateOf(FontScaleStore.load()) }
         var state by remember {
             val loaded = ConfigStore.load()
             // Seed summaryStyle from the persisted config — it lives in state, not config, at
@@ -403,6 +409,15 @@ private fun mainApplication() = application {
                         }
                         ToolButton(Icons.Filled.Save, Strings.save, enabled = state.transcriptReady && state.audioFile != null && !state.running, onClick = saveSession)
                         Spacer(Modifier.width(24.dp))
+                        // Font size: A− / A+ scale the app's text (persisted). Icons stay dp-sized; only
+                        // text (sp) grows via the density fontScale folded in by HiDpiScaled.
+                        ToolButton(Icons.Filled.TextDecrease, Strings.fontSmaller, enabled = fontScale > FontScaleStore.MIN) {
+                            fontScale = (fontScale - FontScaleStore.STEP).coerceAtLeast(FontScaleStore.MIN); FontScaleStore.save(fontScale)
+                        }
+                        ToolButton(Icons.Filled.TextIncrease, Strings.fontLarger, enabled = fontScale < FontScaleStore.MAX) {
+                            fontScale = (fontScale + FontScaleStore.STEP).coerceAtMost(FontScaleStore.MAX); FontScaleStore.save(fontScale)
+                        }
+                        ToolbarSeparator(pal)
                         Box {
                             ToolButton(Icons.Filled.Palette, Strings.theme) { showThemeMenu = true }
                             DropdownMenu(expanded = showThemeMenu, onDismissRequest = { showThemeMenu = false }) {
@@ -497,7 +512,13 @@ private fun mainApplication() = application {
                                 modifier = Modifier.weight(1f),
                             )
                         } else {
+                            // Font size scales the whole reading pane (title, summary, action items and
+                            // transcript) via one local density override: only this content grows; the
+                            // toolbar, search, player and dialogs keep a fixed size and can't overflow their
+                            // containers or become unclickable. Text (sp) grows; icons (dp) don't.
+                            val readingDensity = LocalDensity.current.let { Density(it.density, it.fontScale * fontScale) }
                             Column(Modifier.weight(1f).fillMaxWidth().padding(16.dp)) {
+                                CompositionLocalProvider(LocalDensity provides readingDensity) {
                                 // Staleness banners (the update tree). Outside the summary card so a
                                 // re-transcribe hint shows even when no summary exists yet.
                                 // Re-transcribe refreshes everything, so it wins when both are stale.
@@ -577,7 +598,25 @@ private fun mainApplication() = application {
                                     if (state.searchQuery.isBlank()) state.utterances
                                     else state.utterances.filter { it.text.contains(state.searchQuery, ignoreCase = true) }
                                 }
-                                LazyColumn(Modifier.fillMaxSize().padding(top = 12.dp)) {
+                                val transcriptListState = rememberLazyListState()
+                                // Index of the utterance under the playhead (in the search-filtered list).
+                                // The effect keys on this index, so it fires once per utterance change — not
+                                // on every position poll — keeping the highlighted line in view as it plays.
+                                val activeIndex = if (!playerReady) -1
+                                    else visibleUtterances.indexOfFirst { playerPositionSec >= it.startSec && playerPositionSec < it.endSec }
+                                LaunchedEffect(activeIndex) {
+                                    if (activeIndex < 0) return@LaunchedEffect
+                                    val info = transcriptListState.layoutInfo
+                                    val onScreen = info.visibleItemsInfo.any {
+                                        it.index == activeIndex &&
+                                            it.offset >= info.viewportStartOffset &&
+                                            it.offset + it.size <= info.viewportEndOffset
+                                    }
+                                    // Only scroll when the active line isn't already fully visible, so a line
+                                    // already on screen (incl. one the user just clicked) doesn't jump.
+                                    if (!onScreen) transcriptListState.animateScrollToItem(activeIndex)
+                                }
+                                LazyColumn(state = transcriptListState, modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
                                     items(visibleUtterances, key = { it.index }) { u ->
                                         val isActive = playerReady && playerPositionSec >= u.startSec && playerPositionSec < u.endSec
                                         UtteranceRow(u, state, speakerIds, pal, update, isActive = isActive) {
@@ -585,6 +624,7 @@ private fun mainApplication() = application {
                                         }
                                     }
                                 }
+                                } // close reading-pane font-scale provider
                             }
                         }
                         // ---- Player bar: docked at the bottom of the detail (right) pane ----
