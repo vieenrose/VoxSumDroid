@@ -1,0 +1,2 @@
+Background reliability:
+• Transcription and summarization now keep running when the screen turns off. The app holds a wake lock for the duration of a run, so battery-aggressive devices no longer stall the pipeline mid-transcription.
