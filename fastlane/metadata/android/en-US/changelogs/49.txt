@@ -1,0 +1,3 @@
+Keep transcription running in the background more reliably:
+• VoxSum now asks once to be exempted from battery optimization, so transcription and summarization aren't paused when the screen turns off.
+• New Settings → Background reliability section, with a shortcut to your device's auto-start / battery settings on phones that aggressively freeze background apps (Xiaomi, Oppo, vivo, Huawei, Boox, and others).
