@@ -237,4 +237,10 @@
     <string name="bg_allow">Autoriser l\'activité en arrière-plan</string>
     <string name="bg_oem_hint">%1$s gèle agressivement les applis en arrière-plan. Désactivez aussi le démarrage auto / gel auto pour VoxSum dans les réglages de l\'appareil.</string>
     <string name="bg_open_oem">Ouvrir les réglages de l\'appareil</string>
+
+    <!-- Récupération d'un enregistrement interrompu -->
+    <string name="recover_title">Récupérer l\'enregistrement interrompu ?</string>
+    <string name="recover_message">Un enregistrement d\'environ %d min a été interrompu avant la fin. Terminer sa transcription maintenant ?</string>
+    <string name="recover_finish">Terminer la transcription</string>
+    <string name="recover_discard">Supprimer</string>
 </resources>

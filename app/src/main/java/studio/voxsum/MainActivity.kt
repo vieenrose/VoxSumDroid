@@ -142,6 +142,7 @@ import java.io.File
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.audio.AudioDecoder
+import studio.voxsum.core.audio.RecordingRecovery
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.TranscriptionConfig
@@ -422,6 +423,17 @@ private fun TranscribeScreen(
     var updateApk by remember { mutableStateOf<File?>(null) }         // cached so a perms-retry skips re-download
     LaunchedEffect(Unit) { updateInfo = runCatching { UpdateChecker.check(context) }.getOrNull() }
 
+    // --- Crash recovery: a live recording the OS killed mid-capture (OEM freeze, OOM, swipe-away)
+    // is repaired and offered on next launch, so a meeting is never silently lost. ---
+    var recoveredRec by remember { mutableStateOf<File?>(null) }
+    LaunchedEffect(Unit) {
+        // Skip if a capture is still live in this process (Activity recreated under memory pressure
+        // while the foreground service kept recording) — only a real kill should trigger recovery.
+        if (!TranscriptionService.recordingActive) {
+            recoveredRec = withContext(Dispatchers.IO) { RecordingRecovery.pending(context) }
+        }
+    }
+
     // --- Inline editing (mirrors the web app): id->name overrides + which row/speaker is open. ---
     val speakerNames = remember { mutableStateMapOf<Int, SpeakerName>() }
     var editingIndex by remember { mutableIntStateOf(-1) }
@@ -586,6 +598,32 @@ private fun TranscribeScreen(
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh session → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri, sessionGen)
+    }
+
+    // Offer to finish a recording the OS killed mid-capture. Requires an explicit choice (no
+    // outside-tap dismiss) so the recovered meeting can't be lost by a stray tap. "Finish" re-runs the
+    // pipeline over the recovered audio; "Discard" deletes it. Either way the marker is cleared.
+    recoveredRec?.let { wav ->
+        val mins = (RecordingRecovery.seconds(wav) + 59) / 60
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(stringResource(R.string.recover_title)) },
+            text = { Text(stringResource(R.string.recover_message, mins)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    recoveredRec = null
+                    RecordingRecovery.clear(context)
+                    launchAudio(Uri.fromFile(wav))
+                }) { Text(stringResource(R.string.recover_finish)) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    recoveredRec = null
+                    RecordingRecovery.clear(context)
+                    wav.delete()
+                }) { Text(stringResource(R.string.recover_discard)) }
+            },
+        )
     }
 
     val picker = rememberLauncherForActivityResult(

@@ -16,7 +16,29 @@ import java.nio.ByteOrder
  */
 object WavIo {
     const val SAMPLE_RATE = 16_000
-    private const val HEADER = 44
+    const val HEADER = 44
+}
+
+/**
+ * Overwrite the leading 44 bytes of [file] with a canonical 16 kHz mono PCM16 WAV header sized for
+ * [sampleCount] samples. Used both to finalize a clean recording and to *repair* one that a process
+ * kill left with a placeholder header (see [studio.voxsum.core.audio.RecordingRecovery]). Opening a
+ * separate RandomAccessFile at offset 0 is safe while a streaming writer appends at the end — the
+ * two touch disjoint byte ranges. WAV chunk sizes are UNSIGNED 32-bit, so cap at the format maximum
+ * (a >4 GB / ~37 h recording writes a maxed-out header rather than an Int that wraps to a wrong size).
+ */
+fun patchWavHeader(file: File, sampleCount: Long) {
+    val pcmBytes = sampleCount * 2
+    val dataSize = minOf(pcmBytes, 0xFFFF_FFFFL).toInt()
+    val riffSize = minOf(36 + pcmBytes, 0xFFFF_FFFFL).toInt()
+    RandomAccessFile(file, "rw").use { raf ->
+        val h = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+        h.put("RIFF".toByteArray()); h.putInt(riffSize); h.put("WAVE".toByteArray())
+        h.put("fmt ".toByteArray()); h.putInt(16); h.putShort(1); h.putShort(1)
+        h.putInt(WavIo.SAMPLE_RATE); h.putInt(WavIo.SAMPLE_RATE * 2); h.putShort(2); h.putShort(16)
+        h.put("data".toByteArray()); h.putInt(dataSize)
+        raf.seek(0); raf.write(h.array())
+    }
 }
 
 /** Append-only writer: floats in [-1,1] → little-endian PCM16, with a self-patching WAV header. */
@@ -26,7 +48,7 @@ class WavWriter(private val file: File) : AutoCloseable {
     private val buf = ByteArray(1 shl 16)
 
     init {
-        out.write(ByteArray(44))   // placeholder header; real sizes written on close()
+        out.write(ByteArray(44))   // placeholder header; real sizes written on close()/checkpoint()
     }
 
     fun write(chunk: FloatArray, len: Int = chunk.size) {
@@ -46,23 +68,23 @@ class WavWriter(private val file: File) : AutoCloseable {
     /** Total samples written so far (for utterance timing while streaming). */
     fun sampleCount(): Long = samples
 
+    /**
+     * Flush buffered PCM to the OS and finalize the header so the file is a valid, playable WAV up to
+     * this instant. Called periodically during recording (see [AudioRecorder]) so that if the process
+     * is killed mid-meeting, the on-disk file is recoverable up to the last checkpoint rather than
+     * left with a placeholder header. Flushing hands the bytes to the kernel, which survives a process
+     * kill (this guards against kills, not power loss — no fsync needed).
+     */
+    fun checkpoint() {
+        out.flush()
+        patchWavHeader(file, samples)
+    }
+
     override fun close() {
         out.flush(); out.close()
-        // Patch the 44-byte canonical header now that the data size is known. WAV stores chunk sizes as
-        // UNSIGNED 32-bit, so cap at the format maximum: a >4 GB recording (~37 h at 16 kHz mono) then
-        // writes a valid (maxed-out) header instead of an Int that wraps to a tiny wrong size. WavSlicer
-        // derives the sample count from the file length, not these fields, so diarization is unaffected.
-        val pcmBytes = samples * 2
-        val dataSize = minOf(pcmBytes, 0xFFFF_FFFFL).toInt()
-        val riffSize = minOf(36 + pcmBytes, 0xFFFF_FFFFL).toInt()
-        RandomAccessFile(file, "rw").use { raf ->
-            val h = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
-            h.put("RIFF".toByteArray()); h.putInt(riffSize); h.put("WAVE".toByteArray())
-            h.put("fmt ".toByteArray()); h.putInt(16); h.putShort(1); h.putShort(1)
-            h.putInt(WavIo.SAMPLE_RATE); h.putInt(WavIo.SAMPLE_RATE * 2); h.putShort(2); h.putShort(16)
-            h.put("data".toByteArray()); h.putInt(dataSize)
-            raf.seek(0); raf.write(h.array())
-        }
+        // Patch the canonical header now that the final data size is known. WavSlicer derives the
+        // sample count from the file length, not these fields, so diarization is unaffected.
+        patchWavHeader(file, samples)
     }
 }
 

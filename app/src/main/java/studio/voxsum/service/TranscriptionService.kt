@@ -30,6 +30,7 @@ import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioRecorder
+import studio.voxsum.core.audio.RecordingRecovery
 import studio.voxsum.core.audio.WavSlicer
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.SummaryStyle
@@ -80,6 +81,15 @@ class TranscriptionService : LifecycleService() {
         // build that got interrupted left a 0-byte file). Request passed via [pendingExport] —
         // utterances can be large, so it rides an in-memory holder, not Intent extras.
         const val ACTION_EXPORT = "studio.voxsum.EXPORT"
+
+        // True while a live capture is in flight *in this process*. The Activity can be destroyed and
+        // recreated (low memory) while the foreground service keeps recording; the crash-recovery
+        // check reads this so it doesn't mistake a still-active recording's marker for an interrupted
+        // one. A real process kill takes the service (and this flag) down with it, so a fresh process
+        // reads false and recovery proceeds correctly.
+        @Volatile
+        var recordingActive = false
+            private set
 
         // Mic-capture backpressure slack: how many recorder blocks (~128 ms each) may queue ahead of
         // the ASR decode before the mic loop is throttled. ~33 s absorbs slow segment decodes so live
@@ -431,10 +441,17 @@ class TranscriptionService : LifecycleService() {
         val wav = File(File(filesDir, "audio").apply { mkdirs() }, "recording_${System.currentTimeMillis()}.wav")
         val utterances = ArrayList<TranscriptEvent.Utterance>()
 
+        // Track this capture so a process kill mid-meeting is recoverable on next launch. The finally
+        // below clears it on a clean stop AND on user cancellation (both run finally) — only a hard
+        // process kill leaves the marker, which is exactly what signals "recover this recording".
+        RecordingRecovery.markStarted(this, wav)
+        recordingActive = true
+
         // Set the live-capture status here (the engine no longer emits it), localized; this also
         // restores it after a model-download status was shown above.
         emitEvent(TranscriptEvent.Status(getString(R.string.status_recording)))
         updateNotification(getString(R.string.status_recording))
+        try {
         AsrEngine(
             backend = backend,
             files = models.asrFiles(backend),
@@ -471,6 +488,13 @@ class TranscriptionService : LifecycleService() {
                     }
                 }
         } // ASR + mic released here, before diarization/LLM load.
+        } finally {
+            // Capture finished (clean stop or user cancel) — the WAV header was finalized in
+            // WavWriter.close(); drop the recovery marker so next launch doesn't re-offer it. A hard
+            // process kill skips this, leaving the marker for RecordingRecovery.pending() to find.
+            recordingActive = false
+            RecordingRecovery.clear(this)
+        }
 
         // Drop the microphone foreground type for the CPU-bound finish. The WAV is already on disk.
         startForegroundTyped(recording = false, text = "Processing…")
