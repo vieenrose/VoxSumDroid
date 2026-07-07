@@ -46,11 +46,20 @@ object AudioDecoder {
      * total sample count. This is the multi-hour-safe path (the full-buffer [decodeToPcm16k] OOMs
      * past ~2 h); use it + a [WavSlicer] for diarization instead of holding the whole waveform.
      */
-    fun decodeToWav16k(context: Context, uri: Uri, dest: File, onChunk: (FloatArray, Int) -> Unit): Long {
+    fun decodeToWav16k(context: Context, uri: Uri, dest: File, normalize: Boolean = false, onChunk: (FloatArray, Int) -> Unit): Long {
         WavWriter(dest).use { writer ->
-            val sink = ChunkingSink(writer, onChunk)
-            decode(context, uri, sink)
-            sink.flush()
+            val chunking = ChunkingSink(writer, onChunk)
+            // normalize: automatic constant input gain for clearly-quiet sources (far-field/room-mic
+            // recordings starve the VAD otherwise). Only the transcription import opts in — the
+            // fingerprint/session/export decodes must stay faithful to the source (and identical to
+            // each other: the audio SHA-256 is the cover/session identity).
+            val norm = if (normalize) GainNormalizer { chunking.add(it) } else null
+            decode(context, uri, if (norm != null) object : PcmSink { override fun add(v: Float) = norm.add(v) } else chunking)
+            norm?.finish()
+            if (norm != null && norm.gain != 1f) {
+                android.util.Log.i("voxsum-audio", "quiet source: applied input gain x${"%.1f".format(java.util.Locale.US, norm.gain)}")
+            }
+            chunking.flush()
             return writer.sampleCount()
         }
     }

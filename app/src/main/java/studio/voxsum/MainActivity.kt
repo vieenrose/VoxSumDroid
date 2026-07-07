@@ -442,6 +442,9 @@ private fun TranscribeScreen(
     var editingSummary by remember { mutableStateOf(false) }
     var editingActions by remember { mutableStateOf(false) }
     var isDetecting by remember { mutableStateOf(false) }
+    // True while a standalone re-diarize run is in flight: its terminal event is Complete (no
+    // summary phase follows), so the Complete handler must clear `running` for this run only.
+    var diarizeOnlyRun by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     // The cover auto-embeds on every save/share (generated in the export service from current
@@ -590,6 +593,7 @@ private fun TranscribeScreen(
     fun launchAudio(uri: Uri) {
         TranscriptionConfig.Holder.config = config   // apply settings to this run
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
+        diarizeOnlyRun = false
         editingTitle = false; editingSummary = false; editingActions = false
         title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
         coverEnabled = true
@@ -667,6 +671,7 @@ private fun TranscribeScreen(
     }
     fun beginRecording() {
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
+        diarizeOnlyRun = false
         editingTitle = false; editingSummary = false; editingActions = false
         title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
         coverEnabled = true
@@ -890,6 +895,8 @@ private fun TranscribeScreen(
                     // pipeline returns WITHOUT summarizing, so no SummaryComplete will arrive to clear
                     // `running`. Clear it here (otherwise the UI is stuck showing Stop) and say why.
                     if (merged.isEmpty()) { running = false; status = context.getString(R.string.status_no_speech) }
+                    // A standalone re-diarize ends at Complete (no summary phase follows).
+                    if (diarizeOnlyRun) { diarizeOnlyRun = false; running = false }
                 }
                 is TranscriptEvent.Title -> title = e.title
                 is TranscriptEvent.RecordingSaved -> {
@@ -906,7 +913,7 @@ private fun TranscribeScreen(
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false }
                 is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false }
                 is TranscriptEvent.Failed -> {
-                    status = context.getString(R.string.status_error, e.error); running = false
+                    status = context.getString(R.string.status_error, e.error); running = false; diarizeOnlyRun = false
                     // Offer a one-tap Retry for the same source (a corrupt model was cleared server-
                     // side, so the retry re-downloads it). Only when we still hold the source Uri.
                     val src = audioUri
@@ -970,6 +977,25 @@ private fun TranscribeScreen(
             val mid = (utterances[i].endSec + utterances[i + 1].startSec) / 2.0
             if (sec >= mid) i + 1 else i
         } else i
+    }
+
+    // Standalone re-diarize (Re-detect speakers): hands the current transcript to the service via
+    // the pendingDiarize holder and re-runs ONLY speaker detection over the player's audio. Speaker
+    // names are cleared (cluster ids are re-derived, so the old map would label the wrong voices).
+    fun reDiarize() {
+        val src = audioUri ?: return
+        if (running) return
+        TranscriptionService.pendingDiarize = utterances.toList()
+        speakerNames.clear()
+        diarizeOnlyRun = true
+        running = true
+        progress = 0f
+        status = context.getString(R.string.svc_identifying_speakers)
+        val intent = Intent(context, TranscriptionService::class.java)
+            .setAction(TranscriptionService.ACTION_DIARIZE)
+            .putExtra(TranscriptionService.EXTRA_AUDIO_URI, src.toString())
+            .putExtra(TranscriptionService.EXTRA_RUN_GEN, sessionGen)
+        ContextCompat.startForegroundService(context, intent)
     }
 
     // LLM-based speaker-name detection (loads the LLM off the main thread; preserves user edits).
@@ -1247,6 +1273,8 @@ private fun TranscribeScreen(
                 onReSummarize = { regenerateStaleChildren() },
                 canReTitle = transcriptReady && !running && !summary.isNullOrBlank(),
                 onReTitle = { reTitle() },
+                canReDiarize = transcriptReady && !running && audioUri != null,
+                onReDiarize = { reDiarize() },
                 canReDetect = transcriptReady && !running && stats.perSpeaker.isNotEmpty(),
                 isDetecting = isDetecting,
                 onReDetect = { detectNames() },
@@ -1557,6 +1585,33 @@ private fun TitleCard(
     }
 }
 
+/** Markdown display folded past [collapsedMaxLines] behind Show more/Show less — a long summary
+ *  must not push the transcript below the fold. Tap the text to edit, as before. */
+@Composable
+private fun CollapsibleMarkdown(text: String, collapsedMaxLines: Int, onBeginEdit: () -> Unit) {
+    val pal = LocalVoxSumPalette.current
+    // remember(text): a fresh summary (or each streamed partial) starts collapsed.
+    var expanded by remember(text) { mutableStateOf(false) }
+    var overflowed by remember(text) { mutableStateOf(false) }
+    Text(
+        renderMarkdown(text),
+        style = MaterialTheme.typography.bodyMedium,
+        color = pal.Slate200,
+        maxLines = if (expanded) Int.MAX_VALUE else collapsedMaxLines,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        onTextLayout = { overflowed = it.hasVisualOverflow },
+        modifier = Modifier.fillMaxWidth().clickable { onBeginEdit() },
+    )
+    if (overflowed || expanded) {
+        Text(
+            stringResource(if (expanded) R.string.show_less else R.string.show_more),
+            style = MaterialTheme.typography.labelMedium,
+            color = pal.Slate400,
+            modifier = Modifier.padding(top = 4.dp).clickable { expanded = !expanded },
+        )
+    }
+}
+
 /** Summary card with model attribution (export is in the top-bar menu). */
 @Composable
 private fun SummaryCard(
@@ -1587,12 +1642,7 @@ private fun SummaryCard(
         if (isEditing) {
             UtteranceTextEditor(initial = summary, onSave = onSave, onCancel = onCancel, minLines = 4)
         } else {
-            Text(
-                renderMarkdown(summary),
-                style = MaterialTheme.typography.bodyMedium,
-                color = pal.Slate200,
-                modifier = Modifier.fillMaxWidth().clickable { onBeginEdit() },
-            )
+            CollapsibleMarkdown(summary, collapsedMaxLines = 12, onBeginEdit = onBeginEdit)
         }
     }
 }
@@ -1625,12 +1675,7 @@ private fun ActionItemsCard(
         if (isEditing) {
             UtteranceTextEditor(initial = text, onSave = onSave, onCancel = onCancel, minLines = 3)
         } else {
-            Text(
-                renderMarkdown(text),
-                style = MaterialTheme.typography.bodyMedium,
-                color = pal.Slate200,
-                modifier = Modifier.fillMaxWidth().clickable { onBeginEdit() },
-            )
+            CollapsibleMarkdown(text, collapsedMaxLines = 8, onBeginEdit = onBeginEdit)
         }
     }
 }

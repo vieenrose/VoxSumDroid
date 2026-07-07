@@ -27,6 +27,7 @@
     <string name="re_summarize">重新摘要</string>
     <string name="re_title">重新產生標題</string>
     <string name="re_detect_names">重新偵測名稱</string>
+    <string name="re_diarize">重新辨識語者</string>
     <string name="pick_audio">選擇音訊…</string>
     <string name="stop">停止</string>
     <string name="cd_stop_recording">停止錄音</string>
@@ -156,6 +157,11 @@
     <string name="svc_summarization_model_pct">摘要模型… %d%%</string>
     <string name="svc_summarizing">摘要中…</string>
     <string name="svc_identifying_speakers">辨識語者中…</string>
+    <string name="svc_identifying_speakers_eta">辨識語者中… %1$s</string>
+    <string name="show_more">顯示更多</string>
+    <string name="show_less">顯示較少</string>
+    <string name="eta_minutes">約剩 %1$d 分鐘</string>
+    <string name="eta_seconds">約剩 %1$d 秒</string>
 
     <!-- In-app update -->
     <string name="update_available">有可用更新 — %1$s</string>

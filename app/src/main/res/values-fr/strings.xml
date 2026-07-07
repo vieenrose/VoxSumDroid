@@ -27,6 +27,7 @@
     <string name="re_summarize">Refaire le résumé</string>
     <string name="re_title">Regénérer le titre</string>
     <string name="re_detect_names">Redétecter les noms</string>
+    <string name="re_diarize">Redétecter les locuteurs</string>
     <string name="pick_audio">Choisir un audio…</string>
     <string name="stop">Arrêter</string>
     <string name="cd_stop_recording">Arrêter l\'enregistrement</string>
@@ -157,6 +158,11 @@
     <string name="svc_summarization_model_pct">Modèle de résumé… %d%%</string>
     <string name="svc_summarizing">Résumé en cours…</string>
     <string name="svc_identifying_speakers">Identification des locuteurs…</string>
+    <string name="svc_identifying_speakers_eta">Identification des locuteurs… %1$s</string>
+    <string name="show_more">Afficher plus</string>
+    <string name="show_less">Afficher moins</string>
+    <string name="eta_minutes">≈%1$d min restantes</string>
+    <string name="eta_seconds">≈%1$d s restantes</string>
 
     <!-- In-app update -->
     <string name="update_available">Mise à jour disponible — %1$s</string>

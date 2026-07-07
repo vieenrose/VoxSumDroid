@@ -27,6 +27,7 @@
     <string name="re_summarize">Re-summarize</string>
     <string name="re_title">Re-generate title</string>
     <string name="re_detect_names">Re-detect names</string>
+    <string name="re_diarize">Re-detect speakers</string>
     <string name="pick_audio">Pick audio…</string>
     <string name="stop">Stop</string>
     <string name="cd_stop_recording">Stop recording</string>
@@ -157,6 +158,11 @@
     <string name="svc_summarization_model_pct">Summarization model… %d%%</string>
     <string name="svc_summarizing">Summarizing…</string>
     <string name="svc_identifying_speakers">Identifying speakers…</string>
+    <string name="svc_identifying_speakers_eta">Identifying speakers… %1$s</string>
+    <string name="show_more">Show more</string>
+    <string name="show_less">Show less</string>
+    <string name="eta_minutes">≈%1$d min left</string>
+    <string name="eta_seconds">≈%1$d s left</string>
 
     <!-- In-app update -->
     <string name="update_available">Update available — %1$s</string>
