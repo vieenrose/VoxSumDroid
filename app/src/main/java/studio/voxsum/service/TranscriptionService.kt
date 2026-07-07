@@ -394,6 +394,7 @@ class TranscriptionService : LifecycleService() {
             emitEvent(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))
             return
         }
+        var diarized: Pair<List<TranscriptEvent.Utterance>, Int>? = null
         asr.use {
             asr.transcribeLive(chunks)
                 .flowOn(Dispatchers.Default)
@@ -413,6 +414,13 @@ class TranscriptionService : LifecycleService() {
                         else -> emitEvent(e)
                     }
                 }
+            // Diarize while the recognizer is still alive: the split rescue re-decodes a fused
+            // segment's halves on backends without token timestamps (Qwen3). Only the small
+            // CAM++ embedder is co-resident with the ASR models — the LLM still loads after
+            // both are released.
+            if (utterances.isNotEmpty() && cfg.diarizationEnabled) {
+                diarized = diarizePhase(wav, utterances, cfg, models, asr, converter)
+            }
         } // ASR native resources freed here, before the LLM is loaded.
 
         // The decoded 16 kHz WAV is the player source now (per the streaming design).
@@ -421,7 +429,7 @@ class TranscriptionService : LifecycleService() {
             emitEvent(TranscriptEvent.Complete(emptyList(), speakerCount = null))
             return
         }
-        finishPipeline(wav, utterances, cfg, models, converter)
+        finishPipeline(utterances, diarized, cfg, models, converter)
     }
 
     /**
@@ -441,6 +449,7 @@ class TranscriptionService : LifecycleService() {
         val recorder = AudioRecorder()
         val wav = File(File(filesDir, "audio").apply { mkdirs() }, "recording_${System.currentTimeMillis()}.wav")
         val utterances = ArrayList<TranscriptEvent.Utterance>()
+        var diarized: Pair<List<TranscriptEvent.Utterance>, Int>? = null
 
         // Track this capture so a process kill mid-meeting is recoverable on next launch. The finally
         // below clears it on a clean stop AND on user cancellation (both run finally) — only a hard
@@ -488,7 +497,14 @@ class TranscriptionService : LifecycleService() {
                         else -> emitEvent(e)
                     }
                 }
-        } // ASR + mic released here, before diarization/LLM load.
+            // Same as the file path: diarize inside the recognizer's lifetime so fused segments
+            // can be split by re-decode on timestamp-less backends. The capture WAV is already
+            // finalized (WavWriter.close() ran when the record flow completed, before
+            // transcribeLive returned).
+            if (utterances.isNotEmpty() && cfg.diarizationEnabled) {
+                diarized = diarizePhase(wav, utterances, cfg, models, asr, converter)
+            }
+        } // ASR + mic released here, before the LLM loads.
         } finally {
             // Capture finished (clean stop or user cancel) — the WAV header was finalized in
             // WavWriter.close(); drop the recovery marker so next launch doesn't re-offer it. A hard
@@ -506,45 +522,65 @@ class TranscriptionService : LifecycleService() {
             emitEvent(TranscriptEvent.Complete(emptyList(), speakerCount = null))
             return
         }
-        finishPipeline(wav, utterances, cfg, models, converter)
+        finishPipeline(utterances, diarized, cfg, models, converter)
     }
 
-    /** Diarization (optional) + summarization — shared by the file and recording paths. The audio
-     *  is the on-disk 16 kHz WAV; diarization reads each utterance's slice from it (bounded memory). */
-    private suspend fun finishPipeline(
+    /**
+     * Diarization phase — download models if needed, then tag speakers over the on-disk 16 kHz
+     * WAV (bounded memory via WavSlicer). Runs INSIDE the ASR engine's lifetime (see call sites)
+     * so the within-utterance split can re-decode a fused segment's halves on backends without
+     * token timestamps (Qwen3); only the small CAM++ embedder is co-resident with the
+     * recognizer, and the LLM still loads only after both are released.
+     */
+    private suspend fun diarizePhase(
         wav: File,
         utterances: List<TranscriptEvent.Utterance>,
         cfg: TranscriptionConfig,
         models: ModelManager,
+        asr: AsrEngine,
         converter: OpenCcConverter?,
-    ) {
-        // --- Diarization phase (optional). Tag speakers, emit the final Complete. ---
-        var tagged: List<TranscriptEvent.Utterance> = utterances
-        if (cfg.diarizationEnabled) {
-            if (!models.diarizationReady()) {
-                emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_diarization)))
-                models.ensureDiarizationModels { frac -> reportDownload(R.string.svc_downloading_diarization_pct, frac) }
-            }
-            emitEvent(TranscriptEvent.Status(getString(R.string.svc_identifying_speakers)))
-            emitEvent(TranscriptEvent.Progress(0f))   // restart the bar for the diarization phase
-            DiarizationEngine(
-                embeddingModel = models.embeddingModel.absolutePath,
-                numThreads = asrThreads(),
-                numClusters = cfg.numSpeakers,
-            ).use { de ->
-                val (t, count) = WavSlicer(wav).use { slicer ->
-                    var lastPct = -1
-                    de.assignSpeakers(slicer::read, slicer.totalSamples, utterances) { frac ->
+    ): Pair<List<TranscriptEvent.Utterance>, Int> {
+        if (!models.diarizationReady()) {
+            emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_diarization)))
+            models.ensureDiarizationModels { frac -> reportDownload(R.string.svc_downloading_diarization_pct, frac) }
+        }
+        emitEvent(TranscriptEvent.Status(getString(R.string.svc_identifying_speakers)))
+        emitEvent(TranscriptEvent.Progress(0f))   // restart the bar for the diarization phase
+        return DiarizationEngine(
+            embeddingModel = models.embeddingModel.absolutePath,
+            numThreads = asrThreads(),
+            numClusters = cfg.numSpeakers,
+        ).use { de ->
+            WavSlicer(wav).use { slicer ->
+                var lastPct = -1
+                de.assignSpeakers(
+                    slicer::read, slicer.totalSamples, utterances,
+                    onProgress = { frac ->
                         val pct = (frac * 100).toInt()
                         if (pct != lastPct) { lastPct = pct; events.tryEmit(UNTAGGED to TranscriptEvent.Progress(frac)) }
-                    }
-                }
-                tagged = t
-                emitEvent(TranscriptEvent.Complete(t, count))
-            } // diarization native resources freed before the LLM loads.
-        } else {
-            emitEvent(TranscriptEvent.Complete(utterances, speakerCount = null))
-        }
+                    },
+                    redecode = { s, e ->
+                        val a = (s * AsrEngine.SAMPLE_RATE).toLong()
+                        val b = (e * AsrEngine.SAMPLE_RATE).toLong()
+                        val text = asr.decodeSlice(slicer.read(a, b))
+                        converter?.convert(text) ?: text
+                    },
+                )
+            }
+        } // diarization native resources freed before the LLM loads.
+    }
+
+    /** Final Complete (with speakers when diarization ran during the ASR phase) + summarization —
+     *  shared by the file and recording paths. */
+    private suspend fun finishPipeline(
+        utterances: List<TranscriptEvent.Utterance>,
+        diarized: Pair<List<TranscriptEvent.Utterance>, Int>?,
+        cfg: TranscriptionConfig,
+        models: ModelManager,
+        converter: OpenCcConverter?,
+    ) {
+        val tagged = diarized?.first ?: utterances
+        emitEvent(TranscriptEvent.Complete(tagged, diarized?.second))
 
         summarize(tagged.joinToString("\n") { it.text }, cfg, models, converter)
     }

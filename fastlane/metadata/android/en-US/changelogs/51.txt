@@ -1,0 +1,7 @@
+Speaker identification is much more accurate on meetings. The speaker count is
+now detected automatically from the voice structure (spectral clustering)
+instead of a fixed sensitivity threshold — on a real 4-speaker meeting,
+speaker assignment went from 67.5% to 100% correct. The "cluster threshold"
+slider is gone (nothing left to tune), long recordings keep full speaker
+identification, and a brief distinct participant is no longer absorbed into
+another speaker.

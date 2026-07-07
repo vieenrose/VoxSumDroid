@@ -122,6 +122,39 @@ class DiarizationClusteringTest {
         assertTrue(diff[0] != diff[1])
     }
 
+    @Test fun smallNTwoSpeakersDetected() {
+        // 4+4 utterances of two voices — the pre-fix pipeline collapsed this to one speaker
+        // (the pruning floor forced cross-speaker links and the i=0 eigengap ratio won).
+        val embs = (group(0, 4) + group(1, 4)).toTypedArray()
+        val labels = SpectralClustering.cluster(embs)
+        assertPartition(labels, listOf(0..3, 4..7))
+    }
+
+    @Test fun smallNFourSpeakersTwoUtterancesEach() {
+        val embs = (group(0, 2) + group(1, 2) + group(2, 2) + group(3, 2)).toTypedArray()
+        val labels = SpectralClustering.cluster(embs)
+        assertPartition(labels, listOf(0..1, 2..3, 4..5, 6..7))
+    }
+
+    @Test fun smallNUnbalancedPairDetected() {
+        // 6 turns of one voice + 2 of another — the majority speaker must not absorb the pair.
+        val embs = (group(0, 6) + group(1, 2)).toTypedArray()
+        val labels = SpectralClustering.cluster(embs)
+        assertPartition(labels, listOf(0..5, 6..7))
+    }
+
+    @Test fun bridgePointDoesNotChainTwoSpeakers() {
+        // A point midway between two voices (a fused two-speaker segment's embedding) must not
+        // merge the clusters: single linkage chained through it (measured k=1 on real audio);
+        // complete linkage keeps the cross-cluster distance at the farthest pair.
+        val bridge = DiarizationEngine.l2normalize(
+            FloatArray(8).also { it[0] = 1f; it[1] = 1f },
+        )
+        val embs = (group(0, 4) + listOf(bridge) + group(1, 4)).toTypedArray()
+        val labels = SpectralClustering.cluster(embs)
+        assertPartition(labels, listOf(0..3, 5..8))   // the bridge (index 4) may land on either side
+    }
+
     @Test fun eigenGapPicksTheLargestGap() {
         // λ = [0, 0.001, 0.002, 2.0, 2.5] — three near-zero eigenvalues ⇒ three clusters.
         assertEquals(3, SpectralClustering.eigenGapK(doubleArrayOf(0.0, 0.001, 0.002, 2.0, 2.5), 8))

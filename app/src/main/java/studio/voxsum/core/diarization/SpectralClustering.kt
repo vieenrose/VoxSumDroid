@@ -36,14 +36,24 @@ internal object SpectralClustering {
 
     /** Per-row neighbours kept by pruning: max([MIN_PNUM], [KEEP_FRAC] · n). 0.2 empirically
      *  (real CAM++ meeting embeddings): larger keeps blur the speaker blocks (k collapses to 1),
-     *  smaller fragments a speaker's utterances into phantom components. */
+     *  smaller fragments a speaker's utterances into phantom components. The floor is 3 (not the
+     *  reference's higher cut): with a floor of 6, any speaker owning <6 utterances was FORCED to
+     *  keep cross-speaker links, λ₂ stayed large, and the i=0 eigengap ratio (≈λ₂/(λ₂+ε), near 1
+     *  for any connected graph) beat every real split — a 12-utterance 4-speaker meeting collapsed
+     *  to k=1. Floor 3 re-validated: 24/12-utterance meetings → k=4, 12-utterance pairs → k=2,
+     *  12-utterance lone voices → k=1 (see the sweep in the spectral-diarization fix). */
     private const val KEEP_FRAC = 0.2
-    private const val MIN_PNUM = 6
+    private const val MIN_PNUM = 3
     /** Denominator floor for the eigengap ratio — keeps near-zero λ from dominating the ratio. */
     private const val GAP_EPS = 0.01
-    /** Inputs of at most this size use [tinyCluster] instead of the eigengap. */
-    private const val TINY_N = 5
-    private const val TINY_JUMP = 2.0
+    /** Inputs of at most this size use [tinyCluster] instead of the eigengap. 11: below ~12 points
+     *  the pruned graph cannot isolate speaker blocks (a speaker owns too few neighbours), so the
+     *  eigengap reads "one connected component" no matter how separable the voices are — measured
+     *  k=1 on a cleanly-separable 8-utterance 2-speaker clip (cross-speaker distance ≥0.68, within
+     *  ≤0.45). The linkage cut is exact on every ≤12-point scenario in the validation sweep,
+     *  including 4 speakers × 2 utterances and a 6+2 unbalanced pair. */
+    private const val SMALL_N = 11
+    private const val TINY_JUMP = 1.75
     private const val TINY_SPLIT_DIST = 0.55
     private const val KMEANS_RESTARTS = 8
     private const val KMEANS_ITERS = 100
@@ -57,10 +67,11 @@ internal object SpectralClustering {
     fun cluster(embs: Array<FloatArray>, numClusters: Int = -1, maxSpeakers: Int = 8): IntArray {
         val n = embs.size
         if (n <= 1) return IntArray(n)
-        // Spectral structure needs clusters with multiple members — a 3-utterance clip with a
-        // singleton speaker has no near-zero eigenvalue plateau to read. Below TINY_N use direct
-        // linkage with a relative-jump cut instead.
-        if (n <= TINY_N && numClusters !in 1..n) return tinyCluster(embs, maxSpeakers)
+        // Spectral structure needs clusters with enough members that pruning can isolate the
+        // speaker blocks — with few points there is no near-zero eigenvalue plateau to read and
+        // the eigengap collapses to k=1. Up to SMALL_N use direct linkage with a relative-jump
+        // cut instead.
+        if (n <= SMALL_N && numClusters !in 1..n) return tinyCluster(embs, maxSpeakers)
 
         val a = affinity(embs)
         pPrune(a)
@@ -87,12 +98,21 @@ internal object SpectralClustering {
     }
 
     /**
-     * Direct clustering for n ≤ [TINY_N]: single-linkage merges, cut at the largest *relative*
+     * Direct clustering for n ≤ [SMALL_N]: complete-linkage merges, cut at the largest *relative*
      * jump in the merge-distance sequence — a genuinely different voice sits several times
      * farther than the same voice's spread, whatever the absolute scale. Two guards keep one
      * noisy voice together: the jump must be ≥ [TINY_JUMP]× and land at ≥ [TINY_SPLIT_DIST]
      * absolute cosine distance (the same "definitely a different voice" scale as
      * DiarizationEngine.ABS_GATE). n == 2 has no jump to compare, so the distance guard decides.
+     * Complete linkage (farthest pair), NOT single linkage: a VAD segment that fused two
+     * speakers' turns embeds *between* the two voices, and under single linkage that one point
+     * bridges the clusters — the cross merge happens at the bridge's small distance, no jump
+     * survives, and k collapses to 1 (observed on a real fused segment; the within-utterance
+     * split can then never run, since it needs k ≥ 2). Under complete linkage the bridge point
+     * joins its nearer voice early and the cross-cluster distance stays the *farthest* pair, so
+     * the jump survives. Validation sweep: exact on all 13 scenarios (incl. the bridge case)
+     * at jump 1.5–2.0; the eigengap is structurally blind at this size. Larger inputs stay
+     * spectral (pruning + eigengap read global block structure and shrug off one bad point).
      */
     internal fun tinyCluster(embs: Array<FloatArray>, maxSpeakers: Int): IntArray {
         val n = embs.size
@@ -105,19 +125,26 @@ internal object SpectralClustering {
                 }
             }
         }
-        // Single-linkage merge sequence.
+        // Complete-linkage merge sequence: merge the cluster pair whose FARTHEST point pair is
+        // smallest; record that distance. O(n⁴) worst case is irrelevant at n ≤ SMALL_N.
         val label = IntArray(n) { it }
         val mergeDist = ArrayList<Double>(n - 1)
         val labelsBefore = ArrayList<IntArray>(n - 1)     // labels before the c-th merge
         repeat(n - 1) {
             var bi = -1; var bj = -1; var best = Double.MAX_VALUE
-            for (i in 0 until n) for (j in i + 1 until n) {
-                if (label[i] != label[j] && d[i][j] < best) { best = d[i][j]; bi = i; bj = j }
+            val reps = label.distinct()
+            for (ci in reps.indices) for (cj in ci + 1 until reps.size) {
+                var far = 0.0
+                for (p in 0 until n) if (label[p] == reps[ci]) {
+                    for (q in 0 until n) if (label[q] == reps[cj]) {
+                        if (d[p][q] > far) far = d[p][q]
+                    }
+                }
+                if (far < best) { best = far; bi = reps[ci]; bj = reps[cj] }
             }
             labelsBefore.add(label.copyOf())
             mergeDist.add(best)
-            val from = label[bj]; val to = label[bi]
-            for (p in 0 until n) if (label[p] == from) label[p] = to
+            for (p in 0 until n) if (label[p] == bj) label[p] = bi
         }
         // Cut before the merge with the largest qualifying relative jump.
         var cutAt = -1; var bestJump = 0.0
