@@ -191,13 +191,13 @@ private fun mainApplication() = application {
             }
         }
 
-        // Save the current session to a .ogg (embedded transcript) — extracted so the header's
+        // Save the current session to a .m4a (embedded transcript) — extracted so the header's
         // Save-session icon button stays a one-liner.
         val saveSession: () -> Unit = {
             val source = state.audioFile
             if (source != null) {
                 val suggested = studio.voxsum.desktop.session.VoxsumSession.suggestFileName(state.title)
-                val dest = FilePicker.saveFile(Strings.saveSessionAsOgg, suggested)
+                val dest = FilePicker.saveFile(Strings.saveSessionAsM4a, suggested)
                 if (dest != null) {
                     scope.launch {
                         update { it.copy(status = Strings.savingSession) }

@@ -31,7 +31,7 @@ object Strings {
     // ---- Window / picker titles ----
     val windowTitle: String get() = t("VoxSum for Linux", "VoxSum pour Linux", "VoxSum Linux 版")
     val pickAudioFile: String get() = t("Pick an audio file", "Choisir un fichier audio", "選擇音訊檔案")
-    val saveSessionAsOgg: String get() = t("Save session as .ogg", "Enregistrer la session en .ogg", "另存工作階段為 .ogg")
+    val saveSessionAsM4a: String get() = t("Save session as .m4a", "Enregistrer la session en .m4a", "另存工作階段為 .m4a")
 
     // ---- Session save status ----
     val savingSession: String get() = t("Saving session…", "Enregistrement de la session…", "正在儲存工作階段…")

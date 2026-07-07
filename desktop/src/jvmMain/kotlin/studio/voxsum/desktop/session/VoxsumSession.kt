@@ -29,7 +29,11 @@ import java.util.zip.GZIPOutputStream
  * AudioTranscoder/CoverGenerator/CoverArt are the desktop ports already in this branch.
  */
 object VoxsumSession {
-    const val EXT = "ogg"
+    // M4A/AAC is the default session container — it matches what the Android app writes, so a
+    // session moves between the two ports without a format wall, and AAC-in-MP4 plays on every
+    // player/OS. Reading stays format-agnostic (open()/hasEmbeddedSession() sniff `ftyp` to tell an
+    // MP4 from an OGG), so sessions saved by the earlier `.ogg` default still reopen losslessly.
+    const val EXT = "m4a"
 
     enum class Format(val ext: String) { OGG("ogg"), M4A("m4a") }
 
@@ -70,7 +74,7 @@ object VoxsumSession {
         llmModelId: String?,
         coverEnabled: Boolean = true,
         fileName: String = "session.$EXT",
-        format: Format = Format.OGG,
+        format: Format = Format.M4A,
     ): Built? {
         if (source == null) return null
         dir.mkdirs()
@@ -139,7 +143,7 @@ object VoxsumSession {
         dest: File, source: File?,
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
         summary: String?, actionItems: String?, title: String?, asrModelId: String?, llmModelId: String?,
-        coverEnabled: Boolean = true, format: Format = Format.OGG,
+        coverEnabled: Boolean = true, format: Format = Format.M4A,
     ): SaveOutcome {
         val dir = File(dest.parentFile, ".voxsum_save_tmp").apply { mkdirs() }
         try {
