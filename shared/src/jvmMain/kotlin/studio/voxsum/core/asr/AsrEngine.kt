@@ -51,7 +51,14 @@ class AsrEngine(
             sileroVadModelConfig = SileroVadModelConfig(
                 model = vadModel,
                 threshold = vadThreshold,
-                minSilenceDuration = 0.25f,
+                // 0.15s, down from 0.25s: a segment only closes after this much continuous
+                // silence, and real conversational turn gaps average ~0.2s — at 0.25s a fast
+                // A→B exchange very often landed in ONE segment, which then carried one speaker
+                // label for two voices (measured on real audio; see the spectral-diarization
+                // split fix). 0.15s still bridges intra-sentence pauses but catches most turn
+                // exchanges; whatever it still fuses is rescued by DiarizationEngine's
+                // within-utterance split.
+                minSilenceDuration = 0.15f,
                 minSpeechDuration = 0.25f,
                 windowSize = WINDOW,
             ),
@@ -111,6 +118,30 @@ class AsrEngine(
             }
         }
         return fresh
+    }
+
+    /**
+     * Decode one arbitrary 16 kHz slice outside the VAD flow. Used by the diarization split
+     * rescue: when a VAD segment fused two speakers' turns and the backend gives no token
+     * timestamps (Qwen3 fills only the text), the two halves found by the acoustic scan are
+     * re-decoded to divide the text. Returns "" on decode failure (callers keep the fused line).
+     */
+    fun decodeSlice(samples: FloatArray): String {
+        if (samples.isEmpty()) return ""
+        return try {
+            val stream = recognizer.createStream()
+            try {
+                val dec = if (samples.size < minDecodeSamples) samples.copyOf(minDecodeSamples) else samples
+                stream.acceptWaveform(dec, SAMPLE_RATE)
+                recognizer.decode(stream)
+                cleanTranscript(recognizer.getResult(stream).text).trim()
+            } finally {
+                runCatching { stream.release() }
+            }
+        } catch (t: Throwable) {
+            voxLogWarn("AsrEngine", "split re-decode failed; keeping the fused line", t)
+            ""
+        }
     }
 
     /**

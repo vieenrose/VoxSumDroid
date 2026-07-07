@@ -57,12 +57,34 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
         update { it.copy(status = "Decoding…", progress = null) }
         val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(file) }
 
-        val utterances = transcribe(models, backend, config, pcm, update)
-
-        val (tagged, speakerCount) = if (config.diarizationEnabled) {
-            diarize(models, config, pcm, utterances, update)
-        } else {
-            utterances to 0
+        update { it.copy(status = "Transcribing…", progress = 0f) }
+        val utterances = ArrayList<TranscriptEvent.Utterance>()
+        // Convert each utterance to the target Chinese script at ASR-emit time, like Android's
+        // outputConverter (TranscriptionService) — SenseVoice emits Simplified, so without this a
+        // zh-Hant target shows a Simplified transcript. Same converter the summary/actions use.
+        val script = TargetLanguage.scriptFor(config.targetLanguage)
+        val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
+        // The ASR engine stays alive through diarization: its decodeSlice re-decodes the halves
+        // of a fused two-speaker segment when the backend has no token timestamps (Qwen3).
+        val (tagged, speakerCount) = withContext(Dispatchers.Default) {
+            AsrEngine(
+                backend = backend,
+                files = models.asrFiles(backend),
+                vadModel = models.vadModel.absolutePath,
+                numThreads = 2,
+                language = config.language,
+                useItn = config.useItn,
+                vadThreshold = config.vadThreshold,
+            ).use { asr ->
+                collectTranscribeEvents(asr.transcribe(pcm), utterances, update, convert)
+                if (config.diarizationEnabled) {
+                    diarize(models, config, pcm, utterances, update) { s, e ->
+                        convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+                    }
+                } else {
+                    utterances.toList() to 0
+                }
+            }
         }
         update { it.copy(utterances = tagged, speakerCount = speakerCount, progress = null) }
 
@@ -96,21 +118,24 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         val script = TargetLanguage.scriptFor(config.targetLanguage)
         val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
-        withContext(Dispatchers.Default) {
+        // As in runPipeline: the ASR engine outlives transcription so diarization's split rescue
+        // can re-decode fused segments on timestamp-less backends (Qwen3).
+        val (tagged, speakerCount) = withContext(Dispatchers.Default) {
             AsrEngine(
                 backend = backend, files = models.asrFiles(backend), vadModel = models.vadModel.absolutePath,
                 numThreads = 2, language = config.language, useItn = config.useItn, vadThreshold = config.vadThreshold,
             ).use { asr ->
                 collectTranscribeEvents(asr.transcribeLive(recorder.record(dest, shouldStop)), utterances, update, convert)
+                update { it.copy(audioFile = dest, fileName = dest.name, progress = null) }
+                val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(dest) }
+                if (config.diarizationEnabled) {
+                    diarize(models, config, pcm, utterances, update) { s, e ->
+                        convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+                    }
+                } else {
+                    utterances.toList() to 0
+                }
             }
-        }
-        update { it.copy(audioFile = dest, fileName = dest.name, progress = null) }
-
-        val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(dest) }
-        val (tagged, speakerCount) = if (config.diarizationEnabled) {
-            diarize(models, config, pcm, utterances, update)
-        } else {
-            utterances to 0
         }
         update { it.copy(utterances = tagged, speakerCount = speakerCount, progress = null) }
 
@@ -251,28 +276,11 @@ private suspend fun ensureLlm(models: ModelManager, llmSpec: studio.voxsum.core.
     }
 }
 
-private suspend fun transcribe(
-    models: ModelManager, backend: AsrBackend, config: TranscriptionConfig, pcm: FloatArray, update: Update,
-): List<TranscriptEvent.Utterance> {
-    update { it.copy(status = "Transcribing…", progress = 0f) }
-    val utterances = ArrayList<TranscriptEvent.Utterance>()
-    // Convert each utterance to the target Chinese script at ASR-emit time, like Android's
-    // outputConverter (TranscriptionService) — SenseVoice emits Simplified, so without this a
-    // zh-Hant target shows a Simplified transcript. Same converter the summary/actions use.
-    val script = TargetLanguage.scriptFor(config.targetLanguage)
-    val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
-    withContext(Dispatchers.Default) {
-        AsrEngine(
-            backend = backend,
-            files = models.asrFiles(backend),
-            vadModel = models.vadModel.absolutePath,
-            numThreads = 2,
-            language = config.language,
-            useItn = config.useItn,
-            vadThreshold = config.vadThreshold,
-        ).use { asr -> collectTranscribeEvents(asr.transcribe(pcm), utterances, update, convert) }
-    }
-    return utterances
+/** Bounds-safe [start, end) second-range slice of a 16 kHz buffer (diarization split re-decode). */
+private fun pcmSlice(pcm: FloatArray, startSec: Double, endSec: Double): FloatArray {
+    val a = (startSec * 16_000).toInt().coerceIn(0, pcm.size)
+    val b = (endSec * 16_000).toInt().coerceIn(a, pcm.size)
+    return pcm.copyOfRange(a, b)
 }
 
 private suspend fun collectTranscribeEvents(flow: Flow<TranscriptEvent>, utterances: MutableList<TranscriptEvent.Utterance>, update: Update, convert: (String) -> String) {
@@ -289,6 +297,7 @@ private suspend fun collectTranscribeEvents(flow: Flow<TranscriptEvent>, utteran
 private suspend fun diarize(
     models: ModelManager, config: TranscriptionConfig, pcm: FloatArray,
     utterances: List<TranscriptEvent.Utterance>, update: Update,
+    redecode: ((Double, Double) -> String)? = null,
 ): Pair<List<TranscriptEvent.Utterance>, Int> {
     update { it.copy(status = "Identifying speakers…", progress = null) }
     return withContext(Dispatchers.Default) {
@@ -298,7 +307,7 @@ private suspend fun diarize(
             numClusters = config.numSpeakers,
         )
         try {
-            diar.assignSpeakers(pcm16k = pcm, utterances = utterances)
+            diar.assignSpeakers(pcm16k = pcm, utterances = utterances, redecode = redecode)
         } finally {
             diar.close()
         }
