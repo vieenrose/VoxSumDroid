@@ -53,6 +53,7 @@ fun SettingsDialog(
     var numSpeakersText by remember {
         mutableStateOf(if (config.numSpeakers > 0) config.numSpeakers.toString() else "")
     }
+    var preciseDiarization by remember { mutableStateOf(config.preciseDiarization) }
     var targetLanguage by remember { mutableStateOf(TargetLanguage.fromId(config.targetLanguage)) }
     var language by remember { mutableStateOf(config.language) }
     var style by remember { mutableStateOf(summaryStyle) }
@@ -133,6 +134,10 @@ fun SettingsDialog(
                     Text(Strings.identifySpeakers, color = pal.Slate200)
                 }
                 if (diarizationEnabled) {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Switch(checked = preciseDiarization, onCheckedChange = { preciseDiarization = it })
+                        Text(Strings.preciseDiarization, color = pal.Slate200)
+                    }
                     Row(Modifier.padding(top = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Text(Strings.speakerCountHint, color = pal.Slate400)
                         OutlinedTextField(
@@ -185,6 +190,7 @@ fun SettingsDialog(
                             // Only 1..10 is a valid explicit count; blank / 0 / out-of-range = auto (-1),
                             // matching Android's -1..10 clamp (its +/- stepper never yields 0).
                             numSpeakers = numSpeakersText.toIntOrNull()?.takeIf { it in 1..10 } ?: -1,
+                            preciseDiarization = preciseDiarization,
                             targetLanguage = targetLanguage.id,
                             language = language,
                             useItn = useItn,

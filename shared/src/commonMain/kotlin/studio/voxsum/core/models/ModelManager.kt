@@ -47,6 +47,11 @@ class ModelManager(appFilesDir: File) {
     // slower and less accurate on this ARM CPU). Hosted on HF since it is a custom conversion.
     // New filename forces a fresh download on existing installs (the downloader skips if present).
     val embeddingModel: File get() = File(modelsDir, "campplus_zh_en_fp16.onnx")
+
+    /** pyannote segmentation-3.0 (MIT, ~6 MB) — the speaker-aware local segmenter that drives
+     *  DiarizationEngine's segmentation-first path (boundaries where the VOICE changes, not
+     *  where silence falls). */
+    val segmentationModel: File get() = File(modelsDir, "pyannote_segmentation_3_0.onnx")
     // Older embeddings to reclaim on upgrade: eres2net_base and the interim CAM++ fp32.
     private val legacyEmbeddings: List<File> get() =
         listOf(File(modelsDir, "speaker_embedding.onnx"), File(modelsDir, "campplus_zh_en.onnx"))
@@ -54,7 +59,7 @@ class ModelManager(appFilesDir: File) {
     fun asrReady(): Boolean = senseVoiceModel.exists() && tokens.exists() && vadModel.exists()
     // Diarization is per-utterance embedding + clustering, so only the speaker-embedding
     // model is needed (no pyannote segmentation model).
-    fun diarizationReady(): Boolean = embeddingModel.exists()
+    fun diarizationReady(): Boolean = embeddingModel.exists() && segmentationModel.exists()
 
     // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
     private data class AsrModelSpec(
@@ -292,7 +297,10 @@ class ModelManager(appFilesDir: File) {
     /** Ensure the diarization model (3D-Speaker CAM++ zh+en fp16 embedding) — Phase 3. */
     suspend fun ensureDiarizationModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         if (!embeddingModel.exists()) {
-            download(EMB_URL, embeddingModel, EMB_SHA) { onProgress(it) }
+            download(EMB_URL, embeddingModel, EMB_SHA) { onProgress(it * 0.7f) }
+        }
+        if (!segmentationModel.exists()) {
+            download(SEG_URL, segmentationModel, SEG_SHA) { onProgress(0.7f + it * 0.3f) }
         }
         // Reclaim superseded embeddings (eres2net ~38 MB, CAM++ fp32 ~27 MB) once fp16 is in place.
         legacyEmbeddings.forEach { if (it.exists()) it.delete() }
@@ -490,5 +498,9 @@ class ModelManager(appFilesDir: File) {
         private const val VAD_SHA = "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
         private const val SENSE_VOICE_SHA = "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e"
         private const val EMB_SHA = "62eb2d79d363c1fd5ee093a4b0dcb5470d5ad3b7452612b67cce9b89f36c8ef3"
+
+        private const val SEG_URL =
+            "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx"
+        private const val SEG_SHA = "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079"
     }
 }

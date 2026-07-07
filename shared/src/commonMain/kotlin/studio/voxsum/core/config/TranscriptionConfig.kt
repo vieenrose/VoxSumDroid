@@ -21,6 +21,12 @@ data class TranscriptionConfig(
     // per-embedding-model distance threshold to tune; the old clusterThreshold knob was removed
     // when it proved mistuned for CAM++ and silently merged speakers).
     val numSpeakers: Int = -1,
+    // Segmentation-first diarization (pyannote local segmenter + CAM++ + auto-k): speaker
+    // boundaries at frame resolution instead of silence boundaries. Large accuracy win on
+    // meetings (AMI: hard cases 55-60% → 97-98% attribution) but the segmenter pass costs
+    // ~0.5× realtime on slow ARM devices — this switch lets those fall back to the legacy
+    // per-utterance flow.
+    val preciseDiarization: Boolean = true,
 
     // --- Summarization ---
     // The actually-used summary model. MUST track LlmRegistry.DEFAULT_ID — hardcoding it here (it was

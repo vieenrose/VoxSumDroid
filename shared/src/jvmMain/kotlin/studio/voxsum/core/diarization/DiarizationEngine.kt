@@ -35,15 +35,47 @@ import studio.voxsum.core.events.TranscriptEvent
  * One instance owns native resources; call [close].
  */
 class DiarizationEngine(
-    embeddingModel: String,
-    numThreads: Int,
+    private val embeddingModel: String,
+    private val numThreads: Int,
     private val numClusters: Int = -1,
     private val maxSpeakers: Int = 8,
+    // Path to the pyannote segmentation-3.0 ONNX model. When present, diarization runs
+    // SEGMENTATION-FIRST (see [segmentFirst]): boundaries come from a speaker-aware neural
+    // segmenter at frame resolution instead of from silence, which removes the "one VAD segment
+    // = one speaker" assumption entirely. Null or missing file → the legacy per-utterance flow.
+    private val segmentationModel: String? = null,
 ) : AutoCloseable {
 
     private val extractor = SpeakerEmbeddingExtractor(
         config = SpeakerEmbeddingExtractorConfig(model = embeddingModel, numThreads = numThreads),
     )
+
+    /** Whether the last [assignSpeakers] call used the segmentation-first path (observability). */
+    var usedSegmenter: Boolean = false
+        private set
+
+    private val segmenterDelegate = lazy {
+        val m = segmentationModel ?: return@lazy null
+        if (!java.io.File(m).exists()) return@lazy null
+        runCatching {
+            com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization(
+                config = com.k2fsa.sherpa.onnx.OfflineSpeakerDiarizationConfig(
+                    segmentation = com.k2fsa.sherpa.onnx.OfflineSpeakerSegmentationModelConfig(
+                        pyannote = com.k2fsa.sherpa.onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model = m),
+                        numThreads = numThreads,
+                    ),
+                    embedding = SpeakerEmbeddingExtractorConfig(model = embeddingModel, numThreads = numThreads),
+                    // Deliberately over-clustered: sherpa's internal threshold clustering only has
+                    // to keep island BOUNDARIES pure — global identity is re-derived below by our
+                    // auto-k clustering, which needs no distance threshold.
+                    clustering = com.k2fsa.sherpa.onnx.FastClusteringConfig(numClusters = -1, threshold = SEG_THRESHOLD),
+                    minDurationOn = SEG_MIN_ON,
+                    minDurationOff = SEG_MIN_OFF,
+                ),
+            )
+        }.getOrNull()
+    }
+    private val segmenter: com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization? get() = segmenterDelegate.value
 
     /**
      * Tag each utterance with a speaker id. Returns the tagged utterances and the detected
@@ -83,6 +115,17 @@ class DiarizationEngine(
         this.samples = samples
         this.totalSamples = totalSamples
         if (utterances.isEmpty()) return utterances to 0
+
+        // Segmentation-first path when the segmenter model is available; any failure inside it
+        // (native error, degenerate output) falls back to the legacy per-utterance flow below.
+        usedSegmenter = false
+        segmenter?.let { sd ->
+            val r = runCatching { segmentFirst(sd, utterances, onProgress, redecode) }.getOrNull()
+            if (r != null) {
+                usedSegmenter = true
+                return r
+            }
+        }
 
         // 1. One L2-normalized embedding per utterance. This loop is the bulk of diarization, so it
         //    drives the progress callback (clustering after it is comparatively instant).
@@ -140,6 +183,255 @@ class DiarizationEngine(
         val e = runCatching { extractor.compute(stream) }.getOrDefault(FloatArray(0))
         stream.release()
         return l2normalize(e)
+    }
+
+    // --- segmentation-first flow ----------------------------------------------------------
+
+    private class Island(val start: Double, val end: Double, var label: Int = -1)
+
+    /**
+     * Segmentation-first diarization. Boundaries come from pyannote segmentation-3.0 (via
+     * sherpa's OfflineSpeakerDiarization) at frame resolution — where the VOICE changes, not
+     * where silence falls — which removes every "one VAD segment = one speaker" failure mode
+     * (fused turns, leading fragments, flush tails) by construction. Global identity is then
+     * re-derived by this engine's own clustering:
+     *  1. islands = single-speaker regions from the segmenter (audio processed in bounded
+     *     chunks so multi-hour recordings never live in RAM);
+     *  2. each island is embedded on its longest SOLO stretch — an island overlapping another
+     *     speaker's island is overlapped speech, and embedding the raw slice hears the mixture
+     *     (measured: an overlap-heavy meeting collapsed to one speaker from exactly that);
+     *  3. islands with a long solo stretch anchor the auto-k clustering (short slices embed too
+     *     noisily to vote); everything else joins its nearest centroid; spurious short-talk
+     *     speakers fold into a genuinely-close cluster (same gate as the legacy flow);
+     *  4. each ASR utterance is aligned to the island timeline: single-speaker utterances get
+     *     their label directly, multi-speaker ones split at the timeline boundaries via
+     *     [divideAtRuns] (energy-dip snap + stamp-safe token division or re-decode).
+     * Validated on AMI: the overlap-heavy and speaker-merge meetings went from 55-60% to 97-98%
+     * time-weighted attribution vs ground truth (see the segmentation-first release notes).
+     */
+    private fun segmentFirst(
+        sd: com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization,
+        utterances: List<TranscriptEvent.Utterance>,
+        onProgress: (Float) -> Unit,
+        redecode: ((Double, Double) -> String)?,
+    ): Pair<List<TranscriptEvent.Utterance>, Int>? {
+        // 1. Islands, chunked. Chunk seams: each chunk is processed with SEG_SEAM_SEC of margin
+        //    on both sides, and an island belongs to the chunk that contains its midpoint.
+        val totalSec = totalSamples.toDouble() / SAMPLE_RATE
+        val islands = ArrayList<Island>()
+        var chunk = 0.0
+        while (chunk < totalSec) {
+            val a = (chunk - SEG_SEAM_SEC).coerceAtLeast(0.0)
+            val b = (chunk + SEG_CHUNK_SEC + SEG_SEAM_SEC).coerceAtMost(totalSec)
+            val pcm = samples((a * SAMPLE_RATE).toLong(), (b * SAMPLE_RATE).toLong())
+            for (s in sd.process(pcm)) {
+                val s0 = a + s.start
+                val s1 = a + s.end
+                val mid = (s0 + s1) / 2
+                if (mid >= chunk && mid < chunk + SEG_CHUNK_SEC) islands.add(Island(s0, s1))
+            }
+            chunk += SEG_CHUNK_SEC
+        }
+        islands.sortBy { it.start }
+        if (islands.isEmpty()) return null
+
+        // 2. Longest solo stretch per island (subtract every other island's time range).
+        fun soloRun(i: Int): Pair<Double, Double> {
+            val s = islands[i].start
+            val e = islands[i].end
+            val cuts = ArrayList<Pair<Double, Double>>()
+            for (j in islands.indices) if (j != i) {
+                val a = maxOf(s, islands[j].start)
+                val b = minOf(e, islands[j].end)
+                if (b > a) cuts.add(a to b)
+            }
+            if (cuts.isEmpty()) return s to e
+            cuts.sortBy { it.first }
+            var bestA = s
+            var bestB = s
+            var cur = s
+            for ((a, b) in cuts) {
+                if (a > cur && a - cur > bestB - bestA) { bestA = cur; bestB = a }
+                cur = maxOf(cur, b)
+            }
+            if (e > cur && e - cur > bestB - bestA) { bestA = cur; bestB = e }
+            return if (bestB > bestA) bestA to bestB else s to e
+        }
+        val solos = islands.indices.map { soloRun(it) }
+        val n = islands.size
+        val embs = Array(n) { i ->
+            embedRange(solos[i].first, solos[i].second).also { onProgress((i + 1f) / n) }
+        }
+        val valid = (0 until n).filter { embs[it].isNotEmpty() && embs[it].all { x -> x.isFinite() } }
+        if (valid.isEmpty()) return null
+
+        // 3. Anchors: longest-solo islands, capped; auto-k (or the user's fixed count).
+        val bySolo = valid.sortedByDescending { solos[it].second - solos[it].first }
+        val anchors = bySolo.filter { solos[it].second - solos[it].first >= SEG_ANCHOR_SOLO_SEC }
+            .take(ANCHOR_MAX)
+            .ifEmpty { bySolo.take(ANCHOR_MAX) }
+        val anchorEmbs = Array(anchors.size) { embs[anchors[it]] }
+
+        fun assign(fixedK: Int): Triple<IntArray, Array<FloatArray>, Int> {
+            val aLabels = SpectralClustering.cluster(anchorEmbs, fixedK, maxSpeakers)
+            val kk = (aLabels.maxOrNull() ?: 0) + 1
+            val cc = centroids(aLabels, anchorEmbs, kk)
+            val lab = IntArray(n) { -1 }
+            anchors.forEachIndexed { ai, idx -> lab[idx] = aLabels[ai] }
+            for (idx in valid) if (lab[idx] < 0) {
+                var best = 0
+                var bestD = Double.MAX_VALUE
+                for (c in 0 until kk) {
+                    val d = cosineDistance(embs[idx], cc[c])
+                    if (d < bestD) { bestD = d; best = c }
+                }
+                lab[idx] = best
+            }
+            return Triple(lab, cc, kk)
+        }
+
+        /** Seconds of impossible assignment: same-label islands overlapping in time ARE two
+         *  different speakers speaking at once (the segmenter separates concurrent voices). */
+        fun violations(lab: IntArray): Double {
+            var v = 0.0
+            for (i in 0 until n) for (j in i + 1 until n) {
+                if (lab[i] != lab[j]) continue
+                if (islands[j].start >= islands[i].end) break
+                v += (minOf(islands[i].end, islands[j].end) - maxOf(islands[i].start, islands[j].start))
+                    .coerceAtLeast(0.0)
+            }
+            return v
+        }
+
+        // k selection. The eigengap under-counts on real meetings — it latches onto coarse
+        // macro-structure (e.g. two voice-similarity groups) and answers 2 where 4 speakers
+        // exist (measured on AMI: every k error was an under-count, most exactly 2). So the
+        // eigengap only sets the FLOOR; when it already says ≥2 (lone-voice recordings are
+        // protected — silhouette never runs for k=1), candidates k..k+[SEG_SIL_RANGE] are
+        // re-scored by mean cosine silhouette over the anchor embeddings and the best wins by a
+        // [SEG_SIL_MARGIN] margin. Offline sweep on AMI+AISHELL: attr 90.5→96.0% / 87.2→96.1%,
+        // k exact 8/22 → 15/22, all but one within ±1.
+        var chosenK = numClusters
+        if (numClusters !in 1..n) {
+            val probe = SpectralClustering.cluster(anchorEmbs, -1, maxSpeakers)
+            val k1 = (probe.maxOrNull() ?: 0) + 1
+            chosenK = -1
+            if (k1 >= 2) {
+                var bestK = k1
+                var bestS = silhouette(anchorEmbs, probe, k1)
+                for (kk in maxOf(2, k1)..minOf(maxSpeakers, k1 + SEG_SIL_RANGE)) {
+                    if (kk == k1) continue
+                    val l = SpectralClustering.cluster(anchorEmbs, kk, maxSpeakers)
+                    val s = silhouette(anchorEmbs, l, kk)
+                    if (s > bestS + SEG_SIL_MARGIN) { bestS = s; bestK = kk }
+                }
+                if (bestK != k1) chosenK = bestK
+            }
+        }
+        var (labels, cents, k) = assign(chosenK)
+        // Cannot-link escalation (auto-k only): same-label islands overlapping in time are two
+        // different voices speaking at once — provably k is too low. Gentle acceptance (a step
+        // must remove ≥40% of the contradiction mass, and the mass must exceed a floor scaled
+        // to total talk) — an aggressive any-decrease rule fragmented overlap-heavy meetings
+        // all the way to k=8 (measured: AMI attr 58.7%).
+        if (numClusters !in 1..n) {
+            val talk = islands.sumOf { it.end - it.start }
+            val floor = maxOf(SEG_CANNOT_LINK_SEC, SEG_CANNOT_LINK_FRAC * talk)
+            var v = violations(labels)
+            while (k < maxSpeakers && v >= floor) {
+                val (nl, nc, nk) = assign(k + 1)
+                val nv = violations(nl)
+                if (nv > 0.6 * v) break
+                labels = nl; cents = nc; k = nk; v = nv
+            }
+        }
+        for (idx in 0 until n) islands[idx].label = labels[idx]
+        // Unembeddable slivers inherit the nearest-in-time label.
+        var last = -1
+        for (i in 0 until n) if (islands[i].label >= 0) last = islands[i].label else if (last >= 0) islands[i].label = last
+        last = 0
+        for (i in (n - 1) downTo 0) if (islands[i].label >= 0) last = islands[i].label else islands[i].label = last
+
+        // Fold spurious short-talk speakers into a genuinely close cluster (legacy gate).
+        while (true) {
+            val talk = DoubleArray(k)
+            for (isl in islands) talk[isl.label] += isl.end - isl.start
+            val weak = (0 until k).filter { talk[it] < MIN_SPEAKER_SEC }
+            if (weak.isEmpty() || k <= 1) break
+            var victim = -1
+            var target = -1
+            var bestD = Double.MAX_VALUE
+            for (w in weak) for (c in 0 until k) if (c != w) {
+                val d = cosineDistance(cents[w], cents[c])
+                if (d < bestD) { bestD = d; victim = w; target = c }
+            }
+            if (target < 0 || bestD >= WEAK_MERGE_GATE) break
+            for (isl in islands) if (isl.label == victim) isl.label = target
+            // compact labels
+            val map = HashMap<Int, Int>()
+            for (isl in islands) isl.label = map.getOrPut(isl.label) { map.size }
+            k = map.size
+        }
+
+        // 4. Align ASR utterances to the island timeline on a 10 ms grid (frame label = the
+        //    covering island; where two islands overlap, the one overlapping the utterance more).
+        val out = ArrayList<TranscriptEvent.Utterance>(utterances.size)
+        for (u in utterances) {
+            val dur = u.endSec - u.startSec
+            val frames = maxOf(1, (dur / 0.01).toInt())
+            val cover = IntArray(frames) { -1 }
+            val uOverlap = HashMap<Int, Double>()
+            for (isl in islands) {
+                val ov = minOf(u.endSec, isl.end) - maxOf(u.startSec, isl.start)
+                if (ov > 0) uOverlap[isl.label] = (uOverlap[isl.label] ?: 0.0) + ov
+            }
+            for (isl in islands) {
+                if (isl.end <= u.startSec || isl.start >= u.endSec) continue
+                val f0 = ((isl.start - u.startSec) / 0.01).toInt().coerceIn(0, frames - 1)
+                val f1 = ((isl.end - u.startSec) / 0.01).toInt().coerceIn(f0 + 1, frames)
+                for (f in f0 until f1) {
+                    val cur = cover[f]
+                    if (cur < 0 || (uOverlap[isl.label] ?: 0.0) > (uOverlap[cur] ?: 0.0)) cover[f] = isl.label
+                }
+            }
+            // fill unlabeled frames from neighbours
+            var l = -1
+            for (f in 0 until frames) if (cover[f] >= 0) l = cover[f] else if (l >= 0) cover[f] = l
+            l = cover.firstOrNull { it >= 0 } ?: (uOverlap.maxByOrNull { it.value }?.key ?: 0)
+            for (f in (frames - 1) downTo 0) if (cover[f] >= 0) l = cover[f] else cover[f] = l
+
+            // collapse frames into runs, absorb short runs, coalesce
+            val runs = ArrayList<Seg>()
+            for (f in 0 until frames) {
+                val t0 = f * 0.01
+                val t1 = (f + 1) * 0.01
+                if (runs.isNotEmpty() && runs.last().label == cover[f]) runs.last().end = t1
+                else runs.add(Seg(cover[f], t0, t1))
+            }
+            var i = 0
+            while (runs.size > 1 && i < runs.size) {
+                if (runs[i].end - runs[i].start < SEG_RUN_MIN_SEC) {
+                    if (i > 0) runs[i - 1].end = runs[i].end else runs[i + 1].start = runs[i].start
+                    runs.removeAt(i)
+                    i = 0
+                } else i++
+            }
+            val coalesced = ArrayList<Seg>()
+            for (s in runs) {
+                if (coalesced.isNotEmpty() && coalesced.last().label == s.label) coalesced.last().end = s.end
+                else coalesced.add(Seg(s.label, s.start, s.end))
+            }
+            val base = uOverlap.maxByOrNull { it.value }?.key ?: coalesced.first().label
+            if (coalesced.size < 2) {
+                out.add(u.copy(speaker = coalesced.first().label))
+            } else {
+                out.addAll(divideAtRuns(u, base, coalesced, redecode))
+            }
+        }
+
+        val tagged = out.mapIndexed { i, u -> u.copy(index = i) }
+        val count = (tagged.mapNotNull { it.speaker }.maxOrNull() ?: -1) + 1
+        return tagged to count
     }
 
     // --- clustering ----------------------------------------------------------------------
@@ -381,8 +673,30 @@ class DiarizationEngine(
 
         if (runs.size < 2) return listOf(u.copy(speaker = base))
 
-        // Refine every interior run boundary to the quietest instant nearby — the window scan
-        // localizes the change only to ~HOP_SEC, and the real inter-turn gap is the energy dip.
+        return divideAtRuns(u, base, runs, redecode)
+    }
+
+    /**
+     * Turn [u] into one line per run: refine each interior run boundary to the quietest instant
+     * nearby (the run boundaries locate the change only coarsely; the real inter-turn gap is the
+     * energy dip), then divide the text at token stamps when every dip is stamp-safe (see
+     * [stampSafe]) — an emission-delayed stamp near the dip puts a character on the wrong
+     * speaker's line — else cut at the dips and re-decode each side. Shared by the window-scan
+     * split and the segmentation-first aligner.
+     */
+    private fun divideAtRuns(
+        u: TranscriptEvent.Utterance,
+        base: Int,
+        runs: MutableList<Seg>,
+        redecode: ((Double, Double) -> String)?,
+    ): List<TranscriptEvent.Utterance> {
+        val dur = u.endSec - u.startSec
+        val toks = u.tokens
+        val times = u.tokenTimes
+        val hasTokenTimes =
+            toks != null && times != null && times.isNotEmpty() && toks.size == times.size
+        if (!hasTokenTimes && redecode == null) return listOf(u.copy(speaker = base))
+
         val bounds = DoubleArray(runs.size + 1)
         bounds[runs.size] = dur
         for (j in 1 until runs.size) {
@@ -390,9 +704,6 @@ class DiarizationEngine(
             bounds[j] = dip.coerceIn(bounds[j - 1] + 0.1, dur - 0.1)
         }
 
-        // Divide the text at token stamps only when every dip is stamp-safe (see [stampSafe]) —
-        // an emission-delayed stamp near the dip puts a character on the wrong speaker's line.
-        // Otherwise cut at the dips and re-decode each side.
         if (hasTokenTimes &&
             (redecode == null || (1 until runs.size).all { stampSafe(times!!, bounds[it]) })
         ) {
@@ -642,7 +953,10 @@ class DiarizationEngine(
         return if (bestC != base && baseD - bestD >= SPLIT_MARGIN && bestD < ABS_GATE) bestC else base
     }
 
-    override fun close() = extractor.release()
+    override fun close() {
+        if (segmenterDelegate.isInitialized()) runCatching { segmenterDelegate.value?.release() }
+        extractor.release()
+    }
 
     companion object {
         const val SAMPLE_RATE = 16_000
@@ -668,6 +982,45 @@ class DiarizationEngine(
         const val HEAD_MARGIN = 0.10
         const val STAMP_AMBIG_BEFORE = 0.05              // stamp ambiguity band around a cut dip:
         const val STAMP_AMBIG_AFTER = 0.35               // (dip-BEFORE, dip+AFTER) — see stampSafe
+        // Segmentation-first (see segmentFirst):
+        const val SEG_THRESHOLD = 0.5f                   // sherpa-internal clustering: over-split is fine
+        const val SEG_MIN_ON = 0.2f                      // min island duration
+        const val SEG_MIN_OFF = 0.3f                     // min gap that separates islands
+        const val SEG_CHUNK_SEC = 1200.0                 // process audio in 20-min chunks (RAM bound)
+        const val SEG_SEAM_SEC = 5.0                     // chunk margin; islands owned by midpoint
+        const val SEG_ANCHOR_SOLO_SEC = 2.0              // solo stretch needed to vote in clustering
+        const val SEG_RUN_MIN_SEC = 0.4                  // shortest per-utterance timeline run kept
+        const val SEG_CANNOT_LINK_SEC = 2.0              // contradiction-mass floor (absolute)…
+        const val SEG_CANNOT_LINK_FRAC = 0.005           // …and as a fraction of total talk time
+        const val SEG_SIL_RANGE = 4                      // silhouette re-scores k .. k+RANGE
+        const val SEG_SIL_MARGIN = 0.01                  // a larger k must win by this much
+
+        /** Mean cosine silhouette of [labels] over [embs] — the k re-scoring criterion. */
+        internal fun silhouette(embs: Array<FloatArray>, labels: IntArray, k: Int): Double {
+            if (k < 2) return -1.0
+            val n = embs.size
+            var sum = 0.0
+            var cnt = 0
+            for (i in 0 until n) {
+                var aSum = 0.0
+                var aCnt = 0
+                val bSum = DoubleArray(k)
+                val bCnt = IntArray(k)
+                for (j in 0 until n) {
+                    if (j == i) continue
+                    val d = cosineDistance(embs[i], embs[j])
+                    if (labels[j] == labels[i]) { aSum += d; aCnt++ } else { bSum[labels[j]] += d; bCnt[labels[j]]++ }
+                }
+                if (aCnt == 0) continue
+                val a = aSum / aCnt
+                var b = Double.MAX_VALUE
+                for (c in 0 until k) if (c != labels[i] && bCnt[c] > 0) b = minOf(b, bSum[c] / bCnt[c])
+                if (b == Double.MAX_VALUE) continue
+                sum += (b - a) / maxOf(a, b, 1e-9)
+                cnt++
+            }
+            return if (cnt > 0) sum / cnt else -1.0
+        }
 
         /** Detok + the same zh-en spacing cleanup ASR output gets (split lines used to keep raw
          *  SentencePiece spacing like "直 播 间 的" — cleanTranscript joins CJK correctly). */

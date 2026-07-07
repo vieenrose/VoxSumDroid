@@ -128,6 +128,11 @@ object Strings {
     val needs6gb: String get() = t("needs ~6 GB RAM", "~6 Go de RAM requis", "需要約 6 GB RAM")
     fun modelSubtitle(mb: Long, ram: String): String = "$mb MB · $ram"   // unit-only, language-neutral
     val speakers: String get() = t("Speakers", "Locuteurs", "語者")
+    val preciseDiarization: String get() = t(
+        "Precise speaker boundaries (slower)",
+        "Frontières de locuteurs précises (plus lent)",
+        "精確語者邊界（較慢）",
+    )
     val identifySpeakers: String get() = t("  Identify speakers", "  Identifier les locuteurs", "  辨識語者")
     val speakerCountHint: String get() = t(
         "Speaker count hint (blank = auto): ",

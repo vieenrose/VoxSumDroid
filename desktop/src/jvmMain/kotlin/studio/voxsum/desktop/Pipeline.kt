@@ -305,6 +305,8 @@ private suspend fun diarize(
             embeddingModel = models.embeddingModel.absolutePath,
             numThreads = 2,
             numClusters = config.numSpeakers,
+            segmentationModel = models.segmentationModel
+                .takeIf { config.preciseDiarization && it.exists() }?.absolutePath,
         )
         try {
             diar.assignSpeakers(pcm16k = pcm, utterances = utterances, redecode = redecode)

@@ -128,6 +128,16 @@ class AsrEngine(
      */
     fun decodeSlice(samples: FloatArray): String {
         if (samples.isEmpty()) return ""
+        val first = decodeSliceOnce(samples)
+        if (first.isNotBlank() || samples.size < SAMPLE_RATE / 3) return first
+        // Some slice LENGTHS deterministically decode to empty (measured on Qwen3: a 19478-sample
+        // slice returned "" while ±160 samples decoded perfectly — an internal frame/token
+        // boundary pathology). A non-trivial slice that comes back blank is retried once with
+        // 0.1 s of trailing silence, which moves the length past the bad point.
+        return decodeSliceOnce(samples.copyOf(samples.size + SAMPLE_RATE / 10))
+    }
+
+    private fun decodeSliceOnce(samples: FloatArray): String {
         return try {
             val stream = recognizer.createStream()
             try {
