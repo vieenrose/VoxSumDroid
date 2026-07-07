@@ -2,6 +2,7 @@
 
 <p align="center"><i>Turn any audio into a speaker-labelled transcript and a short summary — entirely on your machine, offline.</i></p>
 
+<p align="center"><b>Quick Start in:</b> English · <a href="QUICKSTART.zh-TW.md">繁體中文</a> · <a href="QUICKSTART.fr.md">Français</a></p>
 <p align="center"><a href="../README.md">← Back to README</a></p>
 
 ---
