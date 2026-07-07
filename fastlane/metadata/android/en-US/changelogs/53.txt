@@ -1,0 +1,1 @@
+Speaker diarization refinement: when a speaker finishes a sentence right as the next one starts, the sentence tail no longer lands at the head of the next speaker's line — it moves back to its speaker, cut at the acoustic gap. Fixes reported zh sessions where lines began with the previous speaker's words. Split lines also no longer show extra spaces between Chinese characters.
