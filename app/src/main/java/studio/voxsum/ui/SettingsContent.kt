@@ -171,9 +171,8 @@ fun SettingsContent(
                     }, label = { Text("+") })
                 }
             }
-            SliderRow(stringResource(R.string.settings_cluster_threshold), config.clusterThreshold, 0.1f, 1.0f, enabled) {
-                onChange(config.copy(clusterThreshold = it))
-            }
+            // (The cluster-threshold slider is gone: spectral clustering picks the speaker count
+            // from the eigengap, so there is no distance threshold left to hand-tune.)
         }
 
         // (5) Summary options.

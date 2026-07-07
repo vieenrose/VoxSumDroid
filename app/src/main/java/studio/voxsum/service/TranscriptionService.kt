@@ -530,7 +530,6 @@ class TranscriptionService : LifecycleService() {
                 embeddingModel = models.embeddingModel.absolutePath,
                 numThreads = asrThreads(),
                 numClusters = cfg.numSpeakers,
-                clusterThreshold = cfg.clusterThreshold,
             ).use { de ->
                 val (t, count) = WavSlicer(wav).use { slicer ->
                     var lastPct = -1
