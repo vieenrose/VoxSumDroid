@@ -549,6 +549,8 @@ class TranscriptionService : LifecycleService() {
             embeddingModel = models.embeddingModel.absolutePath,
             numThreads = asrThreads(),
             numClusters = cfg.numSpeakers,
+            segmentationModel = models.segmentationModel
+                .takeIf { cfg.preciseDiarization && it.exists() }?.absolutePath,
         ).use { de ->
             WavSlicer(wav).use { slicer ->
                 var lastPct = -1

@@ -30,6 +30,7 @@ object ConfigStore {
             vadThreshold = p.getFloat("vadThreshold", d.vadThreshold),
             diarizationEnabled = p.getBoolean("diarizationEnabled", d.diarizationEnabled),
             numSpeakers = p.getInt("numSpeakers", d.numSpeakers),
+            preciseDiarization = p.getBoolean("preciseDiarization", d.preciseDiarization),
             llmModelId = p.getString("llmModelId", d.llmModelId) ?: d.llmModelId,
             summaryPrompt = p.getString("summaryPrompt", d.summaryPrompt) ?: d.summaryPrompt,
             targetLanguage = targetLanguage,
@@ -46,6 +47,7 @@ object ConfigStore {
             putFloat("vadThreshold", c.vadThreshold)
             putBoolean("diarizationEnabled", c.diarizationEnabled)
             putInt("numSpeakers", c.numSpeakers)
+            putBoolean("preciseDiarization", c.preciseDiarization)
             putString("llmModelId", c.llmModelId)
             putString("summaryPrompt", c.summaryPrompt)
             putString("summaryLanguage", c.targetLanguage)   // legacy key (see load())
