@@ -1,0 +1,5 @@
+Speaker diarization fix: a fast exchange between two speakers no longer ends up in one transcript line.
+
+• Fused segments are detected and split at the true speaker change — on every ASR engine, including Qwen3 (text re-decoded per side; token timestamps used on SenseVoice/X-ASR)
+• Correct speaker counts on short recordings (small-n clustering rebuilt, bridge-proof)
+• Finer VAD turn splitting (0.15s silence threshold)
