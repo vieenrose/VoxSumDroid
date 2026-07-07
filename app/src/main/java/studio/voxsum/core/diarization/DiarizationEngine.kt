@@ -5,17 +5,21 @@ import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
 import studio.voxsum.core.events.TranscriptEvent
 
 /**
- * Speaker diarization — per-utterance embeddings + adaptive clustering (the approach of the
- * original web app's improved_diarization.py, which is more precise than sherpa's built-in
+ * Speaker diarization — per-utterance embeddings + auto-k spectral clustering (the approach of
+ * the original web app's improved_diarization.py, which is more precise than sherpa's built-in
  * greedy FastClustering and stays perfectly aligned with the transcript).
  *
  * Pipeline: each ASR utterance already bounds one speech region (from the VAD), so we extract
- * one speaker embedding per utterance (3D-Speaker eres2net, multilingual/zh), then cluster the
- * embeddings with agglomerative average-linkage. The number of speakers is chosen by cutting the
- * dendrogram at an absolute cosine-distance threshold (unless [numClusters] is fixed) — a single
- * voice's utterances stay within [clusterThreshold], only a different voice exceeds it. Spurious
- * short-talk speakers are merged away, and each utterance is labelled directly by its cluster —
- * no segment/overlap mismatch.
+ * one speaker embedding per utterance (3D-Speaker CAM++ zh/en), then cluster the embeddings with
+ * [SpectralClustering] — the speaker count comes from the affinity matrix's eigengap (unless
+ * [numClusters] is fixed), not from an absolute distance threshold. The previous
+ * threshold-cut agglomerative approach was measurably broken after the eres2net→CAM++ swap: the
+ * threshold was tuned to one model's distance scale, and on a ground-truth 4-speaker zh/en
+ * meeting it silently merged three speakers into one cluster (32.5% of speech mislabeled) while
+ * still *reporting* a plausible speaker count. The eigengap is scale-free, so it survives
+ * embedding-model changes. Spurious short-talk speakers are merged away (only into a genuinely
+ * close cluster), and each utterance is labelled directly by its cluster — no segment/overlap
+ * mismatch.
  *
  * As a final pass, an utterance whose leading or trailing stretch belongs to a *different* known
  * voice (e.g. a soundbite the VAD merged onto a neighbour's turn) is split at the ASR token whose
@@ -30,7 +34,6 @@ class DiarizationEngine(
     embeddingModel: String,
     numThreads: Int,
     private val numClusters: Int = -1,
-    private val clusterThreshold: Float = 0.8f,
     private val maxSpeakers: Int = 8,
 ) : AutoCloseable {
 
@@ -70,21 +73,13 @@ class DiarizationEngine(
         this.totalSamples = totalSamples
         if (utterances.isEmpty()) return utterances to 0
 
-        // Robustness cap: clustering builds an n×n distance matrix (O(n²) memory) and runs O(n³)
-        // agglomerative linkage. A pathologically long recording (thousands of short VAD segments) would
-        // OOM / freeze for minutes. Above a safe bound, skip global clustering and label everything one
-        // speaker — degraded but bounded — rather than crash. Normal meetings stay well under this.
-        if (utterances.size > MAX_CLUSTER_N) {
-            return utterances.mapIndexed { i, u -> u.copy(index = i, speaker = 0) } to 1
-        }
-
         // 1. One L2-normalized embedding per utterance. This loop is the bulk of diarization, so it
         //    drives the progress callback (clustering after it is comparatively instant).
         val n = utterances.size
         val embs = Array(n) { i -> embedUtterance(utterances[i]).also { onProgress((i + 1f) / n) } }
 
-        // 2. Adaptive clustering → a speaker label per utterance.
-        var labels = cluster(embs)
+        // 2. Auto-k spectral clustering → a speaker label per utterance.
+        var labels = cluster(embs, utterances)
 
         // 3. Merge spurious short-duration speakers into their nearest neighbour.
         labels = mergeWeakSpeakers(labels, utterances, embs)
@@ -131,27 +126,62 @@ class DiarizationEngine(
 
     // --- clustering ----------------------------------------------------------------------
 
-    private fun cluster(embs: Array<FloatArray>): IntArray {
+    /**
+     * Label every utterance with a cluster id via [SpectralClustering]. Two robustness layers on
+     * top of the raw algorithm:
+     *  - Failed embeddings (extractor returned empty on a degenerate slice) are excluded from
+     *    clustering and inherit the label of the nearest-in-time labelled utterance, instead of
+     *    poisoning the affinity matrix.
+     *  - Above [ANCHOR_MAX] utterances, only the longest ones (the best-quality embeddings) are
+     *    clustered — O(a³) eigensolve stays bounded — and the rest are assigned to the nearest
+     *    cluster centroid. This replaces the old "label everything speaker 0 above a cap"
+     *    degradation, which threw diarization away exactly on the long meetings that need it.
+     */
+    private fun cluster(embs: Array<FloatArray>, utterances: List<TranscriptEvent.Utterance>): IntArray {
         val n = embs.size
-        if (n <= 1) return IntArray(n)
-        val d = Array(n) { i -> DoubleArray(n) { j -> cosineDistance(embs[i], embs[j]) } }
-        val (labelsByK, mergeDistTo) = agglomerative(d)
+        val valid = (0 until n).filter { i -> embs[i].isNotEmpty() && embs[i].all { it.isFinite() } }
+        if (valid.isEmpty()) return IntArray(n)
 
-        if (numClusters in 1..n) return labelsByK[numClusters]
+        val anchors = if (valid.size > ANCHOR_MAX) {
+            valid.sortedByDescending { utterances[it].endSec - utterances[it].startSec }
+                .take(ANCHOR_MAX).sorted()
+        } else valid
 
-        // Auto: cut the dendrogram by ABSOLUTE inter-cluster distance. A single speaker keeps
-        // all utterances within clusterThreshold (so → 1 cluster); only a genuinely different
-        // voice exceeds it. Lower threshold ⇒ more speakers. (Silhouette alone over-splits a
-        // single speaker because it finds "structure" in normal voice variation.)
-        var k = n
-        for (c in (n - 1) downTo 1) {
-            if (mergeDistTo[c] <= clusterThreshold) k = c else break
+        val anchorEmbs = Array(anchors.size) { embs[anchors[it]] }
+        val anchorLabels = SpectralClustering.cluster(anchorEmbs, numClusters, maxSpeakers)
+        val k = (anchorLabels.maxOrNull() ?: 0) + 1
+
+        val out = IntArray(n) { -1 }
+        anchors.forEachIndexed { ai, i -> out[i] = anchorLabels[ai] }
+
+        // Non-anchor (but valid) embeddings → nearest anchor centroid.
+        if (anchors.size < valid.size) {
+            val cents = centroids(anchorLabels, anchorEmbs, k)
+            for (i in valid) if (out[i] < 0) {
+                var best = 0; var bestD = Double.MAX_VALUE
+                for (c in 0 until k) {
+                    val d = cosineDistance(embs[i], cents[c])
+                    if (d < bestD) { bestD = d; best = c }
+                }
+                out[i] = best
+            }
         }
-        k = k.coerceIn(1, minOf(maxSpeakers, n))
-        return labelsByK[k]
+
+        // Failed embeddings → nearest-in-time label (forward fill, then back-fill the prefix).
+        var last = -1
+        for (i in 0 until n) if (out[i] >= 0) { last = out[i] } else if (last >= 0) out[i] = last
+        last = 0
+        for (i in (n - 1) downTo 0) if (out[i] >= 0) { last = out[i] } else out[i] = last
+        return out
     }
 
-    /** Fold clusters with < [MIN_SPEAKER_SEC] of total talk time into the nearest cluster. */
+    /**
+     * Fold clusters with < [MIN_SPEAKER_SEC] of total talk time into the nearest cluster — but
+     * only when that cluster is genuinely close (< [WEAK_MERGE_GATE] cosine distance). Without the
+     * gate, a real brief participant ("agreed.") was absorbed into whoever happened to be nearest,
+     * however far; with it, a distinct short-talk voice keeps its own label. Merges the
+     * closest-pair weak cluster first and re-evaluates, so cascading merges stay order-stable.
+     */
     private fun mergeWeakSpeakers(
         labels: IntArray,
         utterances: List<TranscriptEvent.Utterance>,
@@ -165,14 +195,13 @@ class DiarizationEngine(
             for (i in utterances.indices) dur[cur[i]] += (utterances[i].endSec - utterances[i].startSec)
             val weak = (0 until k).filter { dur[it] < MIN_SPEAKER_SEC }
             if (weak.isEmpty()) return normalize(cur)
-            val victim = weak.minByOrNull { dur[it] }!!
-            val centroids = centroids(cur, embs, k)
-            var target = -1; var bestD = Double.MAX_VALUE
-            for (c in 0 until k) if (c != victim) {
-                val dist = cosineDistance(centroids[victim], centroids[c])
-                if (dist < bestD) { bestD = dist; target = c }
+            val cents = centroids(cur, embs, k)
+            var victim = -1; var target = -1; var bestD = Double.MAX_VALUE
+            for (w in weak) for (c in 0 until k) if (c != w) {
+                val dist = cosineDistance(cents[w], cents[c])
+                if (dist < bestD) { bestD = dist; victim = w; target = c }
             }
-            if (target < 0) return normalize(cur)
+            if (target < 0 || bestD >= WEAK_MERGE_GATE) return normalize(cur)
             for (i in cur.indices) if (cur[i] == victim) cur[i] = target
             cur = normalize(cur)
         }
@@ -319,46 +348,13 @@ class DiarizationEngine(
         const val MIN_SEG_SEC = 1.5                      // shortest sub-utterance a split may yield
         const val SPLIT_MARGIN = 0.08                    // a window must be this much closer to switch off base
         const val ABS_GATE = 0.55                        // …and within this absolute cosine distance of it
-        const val MAX_CLUSTER_N = 2_000                  // above this many utterances, skip O(n³) clustering
+        const val WEAK_MERGE_GATE = 0.55                 // a weak cluster only merges into one this close
+        const val ANCHOR_MAX = 256                       // cluster at most this many (longest) utterances
 
-        // The clustering math below is pure (no native state); kept here and marked internal so the
-        // dendrogram + distance/normalization logic can be unit-tested directly (see
+        // The helpers below are pure (no native state); kept here and marked internal so the
+        // distance/normalization/token logic can be unit-tested directly (see
         // DiarizationClusteringTest), since the public assignSpeakers() needs the native extractor.
-
-        /**
-         * Agglomerative average-linkage (Lance-Williams). Returns the normalized labels for each k
-         * and mergeDistTo[c] = the inter-cluster distance of the merge that reduced the set to c
-         * clusters (mergeDistTo[n] = 0, since n clusters is the un-merged start).
-         */
-        internal fun agglomerative(d: Array<DoubleArray>): Pair<Array<IntArray>, DoubleArray> {
-            val n = d.size
-            val cd = Array(n) { i -> d[i].copyOf() }
-            val size = IntArray(n) { 1 }
-            val active = BooleanArray(n) { true }
-            val rep = IntArray(n) { it }                  // current cluster rep per point
-            val byK = arrayOfNulls<IntArray>(n + 1)
-            val mergeDistTo = DoubleArray(n + 1)
-            byK[n] = normalize(rep)
-            var clusters = n
-            while (clusters > 1) {
-                var bi = -1; var bj = -1; var best = Double.MAX_VALUE
-                for (i in 0 until n) if (active[i]) {
-                    for (j in i + 1 until n) if (active[j] && cd[i][j] < best) { best = cd[i][j]; bi = i; bj = j }
-                }
-                val si = size[bi]; val sj = size[bj]
-                for (x in 0 until n) if (active[x] && x != bi && x != bj) {
-                    val nd = (si * cd[bi][x] + sj * cd[bj][x]) / (si + sj)
-                    cd[bi][x] = nd; cd[x][bi] = nd
-                }
-                size[bi] = si + sj
-                active[bj] = false
-                for (p in 0 until n) if (rep[p] == bj) rep[p] = bi
-                clusters--
-                byK[clusters] = normalize(rep)
-                mergeDistTo[clusters] = best
-            }
-            return Array(n + 1) { k -> byK[k] ?: IntArray(n) } to mergeDistTo
-        }
+        // The clustering algorithm itself lives in [SpectralClustering], equally test-covered.
 
         /** Majority filter (width 3) to drop single-window flips before run detection. */
         internal fun smooth(seq: List<Int>): IntArray {
@@ -392,8 +388,8 @@ class DiarizationEngine(
         }
 
         /** Cosine distance on L2-normalized vectors = 1 - dot. Zero/length-mismatch => far (1). A NaN
-         *  (e.g. a NaN embedding) also maps to "far" — otherwise it would poison agglomerative()'s
-         *  min-search (a never-selected NaN pair leaves bi=-1 → ArrayIndexOutOfBounds). */
+         *  (e.g. a NaN embedding) also maps to "far" — otherwise it would poison every nearest-centroid
+         *  min-search (nearestVoice / weak-merge / anchor assignment) into never selecting a winner. */
         internal fun cosineDistance(a: FloatArray, b: FloatArray): Double {
             if (a.isEmpty() || b.isEmpty() || a.size != b.size) return 1.0
             var dot = 0.0

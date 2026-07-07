@@ -65,7 +65,6 @@
     <string name="settings_vad_threshold">語音偵測門檻</string>
     <string name="settings_diarization">語者分段</string>
     <string name="settings_identify_speakers">辨識語者</string>
-    <string name="settings_cluster_threshold">分群門檻</string>
     <string name="settings_summary_options">摘要選項</string>
     <string name="settings_summary_language">目標語言</string>
     <string name="summary_language_auto">與逐字稿相同</string>

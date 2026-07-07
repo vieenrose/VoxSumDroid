@@ -65,7 +65,6 @@
     <string name="settings_vad_threshold">Seuil VAD</string>
     <string name="settings_diarization">Diarisation</string>
     <string name="settings_identify_speakers">Identifier les locuteurs</string>
-    <string name="settings_cluster_threshold">Seuil de regroupement</string>
     <string name="settings_summary_options">Options de résumé</string>
     <string name="settings_summary_language">Langue cible</string>
     <string name="summary_language_auto">Comme la transcription</string>
