@@ -22,8 +22,10 @@ import studio.voxsum.core.events.TranscriptEvent
  * mismatch.
  *
  * As a final pass, an utterance whose leading or trailing stretch belongs to a *different* known
- * voice (e.g. a soundbite the VAD merged onto a neighbour's turn) is split at the ASR token whose
- * timestamp crosses the boundary — but only when that stretch genuinely resembles the other voice
+ * voice (e.g. a fast turn exchange the VAD fused into one segment) is split at the speaker-change
+ * boundary: the text divides at token timestamps when the backend provides them, else by
+ * re-decoding each side (see [assignSpeakers]'s redecode). Splits happen only when that stretch
+ * genuinely resembles the other voice
  * (absolute + relative distance gates), so a long monologue is never fragmented by embedding noise.
  * On these embeddings a cross-lingual switch (e.g. an English clip inside a Chinese voice-over) is
  * usually below that confidence bar and is conservatively left intact rather than mis-split.
@@ -57,10 +59,12 @@ class DiarizationEngine(
     fun assignSpeakers(
         pcm16k: FloatArray,
         utterances: List<TranscriptEvent.Utterance>,
+        redecode: ((Double, Double) -> String)? = null,
     ): Pair<List<TranscriptEvent.Utterance>, Int> = assignSpeakers(
         { a, b -> pcm16k.copyOfRange(a.toInt().coerceIn(0, pcm16k.size), b.toInt().coerceIn(0, pcm16k.size)) },
         pcm16k.size.toLong(),
         utterances,
+        redecode = redecode,
     )
 
     fun assignSpeakers(
@@ -68,6 +72,11 @@ class DiarizationEngine(
         totalSamples: Long,
         utterances: List<TranscriptEvent.Utterance>,
         onProgress: (Float) -> Unit = {},
+        // Re-decode an absolute [startSec, endSec) audio range to text (AsrEngine.decodeSlice +
+        // the caller's script conversion). Lets the within-utterance split divide the text of a
+        // fused two-speaker segment when the ASR backend provides no token timestamps (Qwen3).
+        // Null → timestamp-less utterances are never split (pre-fix behaviour).
+        redecode: ((Double, Double) -> String)? = null,
     ): Pair<List<TranscriptEvent.Utterance>, Int> {
         this.samples = samples
         this.totalSamples = totalSamples
@@ -90,7 +99,7 @@ class DiarizationEngine(
         //    centroids as the reference voices.
         val refined = if (k >= 2) {
             val cents = centroids(labels, embs, k)
-            utterances.indices.flatMap { i -> splitUtterance(utterances[i], labels[i], cents) }
+            utterances.indices.flatMap { i -> splitUtterance(utterances[i], labels[i], cents, redecode) }
         } else {
             utterances.mapIndexed { i, u -> u.copy(speaker = labels[i]) }
         }
@@ -127,11 +136,24 @@ class DiarizationEngine(
     // --- clustering ----------------------------------------------------------------------
 
     /**
-     * Label every utterance with a cluster id via [SpectralClustering]. Two robustness layers on
-     * top of the raw algorithm:
+     * Label every utterance with a cluster id via [SpectralClustering]. Three robustness layers
+     * on top of the raw algorithm:
      *  - Failed embeddings (extractor returned empty on a degenerate slice) are excluded from
      *    clustering and inherit the label of the nearest-in-time labelled utterance, instead of
      *    poisoning the affinity matrix.
+     *  - MIXED-VOICE utterances — a VAD segment that fused two speakers' turns (fast turn-taking
+     *    leaves no closing silence) embeds *between* the two voices and acts as a bridge that
+     *    merges their clusters (measured: a single fused segment collapsed a clean 2-speaker
+     *    clip to k=1). An utterance whose two sides embed as different voices (≥ [MIXED_GATE]
+     *    apart, see [mixedHalves]) is kept out of the affinity matrix and assigned to its
+     *    nearest centroid afterwards; the within-utterance split then repairs the line. The
+     *    probe over-triggers on expressive speech (a lone exclamation's halves measured 0.60
+     *    apart), which is why the sides are NOT clustered as extra points — a falsely-flagged
+     *    segment then merely costs its own vote, instead of poisoning the merge structure.
+     *  - A speaker whose ONLY talk time sits inside mixed segments would vanish with them, so
+     *    after clustering, any mixed-segment side matching no cluster (≥ [ABS_GATE] from every
+     *    centroid) founds a new speaker; its centroid immediately joins the list so further
+     *    sides of the same voice reuse it instead of spawning duplicates.
      *  - Above [ANCHOR_MAX] utterances, only the longest ones (the best-quality embeddings) are
      *    clustered — O(a³) eigensolve stays bounded — and the rest are assigned to the nearest
      *    cluster centroid. This replaces the old "label everything speaker 0 above a cap"
@@ -142,29 +164,52 @@ class DiarizationEngine(
         val valid = (0 until n).filter { i -> embs[i].isNotEmpty() && embs[i].all { it.isFinite() } }
         if (valid.isEmpty()) return IntArray(n)
 
-        val anchors = if (valid.size > ANCHOR_MAX) {
-            valid.sortedByDescending { utterances[it].endSec - utterances[it].startSec }
+        val halves = HashMap<Int, Pair<FloatArray, FloatArray>>()
+        for (i in valid) mixedHalves(utterances[i])?.let { halves[i] = it }
+        val pure = valid.filter { it !in halves }
+        val clusterable = if (pure.size >= 2) pure else valid   // degenerate: everything flagged
+
+        val anchors = if (clusterable.size > ANCHOR_MAX) {
+            clusterable.sortedByDescending { utterances[it].endSec - utterances[it].startSec }
                 .take(ANCHOR_MAX).sorted()
-        } else valid
+        } else clusterable
 
         val anchorEmbs = Array(anchors.size) { embs[anchors[it]] }
         val anchorLabels = SpectralClustering.cluster(anchorEmbs, numClusters, maxSpeakers)
-        val k = (anchorLabels.maxOrNull() ?: 0) + 1
+        var k = (anchorLabels.maxOrNull() ?: 0) + 1
+        val cents = ArrayList(centroids(anchorLabels, anchorEmbs, k).toList())
+
+        // Unseen-voice pass (auto-k only — a user-fixed speaker count is respected): a mixed
+        // side far from every known voice founds a new speaker, but only when the WHOLE segment
+        // is an outlier too. A segment fusing a known voice with an unseen one embeds far from
+        // every centroid; a falsely-flagged expressive segment (the probe over-triggers on
+        // prosody) still sits inside its own speaker's cluster, and gating on the full embedding
+        // keeps its weird half from founding a phantom speaker (measured: k=3 on a 2-speaker
+        // clip without this gate).
+        if (numClusters !in 1..n) {
+            for ((i, h) in halves) {
+                var fullBest = Double.MAX_VALUE
+                for (c in cents) fullBest = minOf(fullBest, cosineDistance(embs[i], c))
+                if (fullBest < ABS_GATE) continue
+                for (side in listOf(h.first, h.second)) {
+                    var best = Double.MAX_VALUE
+                    for (c in cents) best = minOf(best, cosineDistance(side, c))
+                    if (best >= ABS_GATE && k < maxSpeakers) { cents.add(side); k++ }
+                }
+            }
+        }
 
         val out = IntArray(n) { -1 }
         anchors.forEachIndexed { ai, i -> out[i] = anchorLabels[ai] }
 
-        // Non-anchor (but valid) embeddings → nearest anchor centroid.
-        if (anchors.size < valid.size) {
-            val cents = centroids(anchorLabels, anchorEmbs, k)
-            for (i in valid) if (out[i] < 0) {
-                var best = 0; var bestD = Double.MAX_VALUE
-                for (c in 0 until k) {
-                    val d = cosineDistance(embs[i], cents[c])
-                    if (d < bestD) { bestD = d; best = c }
-                }
-                out[i] = best
+        // Everything valid but unlabelled (mixed utterances, over-cap remainder) → nearest centroid.
+        for (i in valid) if (out[i] < 0) {
+            var best = 0; var bestD = Double.MAX_VALUE
+            for (c in 0 until k) {
+                val d = cosineDistance(embs[i], cents[c])
+                if (d < bestD) { bestD = d; best = c }
             }
+            out[i] = best
         }
 
         // Failed embeddings → nearest-in-time label (forward fill, then back-fill the prefix).
@@ -173,6 +218,34 @@ class DiarizationEngine(
         last = 0
         for (i in (n - 1) downTo 0) if (out[i] >= 0) { last = out[i] } else out[i] = last
         return out
+    }
+
+    /**
+     * The two side-embeddings of [u] around its most-dissimilar split point, when they read as
+     * two different voices (≥ [MIXED_GATE] apart) — the signature of a VAD segment that fused a
+     * fast turn exchange — else null. The split point is searched over a few candidate fractions
+     * rather than fixed at the middle: a turn change rarely sits at the exact midpoint, and a
+     * midpoint half that still straddles the change embeds between the voices — the very bridge
+     * this probe exists to remove (measured: midpoint halves left the linkage jump at 1.7, just
+     * under the cut). Only utterances long enough to be split later (≥ 2×[MIN_SEG_SEC]) are
+     * probed; a handful of extra embeddings per probed utterance is noise next to the
+     * per-utterance embedding pass.
+     */
+    private fun mixedHalves(u: TranscriptEvent.Utterance): Pair<FloatArray, FloatArray>? {
+        val dur = u.endSec - u.startSec
+        if (dur < 2 * MIN_SEG_SEC) return null
+        var best: Pair<FloatArray, FloatArray>? = null
+        var bestD = 0.0
+        for (frac in MIX_PROBE_FRACS) {
+            val cut = u.startSec + frac * dur
+            if (cut - u.startSec < MIN_SEG_SEC || u.endSec - cut < MIN_SEG_SEC) continue
+            val a = embedRange(u.startSec, cut)
+            val b = embedRange(cut, u.endSec)
+            if (a.isEmpty() || b.isEmpty()) continue
+            val d = cosineDistance(a, b)
+            if (d > bestD) { bestD = d; best = a to b }
+        }
+        return if (bestD >= MIXED_GATE) best else null
     }
 
     /**
@@ -228,25 +301,30 @@ class DiarizationEngine(
 
     /**
      * If [u] contains a sustained stretch (≥ [MIN_SEG_SEC]) of a voice other than its overall
-     * label [base], split it at the token boundaries into per-speaker sub-utterances. Falls back
-     * to a single [base]-labelled utterance when token timestamps are missing, the utterance is
-     * too short, or no confident change is found.
+     * label [base], split it into per-speaker sub-utterances. The change point is found
+     * acoustically (sliding-window embeddings vs the reference voices — no ASR involved, so it
+     * works for any language). The *text* is then divided one of two ways: at token timestamps
+     * when the backend provides them (SenseVoice/x-asr), else by re-decoding each side of the
+     * split via [redecode] (Qwen3, whose recognizer fills only the text). Falls back to a single
+     * [base]-labelled utterance when the utterance is too short, no confident change is found,
+     * or neither text-division route is available.
      */
     private fun splitUtterance(
         u: TranscriptEvent.Utterance,
         base: Int,
         cents: Array<FloatArray>,
+        redecode: ((Double, Double) -> String)?,
     ): List<TranscriptEvent.Utterance> {
         val dur = u.endSec - u.startSec
         val toks = u.tokens
         val times = u.tokenTimes
-        if (toks == null || times == null || toks.size != times.size || dur < 2 * MIN_SEG_SEC) {
+        // Timestamps are usable only when every token has one (Qwen3 emits tokens but an EMPTY
+        // timestamp list, so a size mismatch — or an empty list — means "no times").
+        val hasTokenTimes =
+            toks != null && times != null && times.isNotEmpty() && toks.size == times.size
+        if ((!hasTokenTimes && redecode == null) || dur < 2 * MIN_SEG_SEC) {
             return listOf(u.copy(speaker = base))
         }
-        // Drop SenseVoice meta tokens (<|lang|>, <|emotion|>, …); keep real word/char pieces.
-        val pieces = ArrayList<String>(); val ptimes = ArrayList<Double>()
-        for (i in toks.indices) if (!isMeta(toks[i])) { pieces.add(toks[i]); ptimes.add(times[i]) }
-        if (pieces.size < 2) return listOf(u.copy(speaker = base))
 
         // Label a sliding window across the utterance by its nearest reference voice.
         val winLabel = ArrayList<Int>(); val winCenter = ArrayList<Double>()
@@ -294,7 +372,23 @@ class DiarizationEngine(
 
         if (runs.size < 2) return listOf(u.copy(speaker = base))
 
-        // Assign each token to the run whose time range holds it, then rebuild per-run lines.
+        return if (hasTokenTimes) splitByTokens(u, base, runs, toks!!, times!!)
+        else splitByRedecode(u, base, runs, redecode!!)
+    }
+
+    /** Divide [u]'s text at token timestamps: assign each token to the run holding its time. */
+    private fun splitByTokens(
+        u: TranscriptEvent.Utterance,
+        base: Int,
+        runs: List<Seg>,
+        toks: List<String>,
+        times: List<Double>,
+    ): List<TranscriptEvent.Utterance> {
+        // Drop SenseVoice meta tokens (<|lang|>, <|emotion|>, …); keep real word/char pieces.
+        val pieces = ArrayList<String>(); val ptimes = ArrayList<Double>()
+        for (i in toks.indices) if (!isMeta(toks[i])) { pieces.add(toks[i]); ptimes.add(times[i]) }
+        if (pieces.size < 2) return listOf(u.copy(speaker = base))
+
         val bySeg = Array(runs.size) { ArrayList<Int>() }
         for (t in ptimes.indices) {
             var si = runs.indexOfFirst { ptimes[t] >= it.start && ptimes[t] < it.end }
@@ -315,6 +409,61 @@ class DiarizationEngine(
             )
         }
         return if (parts.size >= 2) parts else listOf(u.copy(speaker = base))
+    }
+
+    /**
+     * Divide [u]'s text by re-decoding each run's audio (no token timestamps available). Run
+     * boundaries come from window centers (~[HOP_SEC] resolution), so each interior boundary is
+     * first snapped to the quietest instant nearby — the actual inter-turn gap — so no word is
+     * cut in half. Any blank re-decode keeps the original fused line (never lose text).
+     */
+    private fun splitByRedecode(
+        u: TranscriptEvent.Utterance,
+        base: Int,
+        runs: List<Seg>,
+        redecode: (Double, Double) -> String,
+    ): List<TranscriptEvent.Utterance> {
+        val dur = u.endSec - u.startSec
+        val bounds = DoubleArray(runs.size + 1)
+        bounds[runs.size] = dur
+        for (j in 1 until runs.size) {
+            val snapped = snapToQuietest(u.startSec + runs[j].start) - u.startSec
+            // Keep boundaries ordered and parts non-degenerate (runs are ≥ MIN_SEG_SEC apart,
+            // far beyond the snap radius, so this coercion is a safety net, not a steering wheel).
+            bounds[j] = snapped.coerceIn(bounds[j - 1] + 0.1, dur - 0.1)
+        }
+        val parts = runs.mapIndexed { j, s ->
+            val text = redecode(u.startSec + bounds[j], u.startSec + bounds[j + 1]).trim()
+            if (text.isBlank()) return listOf(u.copy(speaker = base))
+            u.copy(
+                text = text,
+                startSec = u.startSec + bounds[j],
+                endSec = u.startSec + bounds[j + 1],
+                speaker = s.label,
+                tokens = null,
+                tokenTimes = null,
+            )
+        }
+        return if (parts.size >= 2) parts else listOf(u.copy(speaker = base))
+    }
+
+    /** Absolute time (sec) of the lowest-energy 25ms frame within ±[SNAP_RADIUS_SEC] of [absSec]. */
+    private fun snapToQuietest(absSec: Double): Double {
+        val frame = SAMPLE_RATE / 40                                     // 25 ms
+        val a = ((absSec - SNAP_RADIUS_SEC) * SAMPLE_RATE).toLong().coerceAtLeast(0)
+        val b = ((absSec + SNAP_RADIUS_SEC) * SAMPLE_RATE).toLong().coerceAtMost(totalSamples)
+        if (b - a < 2L * frame) return absSec
+        val buf = samples(a, b)
+        var bestI = 0
+        var bestE = Double.MAX_VALUE
+        var i = 0
+        while (i + frame <= buf.size) {
+            var e = 0.0
+            for (j in i until i + frame) e += buf[j].toDouble() * buf[j]
+            if (e < bestE) { bestE = e; bestI = i }
+            i += frame / 2
+        }
+        return (a + bestI + frame / 2).toDouble() / SAMPLE_RATE
     }
 
     private class Seg(val label: Int, var start: Double, var end: Double)
@@ -350,6 +499,9 @@ class DiarizationEngine(
         const val ABS_GATE = 0.55                        // …and within this absolute cosine distance of it
         const val WEAK_MERGE_GATE = 0.55                 // a weak cluster only merges into one this close
         const val ANCHOR_MAX = 256                       // cluster at most this many (longest) utterances
+        const val SNAP_RADIUS_SEC = 0.35                 // search radius for the split-point energy dip
+        const val MIXED_GATE = 0.55                      // side-vs-side distance that flags a fused segment
+        val MIX_PROBE_FRACS = doubleArrayOf(0.3, 0.4, 0.5, 0.6, 0.7) // candidate split points probed
 
         // The helpers below are pure (no native state); kept here and marked internal so the
         // distance/normalization/token logic can be unit-tested directly (see
