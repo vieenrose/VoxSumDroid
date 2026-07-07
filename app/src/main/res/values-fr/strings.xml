@@ -65,7 +65,6 @@
     <string name="settings_vad_threshold">Seuil VAD</string>
     <string name="settings_diarization">Diarisation</string>
     <string name="settings_identify_speakers">Identifier les locuteurs</string>
-    <string name="settings_cluster_threshold">Seuil de regroupement</string>
     <string name="settings_summary_options">Options de résumé</string>
     <string name="settings_summary_language">Langue cible</string>
     <string name="summary_language_auto">Comme la transcription</string>
@@ -228,4 +227,19 @@
     <string name="cover_remove">Retirer</string>
     <string name="cover_use">Utiliser</string>
     <string name="status_session_loaded">Session chargée — %d lignes</string>
+
+    <!-- Fiabilité en arrière-plan (section Réglages) -->
+    <string name="settings_background">Fiabilité en arrière-plan</string>
+    <string name="bg_explainer">La transcription et le résumé continuent écran éteint. Si votre appareil les met en pause ou les gèle, accordez les exemptions ci-dessous.</string>
+    <string name="bg_battery_exempt">Optimisation de la batterie ignorée ✓</string>
+    <string name="bg_battery_optimized">L\'optimisation de la batterie est active — les traitements écran éteint peuvent être suspendus.</string>
+    <string name="bg_allow">Autoriser l\'activité en arrière-plan</string>
+    <string name="bg_oem_hint">%1$s gèle agressivement les applis en arrière-plan. Désactivez aussi le démarrage auto / gel auto pour VoxSum dans les réglages de l\'appareil.</string>
+    <string name="bg_open_oem">Ouvrir les réglages de l\'appareil</string>
+
+    <!-- Récupération d'un enregistrement interrompu -->
+    <string name="recover_title">Récupérer l\'enregistrement interrompu ?</string>
+    <string name="recover_message">Un enregistrement d\'environ %d min a été interrompu avant la fin. Terminer sa transcription maintenant ?</string>
+    <string name="recover_finish">Terminer la transcription</string>
+    <string name="recover_discard">Supprimer</string>
 </resources>

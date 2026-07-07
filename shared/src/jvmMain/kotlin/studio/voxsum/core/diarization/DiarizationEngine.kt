@@ -1,5 +1,5 @@
-// Desktop counterpart of app/core/diarization/DiarizationEngine.kt — identical clustering
-// logic, referencing :shared's jvmMain sherpa-onnx wrapper instead of :app's Android copy.
+// Desktop counterpart of app/core/diarization/DiarizationEngine.kt — identical logic,
+// referencing :shared's jvmMain sherpa-onnx wrapper instead of :app's Android copy.
 package studio.voxsum.core.diarization
 
 import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractor
@@ -7,15 +7,35 @@ import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
 import studio.voxsum.core.events.TranscriptEvent
 
 /**
- * Speaker diarization — per-utterance embeddings + adaptive clustering. See
- * app/core/diarization/DiarizationEngine.kt for the full design rationale (identical here).
+ * Speaker diarization — per-utterance embeddings + auto-k spectral clustering (the approach of
+ * the original web app's improved_diarization.py, which is more precise than sherpa's built-in
+ * greedy FastClustering and stays perfectly aligned with the transcript).
+ *
+ * Pipeline: each ASR utterance already bounds one speech region (from the VAD), so we extract
+ * one speaker embedding per utterance (3D-Speaker CAM++ zh/en), then cluster the embeddings with
+ * [SpectralClustering] — the speaker count comes from the affinity matrix's eigengap (unless
+ * [numClusters] is fixed), not from an absolute distance threshold. The previous
+ * threshold-cut agglomerative approach was measurably broken after the eres2net→CAM++ swap: the
+ * threshold was tuned to one model's distance scale, and on a ground-truth 4-speaker zh/en
+ * meeting it silently merged three speakers into one cluster (32.5% of speech mislabeled) while
+ * still *reporting* a plausible speaker count. The eigengap is scale-free, so it survives
+ * embedding-model changes. Spurious short-talk speakers are merged away (only into a genuinely
+ * close cluster), and each utterance is labelled directly by its cluster — no segment/overlap
+ * mismatch.
+ *
+ * As a final pass, an utterance whose leading or trailing stretch belongs to a *different* known
+ * voice (e.g. a soundbite the VAD merged onto a neighbour's turn) is split at the ASR token whose
+ * timestamp crosses the boundary — but only when that stretch genuinely resembles the other voice
+ * (absolute + relative distance gates), so a long monologue is never fragmented by embedding noise.
+ * On these embeddings a cross-lingual switch (e.g. an English clip inside a Chinese voice-over) is
+ * usually below that confidence bar and is conservatively left intact rather than mis-split.
+ *
  * One instance owns native resources; call [close].
  */
 class DiarizationEngine(
     embeddingModel: String,
     numThreads: Int,
     private val numClusters: Int = -1,
-    private val clusterThreshold: Float = 0.8f,
     private val maxSpeakers: Int = 8,
 ) : AutoCloseable {
 
@@ -23,6 +43,15 @@ class DiarizationEngine(
         config = SpeakerEmbeddingExtractorConfig(model = embeddingModel, numThreads = numThreads),
     )
 
+    /**
+     * Tag each utterance with a speaker id. Returns the tagged utterances and the detected
+     * speaker count (0 if there was nothing to diarize). When an utterance bundles two speakers
+     * (e.g. an English soundbite spliced into a Chinese voice-over), it is split at the token
+     * whose timestamp crosses the speaker-change boundary, so the result list may be longer than
+     * the input and is re-indexed 0..n-1 in time order.
+     */
+    // Audio source for embeddings, set per assignSpeakers() call: read [fromSample, toSample) as
+    // 16 kHz mono floats. Backed by a WavSlicer so multi-hour audio never lives in RAM.
     private var samples: (Long, Long) -> FloatArray = { _, _ -> FloatArray(0) }
     private var totalSamples: Long = 0
 
@@ -46,17 +75,21 @@ class DiarizationEngine(
         this.totalSamples = totalSamples
         if (utterances.isEmpty()) return utterances to 0
 
-        if (utterances.size > MAX_CLUSTER_N) {
-            return utterances.mapIndexed { i, u -> u.copy(index = i, speaker = 0) } to 1
-        }
-
+        // 1. One L2-normalized embedding per utterance. This loop is the bulk of diarization, so it
+        //    drives the progress callback (clustering after it is comparatively instant).
         val n = utterances.size
         val embs = Array(n) { i -> embedUtterance(utterances[i]).also { onProgress((i + 1f) / n) } }
 
-        var labels = cluster(embs)
+        // 2. Auto-k spectral clustering → a speaker label per utterance.
+        var labels = cluster(embs, utterances)
+
+        // 3. Merge spurious short-duration speakers into their nearest neighbour.
         labels = mergeWeakSpeakers(labels, utterances, embs)
         val k = (labels.maxOrNull() ?: -1) + 1
 
+        // 4. Within-utterance refinement: with ≥2 known speakers, re-scan each utterance for a
+        //    sustained stretch of a *different* speaker and split it there. Needs the global
+        //    centroids as the reference voices.
         val refined = if (k >= 2) {
             val cents = centroids(labels, embs, k)
             utterances.indices.flatMap { i -> splitUtterance(utterances[i], labels[i], cents) }
@@ -64,6 +97,7 @@ class DiarizationEngine(
             utterances.mapIndexed { i, u -> u.copy(speaker = labels[i]) }
         }
 
+        // 5. Re-index 0..n-1 in time order (splits inserted new lines).
         val tagged = refined.mapIndexed { i, u -> u.copy(index = i) }
         val count = (tagged.mapNotNull { it.speaker }.maxOrNull() ?: -1) + 1
         return tagged to count
@@ -72,6 +106,8 @@ class DiarizationEngine(
     private fun embedUtterance(u: TranscriptEvent.Utterance): FloatArray =
         embedRange(u.startSec, u.endSec)
 
+    /** Embed a [startSec, endSec) slice, widened to [MIN_SAMPLES] so short windows aren't noisy.
+     *  Reads the slice from the per-call sample source (WAV-backed) — never the whole waveform. */
     private fun embedRange(startSec: Double, endSec: Double): FloatArray {
         val total = totalSamples
         var a = (startSec * SAMPLE_RATE).toLong().coerceIn(0, total)
@@ -92,22 +128,62 @@ class DiarizationEngine(
 
     // --- clustering ----------------------------------------------------------------------
 
-    private fun cluster(embs: Array<FloatArray>): IntArray {
+    /**
+     * Label every utterance with a cluster id via [SpectralClustering]. Two robustness layers on
+     * top of the raw algorithm:
+     *  - Failed embeddings (extractor returned empty on a degenerate slice) are excluded from
+     *    clustering and inherit the label of the nearest-in-time labelled utterance, instead of
+     *    poisoning the affinity matrix.
+     *  - Above [ANCHOR_MAX] utterances, only the longest ones (the best-quality embeddings) are
+     *    clustered — O(a³) eigensolve stays bounded — and the rest are assigned to the nearest
+     *    cluster centroid. This replaces the old "label everything speaker 0 above a cap"
+     *    degradation, which threw diarization away exactly on the long meetings that need it.
+     */
+    private fun cluster(embs: Array<FloatArray>, utterances: List<TranscriptEvent.Utterance>): IntArray {
         val n = embs.size
-        if (n <= 1) return IntArray(n)
-        val d = Array(n) { i -> DoubleArray(n) { j -> cosineDistance(embs[i], embs[j]) } }
-        val (labelsByK, mergeDistTo) = agglomerative(d)
+        val valid = (0 until n).filter { i -> embs[i].isNotEmpty() && embs[i].all { it.isFinite() } }
+        if (valid.isEmpty()) return IntArray(n)
 
-        if (numClusters in 1..n) return labelsByK[numClusters]
+        val anchors = if (valid.size > ANCHOR_MAX) {
+            valid.sortedByDescending { utterances[it].endSec - utterances[it].startSec }
+                .take(ANCHOR_MAX).sorted()
+        } else valid
 
-        var k = n
-        for (c in (n - 1) downTo 1) {
-            if (mergeDistTo[c] <= clusterThreshold) k = c else break
+        val anchorEmbs = Array(anchors.size) { embs[anchors[it]] }
+        val anchorLabels = SpectralClustering.cluster(anchorEmbs, numClusters, maxSpeakers)
+        val k = (anchorLabels.maxOrNull() ?: 0) + 1
+
+        val out = IntArray(n) { -1 }
+        anchors.forEachIndexed { ai, i -> out[i] = anchorLabels[ai] }
+
+        // Non-anchor (but valid) embeddings → nearest anchor centroid.
+        if (anchors.size < valid.size) {
+            val cents = centroids(anchorLabels, anchorEmbs, k)
+            for (i in valid) if (out[i] < 0) {
+                var best = 0; var bestD = Double.MAX_VALUE
+                for (c in 0 until k) {
+                    val d = cosineDistance(embs[i], cents[c])
+                    if (d < bestD) { bestD = d; best = c }
+                }
+                out[i] = best
+            }
         }
-        k = k.coerceIn(1, minOf(maxSpeakers, n))
-        return labelsByK[k]
+
+        // Failed embeddings → nearest-in-time label (forward fill, then back-fill the prefix).
+        var last = -1
+        for (i in 0 until n) if (out[i] >= 0) { last = out[i] } else if (last >= 0) out[i] = last
+        last = 0
+        for (i in (n - 1) downTo 0) if (out[i] >= 0) { last = out[i] } else out[i] = last
+        return out
     }
 
+    /**
+     * Fold clusters with < [MIN_SPEAKER_SEC] of total talk time into the nearest cluster — but
+     * only when that cluster is genuinely close (< [WEAK_MERGE_GATE] cosine distance). Without the
+     * gate, a real brief participant ("agreed.") was absorbed into whoever happened to be nearest,
+     * however far; with it, a distinct short-talk voice keeps its own label. Merges the
+     * closest-pair weak cluster first and re-evaluates, so cascading merges stay order-stable.
+     */
     private fun mergeWeakSpeakers(
         labels: IntArray,
         utterances: List<TranscriptEvent.Utterance>,
@@ -121,14 +197,13 @@ class DiarizationEngine(
             for (i in utterances.indices) dur[cur[i]] += (utterances[i].endSec - utterances[i].startSec)
             val weak = (0 until k).filter { dur[it] < MIN_SPEAKER_SEC }
             if (weak.isEmpty()) return normalize(cur)
-            val victim = weak.minByOrNull { dur[it] }!!
-            val centroids = centroids(cur, embs, k)
-            var target = -1; var bestD = Double.MAX_VALUE
-            for (c in 0 until k) if (c != victim) {
-                val dist = cosineDistance(centroids[victim], centroids[c])
-                if (dist < bestD) { bestD = dist; target = c }
+            val cents = centroids(cur, embs, k)
+            var victim = -1; var target = -1; var bestD = Double.MAX_VALUE
+            for (w in weak) for (c in 0 until k) if (c != w) {
+                val dist = cosineDistance(cents[w], cents[c])
+                if (dist < bestD) { bestD = dist; victim = w; target = c }
             }
-            if (target < 0) return normalize(cur)
+            if (target < 0 || bestD >= WEAK_MERGE_GATE) return normalize(cur)
             for (i in cur.indices) if (cur[i] == victim) cur[i] = target
             cur = normalize(cur)
         }
@@ -153,6 +228,12 @@ class DiarizationEngine(
 
     // --- within-utterance speaker-change split -------------------------------------------
 
+    /**
+     * If [u] contains a sustained stretch (≥ [MIN_SEG_SEC]) of a voice other than its overall
+     * label [base], split it at the token boundaries into per-speaker sub-utterances. Falls back
+     * to a single [base]-labelled utterance when token timestamps are missing, the utterance is
+     * too short, or no confident change is found.
+     */
     private fun splitUtterance(
         u: TranscriptEvent.Utterance,
         base: Int,
@@ -164,10 +245,12 @@ class DiarizationEngine(
         if (toks == null || times == null || toks.size != times.size || dur < 2 * MIN_SEG_SEC) {
             return listOf(u.copy(speaker = base))
         }
+        // Drop SenseVoice meta tokens (<|lang|>, <|emotion|>, …); keep real word/char pieces.
         val pieces = ArrayList<String>(); val ptimes = ArrayList<Double>()
         for (i in toks.indices) if (!isMeta(toks[i])) { pieces.add(toks[i]); ptimes.add(times[i]) }
         if (pieces.size < 2) return listOf(u.copy(speaker = base))
 
+        // Label a sliding window across the utterance by its nearest reference voice.
         val winLabel = ArrayList<Int>(); val winCenter = ArrayList<Double>()
         var w = 0.0
         while (true) {
@@ -180,6 +263,7 @@ class DiarizationEngine(
         }
         val lab = smooth(winLabel)
 
+        // Collapse windows into contiguous same-label runs (time ranges relative to u.start).
         val segs = ArrayList<Seg>()
         for (i in lab.indices) {
             val s = if (i == 0) 0.0 else (winCenter[i - 1] + winCenter[i]) / 2
@@ -187,6 +271,7 @@ class DiarizationEngine(
             if (segs.isNotEmpty() && segs.last().label == lab[i]) segs.last().end = e
             else segs.add(Seg(lab[i], s, e))
         }
+        // Absorb runs shorter than MIN_SEG_SEC into a neighbour, then re-coalesce same labels.
         var i = 0
         while (segs.size > 1 && i < segs.size) {
             if (segs[i].end - segs[i].start < MIN_SEG_SEC) {
@@ -194,6 +279,9 @@ class DiarizationEngine(
                 segs.removeAt(i); i = 0
             } else i++
         }
+        // Conservative: only the leading/trailing run may differ from the base voice. An interior
+        // flip on a long monologue is almost always embedding noise, not a real speaker change, so
+        // fold interior runs back into the base before re-coalescing.
         val bounded = ArrayList<Seg>()
         for (j in segs.indices) {
             val lbl = if (j == 0 || j == segs.size - 1) segs[j].label else base
@@ -208,6 +296,7 @@ class DiarizationEngine(
 
         if (runs.size < 2) return listOf(u.copy(speaker = base))
 
+        // Assign each token to the run whose time range holds it, then rebuild per-run lines.
         val bySeg = Array(runs.size) { ArrayList<Int>() }
         for (t in ptimes.indices) {
             var si = runs.indexOfFirst { ptimes[t] >= it.start && ptimes[t] < it.end }
@@ -217,7 +306,7 @@ class DiarizationEngine(
         val parts = runs.mapIndexed { si, s ->
             val idx = bySeg[si]
             val text = detok(idx.map { pieces[it] })
-            if (text.isBlank()) return listOf(u.copy(speaker = base))
+            if (text.isBlank()) return listOf(u.copy(speaker = base))   // don't emit empty lines
             u.copy(
                 text = text,
                 startSec = u.startSec + s.start,
@@ -232,6 +321,13 @@ class DiarizationEngine(
 
     private class Seg(val label: Int, var start: Double, var end: Double)
 
+    /**
+     * Nearest reference voice to [e]. Stays on the utterance's overall label [base] unless another
+     * voice is BOTH clearly closer (by [SPLIT_MARGIN]) AND an absolute match ([ABS_GATE]). The
+     * absolute gate is essential: on these embeddings a window of Chinese speech is often merely
+     * "less far" from an English centroid without actually resembling it, which would spuriously
+     * fragment a long monologue.
+     */
     private fun nearestVoice(e: FloatArray, cents: Array<FloatArray>, base: Int): Int {
         if (e.isEmpty()) return base
         val baseD = cosineDistance(e, cents[base])
@@ -247,45 +343,22 @@ class DiarizationEngine(
 
     companion object {
         const val SAMPLE_RATE = 16_000
-        const val MIN_SAMPLES = SAMPLE_RATE / 2
-        const val MIN_SPEAKER_SEC = 1.5
-        const val WIN_SEC = 1.5
-        const val HOP_SEC = 0.5
-        const val MIN_SEG_SEC = 1.5
-        const val SPLIT_MARGIN = 0.08
-        const val ABS_GATE = 0.55
-        const val MAX_CLUSTER_N = 2_000
+        const val MIN_SAMPLES = SAMPLE_RATE / 2          // 0.5s minimum embedding window
+        const val MIN_SPEAKER_SEC = 1.5                  // below this total talk time => merged away
+        const val WIN_SEC = 1.5                          // sliding window for within-utterance scan
+        const val HOP_SEC = 0.5                          // window hop
+        const val MIN_SEG_SEC = 1.5                      // shortest sub-utterance a split may yield
+        const val SPLIT_MARGIN = 0.08                    // a window must be this much closer to switch off base
+        const val ABS_GATE = 0.55                        // …and within this absolute cosine distance of it
+        const val WEAK_MERGE_GATE = 0.55                 // a weak cluster only merges into one this close
+        const val ANCHOR_MAX = 256                       // cluster at most this many (longest) utterances
 
-        internal fun agglomerative(d: Array<DoubleArray>): Pair<Array<IntArray>, DoubleArray> {
-            val n = d.size
-            val cd = Array(n) { i -> d[i].copyOf() }
-            val size = IntArray(n) { 1 }
-            val active = BooleanArray(n) { true }
-            val rep = IntArray(n) { it }
-            val byK = arrayOfNulls<IntArray>(n + 1)
-            val mergeDistTo = DoubleArray(n + 1)
-            byK[n] = normalize(rep)
-            var clusters = n
-            while (clusters > 1) {
-                var bi = -1; var bj = -1; var best = Double.MAX_VALUE
-                for (i in 0 until n) if (active[i]) {
-                    for (j in i + 1 until n) if (active[j] && cd[i][j] < best) { best = cd[i][j]; bi = i; bj = j }
-                }
-                val si = size[bi]; val sj = size[bj]
-                for (x in 0 until n) if (active[x] && x != bi && x != bj) {
-                    val nd = (si * cd[bi][x] + sj * cd[bj][x]) / (si + sj)
-                    cd[bi][x] = nd; cd[x][bi] = nd
-                }
-                size[bi] = si + sj
-                active[bj] = false
-                for (p in 0 until n) if (rep[p] == bj) rep[p] = bi
-                clusters--
-                byK[clusters] = normalize(rep)
-                mergeDistTo[clusters] = best
-            }
-            return Array(n + 1) { k -> byK[k] ?: IntArray(n) } to mergeDistTo
-        }
+        // The helpers below are pure (no native state); kept here and marked internal so the
+        // distance/normalization/token logic can be unit-tested directly (see
+        // DiarizationClusteringTest), since the public assignSpeakers() needs the native extractor.
+        // The clustering algorithm itself lives in [SpectralClustering], equally test-covered.
 
+        /** Majority filter (width 3) to drop single-window flips before run detection. */
         internal fun smooth(seq: List<Int>): IntArray {
             if (seq.size < 3) return seq.toIntArray()
             return IntArray(seq.size) { i ->
@@ -295,6 +368,7 @@ class DiarizationEngine(
             }
         }
 
+        /** SentencePiece detokenization: '▁' marks a leading space, bare pieces concatenate. */
         internal fun detok(pieces: List<String>): String {
             val sb = StringBuilder()
             for (p in pieces) {
@@ -303,6 +377,7 @@ class DiarizationEngine(
             return sb.toString().replace(Regex("\\s+"), " ").trim()
         }
 
+        /** SenseVoice prepends meta tokens like <|en|>, <|NEUTRAL|>, <|Speech|>, <|woitn|>. */
         internal fun isMeta(piece: String): Boolean =
             piece.startsWith("<|") || (piece.startsWith("<") && piece.endsWith(">"))
 
@@ -314,6 +389,9 @@ class DiarizationEngine(
             return FloatArray(v.size) { v[it] * inv }
         }
 
+        /** Cosine distance on L2-normalized vectors = 1 - dot. Zero/length-mismatch => far (1). A NaN
+         *  (e.g. a NaN embedding) also maps to "far" — otherwise it would poison every nearest-centroid
+         *  min-search (nearestVoice / weak-merge / anchor assignment) into never selecting a winner. */
         internal fun cosineDistance(a: FloatArray, b: FloatArray): Double {
             if (a.isEmpty() || b.isEmpty() || a.size != b.size) return 1.0
             var dot = 0.0
@@ -322,6 +400,7 @@ class DiarizationEngine(
             return if (d.isNaN()) 1.0 else d.coerceIn(0.0, 2.0)
         }
 
+        /** Remap arbitrary cluster reps to contiguous 0..k-1 by first appearance. */
         internal fun normalize(rep: IntArray): IntArray {
             val map = HashMap<Int, Int>()
             return IntArray(rep.size) { i -> map.getOrPut(rep[i]) { map.size } }

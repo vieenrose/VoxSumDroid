@@ -142,10 +142,12 @@ import java.io.File
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.audio.AudioDecoder
+import studio.voxsum.core.audio.RecordingRecovery
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.displayLocale
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.TranscriptionConfig
+import studio.voxsum.core.power.BackgroundReliability
 import studio.voxsum.core.text.ChineseScript
 import studio.voxsum.core.text.OpenCcConverter
 import studio.voxsum.core.cover.CoverGenerator
@@ -278,7 +280,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * The first time the user kicks off background work, ask (once) for a battery-optimization
+     * exemption so screen-off runs aren't frozen. Portable across OEMs; the dialog is a separate
+     * activity so it never blocks the run that's starting. Manual re-entry lives in Settings.
+     */
+    private fun maybeRequestBackgroundExemptionOnce() {
+        val prefs = getSharedPreferences("voxsum", MODE_PRIVATE)
+        if (prefs.getBoolean("bg_opt_prompted", false)) return
+        if (BackgroundReliability.isIgnoringBatteryOptimizations(this)) return
+        prefs.edit().putBoolean("bg_opt_prompted", true).apply()
+        BackgroundReliability.requestIgnoreBatteryOptimizations(this)
+    }
+
     private fun startRecording(gen: Int) {
+        maybeRequestBackgroundExemptionOnce()
         ContextCompat.startForegroundService(
             this,
             Intent(this, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_RECORD)
@@ -293,6 +309,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startTranscription(uri: Uri, gen: Int) {
+        maybeRequestBackgroundExemptionOnce()
         // content:// (SAF) needs a persistable grant; file:// from our own filesDir/audio
         // (podcast downloads) is already owned by the app.
         if (uri.scheme == "content") {
@@ -406,6 +423,17 @@ private fun TranscribeScreen(
     var updateProgress by remember { mutableStateOf<Float?>(null) }   // non-null while downloading
     var updateApk by remember { mutableStateOf<File?>(null) }         // cached so a perms-retry skips re-download
     LaunchedEffect(Unit) { updateInfo = runCatching { UpdateChecker.check(context) }.getOrNull() }
+
+    // --- Crash recovery: a live recording the OS killed mid-capture (OEM freeze, OOM, swipe-away)
+    // is repaired and offered on next launch, so a meeting is never silently lost. ---
+    var recoveredRec by remember { mutableStateOf<File?>(null) }
+    LaunchedEffect(Unit) {
+        // Skip if a capture is still live in this process (Activity recreated under memory pressure
+        // while the foreground service kept recording) — only a real kill should trigger recovery.
+        if (!TranscriptionService.recordingActive) {
+            recoveredRec = withContext(Dispatchers.IO) { RecordingRecovery.pending(context) }
+        }
+    }
 
     // --- Inline editing (mirrors the web app): id->name overrides + which row/speaker is open. ---
     val speakerNames = remember { mutableStateMapOf<Int, SpeakerName>() }
@@ -571,6 +599,32 @@ private fun TranscribeScreen(
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh session → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri, sessionGen)
+    }
+
+    // Offer to finish a recording the OS killed mid-capture. Requires an explicit choice (no
+    // outside-tap dismiss) so the recovered meeting can't be lost by a stray tap. "Finish" re-runs the
+    // pipeline over the recovered audio; "Discard" deletes it. Either way the marker is cleared.
+    recoveredRec?.let { wav ->
+        val mins = (RecordingRecovery.seconds(wav) + 59) / 60
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(stringResource(R.string.recover_title)) },
+            text = { Text(stringResource(R.string.recover_message, mins)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    recoveredRec = null
+                    RecordingRecovery.clear(context)
+                    launchAudio(Uri.fromFile(wav))
+                }) { Text(stringResource(R.string.recover_finish)) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    recoveredRec = null
+                    RecordingRecovery.clear(context)
+                    wav.delete()
+                }) { Text(stringResource(R.string.recover_discard)) }
+            },
+        )
     }
 
     val picker = rememberLauncherForActivityResult(
@@ -1185,7 +1239,10 @@ private fun TranscribeScreen(
                 // All re-run actions are disabled while a run is in flight (each fun also guards `running`);
                 // this also blocks Re-transcribe/Detect-names from starting a second run whose buffered
                 // events would otherwise land on the freshly-reset session.
-                canReTranscribe = transcriptReady && !running && audioUri != null,
+                // Re-transcribe only needs the audio source, NOT a completed transcript — otherwise
+                // stopping the first transcription (transcriptReady stays false) leaves no way to
+                // retry (and no summary/title, which depend on a transcript that never finished).
+                canReTranscribe = !running && audioUri != null,
                 onReTranscribe = { audioUri?.let { launchAudio(it) } },
                 canReSummarize = transcriptReady && !running,
                 onReSummarize = { regenerateStaleChildren() },
@@ -1397,9 +1454,17 @@ private fun TranscribeScreen(
                 if (newCfg.targetLanguage != old.targetLanguage) {
                     val zh = setOf(TargetLanguage.TRADITIONAL.id, TargetLanguage.SIMPLIFIED.id)
                     val newScript = TargetLanguage.scriptFor(newCfg.targetLanguage, context.displayLocale())
-                    if (old.targetLanguage in zh && newCfg.targetLanguage in zh && newScript != null) {
-                        if (utterances.isNotEmpty()) applyChineseScript(newScript)
-                    } else if (!summary.isNullOrBlank() || actionItems != null) summaryStale = true
+                    // The transcript is raw ASR Chinese regardless of the OLD target, so whenever the new
+                    // target is a Chinese script, normalize it in place (OpenCC, instant, no LLM). This
+                    // also covers switching TO zh from a non-zh target (e.g. Français → 繁體中文), not just
+                    // zh↔zh — otherwise the transcript stays Simplified under a zh-Hant target. Title /
+                    // summary / names ride along; the converter leaves non-Chinese text untouched.
+                    if (newScript != null && utterances.isNotEmpty()) applyChineseScript(newScript)
+                    // Summary/title/actions are LLM output in the target LANGUAGE. A pure Traditional↔
+                    // Simplified switch is only a re-render (done above, no LLM); any other language
+                    // change needs an LLM re-run to rewrite them in the new language.
+                    val pureScriptSwitch = old.targetLanguage in zh && newCfg.targetLanguage in zh
+                    if (!pureScriptSwitch && (!summary.isNullOrBlank() || actionItems != null)) summaryStale = true
                 }
                 // Summary-shaping changes (model / style / prompt) need an LLM re-run of the summary
                 // (and, via regenerateStaleChildren, the action items).

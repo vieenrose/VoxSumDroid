@@ -35,9 +35,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import android.os.Build
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import studio.voxsum.core.models.ModelManager
+import studio.voxsum.core.power.BackgroundReliability
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -168,9 +171,8 @@ fun SettingsContent(
                     }, label = { Text("+") })
                 }
             }
-            SliderRow(stringResource(R.string.settings_cluster_threshold), config.clusterThreshold, 0.1f, 1.0f, enabled) {
-                onChange(config.copy(clusterThreshold = it))
-            }
+            // (The cluster-threshold slider is gone: spectral clustering picks the speaker count
+            // from the eigengap, so there is no distance threshold left to hand-tune.)
         }
 
         // (5) Summary options.
@@ -224,7 +226,11 @@ fun SettingsContent(
         Section(stringResource(R.string.settings_storage))
         StoragePanel(enabled)
 
-        // (7) About — version, license, and open-source components.
+        // (7) Background reliability — keep screen-off runs alive across OEM power policies.
+        Section(stringResource(R.string.settings_background))
+        BackgroundReliabilityPanel(enabled)
+
+        // (8) About — version, license, and open-source components.
         Section(stringResource(R.string.settings_about))
         AboutContent(onUpdateFound)
     }
@@ -312,6 +318,56 @@ private fun kindLabel(kind: ModelManager.ModelKind): String = stringResource(
         ModelManager.ModelKind.OTHER -> R.string.model_kind_other
     }
 )
+
+/**
+ * Battery-optimization exemption (portable, one tap) plus — on battery-aggressive OEMs — a deep-link
+ * to the auto-start / auto-freeze screen the app can't toggle itself. Polls the exemption state so it
+ * updates when the user returns from the system dialog. See [BackgroundReliability].
+ */
+@Composable
+private fun BackgroundReliabilityPanel(enabled: Boolean) {
+    val pal = LocalVoxSumPalette.current
+    val context = LocalContext.current
+    var exempt by remember { mutableStateOf(BackgroundReliability.isIgnoringBatteryOptimizations(context)) }
+    // Cheap re-check while this panel is visible, so returning from the system dialog reflects here.
+    LaunchedEffect(Unit) {
+        while (true) {
+            exempt = BackgroundReliability.isIgnoringBatteryOptimizations(context)
+            delay(1500)
+        }
+    }
+    Text(
+        stringResource(R.string.bg_explainer),
+        style = MaterialTheme.typography.bodySmall,
+        color = pal.Slate400,
+        modifier = Modifier.padding(bottom = 6.dp),
+    )
+    Text(
+        stringResource(if (exempt) R.string.bg_battery_exempt else R.string.bg_battery_optimized),
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (exempt) pal.Sky else pal.Slate200,
+    )
+    if (!exempt) {
+        OutlinedButton(
+            enabled = enabled,
+            onClick = { BackgroundReliability.requestIgnoreBatteryOptimizations(context) },
+            modifier = Modifier.padding(top = 4.dp),
+        ) { Text(stringResource(R.string.bg_allow)) }
+    }
+    if (BackgroundReliability.isAggressiveOem()) {
+        Text(
+            stringResource(R.string.bg_oem_hint, Build.MANUFACTURER.replaceFirstChar { it.uppercase() }),
+            style = MaterialTheme.typography.bodySmall,
+            color = pal.Slate400,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+        OutlinedButton(
+            enabled = enabled,
+            onClick = { BackgroundReliability.openOemAutoStartSettings(context) },
+            modifier = Modifier.padding(top = 4.dp),
+        ) { Text(stringResource(R.string.bg_open_oem)) }
+    }
+}
 
 /** Version + GPL notice + a manual update check + the open-source components + repo link. */
 @Composable

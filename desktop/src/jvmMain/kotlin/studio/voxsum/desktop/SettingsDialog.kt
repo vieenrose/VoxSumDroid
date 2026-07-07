@@ -58,7 +58,6 @@ fun SettingsDialog(
     var style by remember { mutableStateOf(summaryStyle) }
     var useItn by remember { mutableStateOf(config.useItn) }
     var vadThreshold by remember { mutableStateOf(config.vadThreshold) }
-    var clusterThreshold by remember { mutableStateOf(config.clusterThreshold) }
     var summaryPrompt by remember { mutableStateOf(config.summaryPrompt) }
 
     DialogWindow(
@@ -143,8 +142,6 @@ fun SettingsDialog(
                             singleLine = true,
                         )
                     }
-                    Text(Strings.clusteringSensitivity("%.2f".format(java.util.Locale.US, clusterThreshold)), color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
-                    Slider(value = clusterThreshold, onValueChange = { clusterThreshold = it }, valueRange = 0.1f..1.0f)
                 }
             }
 
@@ -192,7 +189,6 @@ fun SettingsDialog(
                             language = language,
                             useItn = useItn,
                             vadThreshold = vadThreshold,
-                            clusterThreshold = clusterThreshold,
                             summaryPrompt = summaryPrompt,
                         ),
                         style,

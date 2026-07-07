@@ -7,7 +7,9 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.annotation.SuppressLint
 import android.os.Build
+import android.os.PowerManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.lifecycle.LifecycleService
@@ -28,6 +30,7 @@ import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioRecorder
+import studio.voxsum.core.audio.RecordingRecovery
 import studio.voxsum.core.audio.WavSlicer
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.displayLocale
@@ -79,6 +82,15 @@ class TranscriptionService : LifecycleService() {
         // build that got interrupted left a 0-byte file). Request passed via [pendingExport] —
         // utterances can be large, so it rides an in-memory holder, not Intent extras.
         const val ACTION_EXPORT = "studio.voxsum.EXPORT"
+
+        // True while a live capture is in flight *in this process*. The Activity can be destroyed and
+        // recreated (low memory) while the foreground service keeps recording; the crash-recovery
+        // check reads this so it doesn't mistake a still-active recording's marker for an interrupted
+        // one. A real process kill takes the service (and this flag) down with it, so a fresh process
+        // reads false and recovery proceeds correctly.
+        @Volatile
+        var recordingActive = false
+            private set
 
         // Mic-capture backpressure slack: how many recorder blocks (~128 ms each) may queue ahead of
         // the ASR decode before the mic loop is throttled. ~33 s absorbs slow segment decodes so live
@@ -134,6 +146,27 @@ class TranscriptionService : LifecycleService() {
     @Volatile private var notifRecording = false
     // Last reported download percent, so reportDownload() throttles to integer-percent changes.
     @Volatile private var lastDlPct = -1
+
+    // Held for the lifetime of the foreground service (acquired at every startForegroundTyped, released
+    // in onDestroy). A foreground service keeps the PROCESS alive but does NOT keep the CPU awake with
+    // the screen off — on battery-aggressive OEMs the SoC dozes and the CPU-bound ASR/LLM work stalls.
+    // A partial wake lock keeps the CPU running; the screen is free to turn off. No timeout: onDestroy
+    // always runs when the started service calls stopSelf(), and if the process is killed the OS
+    // reclaims the lock anyway — so it can't leak, and a long ASR phase can't hit a timeout mid-run.
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    @SuppressLint("WakelockTimeout")
+    private fun acquireWakeLock() {
+        val wl = wakeLock ?: (getSystemService(Context.POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "voxsum:pipeline")
+            .also { it.setReferenceCounted(false); wakeLock = it }
+        if (!wl.isHeld) wl.acquire()
+    }
+
+    override fun onDestroy() {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        super.onDestroy()
+    }
 
     /**
      * Surface a model-download fraction to BOTH the notification AND the UI (a [TranscriptEvent.DownloadProgress]
@@ -409,10 +442,17 @@ class TranscriptionService : LifecycleService() {
         val wav = File(File(filesDir, "audio").apply { mkdirs() }, "recording_${System.currentTimeMillis()}.wav")
         val utterances = ArrayList<TranscriptEvent.Utterance>()
 
+        // Track this capture so a process kill mid-meeting is recoverable on next launch. The finally
+        // below clears it on a clean stop AND on user cancellation (both run finally) — only a hard
+        // process kill leaves the marker, which is exactly what signals "recover this recording".
+        RecordingRecovery.markStarted(this, wav)
+        recordingActive = true
+
         // Set the live-capture status here (the engine no longer emits it), localized; this also
         // restores it after a model-download status was shown above.
         emitEvent(TranscriptEvent.Status(getString(R.string.status_recording)))
         updateNotification(getString(R.string.status_recording))
+        try {
         AsrEngine(
             backend = backend,
             files = models.asrFiles(backend),
@@ -449,6 +489,13 @@ class TranscriptionService : LifecycleService() {
                     }
                 }
         } // ASR + mic released here, before diarization/LLM load.
+        } finally {
+            // Capture finished (clean stop or user cancel) — the WAV header was finalized in
+            // WavWriter.close(); drop the recovery marker so next launch doesn't re-offer it. A hard
+            // process kill skips this, leaving the marker for RecordingRecovery.pending() to find.
+            recordingActive = false
+            RecordingRecovery.clear(this)
+        }
 
         // Drop the microphone foreground type for the CPU-bound finish. The WAV is already on disk.
         startForegroundTyped(recording = false, text = "Processing…")
@@ -484,7 +531,6 @@ class TranscriptionService : LifecycleService() {
                 embeddingModel = models.embeddingModel.absolutePath,
                 numThreads = asrThreads(),
                 numClusters = cfg.numSpeakers,
-                clusterThreshold = cfg.clusterThreshold,
             ).use { de ->
                 val (t, count) = WavSlicer(wav).use { slicer ->
                     var lastPct = -1
@@ -635,6 +681,7 @@ class TranscriptionService : LifecycleService() {
 
     /** Start/refresh the FGS with the right type: microphone while recording, else data-sync. */
     private fun startForegroundTyped(recording: Boolean, text: String) {
+        acquireWakeLock()   // keep the CPU awake for this run even if the screen turns off
         notifRecording = recording
         val notif = buildNotification(text)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

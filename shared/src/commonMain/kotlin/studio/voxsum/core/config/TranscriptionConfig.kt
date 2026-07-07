@@ -17,11 +17,10 @@ data class TranscriptionConfig(
 
     // --- Diarization ---
     val diarizationEnabled: Boolean = true,
-    val numSpeakers: Int = -1,                // -1 = auto
-    // Cosine-distance cut for speaker clustering: a single voice's utterances stay within this,
-    // a different voice exceeds it. Tuned for the eres2net embeddings on short utterances
-    // (same-speaker spread reaches ~0.79). Lower = more speakers.
-    val clusterThreshold: Float = 0.8f,       // 0.1..1.0
+    // -1 = auto: the speaker count comes from spectral clustering's eigengap (scale-free — no
+    // per-embedding-model distance threshold to tune; the old clusterThreshold knob was removed
+    // when it proved mistuned for CAM++ and silently merged speakers).
+    val numSpeakers: Int = -1,
 
     // --- Summarization ---
     // The actually-used summary model. MUST track LlmRegistry.DEFAULT_ID — hardcoding it here (it was

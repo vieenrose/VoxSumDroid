@@ -6,12 +6,13 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import studio.voxsum.core.diarization.DiarizationEngine
+import studio.voxsum.core.diarization.SpectralClustering
 
 /**
- * Robustness of the diarization clustering math on degenerate vectors: NaN/zero embeddings must not
- * produce a NaN distance (which would crash the agglomerative min-search), and the dendrogram must
- * terminate with valid labels on larger / pathological distance matrices. The `timeout` guards against
- * a non-terminating merge loop.
+ * Robustness of the diarization clustering math on degenerate vectors: NaN/zero embeddings must
+ * not produce NaN distances or a poisoned affinity matrix, and spectral clustering must terminate
+ * with valid labels on larger / pathological inputs. The `timeout` guards against a
+ * non-converging eigensolve or k-means loop.
  */
 class DiarizationRobustnessTest {
 
@@ -27,35 +28,49 @@ class DiarizationRobustnessTest {
         assertNotNull(DiarizationEngine.l2normalize(FloatArray(0)))
     }
 
-    @Test(timeout = 5_000) fun agglomerativeTerminatesAndLabelsValidOnLargerMatrix() {
-        val n = 24
-        val d = Array(n) { DoubleArray(n) }
-        for (i in 0 until n) for (j in i + 1 until n) {
-            val v = ((i * 7 + j * 13) % 100) / 50.0   // deterministic, in [0, 2)
-            d[i][j] = v; d[j][i] = v
-        }
-        val (byK, _) = DiarizationEngine.agglomerative(d)
-        for (k in 1..n) {
-            assertEquals(n, byK[k].size)
-            assertTrue("k=$k labels must be in 0..${k - 1}", byK[k].all { it in 0 until k })
+    @Test(timeout = 10_000) fun spectralTerminatesAndLabelsValidOnLargerInput() {
+        // 64 points, 4 clean groups — must terminate fast and recover exactly the 4 groups.
+        val embs = (0 until 64).map { i -> jittered(axis = i / 16, seed = i) }.toTypedArray()
+        val labels = SpectralClustering.cluster(embs)
+        assertEquals(64, labels.size)
+        val k = (labels.maxOrNull() ?: -1) + 1
+        assertEquals("expected 4 clusters, got $k", 4, k)
+        for (g in 0 until 4) {
+            val rep = labels[g * 16]
+            assertTrue("group $g must be label-pure", (g * 16 until (g + 1) * 16).all { labels[it] == rep })
         }
     }
 
-    @Test(timeout = 5_000) fun agglomerativeDoesNotCrashOnNaNDerivedDistances() {
-        // A NaN embedding routed through the (guarded) cosineDistance must not leave the merge search
-        // with bi=-1. The matrix collapses to one cluster without throwing.
-        val embs = arrayOf(floatArrayOf(Float.NaN, 1f), floatArrayOf(1f, 0f), floatArrayOf(0f, 1f))
-        val n = embs.size
-        val d = Array(n) { i -> DoubleArray(n) { j -> DiarizationEngine.cosineDistance(embs[i], embs[j]) } }
-        val (byK, _) = DiarizationEngine.agglomerative(d)
-        assertEquals(n, byK[1].size)
+    @Test(timeout = 5_000) fun spectralSurvivesNaNEmbedding() {
+        // A NaN embedding must not poison the affinity matrix (guarded to similarity 0).
+        val embs = arrayOf(
+            floatArrayOf(Float.NaN, 1f, 0f, 0f),
+            floatArrayOf(1f, 0f, 0f, 0f), floatArrayOf(1f, 0.01f, 0f, 0f),
+            floatArrayOf(0f, 0f, 1f, 0f), floatArrayOf(0f, 0.01f, 1f, 0f),
+        )
+        val labels = SpectralClustering.cluster(embs)
+        assertEquals(5, labels.size)
+        assertTrue(labels.all { it >= 0 })
     }
 
-    @Test(timeout = 5_000) fun agglomerativeHandlesAllEqualDistances() {
-        val n = 8
-        val d = Array(n) { DoubleArray(n) { 0.5 } }
-        for (i in 0 until n) d[i][i] = 0.0
-        val (byK, _) = DiarizationEngine.agglomerative(d)
-        assertEquals(n, byK[1].size)   // terminates despite no unique closest pair
+    @Test(timeout = 5_000) fun spectralAllIdenticalEmbeddingsIsOneCluster() {
+        val embs = Array(8) { floatArrayOf(1f, 0f, 0f, 0f) }
+        val labels = SpectralClustering.cluster(embs)
+        assertTrue("identical voices must collapse to one cluster", labels.all { it == 0 })
+    }
+
+    @Test(timeout = 5_000) fun jacobiConvergesOnZeroAndDiagonalMatrices() {
+        val (zeroVals, _) = SpectralClustering.jacobiEigen(Array(4) { DoubleArray(4) })
+        assertTrue(zeroVals.all { it == 0.0 })
+        val diag = Array(3) { i -> DoubleArray(3) { j -> if (i == j) (i + 1).toDouble() else 0.0 } }
+        val (dVals, _) = SpectralClustering.jacobiEigen(diag)
+        assertEquals(1.0, dVals[0], 1e-9)
+        assertEquals(3.0, dVals[2], 1e-9)
+    }
+
+    private fun jittered(axis: Int, seed: Int): FloatArray {
+        val v = FloatArray(8).also { it[axis] = 1f }
+        for (d in v.indices) v[d] += (((seed * 31 + d * 7) % 13) - 6) * 0.02f
+        return DiarizationEngine.l2normalize(v)
     }
 }

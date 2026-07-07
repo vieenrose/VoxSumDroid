@@ -65,7 +65,6 @@
     <string name="settings_vad_threshold">語音偵測門檻</string>
     <string name="settings_diarization">語者分段</string>
     <string name="settings_identify_speakers">辨識語者</string>
-    <string name="settings_cluster_threshold">分群門檻</string>
     <string name="settings_summary_options">摘要選項</string>
     <string name="settings_summary_language">目標語言</string>
     <string name="summary_language_auto">與逐字稿相同</string>
@@ -227,4 +226,19 @@
     <string name="cover_remove">移除</string>
     <string name="cover_use">使用</string>
     <string name="status_session_loaded">已載入工作階段 — %d 行</string>
+
+    <!-- 背景可靠性（設定區） -->
+    <string name="settings_background">背景可靠性</string>
+    <string name="bg_explainer">轉錄與摘要在螢幕關閉時仍會繼續。若裝置將其暫停或凍結，請於下方授予例外。</string>
+    <string name="bg_battery_exempt">已略過電池最佳化 ✓</string>
+    <string name="bg_battery_optimized">電池最佳化仍啟用中 — 螢幕關閉時的處理可能被暫停。</string>
+    <string name="bg_allow">允許背景執行</string>
+    <string name="bg_oem_hint">%1$s 會強制凍結背景應用程式。請另於裝置設定中關閉 VoxSum 的自動啟動／自動凍結。</string>
+    <string name="bg_open_oem">開啟裝置設定</string>
+
+    <!-- 中斷錄音的復原 -->
+    <string name="recover_title">要復原中斷的錄音嗎？</string>
+    <string name="recover_message">一段約 %d 分鐘的錄音在完成前被中斷。要立即完成轉錄嗎？</string>
+    <string name="recover_finish">完成轉錄</string>
+    <string name="recover_discard">捨棄</string>
 </resources>

@@ -65,7 +65,6 @@
     <string name="settings_vad_threshold">VAD threshold</string>
     <string name="settings_diarization">Diarization</string>
     <string name="settings_identify_speakers">Identify speakers</string>
-    <string name="settings_cluster_threshold">Cluster threshold</string>
     <string name="settings_summary_options">Summary Options</string>
     <string name="settings_summary_language">Target language</string>
     <string name="summary_language_auto">Match transcript</string>
@@ -228,4 +227,19 @@
     <string name="cover_remove">Remove</string>
     <string name="cover_use">Use</string>
     <string name="status_session_loaded">Loaded session — %d lines</string>
+
+    <!-- Background reliability (Settings section) -->
+    <string name="settings_background">Background reliability</string>
+    <string name="bg_explainer">Transcription and summarization keep running with the screen off. If your device pauses or freezes them, grant the exemptions below.</string>
+    <string name="bg_battery_exempt">Ignoring battery optimization ✓</string>
+    <string name="bg_battery_optimized">Battery optimization is active — screen-off runs may be paused.</string>
+    <string name="bg_allow">Allow background activity</string>
+    <string name="bg_oem_hint">%1$s aggressively freezes background apps. Also turn off auto-start / auto-freeze for VoxSum in the device settings.</string>
+    <string name="bg_open_oem">Open device settings</string>
+
+    <!-- Interrupted-recording recovery dialog -->
+    <string name="recover_title">Recover interrupted recording?</string>
+    <string name="recover_message">A recording of about %d min was interrupted before it finished. Finish transcribing it now?</string>
+    <string name="recover_finish">Finish transcribing</string>
+    <string name="recover_discard">Discard</string>
 </resources>

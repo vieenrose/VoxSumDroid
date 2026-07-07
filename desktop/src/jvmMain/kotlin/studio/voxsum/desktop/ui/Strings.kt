@@ -134,8 +134,6 @@ object Strings {
         "Nombre de locuteurs (vide = auto) : ",
         "語者數提示（留空 = 自動）：",
     )
-    fun clusteringSensitivity(value: String): String =
-        t("Clustering sensitivity: $value", "Sensibilité du regroupement : $value", "分群靈敏度：$value")
     val targetLanguage: String get() = t("Target language", "Langue cible", "目標語言")
     val auto: String get() = t("Auto", "Auto", "自動")
     val summaryStyle: String get() = t("Summary style", "Style du résumé", "摘要風格")

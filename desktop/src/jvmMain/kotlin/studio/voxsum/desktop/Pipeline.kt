@@ -296,7 +296,6 @@ private suspend fun diarize(
             embeddingModel = models.embeddingModel.absolutePath,
             numThreads = 2,
             numClusters = config.numSpeakers,
-            clusterThreshold = config.clusterThreshold,
         )
         try {
             diar.assignSpeakers(pcm16k = pcm, utterances = utterances)

@@ -274,8 +274,7 @@ private fun mainApplication() = application {
                         // re-transcribe (which refreshes the whole tree).
                         if (hasContent && (cfg.asrBackend != old.asrBackend || cfg.language != old.language ||
                                 cfg.useItn != old.useItn || cfg.vadThreshold != old.vadThreshold ||
-                                cfg.diarizationEnabled != old.diarizationEnabled || cfg.numSpeakers != old.numSpeakers ||
-                                cfg.clusterThreshold != old.clusterThreshold)
+                                cfg.diarizationEnabled != old.diarizationEnabled || cfg.numSpeakers != old.numSpeakers)
                         ) {
                             next = next.copy(transcribeStale = true)
                         }

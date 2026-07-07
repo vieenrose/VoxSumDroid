@@ -1,0 +1,3 @@
+Two fixes:
+• Stopping a transcription before it finishes no longer leaves you stuck — Re-transcribe is available again, so you can switch the ASR engine and try once more.
+• Switching the target language to 繁體中文 / 简体中文 now instantly converts the existing transcript's script too (not just the summary) — no more Simplified text showing under a Traditional target.

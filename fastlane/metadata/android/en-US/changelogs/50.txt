@@ -1,0 +1,3 @@
+Never lose a meeting recording:
+• Recordings are now saved crash-safely as you record, so if the app is closed, swiped away, or killed by the system mid-recording, your audio is kept.
+• On the next launch, VoxSum offers to recover the interrupted recording and finish transcribing it — you only lose the last few seconds, not the whole meeting.
