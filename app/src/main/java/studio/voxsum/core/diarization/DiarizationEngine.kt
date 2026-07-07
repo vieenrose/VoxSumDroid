@@ -97,15 +97,22 @@ class DiarizationEngine(
         // 4. Within-utterance refinement: with ≥2 known speakers, re-scan each utterance for a
         //    sustained stretch of a *different* speaker and split it there. Needs the global
         //    centroids as the reference voices.
-        val refined = if (k >= 2) {
-            val cents = centroids(labels, embs, k)
+        val cents = if (k >= 2) centroids(labels, embs, k) else null
+        val refined = if (cents != null) {
             utterances.indices.flatMap { i -> splitUtterance(utterances[i], labels[i], cents, redecode) }
         } else {
             utterances.mapIndexed { i, u -> u.copy(speaker = labels[i]) }
         }
 
+        // 4b. Leading-fragment repair: at each speaker change, a short head of the line often
+        //     belongs to the PREVIOUS speaker (they paused mid-sentence — closing their VAD
+        //     segment — then finished the sentence as the next voice took over, so the tail rode
+        //     into the next segment). Sub-[MIN_SEG_SEC] stretches are invisible to the free scan
+        //     above by design; this targeted single-hypothesis test can act on much shorter heads.
+        val repaired = if (cents != null) repairHeads(refined, cents, redecode) else refined
+
         // 5. Re-index 0..n-1 in time order (splits inserted new lines).
-        val tagged = refined.mapIndexed { i, u -> u.copy(index = i) }
+        val tagged = repaired.mapIndexed { i, u -> u.copy(index = i) }
         val count = (tagged.mapNotNull { it.speaker }.maxOrNull() ?: -1) + 1
         return tagged to count
     }
@@ -372,9 +379,40 @@ class DiarizationEngine(
 
         if (runs.size < 2) return listOf(u.copy(speaker = base))
 
-        return if (hasTokenTimes) splitByTokens(u, base, runs, toks!!, times!!)
-        else splitByRedecode(u, base, runs, redecode!!)
+        // Refine every interior run boundary to the quietest instant nearby — the window scan
+        // localizes the change only to ~HOP_SEC, and the real inter-turn gap is the energy dip.
+        val bounds = DoubleArray(runs.size + 1)
+        bounds[runs.size] = dur
+        for (j in 1 until runs.size) {
+            val dip = snapToQuietest(u.startSec + runs[j].start) - u.startSec
+            bounds[j] = dip.coerceIn(bounds[j - 1] + 0.1, dur - 0.1)
+        }
+
+        // Divide the text at token stamps only when every dip is stamp-safe (see [stampSafe]) —
+        // an emission-delayed stamp near the dip puts a character on the wrong speaker's line.
+        // Otherwise cut at the dips and re-decode each side.
+        if (hasTokenTimes &&
+            (redecode == null || (1 until runs.size).all { stampSafe(times!!, bounds[it]) })
+        ) {
+            for (j in 1 until runs.size) {
+                runs[j - 1].end = bounds[j]
+                runs[j].start = bounds[j]
+            }
+            return splitByTokens(u, base, runs, toks!!, times!!)
+        }
+        return splitByRedecode(u, base, runs, bounds, redecode!!)
     }
+
+    /**
+     * A dip is stamp-safe when no token stamp falls in its ambiguity band
+     * (dip − [STAMP_AMBIG_BEFORE], dip + [STAMP_AMBIG_AFTER]). Transducer stamps mark tokens up
+     * to ~0.3 s AFTER their acoustics (emission delay), so a token stamped just after the dip
+     * may actually have been spoken before it — dividing by stamps there put the previous
+     * speaker's last character on the next speaker's line (measured: "花光老|本" split as
+     * "花光老" + "本，…"). When the band is clear, every stamp < dip is unambiguously before it.
+     */
+    internal fun stampSafe(times: List<Double>, dip: Double): Boolean =
+        times.none { it > dip - STAMP_AMBIG_BEFORE && it < dip + STAMP_AMBIG_AFTER }
 
     /** Divide [u]'s text at token timestamps: assign each token to the run holding its time. */
     private fun splitByTokens(
@@ -397,7 +435,7 @@ class DiarizationEngine(
         }
         val parts = runs.mapIndexed { si, s ->
             val idx = bySeg[si]
-            val text = detok(idx.map { pieces[it] })
+            val text = cleanSplitText(detok(idx.map { pieces[it] }))
             if (text.isBlank()) return listOf(u.copy(speaker = base))   // don't emit empty lines
             u.copy(
                 text = text,
@@ -412,26 +450,17 @@ class DiarizationEngine(
     }
 
     /**
-     * Divide [u]'s text by re-decoding each run's audio (no token timestamps available). Run
-     * boundaries come from window centers (~[HOP_SEC] resolution), so each interior boundary is
-     * first snapped to the quietest instant nearby — the actual inter-turn gap — so no word is
-     * cut in half. Any blank re-decode keeps the original fused line (never lose text).
+     * Divide [u]'s text by re-decoding each run's audio at the given dip-refined [bounds]
+     * (relative to u.start; used when token timestamps are missing or disagree with the dips).
+     * Any blank re-decode keeps the original fused line (never lose text).
      */
     private fun splitByRedecode(
         u: TranscriptEvent.Utterance,
         base: Int,
         runs: List<Seg>,
+        bounds: DoubleArray,
         redecode: (Double, Double) -> String,
     ): List<TranscriptEvent.Utterance> {
-        val dur = u.endSec - u.startSec
-        val bounds = DoubleArray(runs.size + 1)
-        bounds[runs.size] = dur
-        for (j in 1 until runs.size) {
-            val snapped = snapToQuietest(u.startSec + runs[j].start) - u.startSec
-            // Keep boundaries ordered and parts non-degenerate (runs are ≥ MIN_SEG_SEC apart,
-            // far beyond the snap radius, so this coercion is a safety net, not a steering wheel).
-            bounds[j] = snapped.coerceIn(bounds[j - 1] + 0.1, dur - 0.1)
-        }
         val parts = runs.mapIndexed { j, s ->
             val text = redecode(u.startSec + bounds[j], u.startSec + bounds[j + 1]).trim()
             if (text.isBlank()) return listOf(u.copy(speaker = base))
@@ -447,12 +476,137 @@ class DiarizationEngine(
         return if (parts.size >= 2) parts else listOf(u.copy(speaker = base))
     }
 
+    /**
+     * Move a line's leading fragment back to the previous line when it is the previous SPEAKER's
+     * sentence tail. For each adjacent pair (a, b) with different speakers where b starts hot on
+     * a's heels (≤ [HEAD_MAX_GAP]): probe b's head; when it clearly matches a's voice (absolute
+     * [ABS_GATE] + [HEAD_MARGIN] relative gates, and b's remainder must still match b), cut at
+     * the best-scoring candidate boundary and append the head's text (and audio span) to a.
+     * Candidates come from token timestamps when present, else from energy dips (+ re-decode for
+     * the text). A cheap 1s probe rejects most boundaries after two embeddings, so the pass adds
+     * a handful of embeddings only where a repair is actually plausible.
+     */
+    private fun repairHeads(
+        lines: List<TranscriptEvent.Utterance>,
+        cents: Array<FloatArray>,
+        redecode: ((Double, Double) -> String)?,
+    ): List<TranscriptEvent.Utterance> {
+        val out = lines.toMutableList()
+        for (i in 1 until out.size) {
+            val a = out[i - 1]
+            val b = out[i]
+            val sa = a.speaker ?: continue
+            val sb = b.speaker ?: continue
+            val dur = b.endSec - b.startSec
+            if (sa == sb || sa >= cents.size || sb >= cents.size) continue
+            if (b.startSec - a.endSec > HEAD_MAX_GAP || dur < HEAD_MIN + HEAD_KEEP) continue
+
+            val toks = b.tokens
+            val times = b.tokenTimes
+            val hasTimes = toks != null && times != null && times.isNotEmpty() && toks.size == times.size
+            if (!hasTimes && redecode == null) continue
+
+            // Cheap rejection probe: unless the first ~1s already leans toward a's voice AND is
+            // an absolute match for it, this boundary needs no repair.
+            val tMax = minOf(HEAD_MAX, dur - HEAD_KEEP)
+            val probe = embedRange(b.startSec, b.startSec + minOf(1.0, tMax))
+            if (probe.isEmpty()) continue
+            if (cosineDistance(probe, cents[sa]) >= minOf(ABS_GATE, cosineDistance(probe, cents[sb]))) continue
+
+            // Candidate cut points: token starts (nothing splits mid-word), else energy dips.
+            val cands = ArrayList<Double>()
+            if (hasTimes) {
+                for (t in times!!) {
+                    if (t in HEAD_MIN..tMax && (cands.isEmpty() || t - cands.last() >= 0.15)) cands.add(t)
+                }
+            } else {
+                var t = HEAD_MIN + 0.1
+                while (t <= tMax) {
+                    val s = (snapToQuietest(b.startSec + t) - b.startSec).coerceIn(HEAD_MIN, tMax)
+                    if (cands.none { kotlin.math.abs(it - s) < 0.1 }) cands.add(s)
+                    t += 0.5
+                }
+                cands.sort()
+            }
+
+            var bestT = -1.0
+            var bestScore = 0.0
+            for (t in cands) {
+                val head = embedRange(b.startSec, b.startSec + t)
+                if (head.isEmpty()) continue
+                val dA = cosineDistance(head, cents[sa])
+                val dB = cosineDistance(head, cents[sb])
+                if (dA >= ABS_GATE || dB - dA < HEAD_MARGIN) continue
+                val rest = embedRange(b.startSec + t, b.endSec)
+                if (rest.isEmpty()) continue
+                val rB = cosineDistance(rest, cents[sb])
+                val rA = cosineDistance(rest, cents[sa])
+                if (rB > rA) continue
+                // Head must read as a's voice AND the remainder as b's — scoring both keeps the
+                // cut from stopping short of the true change (leaving a's last word in b's line).
+                val score = (dB - dA) + (rA - rB)
+                if (score > bestScore) { bestScore = score; bestT = t }
+            }
+            if (bestT < 0) continue
+            // The embedding score locates the change only to candidate granularity — the actual
+            // inter-speaker gap is the quietest instant nearby.
+            val dip = (snapToQuietest(b.startSec + bestT) - b.startSec).coerceIn(HEAD_MIN, tMax)
+
+            // Divide the text at token stamps only when the dip is stamp-safe (see [stampSafe]);
+            // otherwise cut at the dip and re-decode each side (any backend; the recognizer is
+            // alive during diarization).
+            if (hasTimes && (redecode == null || stampSafe(times!!, dip))) {
+                val cut = b.startSec + dip
+                val headIdx = times!!.indices.filter { times[it] < dip && !isMeta(toks!![it]) }
+                val restIdx = times.indices.filter { times[it] >= dip && !isMeta(toks!![it]) }
+                val headText = cleanSplitText(detok(headIdx.map { toks!![it] }))
+                val restText = cleanSplitText(detok(restIdx.map { toks!![it] }))
+                if (headText.isBlank() || restText.isBlank()) continue
+                // Carry a's token karaoke data only when a already has a consistent token list.
+                val aHasToks = a.tokens != null && a.tokenTimes != null && a.tokens!!.size == a.tokenTimes!!.size
+                out[i - 1] = a.copy(
+                    text = joinText(a.text, headText),
+                    endSec = cut,
+                    tokens = if (aHasToks) a.tokens!! + headIdx.map { toks!![it] } else null,
+                    tokenTimes = if (aHasToks) {
+                        a.tokenTimes!! + headIdx.map { times[it] + (b.startSec - a.startSec) }
+                    } else null,
+                )
+                out[i] = b.copy(
+                    text = restText,
+                    startSec = cut,
+                    tokens = restIdx.map { toks!![it] },
+                    tokenTimes = restIdx.map { times[it] - dip },
+                )
+            } else if (redecode != null) {
+                val cut = b.startSec + dip.coerceIn(HEAD_MIN, tMax)
+                val headText = redecode(b.startSec, cut).trim()
+                val restText = redecode(cut, b.endSec).trim()
+                if (headText.isBlank() || restText.isBlank()) continue
+                out[i - 1] = a.copy(
+                    text = joinText(a.text, headText), endSec = cut,
+                    tokens = null, tokenTimes = null,
+                )
+                out[i] = b.copy(
+                    text = restText, startSec = cut,
+                    tokens = null, tokenTimes = null,
+                )
+            }
+        }
+        return out
+    }
+
     /** Absolute time (sec) of the lowest-energy 25ms frame within ±[SNAP_RADIUS_SEC] of [absSec]. */
-    private fun snapToQuietest(absSec: Double): Double {
+    private fun snapToQuietest(absSec: Double): Double =
+        quietestIn(absSec - SNAP_RADIUS_SEC, absSec + SNAP_RADIUS_SEC).takeIf { it >= 0 } ?: absSec
+
+    /** Absolute time (sec) of the lowest-energy 25ms frame in [fromSec, toSec); the window
+     *  midpoint when the range is degenerate. */
+    private fun quietestIn(fromSec: Double, toSec: Double): Double {
         val frame = SAMPLE_RATE / 40                                     // 25 ms
-        val a = ((absSec - SNAP_RADIUS_SEC) * SAMPLE_RATE).toLong().coerceAtLeast(0)
-        val b = ((absSec + SNAP_RADIUS_SEC) * SAMPLE_RATE).toLong().coerceAtMost(totalSamples)
-        if (b - a < 2L * frame) return absSec
+        val a = (fromSec * SAMPLE_RATE).toLong().coerceAtLeast(0)
+        val b = (toSec * SAMPLE_RATE).toLong().coerceAtMost(totalSamples)
+        if (b - a < 2L * frame) return (fromSec + toSec) / 2
         val buf = samples(a, b)
         var bestI = 0
         var bestE = Double.MAX_VALUE
@@ -502,6 +656,30 @@ class DiarizationEngine(
         const val SNAP_RADIUS_SEC = 0.35                 // search radius for the split-point energy dip
         const val MIXED_GATE = 0.55                      // side-vs-side distance that flags a fused segment
         val MIX_PROBE_FRACS = doubleArrayOf(0.3, 0.4, 0.5, 0.6, 0.7) // candidate split points probed
+        // Leading-fragment repair (see repairHeads): a head this short/long may move to the
+        // previous speaker, the line must keep HEAD_KEEP of audio, the previous line must end at
+        // most HEAD_MAX_GAP earlier, and the head must be HEAD_MARGIN closer to the previous voice.
+        const val HEAD_MIN = 0.3
+        const val HEAD_MAX = 2.5
+        const val HEAD_KEEP = 1.0
+        const val HEAD_MAX_GAP = 0.8
+        const val HEAD_MARGIN = 0.10
+        const val STAMP_AMBIG_BEFORE = 0.05              // stamp ambiguity band around a cut dip:
+        const val STAMP_AMBIG_AFTER = 0.35               // (dip-BEFORE, dip+AFTER) — see stampSafe
+
+        /** Detok + the same zh-en spacing cleanup ASR output gets (split lines used to keep raw
+         *  SentencePiece spacing like "直 播 间 的" — cleanTranscript joins CJK correctly). */
+        internal fun cleanSplitText(text: String): String =
+            studio.voxsum.core.asr.AsrEngine.cleanTranscript(text).trim()
+
+        /** Append continuation text to a line: direct concat around CJK, a space between ASCII words. */
+        internal fun joinText(a: String, b: String): String {
+            if (a.isBlank()) return b
+            if (b.isBlank()) return a
+            val needSpace = a.last().isLetterOrDigit() && a.last().code < 0x2E80 &&
+                b.first().isLetterOrDigit() && b.first().code < 0x2E80
+            return if (needSpace) "$a $b" else a + b
+        }
 
         // The helpers below are pure (no native state); kept here and marked internal so the
         // distance/normalization/token logic can be unit-tested directly (see
