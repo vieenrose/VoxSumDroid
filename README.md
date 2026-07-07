@@ -22,6 +22,9 @@ This `linux` branch adds a **Compose Multiplatform desktop target** (Ubuntu/Kubu
 Kotlin code — theme, settings, model provisioning, the full ASR/diarization/summarization pipeline
 — rather than porting the older Python backend. For the Android app itself, see `README.md` on `main`.
 
+**New here?** The [**Quick Start**](docs/QUICKSTART.md) is a 5-minute tour of everything the desktop
+app does. This README covers the architecture, verified status, and how to build/package.
+
 ## Screenshots
 
 <table>
@@ -40,7 +43,8 @@ Kotlin code — theme, settings, model provisioning, the full ASR/diarization/su
 - **`:app`** — the Android app, unchanged.
 - **`:shared`** — a Kotlin Multiplatform library (`jvm` + `androidTarget`) holding the code both
   platforms use: the theme system, settings persistence, model provisioning/downloads (`ModelManager`,
-  HuggingFace-first), the ASR (`AsrEngine`) and diarization (`DiarizationEngine`) engines, the
+  HuggingFace-first), the ASR (`AsrEngine`) and diarization (`DiarizationEngine` — CAM++ embeddings +
+  auto-k spectral clustering, `SpectralClustering`) engines, the
   summarization business logic (`LlmEngine`, `Summarizer`, `SpeakerNamer`, `ActionItemExtractor`),
   plus WAV/MP4/OGG tag I/O and transcript export. Its `jvmMain` also carries a desktop-only Kotlin
   JNI wrapper for sherpa-onnx (`com.k2fsa.sherpa.onnx`) — adapted from the upstream submodule, which
@@ -64,9 +68,12 @@ from the dev tree. Every item below was actually executed and observed:
 - Desktop counterparts of Android's platform APIs: `AudioDecoder` (ffmpeg), `AudioRecorder`
   (`javax.sound.sampled`), `FilePicker` (native AWT/GTK dialogs) — each verified against real
   files/devices/dialogs, not mocks.
-- **A real transcribe → diarize → summarize run, in the real UI**: picking a two-speaker test clip
-  produced a correct transcript in both English and Chinese, correctly split by speaker (2 speakers
-  detected), a generated title, and a bullet-point summary.
+- **A real transcribe → diarize → summarize run, in the real UI**: transcribing a multi-speaker
+  meeting produced a correct transcript, speakers split by **auto-k spectral clustering** (the speaker
+  count comes from the voice-similarity structure — there is no distance threshold to hand-tune), a
+  generated title, and a bullet-point summary. Verified on a real 4-speaker meeting: 4/4 speakers
+  detected, 100% time-weighted turn assignment; a two-speaker English+Chinese clip still splits
+  correctly. (Runs the exact same `DiarizationEngine`/`SpectralClustering` as the Android app.)
 - **First-run model downloads work from the UI**: with no models present, the app correctly shows
   "Downloading speech/speaker/summarization model…" with a live progress bar and streams real bytes
   from HuggingFace over HTTPS; verified with a genuinely fresh, empty model directory.
@@ -75,8 +82,9 @@ from the dev tree. Every item below was actually executed and observed:
   building it) and launching the actual binary from a directory unrelated to the build tree — every
   native library (llama.cpp/ggml, onnxruntime, sherpa-onnx, the voxsum-llm JNI bridge) was confirmed
   loaded and mapped into the running process's memory from inside the package layout.
-- **Settings screen**: ASR backend, diarization on/off + speaker-count hint, target language, and
-  summary style, persisted via a JVM `KeyValueStore` (`java.util.prefs`) and the same shared
+- **Settings screen**: ASR backend, diarization on/off + optional speaker-count hint (the speaker
+  count is otherwise automatic — no clustering-threshold knob), target language, and summary style,
+  persisted via a JVM `KeyValueStore` (`java.util.prefs`) and the same shared
   `ConfigStore`/`TranscriptionConfig` Android uses.
 - **Re-run actions**: re-summarize, LLM-based speaker-name detection, and action-item extraction —
   all reuse Android's shared `SpeakerNamer`/`ActionItemExtractor`, verified with a real run that
@@ -89,9 +97,10 @@ from the dev tree. Every item below was actually executed and observed:
 - **Model management**: a Models screen listing every downloaded model with size/kind and a Delete
   action to reclaim space (`ModelManager.storedModels()`, shared with Android).
 - **Session save/reopen — full format parity with Android**: "Save session" writes a
-  self-describing `.ogg`/`.m4a` file (audio transcoded to Opus/AAC via a system `ffmpeg`
-  subprocess, an audio-seeded cover identicon embedded, and the full editable transcript
-  gzip+base64'd into a Vorbis comment / MP4 freeform atom) — the *same format* Android uses,
+  self-describing `.m4a` file (the default, matching Android) — or `.ogg` — with the audio transcoded
+  to AAC/Opus via a system `ffmpeg` subprocess, an audio-seeded cover identicon embedded, and the
+  full editable transcript gzip+base64'd into an MP4 freeform atom / Vorbis comment — the *same format*
+  Android uses,
   reusing the shared `OggOpusTags`/`Mp4Tags` read/write code. Any media player plays it and shows
   title/description/synced lyrics; reopening it in VoxSum recovers the exact session. An earlier,
   simpler JSON-sidecar format (`SessionFile`) is still readable as a fallback for sessions saved
@@ -108,6 +117,10 @@ from the dev tree. Every item below was actually executed and observed:
 - **Online audio sources**: podcast search (iTunes Search API) + RSS episode download, and YouTube
   audio resolution/download (via NewPipeExtractor, already a dependency on Android) — both verified
   against the live network.
+- **Desktop reading comfort**: adjustable text size (the **A− / A+** buttons scale the transcript,
+  title, and summary without disturbing the toolbar or player), and the transcript **auto-scrolls**
+  to keep the currently-playing line in view. HiDPI is auto-detected on X11 (KDE/XFCE/GNOME), with a
+  `VOXSUM_UI_SCALE` override.
 
 Every item above was independently verified end-to-end (not just compiled) during development —
 see the branch's commit history for the specific verification each one got.
