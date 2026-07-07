@@ -55,9 +55,14 @@ class OfflineSpeakerDiarization(
 
     fun process(samples: FloatArray) = process(ptr, samples)
 
+    // PATCHED vs upstream: typed Any, not (Int, Int, Long) -> Int. The JNI resolves the callback
+    // method by EXACT signature invoke(IIJ)Ljava/lang/Integer; — a Kotlin lambda only has the
+    // erased Function3.invoke(Object,Object,Object), so passing one throws NoSuchMethodError at
+    // the first chunk. Pass a shim exposing that exact method instead (see
+    // studio.voxsum.core.diarization.SegProgress).
     fun processWithCallback(
         samples: FloatArray,
-        callback: (numProcessedChunks: Int, numTotalChunks: Int, arg: Long) -> Int,
+        callback: Any,
         arg: Long = 0,
     ) = processWithCallback(ptr, samples, callback, arg)
 
@@ -79,7 +84,7 @@ class OfflineSpeakerDiarization(
     private external fun processWithCallback(
         ptr: Long,
         samples: FloatArray,
-        callback: (numProcessedChunks: Int, numTotalChunks: Int, arg: Long) -> Int,
+        callback: Any,
         arg: Long,
     ): Array<OfflineSpeakerDiarizationSegment>
 }

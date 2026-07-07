@@ -1,5 +1,8 @@
 package studio.voxsum.desktop.audio
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import java.io.File
 import javax.sound.sampled.AudioSystem
 import javax.sound.sampled.Clip
@@ -19,7 +22,10 @@ class AudioPlayer {
 
     val durationSec: Double get() = clip?.let { it.microsecondLength / 1_000_000.0 } ?: 0.0
     val positionSec: Double get() = clip?.let { it.microsecondPosition / 1_000_000.0 } ?: 0.0
-    var isPlaying: Boolean = false
+    // Compose state, NOT a plain Boolean: the play/pause button icon reads this during
+    // composition, and pausing stops the position poller — the only other recomposition
+    // driver — so a plain field left the icon stuck on "Pause" after a pause click.
+    var isPlaying: Boolean by mutableStateOf(false)
         private set
 
     /** Loads [source] if not already loaded (decoding to WAV first if needed), then plays. */

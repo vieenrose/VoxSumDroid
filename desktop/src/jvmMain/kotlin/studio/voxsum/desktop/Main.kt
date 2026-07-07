@@ -391,6 +391,11 @@ private fun mainApplication() = application {
                                     text = { Text(Strings.reTitle) },
                                     onClick = { showRerunMenu = false; scope.launch { reTitle(state, update) } },
                                 )
+                                DropdownMenuItem(
+                                    enabled = state.audioFile != null,
+                                    text = { Text(Strings.reDiarize) },
+                                    onClick = { showRerunMenu = false; pipelineJob = scope.launch { reDiarize(state, update) } },
+                                )
                                 DropdownMenuItem(text = { Text(Strings.detectSpeakerNames) }, onClick = {
                                     showRerunMenu = false; scope.launch { detectSpeakerNames(state, update) }
                                 })
@@ -565,6 +570,7 @@ private fun mainApplication() = application {
                                                 EditableField(
                                                     value = state.summary, editing = state.editingSummary,
                                                     style = MaterialTheme.typography.bodyMedium, color = pal.Slate400, placeholder = Strings.noSummaryYet, minLines = 3,
+                                                    markdown = true, collapsedMaxLines = 12,
                                                     onBeginEdit = { update { it.copy(editingSummary = true) } },
                                                     onSave = { t -> update { it.copy(summary = t, editingSummary = false) } },
                                                     onCancel = { update { it.copy(editingSummary = false) } },
@@ -580,6 +586,7 @@ private fun mainApplication() = application {
                                         EditableField(
                                             value = state.actionItems, editing = state.editingActions,
                                             style = MaterialTheme.typography.bodyMedium, color = pal.Slate400, placeholder = Strings.noActionItems, minLines = 2,
+                                            markdown = true, collapsedMaxLines = 8,
                                             onBeginEdit = { update { it.copy(editingActions = true) } },
                                             onSave = { t -> update { it.copy(actionItems = t, editingActions = false) } },
                                             onCancel = { update { it.copy(editingActions = false) } },
@@ -877,6 +884,12 @@ private fun EditableField(
     color: Color,
     placeholder: String,
     minLines: Int = 1,
+    // Render [value] as Markdown when displaying (LLM summaries carry **bold**/#/- markup);
+    // editing always shows the raw text so the stored string round-trips unchanged.
+    markdown: Boolean = false,
+    // Fold the display past this many lines behind a Show more/Show less toggle, so a long
+    // summary can't push the transcript below the fold.
+    collapsedMaxLines: Int = Int.MAX_VALUE,
     onBeginEdit: () -> Unit,
     onSave: (String) -> Unit,
     onCancel: () -> Unit,
@@ -894,11 +907,28 @@ private fun EditableField(
         }
     } else {
         Row(verticalAlignment = Alignment.Top) {
-            Text(
-                value.ifBlank { placeholder }, style = style,
-                color = if (value.isBlank()) pal.Slate400.copy(alpha = 0.6f) else color,
-                modifier = Modifier.weight(1f),
-            )
+            Column(Modifier.weight(1f)) {
+                // remember(value): a fresh summary (or each streamed partial) starts collapsed.
+                var expanded by remember(value) { mutableStateOf(false) }
+                var overflowed by remember(value) { mutableStateOf(false) }
+                val blank = value.isBlank()
+                Text(
+                    if (markdown && !blank) studio.voxsum.ui.renderMarkdown(value)
+                    else androidx.compose.ui.text.AnnotatedString(value.ifBlank { placeholder }),
+                    style = style,
+                    color = if (blank) pal.Slate400.copy(alpha = 0.6f) else color,
+                    maxLines = if (expanded) Int.MAX_VALUE else collapsedMaxLines,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    onTextLayout = { overflowed = it.hasVisualOverflow },
+                )
+                if (overflowed || expanded) {
+                    Text(
+                        if (expanded) Strings.showLess else Strings.showMore,
+                        style = MaterialTheme.typography.labelMedium, color = pal.Slate400,
+                        modifier = Modifier.padding(top = 2.dp).clickable { expanded = !expanded },
+                    )
+                }
+            }
             Icon(
                 Icons.Filled.Edit, contentDescription = Strings.edit, tint = pal.Slate400,
                 modifier = Modifier.padding(start = 6.dp, top = 2.dp).size(15.dp).clickable(onClick = onBeginEdit),

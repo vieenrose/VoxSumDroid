@@ -93,11 +93,13 @@ class DiarizationEngine(
     fun assignSpeakers(
         pcm16k: FloatArray,
         utterances: List<TranscriptEvent.Utterance>,
+        onProgress: (Float) -> Unit = {},
         redecode: ((Double, Double) -> String)? = null,
     ): Pair<List<TranscriptEvent.Utterance>, Int> = assignSpeakers(
         { a, b -> pcm16k.copyOfRange(a.toInt().coerceIn(0, pcm16k.size), b.toInt().coerceIn(0, pcm16k.size)) },
         pcm16k.size.toLong(),
         utterances,
+        onProgress = onProgress,
         redecode = redecode,
     )
 
@@ -224,7 +226,20 @@ class DiarizationEngine(
             val a = (chunk - SEG_SEAM_SEC).coerceAtLeast(0.0)
             val b = (chunk + SEG_CHUNK_SEC + SEG_SEAM_SEC).coerceAtMost(totalSec)
             val pcm = samples((a * SAMPLE_RATE).toLong(), (b * SAMPLE_RATE).toLong())
-            for (s in sd.process(pcm)) {
+            // The segmenter pass dominates seg-mode cost (~0.5×RT on slow devices), so report
+            // native per-chunk progress — it's what makes the caller's time-to-finish estimate
+            // meaningful. SegProgress (NOT a lambda) is what the JNI's exact-signature lookup
+            // requires; if the callback path still fails, fall back to the silent call.
+            val doneFrac = chunk / totalSec
+            val spanFrac = ((chunk + SEG_CHUNK_SEC).coerceAtMost(totalSec) - chunk) / totalSec
+            val segs = try {
+                sd.processWithCallback(pcm, SegProgress { p, t ->
+                    if (t > 0) onProgress((SEG_PROGRESS_SHARE * (doneFrac + spanFrac * p / t)).toFloat())
+                })
+            } catch (e: Throwable) {
+                sd.process(pcm)
+            }
+            for (s in segs) {
                 val s0 = a + s.start
                 val s1 = a + s.end
                 val mid = (s0 + s1) / 2
@@ -260,7 +275,8 @@ class DiarizationEngine(
         val solos = islands.indices.map { soloRun(it) }
         val n = islands.size
         val embs = Array(n) { i ->
-            embedRange(solos[i].first, solos[i].second).also { onProgress((i + 1f) / n) }
+            embedRange(solos[i].first, solos[i].second)
+                .also { onProgress(SEG_PROGRESS_SHARE + (1f - SEG_PROGRESS_SHARE) * (i + 1f) / n) }
         }
         val valid = (0 until n).filter { embs[it].isNotEmpty() && embs[it].all { x -> x.isFinite() } }
         if (valid.isEmpty()) return null
@@ -994,6 +1010,7 @@ class DiarizationEngine(
         const val SEG_CANNOT_LINK_FRAC = 0.005           // …and as a fraction of total talk time
         const val SEG_SIL_RANGE = 4                      // silhouette re-scores k .. k+RANGE
         const val SEG_SIL_MARGIN = 0.01                  // a larger k must win by this much
+        const val SEG_PROGRESS_SHARE = 0.75f             // progress weight of the segmenter pass (rest = embedding)
 
         /** Mean cosine silhouette of [labels] over [embs] — the k re-scoring criterion. */
         internal fun silhouette(embs: Array<FloatArray>, labels: IntArray, k: Int): Double {

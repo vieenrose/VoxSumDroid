@@ -1,6 +1,8 @@
 package studio.voxsum.desktop.audio
 
+import studio.voxsum.core.audio.GainNormalizer
 import studio.voxsum.core.audio.WavWriter
+import studio.voxsum.core.util.voxLogWarn
 import java.io.File
 
 /**
@@ -16,10 +18,23 @@ object AudioDecoder {
     /** Target sample rate for all downstream sherpa-onnx models (matches Android's AudioDecoder). */
     const val SAMPLE_RATE = 16_000
 
-    /** Returns the full decoded waveform as mono float samples in [-1, 1] at 16 kHz. */
-    fun decodeToPcm16k(input: File): FloatArray {
+    /**
+     * Returns the full decoded waveform as mono float samples in [-1, 1] at 16 kHz.
+     *
+     * [normalize] enables [GainNormalizer] — automatic constant input gain for clearly-quiet
+     * sources (far-field/room-mic recordings starve the VAD otherwise). Only the transcription
+     * import path opts in; playback/session/export decodes stay faithful to the source.
+     */
+    fun decodeToPcm16k(input: File, normalize: Boolean = false): FloatArray {
         val out = FloatArrayBuilder(SAMPLE_RATE * 180)
-        decode(input) { buf, n -> out.addPcm16Le(buf, n) }
+        if (!normalize) {
+            decode(input) { buf, n -> out.addPcm16Le(buf, n) }
+            return out.toArray()
+        }
+        val norm = GainNormalizer { out.add(it) }
+        decode(input) { buf, n -> for (i in 0 until n) norm.add(pcm16At(buf, i)) }
+        norm.finish()
+        if (norm.gain != 1f) voxLogWarn("voxsum-audio", "quiet source: applied input gain x%.1f".format(norm.gain))
         return out.toArray()
     }
 

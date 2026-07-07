@@ -55,7 +55,10 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
         ensureAsrAndDiarizationModels(models, backend, config.diarizationEnabled, update)
 
         update { it.copy(status = "Decoding…", progress = null) }
-        val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(file) }
+        // normalize: imported far-field/room-mic audio gets an automatic constant gain so the
+        // VAD doesn't starve; this pcm feeds ASR, diarization AND redecode, so all three see
+        // the same (normalized) audio. Playback/session decodes stay faithful to the source.
+        val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(file, normalize = true) }
 
         update { it.copy(status = "Transcribing…", progress = 0f) }
         val utterances = ArrayList<TranscriptEvent.Utterance>()
@@ -294,12 +297,54 @@ private suspend fun collectTranscribeEvents(flow: Flow<TranscriptEvent>, utteran
     }
 }
 
+/** Re-run ONLY speaker detection over the current transcript — no re-transcription. Decodes the
+ *  audio, opens the ASR engine (needed for the fused-segment redecode rescue), re-clusters, and
+ *  replaces the utterances' speaker tags. Speaker names reset (cluster ids are re-derived) and the
+ *  summary goes stale (it embeds speaker labels). */
+suspend fun reDiarize(state: AppState, update: Update) {
+    val file = state.audioFile ?: return
+    val config = state.config
+    update { it.copy(running = true, error = null, status = "Identifying speakers…", progress = null) }
+    try {
+        val models = ModelManager(appDataDir)
+        val backend = AsrBackend.fromId(config.asrBackend)
+        ensureAsrAndDiarizationModels(models, backend, diarizationEnabled = true, update)
+
+        update { it.copy(status = "Decoding…", progress = null) }
+        // Same normalize=true as runPipeline: diarization must hear the same audio ASR heard.
+        val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(file, normalize = true) }
+
+        val script = TargetLanguage.scriptFor(config.targetLanguage)
+        val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
+        val (tagged, speakerCount) = withContext(Dispatchers.Default) {
+            AsrEngine(
+                backend = backend, files = models.asrFiles(backend), vadModel = models.vadModel.absolutePath,
+                numThreads = 2, language = config.language, useItn = config.useItn, vadThreshold = config.vadThreshold,
+            ).use { asr ->
+                diarize(models, config, pcm, state.utterances, update) { s, e ->
+                    convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+                }
+            }
+        }
+        update {
+            it.copy(
+                utterances = tagged, speakerCount = speakerCount, speakerNames = emptyMap(),
+                summaryStale = it.summary.isNotEmpty() || it.actionItems.isNotEmpty(),
+                progress = null, status = "Done", running = false,
+            )
+        }
+    } catch (t: Throwable) {
+        if (t is kotlinx.coroutines.CancellationException) throw t
+        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
+    }
+}
+
 private suspend fun diarize(
     models: ModelManager, config: TranscriptionConfig, pcm: FloatArray,
     utterances: List<TranscriptEvent.Utterance>, update: Update,
     redecode: ((Double, Double) -> String)? = null,
 ): Pair<List<TranscriptEvent.Utterance>, Int> {
-    update { it.copy(status = "Identifying speakers…", progress = null) }
+    update { it.copy(status = "Identifying speakers…", progress = 0f) }
     return withContext(Dispatchers.Default) {
         val diar = DiarizationEngine(
             embeddingModel = models.embeddingModel.absolutePath,
@@ -309,10 +354,35 @@ private suspend fun diarize(
                 .takeIf { config.preciseDiarization && it.exists() }?.absolutePath,
         )
         try {
-            diar.assignSpeakers(pcm16k = pcm, utterances = utterances, redecode = redecode)
+            // The precise (segmentation-first) pass can take a while (~0.15×RT on desktop
+            // CPUs), so surface an estimated time to finish alongside the bar.
+            val t0 = System.nanoTime()
+            var lastText = ""
+            diar.assignSpeakers(
+                pcm16k = pcm, utterances = utterances,
+                onProgress = { frac ->
+                    val eta = etaText(t0, frac)
+                    val text = if (eta != null) "Identifying speakers… $eta" else "Identifying speakers…"
+                    if (text != lastText) { lastText = text; update { it.copy(status = text, progress = frac) } }
+                    else update { it.copy(progress = frac) }
+                },
+                redecode = redecode,
+            )
         } finally {
             diar.close()
         }
+    }
+}
+
+/** "≈N min left" once enough of the phase has run to extrapolate; null early on / at the end. */
+private fun etaText(startNs: Long, frac: Float): String? {
+    if (frac < 0.03f || frac >= 1f) return null
+    val elapsedSec = (System.nanoTime() - startNs) / 1e9
+    if (elapsedSec < 5.0) return null
+    val remain = elapsedSec * (1 - frac) / frac
+    return when {
+        remain >= 90 -> "≈${((remain + 30) / 60).toInt()} min left"
+        else -> "≈${((remain / 5).toInt() + 1) * 5} s left"
     }
 }
 
