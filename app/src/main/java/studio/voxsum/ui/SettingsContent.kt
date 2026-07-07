@@ -160,6 +160,11 @@ fun SettingsContent(
             onChange(config.copy(diarizationEnabled = it))
         }
         if (config.diarizationEnabled) {
+            SwitchRow(stringResource(R.string.settings_precise_diarization), config.preciseDiarization, enabled) {
+                onChange(config.copy(preciseDiarization = it))
+            }
+        }
+        if (config.diarizationEnabled) {
             val speakersVal = if (config.numSpeakers < 0) stringResource(R.string.settings_auto) else config.numSpeakers.toString()
             LabeledRow(stringResource(R.string.settings_speakers, speakersVal)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
