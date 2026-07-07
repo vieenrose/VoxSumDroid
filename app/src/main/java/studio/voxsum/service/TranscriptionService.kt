@@ -72,6 +72,10 @@ class TranscriptionService : LifecycleService() {
         const val ACTION_STOP = "studio.voxsum.STOP"
         const val ACTION_RECORD = "studio.voxsum.RECORD"
         const val ACTION_SUMMARIZE = "studio.voxsum.SUMMARIZE"
+        // Standalone re-diarize (Re-detect speakers): speaker detection only, no re-transcription.
+        // The transcript rides [pendingDiarize] (like ACTION_EXPORT's pendingExport — utterance
+        // lists are too large for Intent extras).
+        const val ACTION_DIARIZE = "studio.voxsum.DIARIZE"
         const val ACTION_RETITLE = "studio.voxsum.RETITLE"
         const val ACTION_EXTRACT_ACTIONS = "studio.voxsum.EXTRACT_ACTIONS"
         // Gracefully end live recording and continue into diarization/summary (vs ACTION_STOP,
@@ -98,6 +102,9 @@ class TranscriptionService : LifecycleService() {
         private const val MIC_BUFFER_BLOCKS = 256
 
         @Volatile var pendingExport: ExportRequest? = null
+
+        /** The transcript a pending ACTION_DIARIZE re-clusters (see that action's comment). */
+        @Volatile var pendingDiarize: List<TranscriptEvent.Utterance>? = null
 
         // Process-wide event bus the UI subscribes to. replay=0: UI must be collecting. Each event is
         // tagged with the run generation (the UI's sessionGen, via EXTRA_RUN_GEN) so the collector can
@@ -217,6 +224,7 @@ class TranscriptionService : LifecycleService() {
         val summarizeOnly = intent?.action == ACTION_SUMMARIZE
         val retitle = intent?.action == ACTION_RETITLE
         val extractActions = intent?.action == ACTION_EXTRACT_ACTIONS
+        val diarizeOnly = intent?.action == ACTION_DIARIZE
         stopRecordingRequested = false
         val previousJob = pipelineJob
         val previousLlm = activeLlm
@@ -236,6 +244,7 @@ class TranscriptionService : LifecycleService() {
                     summarizeOnly -> runSummarizeOnly(transcript.orEmpty(), summarizeWithTitle)
                     retitle -> runTitleOnly(summaryExtra.orEmpty())
                     extractActions -> runExtractActions(transcript.orEmpty())
+                    diarizeOnly -> runDiarizeOnly(uri)
                     recording -> runRecordingPipeline()
                     else -> runPipeline(uri)
                 }
@@ -369,7 +378,10 @@ class TranscriptionService : LifecycleService() {
         // the whole waveform in RAM. The WAV is the player + diarization source (16 kHz mono).
         val wav = File(File(filesDir, "audio").apply { mkdirs() }, "decoded_${System.currentTimeMillis()}.wav")
         val chunks = channelFlow {
-            AudioDecoder.decodeToWav16k(this@TranscriptionService, uri, wav) { block, len ->
+            // normalize: quiet far-field imports get an automatic constant gain before the live
+            // VAD/ASR sees them — and the work WAV (player + diarization source) carries the same
+            // gain, so every downstream consumer hears identical audio.
+            AudioDecoder.decodeToWav16k(this@TranscriptionService, uri, wav, normalize = true) { block, len ->
                 trySendBlocking(block.copyOf(len))
             }
         }.flowOn(Dispatchers.IO)
@@ -555,11 +567,21 @@ class TranscriptionService : LifecycleService() {
         ).use { de ->
             WavSlicer(wav).use { slicer ->
                 var lastPct = -1
+                var lastEta = ""
+                val t0 = System.nanoTime()
                 de.assignSpeakers(
                     slicer::read, slicer.totalSamples, utterances,
                     onProgress = { frac ->
                         val pct = (frac * 100).toInt()
                         if (pct != lastPct) { lastPct = pct; events.tryEmit(UNTAGGED to TranscriptEvent.Progress(frac)) }
+                        // The precise (segmentation-first) pass can run ~0.5×RT on slow ARM
+                        // devices — show an estimated time to finish once it's extrapolatable.
+                        etaText(t0, frac)?.let { eta ->
+                            if (eta != lastEta) {
+                                lastEta = eta
+                                events.tryEmit(UNTAGGED to TranscriptEvent.Status(getString(R.string.svc_identifying_speakers_eta, eta)))
+                            }
+                        }
                     },
                     redecode = { s, e ->
                         val a = (s * AsrEngine.SAMPLE_RATE).toLong()
@@ -570,6 +592,60 @@ class TranscriptionService : LifecycleService() {
                 )
             }
         } // diarization native resources freed before the LLM loads.
+    }
+
+    /**
+     * Standalone re-diarize: re-run ONLY speaker detection over the existing transcript. The audio
+     * is normally our own decoded 16 kHz work WAV (the player source) — reused directly; anything
+     * else is decoded (with input normalization) first. An ASR engine is loaded because the
+     * fused-segment split rescue re-decodes slices on backends without token timestamps (Qwen3).
+     */
+    private suspend fun runDiarizeOnly(audioUri: String?) {
+        val uri = audioUri?.let(Uri::parse)
+            ?: run { emitEvent(TranscriptEvent.Failed("No audio source")); return }
+        val utterances = pendingDiarize.also { pendingDiarize = null }
+            ?: run { emitEvent(TranscriptEvent.Failed("No transcript")); return }
+        val cfg = TranscriptionConfig.Holder.config
+        val models = ModelManager(filesDir)
+        val backend = AsrBackend.fromId(cfg.asrBackend)
+        if (!models.asrReady(backend)) {
+            emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_models)))
+            models.ensureAsrModels(backend) { frac -> reportDownload(R.string.svc_downloading_models_pct, frac) }
+        }
+        val src = if (uri.scheme == "file") uri.path?.let(::File) else null
+        val wav = if (src != null && src.exists() && src.extension == "wav" && src.parentFile?.name == "audio") src
+        else File(File(filesDir, "audio").apply { mkdirs() }, "decoded_${System.currentTimeMillis()}.wav").also { dest ->
+            AudioDecoder.decodeToWav16k(this@TranscriptionService, uri, dest, normalize = true) { _, _ -> }
+        }
+        val converter = outputConverter(cfg)
+        val asr = try {
+            AsrEngine(
+                backend = backend,
+                files = models.asrFiles(backend),
+                vadModel = models.vadModel.absolutePath,
+                numThreads = asrThreads(),
+                language = cfg.language,
+                useItn = cfg.useItn,
+                vadThreshold = cfg.vadThreshold,
+            )
+        } catch (t: Throwable) {
+            runCatching { models.deleteAsr(backend) }
+            emitEvent(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))
+            return
+        }
+        val diarized = asr.use { diarizePhase(wav, utterances, cfg, models, asr, converter) }
+        if (wav !== src) emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
+        emitEvent(TranscriptEvent.Complete(diarized.first, diarized.second))
+    }
+
+    /** "≈3 min left" (localized) once enough of the phase has run to extrapolate; null early on. */
+    private fun etaText(startNs: Long, frac: Float): String? {
+        if (frac < 0.03f || frac >= 1f) return null
+        val elapsedSec = (System.nanoTime() - startNs) / 1e9
+        if (elapsedSec < 5.0) return null
+        val remain = elapsedSec * (1 - frac) / frac
+        return if (remain >= 90) getString(R.string.eta_minutes, ((remain + 30) / 60).toInt())
+        else getString(R.string.eta_seconds, ((remain / 5).toInt() + 1) * 5)
     }
 
     /** Final Complete (with speakers when diarization ran during the ASR phase) + summarization —

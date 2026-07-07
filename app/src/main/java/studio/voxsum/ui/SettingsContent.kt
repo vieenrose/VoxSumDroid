@@ -439,9 +439,14 @@ private fun AboutContent(onUpdateFound: (UpdateInfo) -> Unit) {
 
 private val COMPONENT_LICENSES = listOf(
     "sherpa-onnx (ASR · VAD · diarization)" to "Apache-2.0",
+    "ONNX Runtime" to "MIT",
     "llama.cpp (summarization)" to "MIT",
+    "Qwen3.5 · Qwen3-ASR models" to "Apache-2.0",
     "Gemma models" to "Gemma Terms",
-    "CAM++ speaker embedding" to "Apache-2.0",
+    "SenseVoice · Zipformer ASR models" to "Apache-2.0",
+    "pyannote segmentation-3.0 (speaker boundaries)" to "MIT",
+    "CAM++ speaker embedding (3D-Speaker)" to "Apache-2.0",
+    "Silero VAD" to "MIT",
     "OpenCC (zh-TW)" to "Apache-2.0",
     "NewPipeExtractor (YouTube)" to "GPL-3.0",
     "Jetpack Compose" to "Apache-2.0",
