@@ -1,0 +1,5 @@
+Segmentation-first speaker diarization: speaker boundaries now come from a neural speaker-change detector (pyannote segmentation-3.0, 6 MB, offline) instead of silence detection.
+
+• Public meeting benchmarks: attribution 82→96% (AMI, English), 67→92% (AISHELL-4, Mandarin)
+• Handles overlapping speech and back-to-back exchanges by construction
+• New Settings switch "Precise speaker boundaries (slower)" — turn off on slow devices
