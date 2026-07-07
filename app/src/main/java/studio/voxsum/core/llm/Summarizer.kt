@@ -26,10 +26,11 @@ class Summarizer(
     /** Script post-conversion (OpenCC s2tw for Traditional Chinese); identity when not needed. */
     private val convert: (String) -> String = { it },
     /** Format directives from the chosen SummaryStyle (default = bullets) + their token budgets. */
-    private val mapInstruction: String = "as a few short bullet points",
-    private val reduceInstruction: String = "into ONE concise summary of a few short bullet points",
-    private val mapMaxTokens: Int = 256,
-    private val reduceMaxTokens: Int = 400,
+    private val mapInstruction: String = "as 3-5 short bullet points (each under 20 words)",
+    private val reduceInstruction: String = "into ONE concise summary of AT MOST 7 short bullet points — keep only the most " +
+        "important points, merge overlapping ones, drop minor detail (each bullet under 20 words)",
+    private val mapMaxTokens: Int = 224,
+    private val reduceMaxTokens: Int = 288,
 ) {
 
     // Output-language clause appended to every prompt. A small LLM otherwise replies in the transcript's
@@ -97,7 +98,20 @@ class Summarizer(
                 maxTokens = reduceMax,
             ) { finalSb.append(it) }
         }
-        val finalSummary = convert(SummaryText.cleanSummary(finalSb.toString()))
+        var finalText = SummaryText.cleanSummary(finalSb.toString())
+        // Guaranteed length bound: even with an explicit count in the prompt, a small model fed a
+        // dense hour-long reduce input can still overrun (it fills its token budget rather than
+        // selecting). One extra pass asking for only the most important points runs ONLY when the
+        // result is clearly too long — an hour-long meeting must not yield a 30-bullet wall.
+        if (SummaryText.tooLong(finalText)) {
+            val sb = StringBuilder()
+            llm.generate(
+                SummaryText.wrap(template, SHRINK_TEMPLATE.format(instr, reduceInstruction, finalText)),
+                maxTokens = reduceMax,
+            ) { sb.append(it) }
+            SummaryText.cleanSummary(sb.toString()).takeIf { it.isNotBlank() }?.let { finalText = it }
+        }
+        val finalSummary = convert(finalText)
         emit(TranscriptEvent.SummaryComplete(finalSummary))
 
         // Title is derived from the final summary. Skipped on re-summarize (withTitle = false) so a model
@@ -131,5 +145,10 @@ class Summarizer(
         const val TITLE_TEMPLATE =
             "Write ONE short title (at most 8 words) for the summary below.%s " +
                 "Output only the title text — no quotes, no list, no preamble.\n\nSummary:\n%s\n\nTitle:"
+        // %s = user instruction, %s = the style's reduce directive, %s = the over-long summary.
+        const val SHRINK_TEMPLATE =
+            "%s\nThe summary below is too long. Rewrite it %s. Keep ONLY the most important points" +
+                " and drop minor detail. Output only the summary itself — no headings, no multiple" +
+                " versions, no preamble.\n\nSummary:\n%s\n\nSummary:"
     }
 }

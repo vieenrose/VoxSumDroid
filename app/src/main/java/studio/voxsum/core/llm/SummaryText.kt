@@ -44,6 +44,15 @@ internal object SummaryText {
     }
 
     /**
+     * A final summary that clearly overran its style's intent (an hour-long meeting's reduce can
+     * fill the whole token budget with ~30 bullets). Triggers the Summarizer's one-shot shrink
+     * pass. Thresholds sit well above every style's asked-for size (≤7 bullets / ≤6 sentences)
+     * in both English and CJK, so a compliant summary never pays for a second pass.
+     */
+    fun tooLong(summary: String): Boolean =
+        summary.lines().count { it.isNotBlank() } > 12 || summary.length > 1200
+
+    /**
      * Plain-text cleanup of a model summary: drop a conversational lead-in ("Here's a
      * summary…:"), unwrap bold/italic/code spans, strip heading marks, and normalize list
      * bullets — Compose renders raw text, so leftover markdown shows as literal asterisks.
