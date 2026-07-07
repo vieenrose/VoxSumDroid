@@ -47,22 +47,43 @@ class MeetingDiarizationEvalTest {
         val pcm = readWav16kMono(wav.inputStream())
         val utterances = mutableListOf<TranscriptEvent.Utterance>()
         val tAsr = System.currentTimeMillis()
+        var tagged: List<TranscriptEvent.Utterance> = emptyList()
+        var count = 0
+        var asrMs = 0L
+        var diarMs = 0L
+        var usedSeg = false
         AsrEngine(
             AsrBackend.SENSEVOICE, models.asrFiles(AsrBackend.SENSEVOICE),
             models.vadModel.absolutePath, numThreads = 4,
         ).use { asr ->
             asr.transcribe(pcm).collect { if (it is TranscriptEvent.Utterance) utterances.add(it) }
-        }
-        val asrMs = System.currentTimeMillis() - tAsr
-        Log.i("MeetingEval", "ASR: ${utterances.size} utterances in ${asrMs}ms")
+            asrMs = System.currentTimeMillis() - tAsr
+            Log.i("MeetingEval", "ASR: ${utterances.size} utterances in ${asrMs}ms")
 
-        // Diarization exactly as TranscriptionService runs it (auto-k unless numSpeakers given).
-        val tDiar = System.currentTimeMillis()
-        val (tagged, count) = DiarizationEngine(
-            embeddingModel = models.embeddingModel.absolutePath,
-            numThreads = 4, numClusters = numSpeakers,
-        ).use { it.assignSpeakers(pcm, utterances) }
-        val diarMs = System.currentTimeMillis() - tDiar
+            // Diarization exactly as TranscriptionService runs it: segmentation-first when the
+            // segmenter model is present (the shipped default), the ASR engine kept alive so the
+            // splitter can re-decode, auto-k unless numSpeakers given.
+            val tDiar = System.currentTimeMillis()
+            DiarizationEngine(
+                embeddingModel = models.embeddingModel.absolutePath,
+                numThreads = 4, numClusters = numSpeakers,
+                segmentationModel = models.segmentationModel.takeIf { it.exists() }?.absolutePath,
+            ).use { de ->
+                val r = de.assignSpeakers(pcm, utterances) { s, e ->
+                    asr.decodeSlice(
+                        pcm.copyOfRange(
+                            (s * 16000).toInt().coerceIn(0, pcm.size),
+                            (e * 16000).toInt().coerceIn(0, pcm.size),
+                        ),
+                    )
+                }
+                tagged = r.first
+                count = r.second
+                usedSeg = de.usedSegmenter
+            }
+            diarMs = System.currentTimeMillis() - tDiar
+        }
+        Log.i("MeetingEval", "diarization ${diarMs}ms usedSegmenter=$usedSeg")
 
         // Efficiency micro-bench: pure clustering cost at anchor scale (synthetic 192-dim
         // embeddings, 4 groups) — proves the eigensolve stays phone-friendly.
@@ -81,7 +102,7 @@ class MeetingDiarizationEvalTest {
         }
 
         val sb = StringBuilder(
-            """{"count":$count,"asrMs":$asrMs,"diarMs":$diarMs,"clusterBench":[$benches],"utterances":["""
+            """{"count":$count,"asrMs":$asrMs,"diarMs":$diarMs,"usedSegmenter":$usedSeg,"clusterBench":[$benches],"utterances":["""
         )
         tagged.forEachIndexed { i, u ->
             if (i > 0) sb.append(",")
