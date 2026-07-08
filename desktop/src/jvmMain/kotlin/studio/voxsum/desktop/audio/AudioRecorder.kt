@@ -50,6 +50,10 @@ class AudioRecorder(private val sampleRate: Int = 16_000) {
 
         dest.parentFile?.mkdirs()
         val writer = WavWriter(dest)
+        // Live AGC: a speaker far from the mic would otherwise starve the VAD/ASR (the import
+        // normalizer can't help — it needs lookahead). Applied before the WAV write AND the
+        // emit, so recognizer, file, level bars and playback all hear the same signal.
+        val agc = studio.voxsum.core.audio.LiveAgc()
         // ~128 ms of audio per read at the NATIVE rate (BLOCK is sized for 16 kHz).
         val frames = BLOCK * srcRate / sampleRate
         val blockBytes = ByteArray(frames * 2 * channels)
@@ -77,6 +81,7 @@ class AudioRecorder(private val sampleRate: Int = 16_000) {
                         }
                         if (n > 0) {
                             val f = out.copyOf(n)
+                            agc.process(f, n)
                             writer.write(f, n)           // stream straight to disk
                             totalSamples += n
                             emit(f)                      // and to the live ASR
