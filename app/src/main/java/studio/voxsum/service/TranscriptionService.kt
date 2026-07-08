@@ -33,6 +33,7 @@ import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioRecorder
 import studio.voxsum.core.audio.RecordingRecovery
 import studio.voxsum.core.audio.WavSlicer
+import studio.voxsum.core.audio.WavNormalizer
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.displayLocale
 import studio.voxsum.core.config.SummaryStyle
@@ -533,6 +534,11 @@ class TranscriptionService : LifecycleService() {
                         else -> emitEvent(e)
                     }
                 }
+            // Playback-volume normalization for the capture: a too-quiet recording is fixed in
+            // the WAV itself (players can only attenuate, never amplify), so the player AND the
+            // diarization pass below hear a comfortable level. Imported files don't need this —
+            // their work WAV was already normalized at decode.
+            withContext(Dispatchers.IO) { WavNormalizer.normalizeInPlace(wav) }
             // Same as the file path: diarize inside the recognizer's lifetime so fused segments
             // can be split by re-decode on timestamp-less backends. The capture WAV is already
             // finalized (WavWriter.close() ran when the record flow completed, before
