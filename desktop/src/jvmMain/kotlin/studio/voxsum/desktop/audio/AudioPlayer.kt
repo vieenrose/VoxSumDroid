@@ -53,8 +53,14 @@ class AudioPlayer {
     }
 
     private fun cachedWav(source: File, cacheDir: File): File {
-        val dest = File(cacheDir.apply { mkdirs() }, "${source.nameWithoutExtension}_${source.lastModified()}.wav")
-        if (!dest.exists()) AudioDecoder.decodeToWav16k(source, dest)
+        // "_n" suffix: normalized cache entries must not collide with pre-normalization ones.
+        val dest = File(cacheDir.apply { mkdirs() }, "${source.nameWithoutExtension}_${source.lastModified()}_n.wav")
+        if (!dest.exists()) {
+            AudioDecoder.decodeToWav16k(source, dest)
+            // Playback-volume normalization: a too-quiet source is fixed in the cached WAV
+            // (Clip gain can't amplify) — same gentle constant gain the import pipeline applies.
+            studio.voxsum.core.audio.WavNormalizer.normalizeInPlace(dest)
+        }
         return dest
     }
 }

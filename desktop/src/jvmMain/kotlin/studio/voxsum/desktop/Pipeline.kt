@@ -159,6 +159,10 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
                 }
                 collectTranscribeEvents(asr.transcribeLive(mic), utterances, update, convert)
                 update { it.copy(audioFile = dest, fileName = dest.name, progress = null, micLevel = 0f) }
+                // Playback-volume normalization for the capture: a too-quiet recording is fixed
+                // in the WAV itself (players can only attenuate, never amplify), so the player
+                // AND the diarization pass below hear a comfortable level.
+                withContext(Dispatchers.IO) { studio.voxsum.core.audio.WavNormalizer.normalizeInPlace(dest) }
                 val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(dest) }
                 if (config.diarizationEnabled) {
                     // Diarization is an enhancement, not a prerequisite: a failure here (typically
