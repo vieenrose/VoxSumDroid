@@ -2,6 +2,7 @@ package studio.voxsum.desktop
 
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import studio.voxsum.desktop.ui.Strings
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import studio.voxsum.core.export.TranscriptExport
@@ -16,23 +17,23 @@ import java.io.FileOutputStream
 fun ExportMenu(expanded: Boolean, onDismiss: () -> Unit, state: AppState) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         val label: (Int) -> String = { id -> speakerLabel(id, state.speakerNames) ?: "Speaker ${id + 1}" }
-        DropdownMenuItem(text = { Text("Save as text (.txt)") }, onClick = {
+        DropdownMenuItem(text = { Text(Strings.saveAs(".txt")) }, onClick = {
             onDismiss()
             saveExport(state, "txt") { TranscriptExport.plainText(state.utterances, label, state.title, state.summary) }
         })
-        DropdownMenuItem(text = { Text("Save as Markdown (.md)") }, onClick = {
+        DropdownMenuItem(text = { Text(Strings.saveAs("Markdown (.md)")) }, onClick = {
             onDismiss()
             saveExport(state, "md") { TranscriptExport.markdown(state.utterances, label, state.title, state.summary, "Summary", "Transcript") }
         })
-        DropdownMenuItem(text = { Text("Save as subtitles (.srt)") }, onClick = {
+        DropdownMenuItem(text = { Text(Strings.saveAs("SRT (.srt)")) }, onClick = {
             onDismiss()
             saveExport(state, "srt") { TranscriptExport.srt(state.utterances, label) }
         })
-        DropdownMenuItem(text = { Text("Save as subtitles (.vtt)") }, onClick = {
+        DropdownMenuItem(text = { Text(Strings.saveAs("VTT (.vtt)")) }, onClick = {
             onDismiss()
             saveExport(state, "vtt") { TranscriptExport.vtt(state.utterances, label) }
         })
-        DropdownMenuItem(text = { Text("Save as PDF (.pdf)") }, onClick = {
+        DropdownMenuItem(text = { Text(Strings.saveAs("PDF (.pdf)")) }, onClick = {
             onDismiss()
             val base = state.fileName.substringBeforeLast('.').ifBlank { "transcript" }
             val dest = FilePicker.saveFile("Save as .pdf", "$base.pdf") ?: return@DropdownMenuItem

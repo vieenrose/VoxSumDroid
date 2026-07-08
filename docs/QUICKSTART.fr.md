@@ -11,6 +11,8 @@ Voici une visite de 5 minutes de tout ce que fait l'application de bureau. Rien 
 
 ## Installation et lancement
 
+<p align="center"><img src="screenshots/linux-empty-state.png" width="640" alt="VoxSum pour Linux — écran d’accueil"></p>
+
 ```bash
 sudo dpkg -i voxsum_<version>_amd64.deb    # depuis une release GitHub desktop-v*
 ```
@@ -31,9 +33,15 @@ Cliquez sur **➕ Ajouter de l'audio** (le bouton principal de l'écran vide, ou
 | **En ligne → YouTube** | Collez un lien ou cherchez par mot-clé. |
 | **Ouvrir une session (.m4a / .ogg)** | Rouvrez une session enregistrée et continuez à l'éditer. |
 
+<p align="center"><img src="screenshots/linux-add-online-audio.png" width="640" alt="Audio en ligne — recherche de podcasts"></p>
+
 **Enregistrer une réunion** — *Enregistrer* capture depuis le périphérique d'entrée par défaut du système ; les lignes apparaissent à mesure que vous parlez, de petites **barres de niveau** dans la barre d'état montrent que le micro vous entend, et **Arrêter** termine le résumé. Les sources trop faibles (micro d'ambiance lointain) reçoivent un gain automatique — pour la transcription *et* la lecture.
 
+<p align="center"><img src="screenshots/linux-recording.png" width="640" alt="Enregistrement en direct — niveau du micro et transcription en direct"></p>
+
 ## 2. Lire et comprendre
+
+<p align="center"><img src="screenshots/linux-transcript.png" width="640" alt="Transcription avec locuteurs, résumé et lecteur synchronisé"></p>
 
 - **Qui parle et quand** — chaque ligne est étiquetée et colorée par locuteur, et la barre de lecture affiche une frise chronologique colorée par locuteur. Le nombre de locuteurs est détecté **automatiquement** — un segmenteur neuronal trace les frontières de locuteurs et le nombre découle de la structure de similarité des voix ; aucun seuil à régler. Les passes longues affichent une **estimation du temps restant** (« Identification des locuteurs… ≈3 min restantes »), tout comme le résumé. VoxSum peut aussi **deviner le vrai nom des locuteurs** d'après ce qu'ils disent (barre du haut **↻ Relancer → Détecter les noms**).
 - **Lecteur synchronisé** — ancré en bas comme une appli musicale : cliquez une ligne pour y sauter ; la ligne en cours se surligne pendant la lecture, et la transcription **défile automatiquement** pour la garder visible.
@@ -50,6 +58,8 @@ Cliquez sur **➕ Ajouter de l'audio** (le bouton principal de l'écran vide, ou
 
 ## 4. Enregistrer, partager, exporter
 
+<p align="center"><img src="screenshots/linux-export-menu.png" width="640" alt="Menu Exporter — texte, Markdown, sous-titres, PDF"></p>
+
 Ouvrez le menu **Exporter** (barre du haut). Pendant qu'une transcription tourne, l'export et les réglages sont brièvement verrouillés pour ne pas enregistrer une session à moitié faite — ils se déverrouillent à la fin.
 
 - **Enregistrer la session (.m4a ou .ogg)** — regroupe toute la session (audio ＋ transcription ＋ résumé ＋ locuteurs ＋ une pochette) dans un seul fichier qui **se lit dans n'importe quel lecteur multimédia** (avec titre, pochette, et la transcription en paroles synchronisées) et **se rouvre dans VoxSum** intact. `.m4a` est le format par défaut et correspond à celui de l'appli Android, donc une session circule entre ordinateur et téléphone. C'est votre archive — rouvrez-la à tout moment via *Ajouter de l'audio → Ouvrir une session*.
@@ -58,6 +68,8 @@ Ouvrez le menu **Exporter** (barre du haut). Pendant qu'une transcription tourne
 Les sessions rouvertes et enregistrées apparaissent sous **Récent** dans la barre latérale, un clic pour continuer.
 
 ## 5. Réglages utiles
+
+<p align="center"><img src="screenshots/linux-settings.png" width="640" alt="Préférences — modèles, langue, locuteurs, style de résumé"></p>
 
 - **Apparence** — **Clair**, **Sombre** ou **E-ink** (thème plat très contrasté). **Auto** (par défaut) suit le réglage clair/sombre du système.
 - **Langue du résumé** — garder la langue de la transcription, ou choisir English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어.

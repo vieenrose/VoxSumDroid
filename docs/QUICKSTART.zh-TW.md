@@ -11,6 +11,8 @@
 
 ## 安裝與啟動
 
+<p align="center"><img src="screenshots/linux-empty-state.png" width="640" alt="VoxSum for Linux — 起始畫面"></p>
+
 ```bash
 sudo dpkg -i voxsum_<版本>_amd64.deb    # 取自 desktop-v* 的 GitHub Release
 ```
@@ -31,9 +33,15 @@ sudo dpkg -i voxsum_<版本>_amd64.deb    # 取自 desktop-v* 的 GitHub Release
 | **線上 → YouTube** | 貼上連結或用關鍵字搜尋。 |
 | **開啟工作階段（.m4a／.ogg）** | 重新開啟先前儲存的工作階段，繼續編輯。 |
 
+<p align="center"><img src="screenshots/linux-add-online-audio.png" width="640" alt="加入線上音訊 — Podcast 搜尋"></p>
+
 **錄製會議** —「錄音」會從系統預設的輸入裝置擷取；邊講字句邊出現，狀態列的**音量指示條**顯示麥克風確實收到聲音，按 **停止** 後便完成摘要。過小的音源（遠距離會議室麥克風）會自動增益 — 轉錄與播放皆受惠。
 
+<p align="center"><img src="screenshots/linux-recording.png" width="640" alt="即時錄音 — 麥克風音量指示與即時轉錄"></p>
+
 ## 2. 閱讀與理解
+
+<p align="center"><img src="screenshots/linux-transcript.png" width="640" alt="含語者、摘要與同步播放器的逐字稿"></p>
 
 - **誰在何時說話** — 每一行都依語者標註並以顏色區分，播放列會顯示各語者的色帶時間軸。語者數量會**自動偵測** — 神經網路分段器先描出語者邊界，數量由聲音相似度結構決定；你不需要設定任何門檻。較長的處理會顯示**預估剩餘時間**（「辨識語者中… 約剩 3 分鐘」），摘要階段也一樣。VoxSum 還能**從內容推測語者的真實姓名**（頂列 **↻ 重新執行 → 偵測姓名**）。
 - **同步播放器** — 像音樂 App 一樣停在底部：點任一行即可跳到該處；播放時當前行會高亮，逐字稿也會**自動捲動**以保持該行在畫面內。
@@ -50,6 +58,8 @@ sudo dpkg -i voxsum_<版本>_amd64.deb    # 取自 desktop-v* 的 GitHub Release
 
 ## 4. 儲存、分享、匯出
 
+<p align="center"><img src="screenshots/linux-export-menu.png" width="640" alt="匯出選單 — 文字、Markdown、字幕、PDF"></p>
+
 開啟頂列的 **匯出** 選單。轉錄仍在進行時，匯出與設定會暫時鎖定，以免存到只做一半的工作階段 — 完成後自動解鎖。
 
 - **儲存工作階段（.m4a 或 .ogg）** — 把整個工作階段（音訊 ＋ 逐字稿 ＋ 摘要 ＋ 語者 ＋ 封面）打包成單一檔案，能在**任何媒體播放器**播放（顯示標題、封面，並把逐字稿當作同步歌詞），也能在 VoxSum 中**重新開啟**且完整還原。`.m4a` 是預設格式，與 Android 版一致，因此工作階段可在桌面與手機之間互通。這就是你的封存 — 隨時可透過 *新增音訊 → 開啟工作階段* 重新開啟。
@@ -58,6 +68,8 @@ sudo dpkg -i voxsum_<版本>_amd64.deb    # 取自 desktop-v* 的 GitHub Release
 重新開啟與儲存過的工作階段會出現在側欄的 **最近** 清單，點一下即可繼續。
 
 ## 5. 值得一看的設定
+
+<p align="center"><img src="screenshots/linux-settings.png" width="640" alt="設定 — 模型、語言、語者、摘要風格"></p>
 
 - **外觀** — **淺色**、**深色** 或 **電子紙**（扁平高對比主題）。**自動**（預設）會跟隨系統的淺／深色設定。
 - **摘要語言** — 沿用逐字稿語言，或選 English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어。

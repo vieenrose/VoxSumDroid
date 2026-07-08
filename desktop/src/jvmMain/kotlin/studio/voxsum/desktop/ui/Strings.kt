@@ -69,6 +69,7 @@ object Strings {
     val stDownloadingDiar: String get() = t("Downloading speaker model…", "Téléchargement du modèle de locuteurs…", "下載語者模型中…")
     val stDownloadingLlm: String get() = t("Downloading summarization model…", "Téléchargement du modèle de résumé…", "下載摘要模型中…")
     val stNoSpeech: String get() = t("No speech detected", "Aucune parole détectée", "未偵測到語音")
+    fun saveAs(fmt: String): String = t("Save as $fmt", "Enregistrer en $fmt", "另存為 $fmt")
     val stDiarizationSkipped: String get() = t(
         "Speaker detection failed — continuing without speakers",
         "Détection des locuteurs échouée — poursuite sans locuteurs",

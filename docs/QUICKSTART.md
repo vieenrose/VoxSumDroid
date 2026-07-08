@@ -11,6 +11,8 @@ This is a 5-minute tour of everything the desktop app can do. Nothing here needs
 
 ## Install & launch
 
+<p align="center"><img src="screenshots/linux-empty-state.png" width="640" alt="VoxSum for Linux — empty state"></p>
+
 ```bash
 sudo dpkg -i voxsum_<version>_amd64.deb    # from the desktop-v* GitHub release
 ```
@@ -31,9 +33,15 @@ Click **➕ Add audio** (the hero button on the empty screen, or **Ouvrir / Open
 | **Online → YouTube** | Paste a link or search by keyword. |
 | **Open session (.m4a / .ogg)** | Reopen a session you saved earlier and keep editing. |
 
+<p align="center"><img src="screenshots/linux-add-online-audio.png" width="640" alt="Add online audio — podcast search"></p>
+
 **Record a meeting** — *Record* captures from your system's default input device; lines appear as you talk, small **level bars** in the status bar show that the mic hears you, and **Stop** finishes the summary. Too-quiet sources (far-field room mics) get an automatic volume boost — for transcription *and* playback.
 
+<p align="center"><img src="screenshots/linux-recording.png" width="640" alt="Live recording — mic level bars and live transcription"></p>
+
 ## 2. Read and understand
+
+<p align="center"><img src="screenshots/linux-transcript.png" width="640" alt="Transcript with speakers, summary and synced player"></p>
 
 - **Who spoke when** — every line is tagged and colour-coded by speaker, and the player bar shows a per-speaker colour timeline. The number of speakers is detected **automatically** — a neural segmenter draws the speaker boundaries and the count comes from the voice-similarity structure; you don't set a threshold. Long passes show a live **time-to-finish estimate** ("Identifying speakers… ≈3 min left"), and so does summarization. VoxSum can also **guess speakers' real names** from what they say (top-bar **↻ Re-run → Detect names**).
 - **Synced player** — docked at the bottom like a music app: click any line to jump there; the current line highlights as it plays, and the transcript **auto-scrolls** to keep it in view.
@@ -50,6 +58,8 @@ Click **➕ Add audio** (the hero button on the empty screen, or **Ouvrir / Open
 
 ## 4. Save, share, export
 
+<p align="center"><img src="screenshots/linux-export-menu.png" width="640" alt="Export menu — text, Markdown, subtitles, PDF"></p>
+
 Open the **Export** menu (top bar). While a transcription is still running, export and settings are briefly locked so a session can't be saved half-finished — they unlock on completion.
 
 - **Save session (.m4a or .ogg)** — packs the whole session (audio + transcript + summary + speakers + a cover) into one file that **plays in any media player** (showing title, cover, and the transcript as synced lyrics) and **reopens in VoxSum** with everything intact. `.m4a` is the default and matches what the Android app writes, so a session moves between desktop and phone. This is your archive — reopen it any time via *Add audio → Open session*.
@@ -58,6 +68,8 @@ Open the **Export** menu (top bar). While a transcription is still running, expo
 Reopened and saved sessions appear under **Recent** in the sidebar, one click to continue.
 
 ## 5. Settings worth knowing
+
+<p align="center"><img src="screenshots/linux-settings.png" width="640" alt="Settings — models, language, diarization, summary style"></p>
 
 - **Appearance** — **Light**, **Dark**, or **E-ink** (a flat, high-contrast theme). **Auto** follows your system light/dark setting.
 - **Summary language** — keep the transcript's language, or pick English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어.
