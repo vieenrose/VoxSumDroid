@@ -351,6 +351,13 @@ private fun mainApplication() = application {
                 // Horizontally scrollable so longer-language labels (FR/ZH) never push actions like
                 // Preferences off-screen — the whole toolbar stays reachable at any window width.
                 Surface(color = pal.Slate800) {
+                    androidx.compose.foundation.layout.BoxWithConstraints {
+                    // Below this width the full icon+label toolbar doesn't fit (FR labels are the
+                    // widest, ~1725 dp) — switch to icon-only buttons with hover tooltips so every
+                    // action stays VISIBLE on small 1x screens (1280×768 laptops). The horizontal
+                    // scroll remains as a last-resort backstop.
+                    val compactToolbar = this.maxWidth < 1780.dp
+                    CompositionLocalProvider(LocalToolbarCompact provides compactToolbar) {
                     Row(
                         Modifier.fillMaxWidth()
                             .horizontalScroll(androidx.compose.foundation.rememberScrollState())
@@ -435,6 +442,8 @@ private fun mainApplication() = application {
                         }
                         ToolButton(Icons.Filled.Storage, Strings.models) { showModels = true }
                         ToolButton(Icons.Filled.Tune, Strings.preferences) { showSettings = true }
+                    }
+                    }
                     }
                 }
                 HorizontalDivider(color = pal.Hairline)
@@ -736,7 +745,13 @@ private fun MicLevelBars(level: Float, pal: studio.voxsum.ui.theme.VoxSumColors)
     }
 }
 
-/** A flat desktop-toolbar button: leading icon + small label, no fill until hovered/pressed. */
+/** True while the toolbar is too narrow for icon+label buttons (small 1x screens) — ToolButtons
+ *  render icon-only with a hover tooltip instead, so every action stays on screen. */
+private val LocalToolbarCompact = androidx.compose.runtime.compositionLocalOf { false }
+
+/** A flat desktop-toolbar button: leading icon + small label, no fill until hovered/pressed.
+ *  In compact toolbars (see [LocalToolbarCompact]) the label moves into a hover tooltip. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @androidx.compose.runtime.Composable
 private fun ToolButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -746,10 +761,24 @@ private fun ToolButton(
     onClick: () -> Unit,
 ) {
     val pal = LocalVoxSumPalette.current
-    TextButton(onClick = onClick, enabled = enabled) {
-        Icon(icon, contentDescription = label, tint = tint ?: if (enabled) pal.Slate200 else pal.Slate400.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, color = tint ?: if (enabled) pal.Slate200 else pal.Slate400.copy(alpha = 0.5f))
+    val compact = LocalToolbarCompact.current
+    val button: @androidx.compose.runtime.Composable () -> Unit = {
+        TextButton(onClick = onClick, enabled = enabled) {
+            Icon(icon, contentDescription = label, tint = tint ?: if (enabled) pal.Slate200 else pal.Slate400.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
+            if (!compact) {
+                Spacer(Modifier.width(6.dp))
+                Text(label, style = MaterialTheme.typography.labelLarge, color = tint ?: if (enabled) pal.Slate200 else pal.Slate400.copy(alpha = 0.5f))
+            }
+        }
+    }
+    if (compact) {
+        androidx.compose.foundation.TooltipArea(tooltip = {
+            Surface(color = pal.Slate800, shadowElevation = 4.dp, shape = RoundedCornerShape(4.dp)) {
+                Text(label, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = pal.Slate200, style = MaterialTheme.typography.labelMedium)
+            }
+        }) { button() }
+    } else {
+        button()
     }
 }
 
