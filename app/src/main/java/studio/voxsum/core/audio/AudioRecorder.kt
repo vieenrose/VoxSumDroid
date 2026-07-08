@@ -48,6 +48,10 @@ class AudioRecorder(private val sampleRate: Int = 16_000) {
         }
         dest.parentFile?.mkdirs()
         val writer = WavWriter(dest)
+        // Live AGC: a speaker far from the mic would otherwise starve the VAD/ASR (the import
+        // normalizer can't help — it needs lookahead). Applied before the WAV write AND the
+        // emit, so recognizer, file, level bars and playback all hear the same signal.
+        val agc = LiveAgc()
         val shorts = ShortArray(BLOCK)
         var sinceCheckpoint = 0L
         rec.startRecording()
@@ -57,6 +61,7 @@ class AudioRecorder(private val sampleRate: Int = 16_000) {
                 when {
                     n > 0 -> {
                         val f = FloatArray(n) { shorts[it] / 32768f }
+                        agc.process(f, n)
                         writer.write(f, n)          // stream straight to disk
                         totalSamples += n
                         emit(f)                      // and to the live ASR
