@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
@@ -490,8 +491,20 @@ class TranscriptionService : LifecycleService() {
             // recognize while recording"). buffer() runs the mic loop in its own coroutine (on IO) so
             // it keeps draining the mic regardless of decode latency; 256 blocks ≈ 33 s of slack
             // absorbs decode spikes, and it's bounded so a permanently-behind decoder can't OOM.
+            // Mic level indicator: peak per mic block, quantized to 5 buckets and emitted only on
+            // bucket change — visible proof the mic hears something, cheap enough for e-ink.
+            var lastLevelBucket = -1
             asr.transcribeLive(
                 recorder.record(wav) { stopRecordingRequested }
+                    .onEach { chunk ->
+                        var pk = 0f
+                        for (v in chunk) { val a = if (v < 0f) -v else v; if (a > pk) pk = a }
+                        val bucket = micLevelBucket(pk)
+                        if (bucket != lastLevelBucket) {
+                            lastLevelBucket = bucket
+                            emitEvent(TranscriptEvent.MicLevel(bucket / 5f))
+                        }
+                    }
                     .buffer(MIC_BUFFER_BLOCKS)
                     .flowOn(Dispatchers.IO),
             )
@@ -635,6 +648,16 @@ class TranscriptionService : LifecycleService() {
         val diarized = asr.use { diarizePhase(wav, utterances, cfg, models, asr, converter) }
         if (wav !== src) emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
         emitEvent(TranscriptEvent.Complete(diarized.first, diarized.second))
+    }
+
+    /** Peak amplitude → 0..5 display bucket (log-ish thresholds: quiet speech still registers). */
+    private fun micLevelBucket(peak: Float): Int = when {
+        peak > 0.5f -> 5
+        peak > 0.25f -> 4
+        peak > 0.12f -> 3
+        peak > 0.06f -> 2
+        peak > 0.02f -> 1
+        else -> 0
     }
 
     /** "≈3 min left" (localized) once enough of the phase has run to extrapolate; null early on. */
