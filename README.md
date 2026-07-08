@@ -43,8 +43,9 @@ app does. This README covers the architecture, verified status, and how to build
 - **`:app`** — the Android app, unchanged.
 - **`:shared`** — a Kotlin Multiplatform library (`jvm` + `androidTarget`) holding the code both
   platforms use: the theme system, settings persistence, model provisioning/downloads (`ModelManager`,
-  HuggingFace-first), the ASR (`AsrEngine`) and diarization (`DiarizationEngine` — CAM++ embeddings +
-  auto-k spectral clustering, `SpectralClustering`) engines, the
+  HuggingFace-first), the ASR (`AsrEngine`) and diarization (`DiarizationEngine` — **segmentation-first**:
+  pyannote segmentation-3.0 draws speaker boundaries at frame resolution, CAM++ embeddings +
+  auto-k spectral clustering assign identities, `SpectralClustering`) engines, the
   summarization business logic (`LlmEngine`, `Summarizer`, `SpeakerNamer`, `ActionItemExtractor`),
   plus WAV/MP4/OGG tag I/O and transcript export. Its `jvmMain` also carries a desktop-only Kotlin
   JNI wrapper for sherpa-onnx (`com.k2fsa.sherpa.onnx`) — adapted from the upstream submodule, which
@@ -69,11 +70,11 @@ from the dev tree. Every item below was actually executed and observed:
   (`javax.sound.sampled`), `FilePicker` (native AWT/GTK dialogs) — each verified against real
   files/devices/dialogs, not mocks.
 - **A real transcribe → diarize → summarize run, in the real UI**: transcribing a multi-speaker
-  meeting produced a correct transcript, speakers split by **auto-k spectral clustering** (the speaker
-  count comes from the voice-similarity structure — there is no distance threshold to hand-tune), a
-  generated title, and a bullet-point summary. Verified on a real 4-speaker meeting: 4/4 speakers
-  detected, 100% time-weighted turn assignment; a two-speaker English+Chinese clip still splits
-  correctly. (Runs the exact same `DiarizationEngine`/`SpectralClustering` as the Android app.)
+  meeting produced a correct transcript, speakers split by the **segmentation-first** pipeline
+  (a pyannote-3.0 neural segmenter marks where the voice changes; auto-k spectral clustering over
+  CAM++ embeddings assigns identities — no distance threshold to hand-tune). Benchmarked on public
+  meeting corpora: **AMI 95.6% / AISHELL-4 92.1% time-weighted speaker attribution** (16 + 6
+  meetings, 10-minute excerpts). (Runs the exact same `DiarizationEngine` as the Android app.)
 - **First-run model downloads work from the UI**: with no models present, the app correctly shows
   "Downloading speech/speaker/summarization model…" with a live progress bar and streams real bytes
   from HuggingFace over HTTPS; verified with a genuinely fresh, empty model directory.

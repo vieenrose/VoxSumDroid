@@ -31,22 +31,22 @@ Cliquez sur **➕ Ajouter de l'audio** (le bouton principal de l'écran vide, ou
 | **En ligne → YouTube** | Collez un lien ou cherchez par mot-clé. |
 | **Ouvrir une session (.m4a / .ogg)** | Rouvrez une session enregistrée et continuez à l'éditer. |
 
-**Enregistrer une réunion** — *Enregistrer* capture depuis le périphérique d'entrée par défaut du système ; les lignes apparaissent à mesure que vous parlez, et **Arrêter** termine le résumé.
+**Enregistrer une réunion** — *Enregistrer* capture depuis le périphérique d'entrée par défaut du système ; les lignes apparaissent à mesure que vous parlez, de petites **barres de niveau** dans la barre d'état montrent que le micro vous entend, et **Arrêter** termine le résumé. Les sources trop faibles (micro d'ambiance lointain) reçoivent un gain automatique — pour la transcription *et* la lecture.
 
 ## 2. Lire et comprendre
 
-- **Qui parle et quand** — chaque ligne est étiquetée et colorée par locuteur, et la barre de lecture affiche une frise chronologique colorée par locuteur. Le nombre de locuteurs est détecté **automatiquement** (clustering spectral à k automatique) — aucun seuil à régler. VoxSum peut aussi **deviner le vrai nom des locuteurs** d'après ce qu'ils disent (barre du haut **↻ Relancer → Détecter les noms**).
+- **Qui parle et quand** — chaque ligne est étiquetée et colorée par locuteur, et la barre de lecture affiche une frise chronologique colorée par locuteur. Le nombre de locuteurs est détecté **automatiquement** — un segmenteur neuronal trace les frontières de locuteurs et le nombre découle de la structure de similarité des voix ; aucun seuil à régler. Les passes longues affichent une **estimation du temps restant** (« Identification des locuteurs… ≈3 min restantes »), tout comme le résumé. VoxSum peut aussi **deviner le vrai nom des locuteurs** d'après ce qu'ils disent (barre du haut **↻ Relancer → Détecter les noms**).
 - **Lecteur synchronisé** — ancré en bas comme une appli musicale : cliquez une ligne pour y sauter ; la ligne en cours se surligne pendant la lecture, et la transcription **défile automatiquement** pour la garder visible.
 - **Recherche** — le 🔍 de la barre du haut trouve n'importe quel mot dans un long enregistrement ; les correspondances se surlignent et vous les parcourez.
 - **Taille de texte confortable** — les boutons **A− / A+** agrandissent la transcription, le titre et le résumé (la barre d'outils et le lecteur ne bougent pas). Les écrans HiDPI sont détectés automatiquement ; forcez avec `VOXSUM_UI_SCALE=1.5` si la détection se trompe.
-- **Le résumé à votre façon** — un titre court, plus un résumé en **puces, note de synthèse ou récit** (choisissez le style dans les Préférences), dans la langue de votre choix. La langue du résumé est indépendante de l'audio — p. ex. un résumé en anglais sur une transcription en chinois.
+- **Le résumé à votre façon** — un titre court, plus un résumé concis (quelques points au plus, rendu en vrai **Markdown**, replié derrière « Afficher plus » s'il est long) en **puces, note de synthèse ou récit** (choisissez le style dans les Préférences), dans la langue de votre choix. La langue du résumé est indépendante de l'audio — p. ex. un résumé en anglais sur une transcription en chinois.
 - **Actions à suivre** — barre du haut **↻ Relancer → Extraire les actions** : tire une liste de tâches (qui fait quoi) et les décisions clés d'une réunion.
 
 ## 3. Personnaliser
 
 - **Tout éditer** — corrigez un mot, renommez un locuteur, ou ajustez le titre/résumé sur place.
 - **Corriger les locuteurs** — sur n'importe quelle ligne, le menu ⇄ déplace une ligne mal attribuée vers la bonne personne, ou fusionne deux locuteurs en un.
-- **Relancer** — le menu **↻** relance la transcription, le résumé, la détection des noms ou l'extraction des actions, et suit les dépendances : changez la langue ou le style du résumé, ou éditez la transcription, et il propose un résumé en un clic. Passer uniquement entre **繁體中文 ↔ 简体中文** convertit titre, résumé et transcription **instantanément** — sans relancer.
+- **Relancer** — le menu **↻** relance la transcription, le résumé, **la seule détection des locuteurs** (*Redétecter les locuteurs* — sans retranscrire), la détection des noms ou l'extraction des actions, et suit les dépendances : changez la langue ou le style du résumé, ou éditez la transcription, et il propose un résumé en un clic. Passer uniquement entre **繁體中文 ↔ 简体中文** convertit titre, résumé et transcription **instantanément** — sans relancer.
 
 ## 4. Enregistrer, partager, exporter
 

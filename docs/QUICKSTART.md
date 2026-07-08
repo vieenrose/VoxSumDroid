@@ -31,22 +31,22 @@ Click **➕ Add audio** (the hero button on the empty screen, or **Ouvrir / Open
 | **Online → YouTube** | Paste a link or search by keyword. |
 | **Open session (.m4a / .ogg)** | Reopen a session you saved earlier and keep editing. |
 
-**Record a meeting** — *Record* captures from your system's default input device; lines appear as you talk, and **Stop** finishes the summary.
+**Record a meeting** — *Record* captures from your system's default input device; lines appear as you talk, small **level bars** in the status bar show that the mic hears you, and **Stop** finishes the summary. Too-quiet sources (far-field room mics) get an automatic volume boost — for transcription *and* playback.
 
 ## 2. Read and understand
 
-- **Who spoke when** — every line is tagged and colour-coded by speaker, and the player bar shows a per-speaker colour timeline. The number of speakers is detected **automatically** (auto-k spectral clustering) — you don't set a threshold. VoxSum can also **guess speakers' real names** from what they say (top-bar **↻ Re-run → Detect names**).
+- **Who spoke when** — every line is tagged and colour-coded by speaker, and the player bar shows a per-speaker colour timeline. The number of speakers is detected **automatically** — a neural segmenter draws the speaker boundaries and the count comes from the voice-similarity structure; you don't set a threshold. Long passes show a live **time-to-finish estimate** ("Identifying speakers… ≈3 min left"), and so does summarization. VoxSum can also **guess speakers' real names** from what they say (top-bar **↻ Re-run → Detect names**).
 - **Synced player** — docked at the bottom like a music app: click any line to jump there; the current line highlights as it plays, and the transcript **auto-scrolls** to keep it in view.
 - **Search** — the 🔍 in the top bar finds any word in a long recording; matches highlight and you step through them.
 - **Comfortable text size** — the **A− / A+** buttons scale the transcript, title, and summary (the toolbar and player stay put). HiDPI screens are auto-detected; override with `VOXSUM_UI_SCALE=1.5` if detection guesses wrong.
-- **Summary, your way** — a short title plus a summary as **bullets, an executive brief, or a narrative** (pick the style in Settings), in the language you choose. Summary language is independent of the audio — e.g. an English summary over a Chinese transcript.
+- **Summary, your way** — a short title plus a concise summary (at most a handful of points, rendered as proper **Markdown**, folded behind *Show more* when long) as **bullets, an executive brief, or a narrative** (pick the style in Settings), in the language you choose. Summary language is independent of the audio — e.g. an English summary over a Chinese transcript.
 - **Action items** — top-bar **↻ Re-run → Extract action items** pulls a draft checklist of who-does-what and the key decisions out of a meeting.
 
 ## 3. Make it yours
 
 - **Edit anything** — fix a word, rename a speaker, or tweak the title/summary in place.
 - **Fix the speakers** — on any line, the ⇄ menu moves a misattributed line to the right person or merges two speakers into one.
-- **Re-run** — the top-bar **↻** menu re-runs transcription, the summary, name detection, or action-item extraction, and tracks what depends on what: change the summary language or style, or edit the transcript, and it offers a one-tap re-summarize. Switching only between **繁體中文 ↔ 简体中文** converts the title, summary, and transcript **instantly** — no re-run needed.
+- **Re-run** — the top-bar **↻** menu re-runs transcription, the summary, **speaker detection alone** (*Re-detect speakers* — no full re-transcribe needed), name detection, or action-item extraction, and tracks what depends on what: change the summary language or style, or edit the transcript, and it offers a one-tap re-summarize. Switching only between **繁體中文 ↔ 简体中文** converts the title, summary, and transcript **instantly** — no re-run needed.
 
 ## 4. Save, share, export
 
