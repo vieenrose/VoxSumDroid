@@ -103,6 +103,14 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
         }
         update { it.copy(utterances = tagged, speakerCount = speakerCount, progress = null) }
 
+        if (tagged.isEmpty()) {
+            // A silent capture yields ZERO utterances — summarizing an empty transcript makes the
+            // LLM invent content out of thin air (observed: a fully confabulated bullet summary
+            // from a 9-minute silent recording). No transcript -> no summary, no title.
+            update { it.copy(status = Strings.stNoSpeech, running = false) }
+            return
+        }
+
         summarize(models, config, style, tagged, update, regenerateTitle = !useSourceTitle)
         update { it.copy(status = Strings.stDone, running = false) }
     } catch (t: Throwable) {
@@ -173,6 +181,14 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
         }
         update { it.copy(utterances = tagged, speakerCount = speakerCount, progress = null) }
 
+        if (tagged.isEmpty()) {
+            // A silent capture yields ZERO utterances — summarizing an empty transcript makes the
+            // LLM invent content out of thin air (observed: a fully confabulated bullet summary
+            // from a 9-minute silent recording). No transcript -> no summary, no title.
+            update { it.copy(status = Strings.stNoSpeech, running = false) }
+            return
+        }
+
         summarize(models, config, style, tagged, update)
         update { it.copy(status = Strings.stDone, running = false) }
     } catch (t: Throwable) {
@@ -184,6 +200,7 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
 /** Re-run just the summary (+ title unless the user edited it) over the current transcript —
  *  the desktop counterpart of Android's re-summarize action. */
 suspend fun rerunSummary(state: AppState, update: Update) {
+    if (state.utterances.isEmpty()) return   // nothing to summarize — never hand the LLM an empty transcript
     if (state.utterances.isEmpty()) return
     // Preserve a user-typed title (titleEdited sticky, like Android); otherwise clear it so
     // summarize() regenerates it. Clearing transcriptDirty here: the summary now matches the
@@ -264,6 +281,7 @@ suspend fun detectSpeakerNames(state: AppState, update: Update) {
 
 /** LLM-based action-item + decision extraction over the current transcript. */
 suspend fun extractActionItems(state: AppState, update: Update) {
+    if (state.utterances.isEmpty()) return   // nothing to summarize — never hand the LLM an empty transcript
     if (state.utterances.isEmpty()) return
     update { it.copy(running = true, error = null, status = Strings.stExtractingActions, progress = 0f) }
     try {
