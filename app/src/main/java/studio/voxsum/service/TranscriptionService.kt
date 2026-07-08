@@ -431,7 +431,18 @@ class TranscriptionService : LifecycleService() {
             // CAM++ embedder is co-resident with the ASR models — the LLM still loads after
             // both are released.
             if (utterances.isNotEmpty() && cfg.diarizationEnabled) {
-                diarized = diarizePhase(wav, utterances, cfg, models, asr, converter)
+                // Diarization is an enhancement, not a prerequisite: a failure here (typically a
+                // model download dying on flaky Wi-Fi — seen on-device) must NOT cost the session.
+                // Continue to Complete/summary with the untagged transcript instead of Failed,
+                // which left the user no retry and no way to save what was already transcribed.
+                diarized = try {
+                    diarizePhase(wav, utterances, cfg, models, asr, converter)
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (t: Throwable) {
+                    emitEvent(TranscriptEvent.Status(getString(R.string.svc_diarization_skipped)))
+                    null
+                }
             }
         } // ASR native resources freed here, before the LLM is loaded.
 
@@ -526,7 +537,18 @@ class TranscriptionService : LifecycleService() {
             // finalized (WavWriter.close() ran when the record flow completed, before
             // transcribeLive returned).
             if (utterances.isNotEmpty() && cfg.diarizationEnabled) {
-                diarized = diarizePhase(wav, utterances, cfg, models, asr, converter)
+                // Diarization is an enhancement, not a prerequisite: a failure here (typically a
+                // model download dying on flaky Wi-Fi — seen on-device) must NOT cost the session.
+                // Continue to Complete/summary with the untagged transcript instead of Failed,
+                // which left the user no retry and no way to save what was already transcribed.
+                diarized = try {
+                    diarizePhase(wav, utterances, cfg, models, asr, converter)
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (t: Throwable) {
+                    emitEvent(TranscriptEvent.Status(getString(R.string.svc_diarization_skipped)))
+                    null
+                }
             }
         } // ASR + mic released here, before the LLM loads.
         } finally {

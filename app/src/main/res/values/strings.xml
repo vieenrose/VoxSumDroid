@@ -159,6 +159,7 @@
     <string name="svc_summarizing">Summarizing…</string>
     <string name="svc_summarizing_eta">Summarizing… %1$s</string>
     <string name="svc_identifying_speakers">Identifying speakers…</string>
+    <string name="svc_diarization_skipped">Speaker detection failed — continuing without speakers</string>
     <string name="svc_identifying_speakers_eta">Identifying speakers… %1$s</string>
     <string name="show_more">Show more</string>
     <string name="show_less">Show less</string>

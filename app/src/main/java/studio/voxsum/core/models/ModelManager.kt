@@ -322,9 +322,12 @@ class ModelManager(context: Context) {
             if (dest.exists()) return@withLock
             val tmp = File(dest.parentFile, "${dest.name}$PART_SUFFIX")
             // Retry transient failures (flaky mobile network, a 5xx, a body that fails the checksum)
-            // with linear backoff. Every failed attempt deletes the .part so a partial/corrupt file
-            // never lingers (wasting space or getting half-trusted). Abort immediately on user-cancel
-            // and on permanent errors (404 / out-of-disk) where retrying can't help.
+            // with linear backoff. A transient failure KEEPS the .part so the next attempt RESUMES
+            // from where the stream died (Range request in fetchToFile) — on weak Wi-Fi a large
+            // model whose connection keeps dropping would otherwise restart from zero every retry
+            // and never complete (observed on-device: a 14 MB file dying "unexpected end of stream"
+            // three times in a row). Only a checksum mismatch — corrupt bytes — restarts clean.
+            // Abort immediately on user-cancel and on permanent errors (404 / out-of-disk).
             var attempt = 0
             while (true) {
                 attempt++
@@ -340,10 +343,11 @@ class ModelManager(context: Context) {
                 } catch (ce: kotlinx.coroutines.CancellationException) {
                     tmp.delete(); throw ce
                 } catch (e: Exception) {
-                    tmp.delete()
-                    if (e is ModelNotFound || isOutOfSpace(e) || attempt >= MAX_DOWNLOAD_ATTEMPTS)
+                    if (e is ChecksumMismatch) tmp.delete()   // corrupt bytes — resume can't fix them
+                    if (e is ModelNotFound || isOutOfSpace(e) || attempt >= MAX_DOWNLOAD_ATTEMPTS) {
+                        tmp.delete()
                         throw java.io.IOException(downloadErrorMessage(e, dest.name, attempt), e)
-                    onProgress(0f)                       // reset the bar; the retry starts over
+                    }
                     delay(RETRY_BACKOFF_MS * attempt)
                 }
             }
@@ -351,22 +355,31 @@ class ModelManager(context: Context) {
     }
 
     /** One attempt: HTTP GET [url] → [tmp], checking the status code and cooperating with cancellation
-     *  (a blocking read() never self-checks, so the loop must, or Stop can't abort a multi-GB fetch). */
+     *  (a blocking read() never self-checks, so the loop must, or Stop can't abort a multi-GB fetch).
+     *  A non-empty [tmp] is RESUMED with a Range request (HF/CDNs support it); a server that ignores
+     *  the range (plain 200) truncates and starts over, and 416 (our offset is past the end — a
+     *  stale .part from a changed upstream file) clears the partial so the retry starts clean. */
     private suspend fun fetchToFile(url: String, tmp: File, onProgress: (Float) -> Unit) {
+        val offset = tmp.length()
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 30_000; readTimeout = 30_000; instanceFollowRedirects = true
+            if (offset > 0) setRequestProperty("Range", "bytes=$offset-")
         }
         try {
-            when (val code = conn.responseCode) {
-                in 200..299 -> {}
-                404 -> throw ModelNotFound("HTTP 404")
+            val code = conn.responseCode
+            val resumed = code == 206 && offset > 0
+            when {
+                code == 206 || code in 200..299 -> {}
+                code == 404 -> throw ModelNotFound("HTTP 404")
+                code == 416 -> { tmp.delete(); throw java.io.IOException("server returned HTTP 416 (stale partial cleared)") }
                 else -> throw java.io.IOException("server returned HTTP $code")
             }
             conn.inputStream.use { input ->
-                val total = conn.contentLengthLong.takeIf { it > 0 }
-                tmp.outputStream().use { out ->
+                val body = conn.contentLengthLong.takeIf { it > 0 }
+                val total = if (resumed) body?.plus(offset) else body
+                java.io.FileOutputStream(tmp, /* append = */ resumed).use { out ->
                     val buf = ByteArray(1 shl 16)
-                    var read = 0L
+                    var read = if (resumed) offset else 0L
                     while (true) {
                         coroutineContext.ensureActive()
                         val n = input.read(buf)
@@ -447,7 +460,9 @@ class ModelManager(context: Context) {
 
         // Retry transient download failures (flaky network, a 5xx, a body that fails the checksum)
         // with linear backoff before giving up; permanent errors (404 / out-of-disk) abort at once.
-        private const val MAX_DOWNLOAD_ATTEMPTS = 3
+        // Attempts are cheap now that retries RESUME the partial file — each one makes forward
+        // progress, so more attempts = strictly better odds on a flaky link.
+        private const val MAX_DOWNLOAD_ATTEMPTS = 6
         private const val RETRY_BACKOFF_MS = 1500L
 
         /** True if [f] looks like a complete GGUF: starts with the "GGUF" magic and is at least 90% of

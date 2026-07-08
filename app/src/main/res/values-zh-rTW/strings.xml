@@ -158,6 +158,7 @@
     <string name="svc_summarizing">摘要中…</string>
     <string name="svc_summarizing_eta">摘要中… %1$s</string>
     <string name="svc_identifying_speakers">辨識語者中…</string>
+    <string name="svc_diarization_skipped">語者辨識失敗——不標記語者繼續</string>
     <string name="svc_identifying_speakers_eta">辨識語者中… %1$s</string>
     <string name="show_more">顯示更多</string>
     <string name="show_less">顯示較少</string>
