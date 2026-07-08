@@ -157,6 +157,7 @@
     <string name="svc_downloading_named">Téléchargement de %1$s…</string>
     <string name="svc_summarization_model_pct">Modèle de résumé… %d%%</string>
     <string name="svc_summarizing">Résumé en cours…</string>
+    <string name="svc_summarizing_eta">Résumé en cours… %1$s</string>
     <string name="svc_identifying_speakers">Identification des locuteurs…</string>
     <string name="svc_identifying_speakers_eta">Identification des locuteurs… %1$s</string>
     <string name="show_more">Afficher plus</string>

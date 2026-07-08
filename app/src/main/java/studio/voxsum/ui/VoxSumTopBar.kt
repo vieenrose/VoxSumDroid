@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -70,6 +72,7 @@ fun VoxSumTopBar(
     showSourceActions: Boolean,   // false on the blank slate (the hero CTA covers "Add audio" there)
     isRecording: Boolean,
     recSeconds: Int,
+    micLevel: Float = 0f,
     onAddSource: () -> Unit,
     onStop: () -> Unit,
     canReTranscribe: Boolean,
@@ -147,6 +150,9 @@ fun VoxSumTopBar(
                 if (showSourceActions) {
                     if (running) {
                         if (isRecording) {
+                            // Mic level next to the timer — visible proof the mic hears something.
+                            MicLevelBars(micLevel, pal.OnBrand)
+                            Spacer(Modifier.width(6.dp))
                             Text(
                                 "%d:%02d".format(recSeconds / 60, recSeconds % 60),
                                 style = MaterialTheme.typography.labelMedium,
@@ -236,6 +242,24 @@ private fun OnDeviceBadge() {
             style = MaterialTheme.typography.labelSmall,
             color = pal.OnBrand,
         )
+    }
+}
+
+/** 5-segment mic input level shown while recording — quantized service-side, so the e-ink
+ *  screen only repaints when the level crosses a bucket boundary. */
+@Composable
+private fun MicLevelBars(level: Float, color: androidx.compose.ui.graphics.Color) {
+    val active = (level * 5 + 0.5f).toInt().coerceIn(0, 5)
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        repeat(5) { i ->
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height((6 + i * 2).dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(if (i < active) color else color.copy(alpha = 0.3f)),
+            )
+        }
     }
 }
 

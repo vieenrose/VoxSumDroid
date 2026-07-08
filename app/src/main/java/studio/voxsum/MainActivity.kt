@@ -666,6 +666,8 @@ private fun TranscribeScreen(
     // --- Live recording (mic → streaming ASR; diarization/summary run on stop). ---
     var isRecording by remember { mutableStateOf(false) }
     var recSeconds by remember { mutableIntStateOf(0) }
+    // Mic input level while recording (0..1 in five steps, quantized service-side for e-ink).
+    var micLevel by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(isRecording) {
         recSeconds = 0
         while (isRecording) { delay(1000); recSeconds++ }
@@ -874,6 +876,7 @@ private fun TranscribeScreen(
                 // Identifying speakers / Summarizing), so we no longer overwrite it with "Transcribing %"
                 // (which also mislabeled the summary phase). running guards a late event after completion.
                 is TranscriptEvent.Progress -> { if (running) progress = e.fraction }
+                is TranscriptEvent.MicLevel -> micLevel = e.level
                 // Only while a run is active — otherwise a buffered download event arriving just after
                 // Stop would re-stick the UI in "running" (running is already set when a run starts).
                 is TranscriptEvent.DownloadProgress -> { if (running) { progress = e.fraction; status = e.label } }
@@ -909,7 +912,7 @@ private fun TranscribeScreen(
                         pendingSeekMs = positionMs.takeIf { it > 0 }
                         resumeAfterSwap = isPlaying
                     }
-                    audioUri = newUri; isRecording = false
+                    audioUri = newUri; isRecording = false; micLevel = 0f
                 }
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false }
                 is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false }
@@ -1260,6 +1263,7 @@ private fun TranscribeScreen(
                 showSourceActions = !isEmptyState,
                 isRecording = isRecording,
                 recSeconds = recSeconds,
+                micLevel = micLevel,
                 onAddSource = { showAddSourceSheet = true },
                 onStop = { handleStop() },
                 // All re-run actions are disabled while a run is in flight (each fun also guards `running`);
