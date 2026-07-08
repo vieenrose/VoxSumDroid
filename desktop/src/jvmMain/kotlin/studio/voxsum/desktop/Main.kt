@@ -999,7 +999,7 @@ private fun loadAnySession(file: java.io.File): AppState? {
             return AppState(
                 audioFile = loaded.audio, fileName = file.name, title = loaded.title.orEmpty(),
                 summary = loaded.summary.orEmpty(), actionItems = loaded.actionItems.orEmpty(),
-                speakerNames = loaded.speakerNames, utterances = loaded.utterances, status = "Done",
+                speakerNames = loaded.speakerNames, utterances = loaded.utterances, status = studio.voxsum.desktop.ui.Strings.stDone,
             )
         }
     }

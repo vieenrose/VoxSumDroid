@@ -82,42 +82,54 @@ class AsrEngine(
         val fresh = ArrayList<TranscriptEvent.Utterance>()
         while (!vad.empty()) {
             val seg = vad.front()
-            // Decode each segment in isolation so one bad segment can't abort the whole transcription.
-            try {
-                val stream = recognizer.createStream()
-                try {
-                    // Pad only the samples fed to the recognizer; seg.samples.size still drives timing.
-                    val decodeSamples =
-                        if (seg.samples.size < minDecodeSamples) seg.samples.copyOf(minDecodeSamples)
-                        else seg.samples
-                    stream.acceptWaveform(decodeSamples, SAMPLE_RATE)
-                    recognizer.decode(stream)
-                    val result = recognizer.getResult(stream)
-                    val text = cleanTranscript(result.text).trim()
-                    if (text.isNotEmpty()) {
-                        fresh += TranscriptEvent.Utterance(
-                            index = index[0]++,
-                            text = text,
-                            startSec = seg.start.toDouble() / SAMPLE_RATE,
-                            endSec = (seg.start + seg.samples.size).toDouble() / SAMPLE_RATE,
-                            tokens = result.tokens.toList(),
-                            tokenTimes = result.timestamps.map { it.toDouble() },
-                        )
-                    }
-                } finally {
-                    runCatching { stream.release() }
-                }
-            } catch (t: Throwable) {
-                voxLogWarn(
-                    "AsrEngine",
-                    "skipping a ${"%.1f".format(seg.samples.size.toDouble() / SAMPLE_RATE)}s segment that failed to decode",
-                    t,
-                )
-            } finally {
-                vad.pop()
+            // sherpa's VAD maxSpeechDuration is a NO-OP in this version (max_utterance_length_ is
+            // computed but never consulted in AcceptWaveform), so continuous speech/music yields
+            // arbitrarily long segments — and every backend has a decode ceiling (measured on real
+            // audio: x-asr crashes an ONNX Reshape at ~43 s, Qwen3 silently truncates from ~38 s,
+            // SenseVoice is trained on ≤30 s). Split anything over MAX_DECODE_SEC at the quietest
+            // moments and decode the pieces as separate utterances — a 45 s segment used to become
+            // a 45 s hole in the transcript.
+            for ((offset, piece) in splitLongSegment(seg.samples)) {
+                decodePiece(piece, seg.start + offset)?.let { fresh += it }
             }
+            vad.pop()
         }
         return fresh
+    }
+
+    /** Decode one ≤MAX_DECODE_SEC piece in isolation so one bad piece can't abort the run. */
+    private fun decodePiece(samples: FloatArray, startSample: Int): TranscriptEvent.Utterance? {
+        try {
+            val stream = recognizer.createStream()
+            try {
+                // Pad only the samples fed to the recognizer; samples.size still drives timing.
+                val decodeSamples =
+                    if (samples.size < minDecodeSamples) samples.copyOf(minDecodeSamples)
+                    else samples
+                stream.acceptWaveform(decodeSamples, SAMPLE_RATE)
+                recognizer.decode(stream)
+                val result = recognizer.getResult(stream)
+                val text = cleanTranscript(result.text).trim()
+                if (text.isEmpty()) return null
+                return TranscriptEvent.Utterance(
+                    index = index[0]++,
+                    text = text,
+                    startSec = startSample.toDouble() / SAMPLE_RATE,
+                    endSec = (startSample + samples.size).toDouble() / SAMPLE_RATE,
+                    tokens = result.tokens.toList(),
+                    tokenTimes = result.timestamps.map { it.toDouble() },
+                )
+            } finally {
+                runCatching { stream.release() }
+            }
+        } catch (t: Throwable) {
+            voxLogWarn(
+                "AsrEngine",
+                "skipping a ${"%.1f".format(samples.size.toDouble() / SAMPLE_RATE)}s segment that failed to decode",
+                t,
+            )
+            return null
+        }
     }
 
     /**
@@ -211,6 +223,43 @@ class AsrEngine(
         // ~3.0s at 16 kHz (T≈298 fbank frames), comfortably above the x-asr encoder's ~256-frame
         // minimum (below which its conv shape underflows). See minDecodeSamples / drain().
         const val X_ASR_MIN_DECODE_SAMPLES = 48_000
+
+        // Longest slice any backend decodes reliably (probed on real audio: x-asr throws an ONNX
+        // Reshape at ~43 s, Qwen3 silently truncates from ~38 s, SenseVoice is trained on ≤30 s).
+        const val MAX_DECODE_SEC = 30
+
+        /**
+         * [samples] as (offsetSamples, piece) runs of at most [MAX_DECODE_SEC], cut at the
+         * quietest 100 ms window inside the last third of each allowed span — a pause, not a
+         * word. Single-element passthrough for anything already short enough.
+         */
+        internal fun splitLongSegment(samples: FloatArray): List<Pair<Int, FloatArray>> {
+            val max = MAX_DECODE_SEC * SAMPLE_RATE
+            if (samples.size <= max) return listOf(0 to samples)
+            val out = ArrayList<Pair<Int, FloatArray>>()
+            var pos = 0
+            while (samples.size - pos > max) {
+                val cut = quietestPoint(samples, pos + max * 2 / 3, pos + max)
+                out += pos to samples.copyOfRange(pos, cut)
+                pos = cut
+            }
+            out += pos to samples.copyOfRange(pos, samples.size)
+            return out
+        }
+
+        private fun quietestPoint(samples: FloatArray, from: Int, to: Int): Int {
+            val win = SAMPLE_RATE / 10
+            var best = to - win
+            var bestE = Double.MAX_VALUE
+            var i = from
+            while (i + win <= to) {
+                var e = 0.0
+                for (j in i until i + win) e += samples[j].toDouble() * samples[j]
+                if (e < bestE) { bestE = e; best = i }
+                i += win / 2
+            }
+            return (best + win / 2).coerceAtMost(to)
+        }
 
         // Compiled once. zh-en decode-output normalization (see cleanTranscript).
         private val reRepeatCjk = Regex("([\\u4e00-\\u9fa5])\\1{2,}")

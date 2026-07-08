@@ -19,6 +19,7 @@ import studio.voxsum.data.SpeakerName
 import studio.voxsum.data.speakerLabel
 import studio.voxsum.desktop.audio.AudioDecoder
 import studio.voxsum.desktop.audio.AudioRecorder
+import studio.voxsum.desktop.ui.Strings
 import java.io.File
 
 /** Per-user app-private storage, XDG Base Directory-compliant: $XDG_DATA_HOME/VoxSum, falling
@@ -54,13 +55,13 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
         val backend = AsrBackend.fromId(config.asrBackend)
         ensureAsrAndDiarizationModels(models, backend, config.diarizationEnabled, update)
 
-        update { it.copy(status = "Decoding…", progress = null) }
+        update { it.copy(status = Strings.stDecoding, progress = null) }
         // normalize: imported far-field/room-mic audio gets an automatic constant gain so the
         // VAD doesn't starve; this pcm feeds ASR, diarization AND redecode, so all three see
         // the same (normalized) audio. Playback/session decodes stay faithful to the source.
         val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(file, normalize = true) }
 
-        update { it.copy(status = "Transcribing…", progress = 0f) }
+        update { it.copy(status = Strings.stTranscribing, progress = 0f) }
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         // Convert each utterance to the target Chinese script at ASR-emit time, like Android's
         // outputConverter (TranscriptionService) — SenseVoice emits Simplified, so without this a
@@ -92,10 +93,10 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
         update { it.copy(utterances = tagged, speakerCount = speakerCount, progress = null) }
 
         summarize(models, config, style, tagged, update, regenerateTitle = !useSourceTitle)
-        update { it.copy(status = "Done", running = false) }
+        update { it.copy(status = Strings.stDone, running = false) }
     } catch (t: Throwable) {
         if (t is kotlinx.coroutines.CancellationException) throw t
-        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
+        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = Strings.stFailed) }
     }
 }
 
@@ -104,9 +105,9 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
 suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle, shouldStop: () -> Boolean, update: Update) {
     update {
         it.copy(
-            audioFile = null, fileName = "Recording…", running = true, error = null,
+            audioFile = null, fileName = Strings.stRecording, running = true, error = null,
             utterances = emptyList(), speakerNames = emptyMap(), title = "", summary = "", actionItems = "",
-            status = "Recording…",
+            status = Strings.stRecording,
             transcriptDirty = false, summaryStale = false, transcribeStale = false, titleEdited = false,
         )
     }
@@ -143,10 +144,10 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
         update { it.copy(utterances = tagged, speakerCount = speakerCount, progress = null) }
 
         summarize(models, config, style, tagged, update)
-        update { it.copy(status = "Done", running = false) }
+        update { it.copy(status = Strings.stDone, running = false) }
     } catch (t: Throwable) {
         if (t is kotlinx.coroutines.CancellationException) throw t
-        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
+        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = Strings.stFailed) }
     }
 }
 
@@ -162,10 +163,10 @@ suspend fun rerunSummary(state: AppState, update: Update) {
     try {
         val models = ModelManager(appDataDir)
         summarize(models, state.config, state.summaryStyle, state.utterances, update, regenerateTitle = !keepTitle)
-        update { it.copy(status = "Done", running = false) }
+        update { it.copy(status = Strings.stDone, running = false) }
     } catch (t: Throwable) {
         if (t is kotlinx.coroutines.CancellationException) throw t
-        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
+        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = Strings.stFailed) }
     }
 }
 
@@ -173,7 +174,7 @@ suspend fun rerunSummary(state: AppState, update: Update) {
  *  so it clears titleEdited — the fresh AI title is no longer treated as user/source-pinned. */
 suspend fun reTitle(state: AppState, update: Update) {
     if (state.summary.isEmpty()) return
-    update { it.copy(running = true, error = null, status = "Generating title…") }
+    update { it.copy(running = true, error = null, status = Strings.stGeneratingTitle) }
     try {
         val models = ModelManager(appDataDir)
         val llmSpec = LlmRegistry.byId(state.config.llmModelId)
@@ -195,17 +196,17 @@ suspend fun reTitle(state: AppState, update: Update) {
                 llm.close()
             }
         }
-        update { it.copy(running = false, status = "Done", titleEdited = false) }
+        update { it.copy(running = false, status = Strings.stDone, titleEdited = false) }
     } catch (t: Throwable) {
         if (t is kotlinx.coroutines.CancellationException) throw t
-        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
+        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = Strings.stFailed) }
     }
 }
 
 /** LLM-based speaker-name detection over the current transcript. */
 suspend fun detectSpeakerNames(state: AppState, update: Update) {
     if (state.utterances.isEmpty()) return
-    update { it.copy(running = true, error = null, status = "Identifying speakers by name…") }
+    update { it.copy(running = true, error = null, status = Strings.stDetectingNames) }
     try {
         val models = ModelManager(appDataDir)
         val llmSpec = LlmRegistry.byId(state.config.llmModelId)
@@ -223,18 +224,18 @@ suspend fun detectSpeakerNames(state: AppState, update: Update) {
         update { s ->
             val merged = s.speakerNames.toMutableMap()
             names.forEach { (id, n) -> if (merged[id]?.confidence != "user") merged[id] = n }
-            s.copy(speakerNames = merged, running = false, status = "Done")
+            s.copy(speakerNames = merged, running = false, status = Strings.stDone)
         }
     } catch (t: Throwable) {
         if (t is kotlinx.coroutines.CancellationException) throw t
-        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
+        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = Strings.stFailed) }
     }
 }
 
 /** LLM-based action-item + decision extraction over the current transcript. */
 suspend fun extractActionItems(state: AppState, update: Update) {
     if (state.utterances.isEmpty()) return
-    update { it.copy(running = true, error = null, status = "Extracting action items…", progress = 0f) }
+    update { it.copy(running = true, error = null, status = Strings.stExtractingActions, progress = 0f) }
     try {
         val models = ModelManager(appDataDir)
         val llmSpec = LlmRegistry.byId(state.config.llmModelId)
@@ -252,10 +253,10 @@ suspend fun extractActionItems(state: AppState, update: Update) {
                 llm.close()
             }
         }
-        update { it.copy(actionItems = result, running = false, status = "Done", progress = null) }
+        update { it.copy(actionItems = result, running = false, status = Strings.stDone, progress = null) }
     } catch (t: Throwable) {
         if (t is kotlinx.coroutines.CancellationException) throw t
-        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed", progress = null) }
+        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = Strings.stFailed, progress = null) }
     }
 }
 
@@ -263,18 +264,18 @@ private suspend fun ensureAsrAndDiarizationModels(
     models: ModelManager, backend: AsrBackend, diarizationEnabled: Boolean, update: Update,
 ) {
     if (!models.asrReady(backend)) {
-        update { it.copy(status = "Downloading speech model…", progress = 0f) }
+        update { it.copy(status = Strings.stDownloadingAsr, progress = 0f) }
         models.ensureAsrModels(backend) { p -> update { it.copy(progress = p) } }
     }
     if (diarizationEnabled && !models.diarizationReady()) {
-        update { it.copy(status = "Downloading speaker model…", progress = 0f) }
+        update { it.copy(status = Strings.stDownloadingDiar, progress = 0f) }
         models.ensureDiarizationModels { p -> update { it.copy(progress = p) } }
     }
 }
 
 private suspend fun ensureLlm(models: ModelManager, llmSpec: studio.voxsum.core.models.LlmSpec, update: Update) {
     if (!models.llmReady(llmSpec)) {
-        update { it.copy(status = "Downloading summarization model…", progress = 0f) }
+        update { it.copy(status = Strings.stDownloadingLlm, progress = 0f) }
         models.ensureLlmModel(llmSpec) { p -> update { it.copy(progress = p) } }
     }
 }
@@ -304,13 +305,13 @@ private suspend fun collectTranscribeEvents(flow: Flow<TranscriptEvent>, utteran
 suspend fun reDiarize(state: AppState, update: Update) {
     val file = state.audioFile ?: return
     val config = state.config
-    update { it.copy(running = true, error = null, status = "Identifying speakers…", progress = null) }
+    update { it.copy(running = true, error = null, status = Strings.stIdentifyingSpeakers, progress = null) }
     try {
         val models = ModelManager(appDataDir)
         val backend = AsrBackend.fromId(config.asrBackend)
         ensureAsrAndDiarizationModels(models, backend, diarizationEnabled = true, update)
 
-        update { it.copy(status = "Decoding…", progress = null) }
+        update { it.copy(status = Strings.stDecoding, progress = null) }
         // Same normalize=true as runPipeline: diarization must hear the same audio ASR heard.
         val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(file, normalize = true) }
 
@@ -330,12 +331,12 @@ suspend fun reDiarize(state: AppState, update: Update) {
             it.copy(
                 utterances = tagged, speakerCount = speakerCount, speakerNames = emptyMap(),
                 summaryStale = it.summary.isNotEmpty() || it.actionItems.isNotEmpty(),
-                progress = null, status = "Done", running = false,
+                progress = null, status = Strings.stDone, running = false,
             )
         }
     } catch (t: Throwable) {
         if (t is kotlinx.coroutines.CancellationException) throw t
-        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = "Failed") }
+        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = Strings.stFailed) }
     }
 }
 
@@ -344,7 +345,7 @@ private suspend fun diarize(
     utterances: List<TranscriptEvent.Utterance>, update: Update,
     redecode: ((Double, Double) -> String)? = null,
 ): Pair<List<TranscriptEvent.Utterance>, Int> {
-    update { it.copy(status = "Identifying speakers…", progress = 0f) }
+    update { it.copy(status = Strings.stIdentifyingSpeakers, progress = 0f) }
     return withContext(Dispatchers.Default) {
         val diar = DiarizationEngine(
             embeddingModel = models.embeddingModel.absolutePath,
@@ -362,7 +363,7 @@ private suspend fun diarize(
                 pcm16k = pcm, utterances = utterances,
                 onProgress = { frac ->
                     val eta = etaText(t0, frac)
-                    val text = if (eta != null) "Identifying speakers… $eta" else "Identifying speakers…"
+                    val text = if (eta != null) "${Strings.stIdentifyingSpeakers} $eta" else Strings.stIdentifyingSpeakers
                     if (text != lastText) { lastText = text; update { it.copy(status = text, progress = frac) } }
                     else update { it.copy(progress = frac) }
                 },
@@ -380,17 +381,15 @@ private fun etaText(startNs: Long, frac: Float): String? {
     val elapsedSec = (System.nanoTime() - startNs) / 1e9
     if (elapsedSec < 5.0) return null
     val remain = elapsedSec * (1 - frac) / frac
-    return when {
-        remain >= 90 -> "≈${((remain + 30) / 60).toInt()} min left"
-        else -> "≈${((remain / 5).toInt() + 1) * 5} s left"
-    }
+    return if (remain >= 90) Strings.etaMinutes(((remain + 30) / 60).toInt())
+    else Strings.etaSeconds(((remain / 5).toInt() + 1) * 5)
 }
 
 private suspend fun summarize(models: ModelManager, config: TranscriptionConfig, style: SummaryStyle, tagged: List<TranscriptEvent.Utterance>, update: Update, regenerateTitle: Boolean = true) {
     val llmSpec = LlmRegistry.byId(config.llmModelId)
     ensureLlm(models, llmSpec, update)
 
-    update { it.copy(status = "Summarizing…", progress = null) }
+    update { it.copy(status = Strings.stSummarizing, progress = null) }
     val targetName = TargetLanguage.fromId(config.targetLanguage).promptName
     val script = TargetLanguage.scriptFor(config.targetLanguage)
     val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
