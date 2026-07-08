@@ -62,15 +62,26 @@ class Summarizer(
         val reduceBudget = ((llm.nCtx - reduceMax - 96) * 3 / 5).coerceAtLeast(512)
         val chunks = SummaryText.chunk(transcript, size = mapBudget)
         // Status is set (localized) by the caller in the service; here we only drive the bar.
+        // Progress covers EVERY LLM call (map + hierarchical reduce + final + title), not just
+        // the map phase — map-only progress used to hit 100% and stall while the reduce/title
+        // passes were still minutes away on long meetings, which also made the caller's
+        // time-to-finish extrapolation impossible. The reduce-call count is an estimate (fold
+        // grouping depends on the partials' actual lengths); the 0.97 clamp absorbs an estimate
+        // that's off by a call or two.
+        val estimatedCalls = chunks.size +
+            (if (chunks.size > 1) (chunks.size + 5) / 6 + 1 else 0) +
+            (if (withTitle) 1 else 0)
+        var llmCalls = 0
         emit(TranscriptEvent.Progress(0f))   // restart the bar for the summary phase
 
         val partials = ArrayList<String>(chunks.size)
-        for ((i, c) in chunks.withIndex()) {
+        for (c in chunks) {
             val sb = StringBuilder()
             llm.generate(SummaryText.wrap(template, MAP_TEMPLATE.format(instr, mapInstruction, c)), maxTokens = mapMaxTokens) { sb.append(it) }
             partials += sb.toString().trim()
             emit(TranscriptEvent.Partial(sb.toString().trim()))   // partials stay raw (intermediate)
-            emit(TranscriptEvent.Progress((i + 1f) / chunks.size))
+            llmCalls++
+            emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
         }
 
         // Reduce HIERARCHICALLY so the joined prompt never overflows the context window: fold the
@@ -84,6 +95,8 @@ class Summarizer(
                 val sb = StringBuilder()
                 llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, reduceInstruction, group.joinToString("\n\n"))), reduceMax) { sb.append(it) }
                 next += sb.toString().trim()
+                llmCalls++
+                emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
             }
             level = next
         }
@@ -97,6 +110,8 @@ class Summarizer(
                 SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, reduceInstruction, level.joinToString("\n\n"))),
                 maxTokens = reduceMax,
             ) { finalSb.append(it) }
+            llmCalls++
+            emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
         }
         var finalText = SummaryText.cleanSummary(finalSb.toString())
         // Guaranteed length bound: even with an explicit count in the prompt, a small model fed a
@@ -110,8 +125,11 @@ class Summarizer(
                 maxTokens = reduceMax,
             ) { sb.append(it) }
             SummaryText.cleanSummary(sb.toString()).takeIf { it.isNotBlank() }?.let { finalText = it }
+            llmCalls++
+            emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
         }
         val finalSummary = convert(finalText)
+        emit(TranscriptEvent.Progress(1f))
         emit(TranscriptEvent.SummaryComplete(finalSummary))
 
         // Title is derived from the final summary. Skipped on re-summarize (withTitle = false) so a model

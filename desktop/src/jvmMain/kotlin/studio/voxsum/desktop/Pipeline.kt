@@ -397,6 +397,12 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
     withContext(Dispatchers.Default) {
         val llm = LlmEngine.load(models.llmFile(llmSpec).absolutePath, nThreads = 4, sampler = llmSpec.sampler)
         try {
+            // ETA like the diarization phase: the summary pass runs minutes on long meetings
+            // (map chunks + hierarchical reduce), so extrapolate a time-to-finish from the
+            // Summarizer's per-LLM-call progress. t0 starts after the model load so the
+            // estimate reflects generation speed only.
+            val t0 = System.nanoTime()
+            var lastText = ""
             Summarizer(
                 llm, llmSpec.chatTemplate, targetName, convert, style.mapInstruction,
                 style.reduceInstruction, style.mapTokens, style.reduceTokens,
@@ -405,6 +411,12 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
                     is TranscriptEvent.Title -> if (regenerateTitle) update { it.copy(title = e.title) }
                     is TranscriptEvent.Partial -> update { it.copy(summary = it.summary + e.chunk) }
                     is TranscriptEvent.SummaryComplete -> update { it.copy(summary = e.summary) }
+                    is TranscriptEvent.Progress -> {
+                        val eta = etaText(t0, e.fraction)
+                        val text = if (eta != null) "${Strings.stSummarizing} $eta" else Strings.stSummarizing
+                        if (text != lastText) { lastText = text; update { it.copy(status = text, progress = e.fraction) } }
+                        else update { it.copy(progress = e.fraction) }
+                    }
                     else -> {}
                 }
             }
