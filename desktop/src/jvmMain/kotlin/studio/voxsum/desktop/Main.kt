@@ -696,6 +696,10 @@ private fun mainApplication() = application {
                             state.status.isNotEmpty() -> state.status
                             else -> Strings.ready
                         }
+                        if (recording) {
+                            MicLevelBars(state.micLevel, pal)
+                            Spacer(Modifier.width(8.dp))
+                        }
                         Text(statusText, style = MaterialTheme.typography.labelSmall, color = pal.Slate400, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         Spacer(Modifier.width(12.dp))
                         // The active models: ASR (transcription) + LLM (summary).
@@ -713,6 +717,21 @@ private fun mainApplication() = application {
                 }
             }
         }
+        }
+    }
+}
+
+/** 5-segment mic input level shown while recording — visible proof the mic hears something.
+ *  Levels are quantized upstream (Pipeline), so this only recomposes on bucket changes. */
+@androidx.compose.runtime.Composable
+private fun MicLevelBars(level: Float, pal: studio.voxsum.ui.theme.VoxSumColors) {
+    val active = (level * 5 + 0.5f).toInt().coerceIn(0, 5)
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        repeat(5) { i ->
+            Box(
+                Modifier.width(3.dp).height((5 + i * 2).dp).clip(RoundedCornerShape(1.dp))
+                    .background(if (i < active) pal.Sky else pal.Slate400.copy(alpha = 0.35f)),
+            )
         }
     }
 }

@@ -33,6 +33,11 @@ sealed interface TranscriptEvent {
     /** 0.0..1.0 progress over the audio (mirrors "progress"). */
     data class Progress(val fraction: Float) : TranscriptEvent
 
+    /** Mic input level while recording, 0..1 in five steps — visible proof the mic hears
+     *  something. Quantized at the SOURCE (emitted only on bucket change), so e-ink UIs
+     *  repaint rarely. */
+    data class MicLevel(val level: Float) : TranscriptEvent
+
     /** 0.0..1.0 progress of a model download (ASR / speaker / LLM), with a ready-to-show label.
      *  Drives the same UI progress bar so a multi-hundred-MB download isn't a frozen bar. */
     data class DownloadProgress(val fraction: Float, val label: String) : TranscriptEvent

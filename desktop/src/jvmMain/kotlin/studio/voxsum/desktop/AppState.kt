@@ -13,6 +13,8 @@ data class AppState(
     val fileName: String = "",
     val status: String = "",
     val progress: Float? = null,
+    /** Mic input level (0..1, five steps) while a recording is live; 0 otherwise. */
+    val micLevel: Float = 0f,
     val running: Boolean = false,
     val utterances: List<TranscriptEvent.Utterance> = emptyList(),
     val speakerNames: SpeakerNames = emptyMap(),

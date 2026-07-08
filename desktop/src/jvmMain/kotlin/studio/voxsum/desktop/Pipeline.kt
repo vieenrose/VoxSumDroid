@@ -2,6 +2,7 @@ package studio.voxsum.desktop
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withContext
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
@@ -129,8 +130,17 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
                 backend = backend, files = models.asrFiles(backend), vadModel = models.vadModel.absolutePath,
                 numThreads = 2, language = config.language, useItn = config.useItn, vadThreshold = config.vadThreshold,
             ).use { asr ->
-                collectTranscribeEvents(asr.transcribeLive(recorder.record(dest, shouldStop)), utterances, update, convert)
-                update { it.copy(audioFile = dest, fileName = dest.name, progress = null) }
+                // Mic level indicator: peak per ~128 ms chunk, quantized to 5 buckets and pushed
+                // to the UI only on bucket change — the user can SEE the mic hears something.
+                var lastBucket = -1
+                val mic = recorder.record(dest, shouldStop).onEach { chunk ->
+                    var pk = 0f
+                    for (v in chunk) { val a = if (v < 0f) -v else v; if (a > pk) pk = a }
+                    val bucket = micLevelBucket(pk)
+                    if (bucket != lastBucket) { lastBucket = bucket; update { it.copy(micLevel = bucket / 5f) } }
+                }
+                collectTranscribeEvents(asr.transcribeLive(mic), utterances, update, convert)
+                update { it.copy(audioFile = dest, fileName = dest.name, progress = null, micLevel = 0f) }
                 val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(dest) }
                 if (config.diarizationEnabled) {
                     diarize(models, config, pcm, utterances, update) { s, e ->
@@ -281,6 +291,16 @@ private suspend fun ensureLlm(models: ModelManager, llmSpec: studio.voxsum.core.
 }
 
 /** Bounds-safe [start, end) second-range slice of a 16 kHz buffer (diarization split re-decode). */
+/** Peak amplitude → 0..5 display bucket (log-ish thresholds: quiet speech still registers). */
+internal fun micLevelBucket(peak: Float): Int = when {
+    peak > 0.5f -> 5
+    peak > 0.25f -> 4
+    peak > 0.12f -> 3
+    peak > 0.06f -> 2
+    peak > 0.02f -> 1
+    else -> 0
+}
+
 private fun pcmSlice(pcm: FloatArray, startSec: Double, endSec: Double): FloatArray {
     val a = (startSec * 16_000).toInt().coerceIn(0, pcm.size)
     val b = (endSec * 16_000).toInt().coerceIn(a, pcm.size)
