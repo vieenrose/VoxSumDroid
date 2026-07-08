@@ -42,8 +42,10 @@ a recorder, your browser) — VoxSum appears in the share sheet and starts trans
 <p align="center"><i>The five input sources. "Open session" reopens a saved <code>.ogg</code> or <code>.m4a</code>.</i></p>
 
 ### Record a meeting
-**Add audio → Record.** Grant the microphone permission the first time. Lines appear as you talk; tap
-**Stop** when you're done and VoxSum finishes the summary. You can read and play back before it ends.
+**Add audio → Record.** Grant the microphone permission the first time. Lines appear as you talk —
+small **level bars** next to the timer show the mic hears you — and tap **Stop** when you're done;
+VoxSum finishes the speakers and the summary (long passes show a **time-to-finish estimate**).
+Quiet recordings get an automatic volume boost, for transcription and playback alike.
 
 ### Transcribe a podcast
 **Add audio → Podcast.** Type a show name, pick an episode, and it downloads and transcribes.
@@ -62,8 +64,10 @@ the audio and transcribes it.
 <p align="center"><i>Left: the title, a bullet summary, the speaker-tagged transcript and the synced
 player. Right: tap 🔍 to search — matches highlight and you step through them.</i></p>
 
-- **Who spoke when** — each line is tagged and colour-coded by speaker, with a speaker count. VoxSum
-  can **guess speakers' real names** from what they say (top-bar ↻ menu → *Detect names*).
+- **Who spoke when** — each line is tagged and colour-coded by speaker, with an automatic speaker
+  count (a neural segmenter draws precise speaker boundaries). VoxSum can **guess speakers' real
+  names** from what they say (top-bar ↻ menu → *Detect names*), and *Re-detect speakers* re-runs
+  just the speaker analysis — no re-transcribe needed.
 - **Synced player** — docked at the bottom like a music app: tap any line to jump there; the current
   line highlights as it plays.
 - **Search** — tap the 🔍 in the top bar to find any word in a long recording; matches highlight and

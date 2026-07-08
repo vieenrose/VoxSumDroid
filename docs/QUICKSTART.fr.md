@@ -36,7 +36,7 @@ Vous pouvez aussi **partager** une note vocale ou un fichier audio/vidéo *vers*
 <p align="center"><i>Les cinq sources. « Ouvrir une session » rouvre un <code>.ogg</code> ou <code>.m4a</code> enregistré.</i></p>
 
 ### Enregistrer une réunion
-**Ajouter de l'audio → Enregistrer.** Accordez la permission micro la première fois. Les lignes apparaissent au fil de la parole ; touchez **Arrêter** quand vous avez fini et VoxSum termine le résumé. Vous pouvez lire (et écouter) avant la fin.
+**Ajouter de l'audio → Enregistrer.** Accordez la permission micro la première fois. Les lignes apparaissent au fil de la parole — de petites **barres de niveau** près du minuteur montrent que le micro vous entend — puis touchez **Arrêter** ; VoxSum termine les locuteurs et le résumé (les passes longues affichent une **estimation du temps restant**). Les enregistrements trop faibles reçoivent un gain automatique, pour la transcription comme pour la lecture.
 
 ### Transcrire un podcast
 **Ajouter de l'audio → Podcast.** Tapez le nom d'une émission, choisissez un épisode, et il se télécharge puis se transcrit.
@@ -53,7 +53,7 @@ Vous pouvez aussi **partager** une note vocale ou un fichier audio/vidéo *vers*
 </p>
 <p align="center"><i>À gauche : le titre, un résumé en puces, la transcription étiquetée par intervenant et le lecteur synchronisé. À droite : touchez 🔍 pour chercher — les résultats se surlignent et vous les parcourez.</i></p>
 
-- **Qui a parlé, et quand** — chaque ligne est étiquetée et colorée par intervenant, avec leur nombre. VoxSum peut **deviner le vrai nom des intervenants** d'après leurs propos (barre du haut, menu ↻ → *Détecter les noms*).
+- **Qui a parlé, et quand** — chaque ligne est étiquetée et colorée par intervenant, leur nombre est détecté automatiquement (un segmenteur neuronal trace des frontières de locuteurs précises). VoxSum peut **deviner le vrai nom des intervenants** d'après leurs propos (barre du haut, menu ↻ → *Détecter les noms*), et *Redétecter les locuteurs* ne relance que l'analyse des locuteurs — sans retranscrire.
 - **Lecteur synchronisé** — ancré en bas comme une appli musicale : touchez une ligne pour y sauter ; la ligne en cours se surligne pendant la lecture.
 - **Recherche** — touchez le 🔍 de la barre du haut pour trouver n'importe quel mot dans un long enregistrement ; les résultats se surlignent et se parcourent avec les flèches haut/bas.
 - **Un résumé à votre façon** — un titre court et un résumé en **puces, en synthèse ou en récit** (choisissez le style dans **Paramètres**), dans la langue de votre choix. (Remarquez la capture : un résumé en anglais sur une transcription en chinois — la langue du résumé est indépendante de l'audio.)

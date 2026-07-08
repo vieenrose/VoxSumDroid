@@ -46,15 +46,15 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 **🎙️ Bring in audio from anywhere**
 - **A file** on your device — most common audio and video formats work.
 - **Share from another app** — send a voice note or an audio/video file straight to VoxSum (from LINE, a recorder, your browser…) and it starts transcribing.
-- **Record live** — capture a meeting and watch the transcript appear sentence by sentence as you speak.
+- **Record live** — capture a meeting and watch the transcript appear sentence by sentence as you speak, with **mic level bars** next to the timer so you know it hears you.
 - **A podcast** — search, pick an episode, and transcribe it.
 - **A YouTube link** — paste a URL, or search by keyword.
 - **Reopen a saved session** — pick up exactly where you left off (see below); your **recent sessions** are one tap away on the home screen.
 
 **📝 Read and understand**
 - **Live transcript** — lines show up as soon as you speak; you can start reading (and playing) before it finishes.
-- **Who spoke when** — each line is tagged and colour-coded by speaker, with a speaker count. VoxSum can even **guess speakers' real names** from what they say.
-- **A summary in your language, your way** — a short title and a summary as **bullets, an executive brief, or a narrative**. Keep it in the transcript's language, or pick **English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어**. (It defaults to your phone's language.)
+- **Who spoke when** — each line is tagged and colour-coded by speaker, with an automatic speaker count. Precise speaker boundaries come from a neural segmenter (benchmarked at **95.6% / 92.1%** time-weighted attribution on the AMI and AISHELL-4 meeting corpora). VoxSum can even **guess speakers' real names** from what they say, and long passes show a live **time-to-finish estimate**.
+- **A summary in your language, your way** — a short title and a **concise** summary (a handful of points, never a wall of text) as **bullets, an executive brief, or a narrative**. Keep it in the transcript's language, or pick **English · Français · 繁體中文 · 简体中文 · 日本語 · 한국어**. (It defaults to your phone's language.)
 - **Action items & decisions** — pull a draft checklist of who-does-what and the key decisions out of a meeting, ready to edit.
 - **Search the transcript** — find any word in a long recording; matches highlight and you can step through them.
 - **A built-in player, in sync** — docked at the bottom like a music app: tap any line to jump there, and the current line highlights as it plays.
@@ -65,7 +65,7 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
 - **Fix the speakers** — move a misattributed line to the right person, or merge two speakers into one.
 - **Copy** the whole summary with one tap.
 - **Export the words** — copy or share the transcript as text, or save **subtitles (`.srt`/`.vtt`)**, plain text, Markdown, or a printable **PDF** for any other app.
-- **Re-run** the transcription, the summary, or the speaker-name detection whenever you like — and VoxSum keeps everything consistent: change the summary language or style (or edit the transcript) and it offers a one-tap **re-summarize**, which also refreshes the title (unless you wrote your own). Switching just between **繁體中文 ↔ 简体中文** converts the title, summary, and transcript **instantly**, no re-run needed.
+- **Re-run** the transcription, the summary, **just the speaker detection** (*Re-detect speakers*), or the speaker-name detection whenever you like — and VoxSum keeps everything consistent: change the summary language or style (or edit the transcript) and it offers a one-tap **re-summarize**, which also refreshes the title (unless you wrote your own). Switching just between **繁體中文 ↔ 简体中文** converts the title, summary, and transcript **instantly**, no re-run needed.
 - **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) packs into a single **`.m4a`**. It **plays in any music app** — showing the title, cover, summary, and the **time-synced transcript** as [scrolling lyrics](#synced-lyrics-in-android-music-players) — and **reopens in VoxSum** with everything intact. `.m4a` reaches the widest set of players (iPhones, cars, every app); older `.ogg` sessions still open too.
 
 ## Languages
@@ -99,8 +99,10 @@ after that, updates arrive automatically.
 
 - **First run downloads models.** The first time you use a feature, VoxSum fetches the model it needs
   from **Hugging Face** (with a GitHub fallback), verifies its integrity, and caches it. After that you
-  can go fully offline. If a download is interrupted or a model file ends up corrupt, VoxSum cleans it
-  up automatically and offers a one-tap **Retry**.
+  can go fully offline. Downloads **resume where they left off** on flaky Wi-Fi, and a corrupt file is
+  cleaned up automatically with a one-tap **Retry**.
+- **Quiet audio just works.** Far-field or low-volume recordings get an automatic, clip-safe volume
+  boost — for transcription, speaker detection, and playback alike.
 - **While a transcription is running,** exports and settings are briefly locked so the session can't be
   saved half-finished — they unlock the moment it completes.
 - **The only thing it ever sends** is an optional, once-a-day check to GitHub for a new version — no
