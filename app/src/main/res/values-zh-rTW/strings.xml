@@ -156,6 +156,7 @@
     <string name="svc_downloading_named">正在下載 %1$s…</string>
     <string name="svc_summarization_model_pct">摘要模型… %d%%</string>
     <string name="svc_summarizing">摘要中…</string>
+    <string name="svc_summarizing_eta">摘要中… %1$s</string>
     <string name="svc_identifying_speakers">辨識語者中…</string>
     <string name="svc_identifying_speakers_eta">辨識語者中… %1$s</string>
     <string name="show_more">顯示更多</string>

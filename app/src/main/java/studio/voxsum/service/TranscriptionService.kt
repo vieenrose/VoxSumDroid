@@ -683,6 +683,9 @@ class TranscriptionService : LifecycleService() {
         LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler).use { llm ->
             activeLlm = llm
             try {
+                // t0 after the model load, so the ETA reflects generation speed only.
+                val t0 = System.nanoTime()
+                var lastEta = ""
                 val style = SummaryStyle.fromId(cfg.summaryStyle)
                 Summarizer(
                     llm,
@@ -695,7 +698,19 @@ class TranscriptionService : LifecycleService() {
                     reduceMaxTokens = style.reduceTokens,
                 ).summarize(transcript, cfg.summaryPrompt, withTitle)
                     .flowOn(Dispatchers.Default)
-                    .collect { emitEvent(it) }
+                    .collect { e ->
+                        // ETA like the diarization phase — the Summarizer reports per-LLM-call
+                        // progress, so a long meeting's summary pass shows time-to-finish.
+                        if (e is TranscriptEvent.Progress) {
+                            etaText(t0, e.fraction)?.let { eta ->
+                                if (eta != lastEta) {
+                                    lastEta = eta
+                                    emitEvent(TranscriptEvent.Status(getString(R.string.svc_summarizing_eta, eta)))
+                                }
+                            }
+                        }
+                        emitEvent(e)
+                    }
             } finally {
                 activeLlm = null
             }
