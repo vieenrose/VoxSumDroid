@@ -29,6 +29,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
@@ -450,14 +452,39 @@ private fun mainApplication() = application {
 
                 // ---- Two-pane: sessions sidebar | detail ----
                 Row(Modifier.fillMaxWidth().weight(1f)) {
-                    // Sidebar
+                    // Sidebar — collapsible: the chevron folds it to a thin rail (more room for
+                    // the transcript on small screens); the choice persists like the font scale.
+                    val uiStore = remember { KeyValueStore.forName("voxsum_ui") }
+                    var sidebarCollapsed by remember { mutableStateOf(uiStore.getBoolean("sidebarCollapsed", false)) }
+                    if (sidebarCollapsed) {
+                        Column(
+                            Modifier.width(30.dp).fillMaxHeight().background(pal.InsetSurface),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            IconButton(
+                                onClick = { sidebarCollapsed = false; uiStore.putBoolean("sidebarCollapsed", false) },
+                                modifier = Modifier.padding(top = 4.dp).size(26.dp),
+                            ) {
+                                Icon(Icons.Filled.ChevronRight, contentDescription = Strings.sessions, tint = pal.Slate400, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    } else {
                     Column(Modifier.width(240.dp).fillMaxHeight().background(pal.InsetSurface)) {
-                        Text(
-                            Strings.sessions,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = pal.Slate400,
-                            modifier = Modifier.padding(start = 14.dp, top = 12.dp, bottom = 6.dp),
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                            Text(
+                                Strings.sessions,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = pal.Slate400,
+                                modifier = Modifier.padding(start = 14.dp).weight(1f),
+                            )
+                            IconButton(
+                                onClick = { sidebarCollapsed = true; uiStore.putBoolean("sidebarCollapsed", true) },
+                                modifier = Modifier.size(26.dp),
+                            ) {
+                                Icon(Icons.Filled.ChevronLeft, contentDescription = Strings.sessions, tint = pal.Slate400, modifier = Modifier.size(18.dp))
+                            }
+                            Spacer(Modifier.width(4.dp))
+                        }
                         if (recents.isEmpty()) {
                             Text(
                                 Strings.noSessionsYet,
@@ -505,6 +532,7 @@ private fun mainApplication() = application {
                                 Text(Strings.addAudio)
                             }
                         }
+                    }
                     }
                     VerticalDivider(color = pal.Hairline)
 
@@ -762,23 +790,25 @@ private fun ToolButton(
 ) {
     val pal = LocalVoxSumPalette.current
     val compact = LocalToolbarCompact.current
-    val button: @androidx.compose.runtime.Composable () -> Unit = {
-        TextButton(onClick = onClick, enabled = enabled) {
-            Icon(icon, contentDescription = label, tint = tint ?: if (enabled) pal.Slate200 else pal.Slate400.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
-            if (!compact) {
-                Spacer(Modifier.width(6.dp))
-                Text(label, style = MaterialTheme.typography.labelLarge, color = tint ?: if (enabled) pal.Slate200 else pal.Slate400.copy(alpha = 0.5f))
-            }
-        }
-    }
+    val iconTint = tint ?: if (enabled) pal.Slate200 else pal.Slate400.copy(alpha = 0.5f)
     if (compact) {
+        // IconButton, not TextButton: Material's TextButton min-width (~64dp) would still
+        // overflow twelve buttons at the default 1000dp window; icon buttons fit in ~600dp.
         androidx.compose.foundation.TooltipArea(tooltip = {
             Surface(color = pal.Slate800, shadowElevation = 4.dp, shape = RoundedCornerShape(4.dp)) {
                 Text(label, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = pal.Slate200, style = MaterialTheme.typography.labelMedium)
             }
-        }) { button() }
+        }) {
+            IconButton(onClick = onClick, enabled = enabled) {
+                Icon(icon, contentDescription = label, tint = iconTint, modifier = Modifier.size(18.dp))
+            }
+        }
     } else {
-        button()
+        TextButton(onClick = onClick, enabled = enabled) {
+            Icon(icon, contentDescription = label, tint = iconTint, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, color = iconTint)
+        }
     }
 }
 

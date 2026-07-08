@@ -61,12 +61,22 @@ fun SettingsDialog(
     var vadThreshold by remember { mutableStateOf(config.vadThreshold) }
     var summaryPrompt by remember { mutableStateOf(config.summaryPrompt) }
 
+    // Window size must follow the content scale (see hiDpiDialogScale) or the dialog crops.
+    val dialogScale = studio.voxsum.desktop.ui.hiDpiDialogScale()
     DialogWindow(
         onCloseRequest = onDismiss,
         title = Strings.settings,
-        state = androidx.compose.ui.window.rememberDialogState(width = 480.dp, height = 700.dp),
+        state = androidx.compose.ui.window.rememberDialogState(width = (560 * dialogScale).dp, height = (700 * dialogScale).dp),
     ) {
         studio.voxsum.desktop.ui.HiDpiScaled {
+        // Fold the user's A−/A+ font scale into the dialog too — it previously applied only to
+        // the reading pane, leaving Settings text at a fixed size.
+        val baseDensity = androidx.compose.ui.platform.LocalDensity.current
+        val userFontScale = remember { studio.voxsum.core.config.FontScaleStore.load() }
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalDensity provides
+                androidx.compose.ui.unit.Density(baseDensity.density, baseDensity.fontScale * userFontScale),
+        ) {
         val pal = LocalVoxSumPalette.current
         // One ModelManager, and the downloaded-state maps computed once per dialog open — these
         // are filesystem stats (asrReady/llmReady each stat several files), so computing them in
@@ -201,6 +211,7 @@ fun SettingsDialog(
                     )
                 }) { Text(Strings.save) }
             }
+        }
         }
         }
         }

@@ -44,6 +44,26 @@ fun detectLinuxUiScale(): Double? {
 private val cachedScale: Double? by lazy { detectLinuxUiScale() }
 
 /**
+ * Scale factor a DialogWindow must apply to its WINDOW size (rememberDialogState) so it matches
+ * the content scale [HiDpiScaled] applies inside. Without this, a dialog sized 480.dp gets a
+ * 480 px window on stock X11 (AWT density 1) while its content lays out 1.5–2x larger — the
+ * bottom/right of the dialog is simply cropped. Same guard as HiDpiScaled: no-op where AWT
+ * already scaled (GNOME).
+ */
+fun hiDpiDialogScale(): Float {
+    val detected = cachedScale ?: return 1f
+    if (detected <= 1.0) return 1f
+    // Ask AWT directly (NOT LocalDensity — dialog composables run inside the parent's already-
+    // scaled composition, where the density reads as the detected scale and the guard would
+    // wrongly conclude AWT handled it). Window sizes are interpreted with AWT's transform.
+    val awt = runCatching {
+        java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
+            .defaultScreenDevice.defaultConfiguration.defaultTransform.scaleX
+    }.getOrDefault(1.0)
+    return if (awt <= 1.05) detected.toFloat() else 1f
+}
+
+/**
  * HiDPI density override for a window's content. EVERY top-level window (the main Window and
  * each DialogWindow body) must wrap its content in this: custom composition locals (the theme
  * palette) propagate from the caller into a DialogWindow, but LocalDensity is RESET by each

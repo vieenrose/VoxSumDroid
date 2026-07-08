@@ -48,10 +48,12 @@ private enum class SourceTab { PODCAST, YOUTUBE }
 @Composable
 fun AddSourceDialog(onDismiss: () -> Unit, onDownloaded: (File, String?) -> Unit) {
     var tab by remember { mutableStateOf(SourceTab.PODCAST) }
+    // Window size must follow the content scale (see hiDpiDialogScale) or the dialog crops.
+    val dialogScale = studio.voxsum.desktop.ui.hiDpiDialogScale()
     DialogWindow(
         onCloseRequest = onDismiss,
         title = Strings.addOnlineAudio,
-        state = androidx.compose.ui.window.rememberDialogState(width = 760.dp, height = 620.dp),
+        state = androidx.compose.ui.window.rememberDialogState(width = (760 * dialogScale).dp, height = (620 * dialogScale).dp),
     ) {
         studio.voxsum.desktop.ui.HiDpiScaled {
         val pal = LocalVoxSumPalette.current

@@ -34,10 +34,12 @@ fun ModelsDialog(onDismiss: () -> Unit) {
     val models = remember { ModelManager(appDataDir) }
     var entries by remember { mutableStateOf(models.storedModels()) }
 
+    // Window size must follow the content scale (see hiDpiDialogScale) or the dialog crops.
+    val dialogScale = studio.voxsum.desktop.ui.hiDpiDialogScale()
     DialogWindow(
         onCloseRequest = onDismiss,
         title = Strings.downloadedModels,
-        state = androidx.compose.ui.window.rememberDialogState(width = 520.dp, height = 480.dp),
+        state = androidx.compose.ui.window.rememberDialogState(width = (520 * dialogScale).dp, height = (480 * dialogScale).dp),
     ) {
         studio.voxsum.desktop.ui.HiDpiScaled {
         val pal = LocalVoxSumPalette.current
