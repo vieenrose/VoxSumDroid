@@ -159,6 +159,7 @@
     <string name="svc_summarizing">Résumé en cours…</string>
     <string name="svc_summarizing_eta">Résumé en cours… %1$s</string>
     <string name="svc_identifying_speakers">Identification des locuteurs…</string>
+    <string name="svc_diarization_skipped">Détection des locuteurs échouée — poursuite sans locuteurs</string>
     <string name="svc_identifying_speakers_eta">Identification des locuteurs… %1$s</string>
     <string name="show_more">Afficher plus</string>
     <string name="show_less">Afficher moins</string>
