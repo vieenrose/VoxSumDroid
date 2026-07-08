@@ -83,8 +83,18 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
             ).use { asr ->
                 collectTranscribeEvents(asr.transcribe(pcm), utterances, update, convert)
                 if (config.diarizationEnabled) {
-                    diarize(models, config, pcm, utterances, update) { s, e ->
-                        convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+                    // Diarization is an enhancement, not a prerequisite: a failure here (typically
+                    // a model download dying on flaky Wi-Fi) must NOT cost the session — continue
+                    // to the summary with the untagged transcript instead of failing the whole run.
+                    try {
+                        diarize(models, config, pcm, utterances, update) { s, e ->
+                            convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+                        }
+                    } catch (ce: kotlinx.coroutines.CancellationException) {
+                        throw ce
+                    } catch (t: Throwable) {
+                        update { it.copy(status = Strings.stDiarizationSkipped) }
+                        utterances.toList() to 0
                     }
                 } else {
                     utterances.toList() to 0
@@ -143,8 +153,18 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
                 update { it.copy(audioFile = dest, fileName = dest.name, progress = null, micLevel = 0f) }
                 val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(dest) }
                 if (config.diarizationEnabled) {
-                    diarize(models, config, pcm, utterances, update) { s, e ->
-                        convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+                    // Diarization is an enhancement, not a prerequisite: a failure here (typically
+                    // a model download dying on flaky Wi-Fi) must NOT cost the session — continue
+                    // to the summary with the untagged transcript instead of failing the whole run.
+                    try {
+                        diarize(models, config, pcm, utterances, update) { s, e ->
+                            convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+                        }
+                    } catch (ce: kotlinx.coroutines.CancellationException) {
+                        throw ce
+                    } catch (t: Throwable) {
+                        update { it.copy(status = Strings.stDiarizationSkipped) }
+                        utterances.toList() to 0
                     }
                 } else {
                     utterances.toList() to 0

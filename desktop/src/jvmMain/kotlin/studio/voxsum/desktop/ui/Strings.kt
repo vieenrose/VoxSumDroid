@@ -68,6 +68,11 @@ object Strings {
     val stDownloadingAsr: String get() = t("Downloading speech model…", "Téléchargement du modèle vocal…", "下載語音模型中…")
     val stDownloadingDiar: String get() = t("Downloading speaker model…", "Téléchargement du modèle de locuteurs…", "下載語者模型中…")
     val stDownloadingLlm: String get() = t("Downloading summarization model…", "Téléchargement du modèle de résumé…", "下載摘要模型中…")
+    val stDiarizationSkipped: String get() = t(
+        "Speaker detection failed — continuing without speakers",
+        "Détection des locuteurs échouée — poursuite sans locuteurs",
+        "語者辨識失敗——不標記語者繼續",
+    )
     fun etaMinutes(n: Int): String = t("≈$n min left", "≈$n min restantes", "約剩 $n 分鐘")
     fun etaSeconds(n: Int): String = t("≈$n s left", "≈$n s restantes", "約剩 $n 秒")
     val showMore: String get() = t("Show more", "Afficher plus", "顯示更多")
