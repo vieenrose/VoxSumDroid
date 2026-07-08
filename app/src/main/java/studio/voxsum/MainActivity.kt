@@ -143,6 +143,7 @@ import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.RecordingRecovery
+import studio.voxsum.core.session.SessionAutosave
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.TranscriptionConfig
@@ -436,6 +437,27 @@ private fun TranscribeScreen(
 
     // --- Inline editing (mirrors the web app): id->name overrides + which row/speaker is open. ---
     val speakerNames = remember { mutableStateMapOf<Int, SpeakerName>() }
+
+    // --- Session autosave restore: a COMPLETED session lost to a process kill while the app was
+    // backgrounded and asleep (see SessionAutosave — an ordinary screen-off doesn't kill the process,
+    // this is specifically the OEM-freeze/low-memory-kill case). Recovering an interrupted live
+    // recording takes priority, so this checks RecordingRecovery again itself (cheap, no side effects)
+    // rather than racing the other effect's state.
+    LaunchedEffect(Unit) {
+        if (TranscriptionService.recordingActive) return@LaunchedEffect
+        val interruptedRecording = withContext(Dispatchers.IO) { RecordingRecovery.pending(context) }
+        if (interruptedRecording != null) return@LaunchedEffect
+        val snap = withContext(Dispatchers.IO) { SessionAutosave.load(context) } ?: return@LaunchedEffect
+        if (utterances.isNotEmpty()) return@LaunchedEffect   // something already populated this launch
+        audioUri = snap.audioUri
+        utterances.addAll(snap.utterances)
+        speakerNames.putAll(snap.speakerNames)
+        title = snap.title
+        summary = snap.summary
+        actionItems = snap.actionItems
+        transcriptReady = true
+        status = context.getString(R.string.status_transcript_lines, snap.utterances.size)
+    }
     var editingIndex by remember { mutableIntStateOf(-1) }
     var editingSpeakerId by remember { mutableStateOf<Int?>(null) }
     var editingTitle by remember { mutableStateOf(false) }
@@ -592,6 +614,7 @@ private fun TranscribeScreen(
     // Start a run from any audio Uri (SAF pick or podcast download): reset session + go.
     fun launchAudio(uri: Uri) {
         TranscriptionConfig.Holder.config = config   // apply settings to this run
+        SessionAutosave.clear(context)
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         diarizeOnlyRun = false
         editingTitle = false; editingSummary = false; editingActions = false
@@ -672,6 +695,7 @@ private fun TranscribeScreen(
         while (isRecording) { delay(1000); recSeconds++ }
     }
     fun beginRecording() {
+        SessionAutosave.clear(context)
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         diarizeOnlyRun = false
         editingTitle = false; editingSummary = false; editingActions = false
@@ -755,6 +779,9 @@ private fun TranscribeScreen(
                     context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_WRITE_URI_PERMISSION); true
                 }.getOrDefault(false)
             }
+            // Not autosaved itself (the extracted audio is a cache file, not guaranteed to survive a
+            // relaunch) — but clear any PRIOR autosave so a later kill doesn't wrongly resurrect it.
+            SessionAutosave.clear(context)
             utterances.clear(); utterances.addAll(loaded.utterances)
             speakerNames.clear(); loaded.speakerNames.forEach { (k, v) -> speakerNames[k] = v }
             editingIndex = -1; editingSpeakerId = null
@@ -863,6 +890,19 @@ private fun TranscribeScreen(
         runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.export_share_transcript))) }
     }
 
+    // Cheap snapshot of the CURRENT session, written after each terminal pipeline event (not per
+    // utterance — see SessionAutosave) so a process kill while reviewing/summarizing a finished
+    // transcript doesn't lose it.
+    fun autosaveSessionNow() {
+        val uri = audioUri ?: return
+        val snap = SessionAutosave.Snapshot(
+            audioUri = uri, title = title, summary = summary, actionItems = actionItems,
+            utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
+            asrModelId = config.asrModelId, llmModelId = config.llmModelId,
+        )
+        scope.launch(Dispatchers.IO) { SessionAutosave.save(context, snap) }
+    }
+
     LaunchedEffect(Unit) {
         TranscriptionService.eventStream.collect { (gen, e) ->
             // Drop a superseded run's still-buffered events: a tagged event whose generation isn't the
@@ -900,8 +940,9 @@ private fun TranscribeScreen(
                     if (merged.isEmpty()) { running = false; status = context.getString(R.string.status_no_speech) }
                     // A standalone re-diarize ends at Complete (no summary phase follows).
                     if (diarizeOnlyRun) { diarizeOnlyRun = false; running = false }
+                    autosaveSessionNow()
                 }
-                is TranscriptEvent.Title -> title = e.title
+                is TranscriptEvent.Title -> { title = e.title; autosaveSessionNow() }
                 is TranscriptEvent.RecordingSaved -> {
                     val newUri = Uri.parse(e.uri)
                     // End-of-ASR source swap (original file → decoded WAV of the SAME audio): keep the
@@ -913,8 +954,8 @@ private fun TranscribeScreen(
                     }
                     audioUri = newUri; isRecording = false; micLevel = 0f
                 }
-                is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false }
-                is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false }
+                is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
+                is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
                 is TranscriptEvent.Failed -> {
                     status = context.getString(R.string.status_error, e.error); running = false; diarizeOnlyRun = false
                     // Offer a one-tap Retry for the same source (a corrupt model was cleared server-
