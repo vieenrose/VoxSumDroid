@@ -8,7 +8,7 @@ plugins {
 
 // Single source of truth for the app version — drives both the packaged .deb/AppImage version and
 // the AppInfo.VERSION constant the About screen shows (generated below, so they never drift).
-val appVersion = "0.10.4"
+val appVersion = "0.10.5"
 
 val generateVersion by tasks.registering {
     // Capture into task-local vals (not script-level references) so the configuration cache can
