@@ -190,6 +190,14 @@ class TranscriptionService : LifecycleService() {
         events.emit((kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED) to e)
     }
 
+    /** The current run's generation — capture this BEFORE handing a progress lambda to a
+     *  non-suspend callback (downloads, diarization, extraction). Emitting UNTAGGED from those
+     *  callbacks loses the tag: the Studio row's queue progress only consumes QUEUE_GEN events,
+     *  so a drain's diarization/download phase showed a frozen 0% bar on the home screen (while
+     *  the watched Session view happened to work), and a superseded run's untagged progress
+     *  could still mutate a freshly-reset session. */
+    private suspend fun currentGen(): Int = kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED
+
     // Held so a stop request can break the native generate loop promptly (it ignores
     // coroutine cancellation while inside a blocking JNI call).
     @Volatile private var activeLlm: LlmEngine? = null
@@ -232,13 +240,15 @@ class TranscriptionService : LifecycleService() {
      * that drives the same progress bar + status). Throttled to whole-percent changes; uses tryEmit because
      * the download callback is not a suspend context and the events buffer is bounded. [msgRes] takes one %d.
      */
-    private fun reportDownload(msgRes: Int, frac: Float) {
+    private fun reportDownload(gen: Int, msgRes: Int, frac: Float) {
         val pct = (frac * 100).toInt().coerceIn(0, 100)
         if (pct == lastDlPct) return
         lastDlPct = pct
         val text = getString(msgRes, pct)
         updateNotification(text)
-        events.tryEmit(UNTAGGED to TranscriptEvent.DownloadProgress(frac.coerceIn(0f, 1f), text))
+        // Tagged with the run's gen (callers capture it via currentGen()): QUEUE_GEN downloads
+        // drive the Studio row's bar/label, and a superseded run's late events get dropped.
+        events.tryEmit(gen to TranscriptEvent.DownloadProgress(frac.coerceIn(0f, 1f), text))
     }
 
     /** Total media duration in seconds via a cheap metadata read; 0 if unknown/unreadable. */
@@ -556,7 +566,8 @@ class TranscriptionService : LifecycleService() {
         val backend = AsrBackend.fromId(cfg.asrBackend)
         if (!models.asrReady(backend)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_models)))
-            models.ensureAsrModels(backend) { frac -> reportDownload(R.string.svc_downloading_models_pct, frac) }
+            val gen = currentGen()
+            models.ensureAsrModels(backend) { frac -> reportDownload(gen, R.string.svc_downloading_models_pct, frac) }
         }
 
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_transcribing)))
@@ -800,7 +811,8 @@ class TranscriptionService : LifecycleService() {
         val backend = AsrBackend.fromId(cfg.asrBackend)
         if (!models.asrReady(backend)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_models)))
-            models.ensureAsrModels(backend) { frac -> reportDownload(R.string.svc_downloading_models_pct, frac) }
+            val gen = currentGen()
+            models.ensureAsrModels(backend) { frac -> reportDownload(gen, R.string.svc_downloading_models_pct, frac) }
         }
         val converter = outputConverter(cfg)
         val recorder = AudioRecorder()
@@ -993,9 +1005,13 @@ class TranscriptionService : LifecycleService() {
         asr: AsrEngine,
         converter: OpenCcConverter?,
     ): Pair<List<TranscriptEvent.Utterance>, Int> {
+        // Captured for the non-suspend progress callbacks below: emitting UNTAGGED there froze the
+        // Studio row's bar at 0% for the whole diarization phase of a queue drain (the row only
+        // consumes QUEUE_GEN-tagged events), while the watched Session view happened to work.
+        val gen = currentGen()
         if (!models.diarizationReady()) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_diarization)))
-            models.ensureDiarizationModels { frac -> reportDownload(R.string.svc_downloading_diarization_pct, frac) }
+            models.ensureDiarizationModels { frac -> reportDownload(gen, R.string.svc_downloading_diarization_pct, frac) }
         }
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_identifying_speakers)))
         emitEvent(TranscriptEvent.Progress(0f))   // restart the bar for the diarization phase
@@ -1014,13 +1030,13 @@ class TranscriptionService : LifecycleService() {
                     slicer::read, slicer.totalSamples, utterances,
                     onProgress = { frac ->
                         val pct = (frac * 100).toInt()
-                        if (pct != lastPct) { lastPct = pct; events.tryEmit(UNTAGGED to TranscriptEvent.Progress(frac)) }
+                        if (pct != lastPct) { lastPct = pct; events.tryEmit(gen to TranscriptEvent.Progress(frac)) }
                         // The precise (segmentation-first) pass can run ~0.5×RT on slow ARM
                         // devices — show an estimated time to finish once it's extrapolatable.
                         etaText(t0, frac)?.let { eta ->
                             if (eta != lastEta) {
                                 lastEta = eta
-                                events.tryEmit(UNTAGGED to TranscriptEvent.Status(getString(R.string.svc_identifying_speakers_eta, eta)))
+                                events.tryEmit(gen to TranscriptEvent.Status(getString(R.string.svc_identifying_speakers_eta, eta)))
                             }
                         }
                     },
@@ -1051,7 +1067,8 @@ class TranscriptionService : LifecycleService() {
         val backend = AsrBackend.fromId(cfg.asrBackend)
         if (!models.asrReady(backend)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_models)))
-            models.ensureAsrModels(backend) { frac -> reportDownload(R.string.svc_downloading_models_pct, frac) }
+            val gen = currentGen()
+            models.ensureAsrModels(backend) { frac -> reportDownload(gen, R.string.svc_downloading_models_pct, frac) }
         }
         val src = if (uri.scheme == "file") uri.path?.let(::File) else null
         // Our own 16 kHz work WAVs (filesDir/audio decode outputs AND library captures) are reused
@@ -1137,7 +1154,8 @@ class TranscriptionService : LifecycleService() {
         val spec = LlmRegistry.byId(cfg.llmModelId)
         if (!models.llmReady(spec)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
-            models.ensureLlmModel(spec) { frac -> reportDownload(R.string.svc_summarization_model_pct, frac) }
+            val gen = currentGen()
+            models.ensureLlmModel(spec) { frac -> reportDownload(gen, R.string.svc_summarization_model_pct, frac) }
         }
         updateNotification(getString(R.string.svc_summarizing))
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_summarizing)))   // localized (Summarizer no longer sets it)
@@ -1206,7 +1224,8 @@ class TranscriptionService : LifecycleService() {
         val spec = LlmRegistry.byId(cfg.llmModelId)
         if (!models.llmReady(spec)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
-            models.ensureLlmModel(spec) { frac -> reportDownload(R.string.svc_summarization_model_pct, frac) }
+            val gen = currentGen()
+            models.ensureLlmModel(spec) { frac -> reportDownload(gen, R.string.svc_summarization_model_pct, frac) }
         }
         updateNotification(getString(R.string.svc_summarizing))
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_summarizing)))
@@ -1241,12 +1260,14 @@ class TranscriptionService : LifecycleService() {
         val spec = LlmRegistry.byId(cfg.llmModelId)
         if (!models.llmReady(spec)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
-            models.ensureLlmModel(spec) { frac -> reportDownload(R.string.svc_summarization_model_pct, frac) }
+            val gen = currentGen()
+            models.ensureLlmModel(spec) { frac -> reportDownload(gen, R.string.svc_summarization_model_pct, frac) }
         }
         updateNotification(getString(R.string.svc_extracting_actions))
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_extracting_actions)))
         emitEvent(TranscriptEvent.Progress(0f))   // restart the bar for the action-items phase
         val converter = outputConverter(cfg)
+        val gen = currentGen()   // tag the non-suspend progress callback below with this run's gen
         LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler).use { llm ->
             activeLlm = llm
             try {
@@ -1255,7 +1276,7 @@ class TranscriptionService : LifecycleService() {
                     template = spec.chatTemplate,
                     targetLanguage = TargetLanguage.fromId(cfg.targetLanguage).promptName,
                     convert = { converter?.convert(it) ?: it },
-                ).extract(transcript) { frac -> events.tryEmit(UNTAGGED to TranscriptEvent.Progress(frac)) }
+                ).extract(transcript) { frac -> events.tryEmit(gen to TranscriptEvent.Progress(frac)) }
                 emitEvent(TranscriptEvent.ActionItemsComplete(text))
             } finally {
                 activeLlm = null
