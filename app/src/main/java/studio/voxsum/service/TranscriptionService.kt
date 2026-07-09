@@ -325,14 +325,29 @@ class TranscriptionService : LifecycleService() {
             // means the user asked: ⏭ deferral enqueues nothing, so back-to-back recording days
             // stay processing-free until the user asks. A user-cancelled job (Stop) skips this
             // naturally: runQueue aborts at its first suspension inside the cancelled coroutine.
-            if (!processQueue && pipelineJob === job && ProcessingQueue.size(this@TranscriptionService) > 0) {
+            //
+            // BOTH end-of-job decisions below hop to the MAIN thread (NonCancellable: they must
+            // also run for a superseded/cancelled job): onStartCommand runs on main, so checking
+            // pipelineJob and calling stopSelf() from this Default-dispatcher thread RACED it —
+            // the check could read the stale old job, pass, and stopSelf() would then destroy the
+            // service AFTER a new run (the ⏭ next-talk ACTION_RECORD) had already started on it.
+            // lifecycleScope died with the service and silently cancelled the new recording's job
+            // mid-model-load: mic never captured, no RecordingSaved, no Failed (cancellation is
+            // deliberately not reported) — the Capture screen waited forever and the talk was
+            // LOST. Serializing on main makes check-then-stop atomic w.r.t. new starts.
+            val resumeQueue = withContext(NonCancellable + Dispatchers.Main) {
+                !processQueue && pipelineJob === job && ProcessingQueue.size(this@TranscriptionService) > 0
+            }
+            if (resumeQueue) {
                 runCatching { withContext(RunGen(QUEUE_GEN)) { runQueue() } }
             }
             // Only tear down if still the active job — a newer run may have superseded this one.
-            if (pipelineJob === job) {
-                pipelineActive = false
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+            withContext(NonCancellable + Dispatchers.Main) {
+                if (pipelineJob === job) {
+                    pipelineActive = false
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }
         }
         pipelineActive = true
@@ -404,8 +419,13 @@ class TranscriptionService : LifecycleService() {
             }
             emitEvent(done)
             notifyExportResult(done)
-            // Leave a running transcription's foreground intact; otherwise we're done.
-            if (pipelineJob == null) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+            // Leave a running transcription's foreground intact; otherwise we're done. On MAIN
+            // (like the pipeline teardown): checking from this IO thread raced onStartCommand —
+            // an export finishing exactly as a new run starts could stopSelf() the service under
+            // that run's freshly-launched job.
+            withContext(NonCancellable + Dispatchers.Main) {
+                if (pipelineJob?.isActive != true) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+            }
         }
     }
 
