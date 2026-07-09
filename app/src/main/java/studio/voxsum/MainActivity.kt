@@ -779,7 +779,7 @@ private fun TranscribeScreen(
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh recording → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         audioUri = null; libraryDir = null; recordingRun = true; running = true; transcriptReady = false; isRecording = true; progress = 0f
-        watchingQueue = false
+        watchingQueue = false; pendingNextTalk = false
         captureName = ""; screen = Screen.Capture
         status = context.getString(R.string.status_recording); onRecord(sessionGen)
     }
@@ -1031,7 +1031,10 @@ private fun TranscribeScreen(
             if (gen == TranscriptionService.QUEUE_GEN) {
                 val qid = TranscriptionService.currentQueueItemId
                 if (qid != null && qid != queueItemId) {
-                    // A new item started — reset the live buffers to it.
+                    // A new item started — reset the live buffers to it. If the user was watching
+                    // the PREVIOUS item, stop forwarding: item B's transcript must not stream into
+                    // item A's open session view (A's terminal events already landed).
+                    if (watchingQueue) watchingQueue = false
                     queueUtterances.clear(); queueTitle = null; queueSummary = null
                     queueItemId = qid; queueFraction = 0f
                 }
@@ -1132,7 +1135,19 @@ private fun TranscribeScreen(
                     if (pendingNextTalk) { pendingNextTalk = false; beginRecording() }
                 }
                 // The finished session (transcript + summary embedded) replaced the raw-capture row.
-                is TranscriptEvent.LibrarySaved -> { recentsVersion++; queueItemId = null; queueFraction = 0f }
+                is TranscriptEvent.LibrarySaved -> {
+                    recentsVersion++; queueItemId = null; queueFraction = 0f
+                    // If the open session is playing this entry's raw WAV, swap to the durable
+                    // session.m4a (same audio; playhead carried over) — the WAV is reclaimed on the
+                    // next recording and would strand the player on a deleted file.
+                    val savedUri = Uri.parse(e.uri)
+                    val entryDir = SessionLibrary.entryDirOf(context, savedUri)
+                    if (entryDir != null && audioUri?.let { SessionLibrary.entryDirOf(context, it) } == entryDir) {
+                        pendingSeekMs = positionMs.takeIf { it > 0 }
+                        resumeAfterSwap = isPlaying
+                        audioUri = savedUri
+                    }
+                }
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
                 is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
                 is TranscriptEvent.Failed -> {
@@ -1513,7 +1528,12 @@ private fun TranscribeScreen(
         if (ids.isEmpty()) return
         scope.launch {
             withContext(Dispatchers.IO) { ProcessingQueue.enqueue(context, ids) }
-            onProcessQueue()
+            // Starting the drain supersedes the single service job. That's fine for library-backed
+            // runs (their audio is saved; the interrupted one just stays pending) but would DESTROY
+            // a foreground import's progress (not saved until it finishes) — so only enqueue then;
+            // the user can process after the import completes.
+            val importRunning = running && !watchingQueue && !recordingRun && !isRecording
+            if (!importRunning) onProcessQueue()
             recentsVersion++
         }
     }

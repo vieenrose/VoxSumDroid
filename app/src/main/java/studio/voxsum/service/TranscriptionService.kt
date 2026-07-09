@@ -138,6 +138,10 @@ class TranscriptionService : LifecycleService() {
         @Volatile
         var currentQueueItemId: String? = null
             private set
+
+        /** True while a queue drain loop is running (idle between items included). */
+        @Volatile
+        private var queueDraining = false
     }
 
     /** A pending session export, handed to the service via [pendingExport] (utterances can be large,
@@ -260,6 +264,9 @@ class TranscriptionService : LifecycleService() {
         val extractActions = intent?.action == ACTION_EXTRACT_ACTIONS
         val diarizeOnly = intent?.action == ACTION_DIARIZE
         val processQueue = intent?.action == ACTION_PROCESS_QUEUE
+        // A drain is already running → the new ids just enqueued will be picked up by its loop;
+        // restarting would cancel and redo the item currently in progress.
+        if (processQueue && queueDraining) return START_NOT_STICKY
         stopRecordingRequested = false
         deferProcessing = false
         val previousJob = pipelineJob
@@ -567,6 +574,8 @@ class TranscriptionService : LifecycleService() {
         // choices apply to queue items exactly like foreground runs. (Regression: queue transcripts
         // ignored the user's zh-Hant target and came out simplified with default-locale summaries.)
         TranscriptionConfig.Holder.config = studio.voxsum.core.config.ConfigStore.load(this)
+        queueDraining = true
+        try {
         while (true) {
             val id = ProcessingQueue.peek(this) ?: break
             val entry = SessionLibrary.byId(this, id)
@@ -606,6 +615,7 @@ class TranscriptionService : LifecycleService() {
             }
             ProcessingQueue.remove(this, id)
         }
+        } finally { queueDraining = false }
     }
 
     /**
