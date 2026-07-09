@@ -55,6 +55,14 @@ class AudioRecorder(private val sampleRate: Int = 16_000) {
         val shorts = ShortArray(BLOCK)
         var sinceCheckpoint = 0L
         rec.startRecording()
+        // startRecording() can silently fail (mic held by another client / HAL hiccup on some
+        // devices): state stays STOPPED, or read() returns 0 forever. Both used to produce a
+        // header-only WAV after minutes of "recording" — fail fast and loudly instead.
+        if (rec.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+            runCatching { rec.stop() }; rec.release()
+            throw IllegalStateException("Microphone busy (recording did not start)")
+        }
+        var zeroReads = 0
         try {
             while (!shouldStop() && currentCoroutineContext().isActive) {
                 val n = rec.read(shorts, 0, shorts.size)
@@ -69,6 +77,7 @@ class AudioRecorder(private val sampleRate: Int = 16_000) {
                         // (OEM freeze, OOM, swipe-away) leaves a recoverable file, losing at most the
                         // last CHECKPOINT_SEC of audio instead of the whole recording.
                         sinceCheckpoint += n
+                        zeroReads = 0
                         if (sinceCheckpoint >= sampleRate.toLong() * CHECKPOINT_SEC) {
                             writer.checkpoint(); sinceCheckpoint = 0
                         }
@@ -80,7 +89,11 @@ class AudioRecorder(private val sampleRate: Int = 16_000) {
                     // pipeline never finishes. Break so the finally block releases the recorder and
                     // closes the WAV; the caller then diarizes/summarizes whatever was captured.
                     n < 0 -> { Log.w(TAG, "AudioRecord.read error $n; ending capture"); break }
-                    // n == 0: no data this poll — harmless, keep going.
+                    // n == 0 occasionally is harmless — but 0 forever with nothing ever captured is
+                    // a silently-dead mic (seen on-device: a whole take produced a 44-byte WAV).
+                    n == 0 -> if (totalSamples == 0L && ++zeroReads > 200) {
+                        throw IllegalStateException("Microphone produced no audio")
+                    }
                 }
             }
         } finally {

@@ -666,6 +666,13 @@ class TranscriptionService : LifecycleService() {
                     }
                     mic.send(chunk)
                 }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                // Mic init/read failure (busy device, dead HAL). Surface it — a capture job dying
+                // silently produced empty "recordings" the user only discovered much later.
+                android.util.Log.w("voxsum-capture", "mic capture failed", t)
+                events.tryEmit(runGen to TranscriptEvent.Failed(getString(R.string.mic_capture_failed)))
             } finally {
                 mic.close()   // end-of-stream for transcribeLive (clean stop AND cancellation)
             }

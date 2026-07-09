@@ -298,4 +298,6 @@
     <string name="tab_actions">行動項目</string>
     <string name="summary_pending_hint">尚無摘要——處理完成後會顯示在這裡。</string>
     <string name="actions_pending_hint">尚無行動項目。</string>
+
+    <string name="mic_capture_failed">麥克風失效——未錄到任何聲音。請關閉其他使用麥克風的 App 後重試。</string>
 </resources>

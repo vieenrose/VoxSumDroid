@@ -1137,6 +1137,14 @@ private fun TranscribeScreen(
                 is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
                 is TranscriptEvent.Failed -> {
                     pendingNextTalk = false   // capture wasn't saved → don't roll into a new recording
+                    pendingAutoProcess = false
+                    isRecording = false
+                    // The snackbar host lives in the Session scaffold — a failure while the user is
+                    // on Studio/Capture (e.g. "no audio recorded" after ⏹) was INVISIBLE. Toast
+                    // reaches every screen.
+                    if (screen != Screen.Session) {
+                        android.widget.Toast.makeText(context, context.getString(R.string.status_error, e.error), android.widget.Toast.LENGTH_LONG).show()
+                    }
                     status = context.getString(R.string.status_error, e.error); running = false; diarizeOnlyRun = false
                     // Offer a one-tap Retry for the same source (a corrupt model was cleared server-
                     // side, so the retry re-downloads it). Only when we still hold the source Uri.
