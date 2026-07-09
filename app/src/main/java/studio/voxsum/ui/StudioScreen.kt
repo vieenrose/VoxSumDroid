@@ -367,7 +367,11 @@ fun StudioScreen(
     }
 
     // --- Row management sheet ---
-    actionsFor?.let { e ->
+    actionsFor?.let { sel ->
+        // Re-derive from the LIVE list: the entry can change status while the sheet is open (a
+        // background drain finishes it → recomposition with fresh entries), and branching on the
+        // captured snapshot would keep offering "Process now" on an item that is already DONE.
+        val e = entries.firstOrNull { it.id == sel.id } ?: sel
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(onDismissRequest = { actionsFor = null }, sheetState = sheetState, containerColor = pal.Slate800) {
             Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {

@@ -547,6 +547,13 @@ private fun TranscribeScreen(
         // snapshot into a stale Session view on cold launch only hijacked the home (the user
         // expects the Studio shelf — the same content is a library row). Discard any old snapshot.
         withContext(Dispatchers.IO) { SessionAutosave.clear(context) }
+        // Invariant: a non-empty queue means the user already asked for processing — so if no
+        // pipeline is live (process death mid-drain, or a kill before the post-run auto-resume),
+        // restart the drain. If a drain IS somehow already running, the service's queueDraining
+        // guard absorbs the redundant kick.
+        if (!TranscriptionService.pipelineActive &&
+            withContext(Dispatchers.IO) { ProcessingQueue.size(context) } > 0
+        ) onProcessQueue()
     }
     // Find-in-transcript (a slim search bar above the list; suppresses playback auto-follow while open).
     var searchActive by remember { mutableStateOf(false) }
@@ -592,7 +599,11 @@ private fun TranscribeScreen(
         durationMs = 0; positionMs = seekTo ?: 0; dragMs = null; buffering = false
         audioUri?.let { uri ->
             val mp = MediaPlayer()
-            mp.setVolume(volume, volume)
+            // Honor the hoisted mute flag: mute keeps `volume` at its pre-mute value (so unmute can
+            // restore it), so a rebuilt player (source swap, new session) must re-apply the 0 —
+            // otherwise audio comes back audible under a mute button that still shows muted.
+            val effVol = if (muted) 0f else volume
+            mp.setVolume(effVol, effVol)
             mp.setOnCompletionListener { isPlaying = false }
             // A mid-stream decode error otherwise leaves the player in ERROR state, where every later
             // start() fails with native error -38 ("played, stopped, can't play anymore"). Re-prepare
@@ -611,8 +622,13 @@ private fun TranscribeScreen(
             // contention); the player self-heals on the next play tap via [resumeOrRecover], so a
             // failed prepare here just leaves durationMs at 0 (no UI block either way).
             scope.launch {
-                // Prepare at the carried-over position; resume playing if it was playing before the swap.
-                if (preparePlayer(mp, uri, seekTo) && resume) runCatching { mp.start() }.onSuccess { isPlaying = true }
+                // Prepare at the carried-over position; resume playing if it was playing before the
+                // swap — but only if the Session screen is STILL on top when the async prepare lands:
+                // the end-of-ASR / LibrarySaved swaps can fire while the user is on Studio, and
+                // resuming there would start audio on a screen with no transport controls at all.
+                if (preparePlayer(mp, uri, seekTo) && resume && screen == Screen.Session) {
+                    runCatching { mp.start() }.onSuccess { isPlaying = true }
+                }
             }
         }
         onDispose { enhancer?.release(); enhancer = null; player?.release(); player = null }
@@ -673,12 +689,37 @@ private fun TranscribeScreen(
         buffering = false
     }
 
+    // Playback belongs to the Session view only. The player + isPlaying are hoisted above the screen
+    // switch (so a source swap / re-prepare survives), which means leaving Session would otherwise
+    // keep the audio playing with no visible control on the library home — and a later re-open, which
+    // sets isPlaying=false without touching the still-playing player (same audioUri → no rebuild),
+    // would leave the play/pause button desynced from the audio. Pause (keeping the playhead) whenever
+    // the Session screen isn't on top, so leaving stops orphaned playback and re-entry shows a button
+    // that matches reality. Re-opening a session sets screen=Session and rebuilds/prepares as before.
+    LaunchedEffect(screen) {
+        if (screen != Screen.Session) {
+            runCatching { player?.takeIf { it.isPlaying }?.pause() }
+            isPlaying = false
+            buffering = false
+        }
+    }
+
     // Swap the player's source to another file of the SAME audio, carrying the playhead and
     // play-state across the rebuild (end-of-ASR decoded-WAV swap, WAV→session.m4a promotion).
     fun swapAudioKeepingPlayhead(newUri: Uri) {
         pendingSeekMs = positionMs.takeIf { it > 0 }
         resumeAfterSwap = isPlaying
         audioUri = newUri
+    }
+
+    // Live-recording state — declared above clearSession, which resets it.
+    var isRecording by remember { mutableStateOf(false) }
+    var recSeconds by remember { mutableIntStateOf(0) }
+    // Mic input level while recording (0..1 in five steps, quantized service-side for e-ink).
+    var micLevel by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(isRecording) {
+        recSeconds = 0
+        while (isRecording) { delay(1000); recSeconds++ }
     }
 
     // ONE place to tear down the open session and every pending-intent flag — launchAudio,
@@ -689,6 +730,15 @@ private fun TranscribeScreen(
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         diarizeOnlyRun = false
         editingTitle = false; editingSummary = false; editingActions = false
+        // Also PAUSE the hoisted player, not just the flag: when the next run reuses the SAME
+        // audioUri (Re-transcribe), DisposableEffect(audioUri) never rebuilds, so without this the
+        // old audio keeps playing under a button that now shows "paused".
+        runCatching { player?.takeIf { it.isPlaying }?.pause() }
+        // And the live-recording indicators: every non-recording run through here (launchAudio)
+        // SUPERSEDES the service job, so a backgrounded capture is genuinely over — without this
+        // Studio keeps a red "recording" banner + ticking timer over an import. beginRecording
+        // re-sets isRecording=true right after its clearSession call.
+        isRecording = false; micLevel = 0f
         title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
         coverEnabled = true
         showPodcastSheet = false; showConfigSheet = false
@@ -775,14 +825,6 @@ private fun TranscribeScreen(
     }
 
     // --- Live recording (mic → streaming ASR; diarization/summary run on stop). ---
-    var isRecording by remember { mutableStateOf(false) }
-    var recSeconds by remember { mutableIntStateOf(0) }
-    // Mic input level while recording (0..1 in five steps, quantized service-side for e-ink).
-    var micLevel by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(isRecording) {
-        recSeconds = 0
-        while (isRecording) { delay(1000); recSeconds++ }
-    }
     fun beginRecording() {
         TranscriptionConfig.Holder.config = config
         clearSession()
@@ -843,8 +885,11 @@ private fun TranscribeScreen(
         isPlaying = false; searchActive = false; searchQuery = ""
         coverEnabled = true; coverBitmap = null; coverFromSession = false; lastSaveUri = null
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false
+        isDetecting = false   // hand-rolled reset path: don't inherit a prior session's in-flight detection
         sessionGen++   // stale events from any prior session run are dropped
-        libraryDir = e.dir; recordingRun = true
+        // NOT a recording run: recordingRun gates the ⏭ Next-talk affordance (showNextTalk), and a
+        // view that merely WATCHES a background drain must not offer to start a new recording.
+        libraryDir = e.dir; recordingRun = false
         audioUri = Uri.fromFile(e.wavFile)   // the synced player works while it processes
         transcriptReady = false; running = true; progress = queueFraction
         status = queueLabel.ifBlank { context.getString(R.string.status_processing) }
@@ -921,6 +966,11 @@ private fun TranscribeScreen(
             coverFromSession = coverBitmap != null
             coverEnabled = true
             isPlaying = false; running = false; transcriptReady = true; progress = 0f
+            // This entry path hand-rolls its reset (it doesn't go through clearSession) — close the
+            // cross-session flags too: a slow Detect-names from the PREVIOUS session must not keep
+            // this one's action disabled, and a pending next-talk/auto-process from a capture whose
+            // terminal event this sessionGen++ just orphaned must not fire much later.
+            isDetecting = false; pendingNextTalk = false; pendingAutoProcess = false
             audioUri = Uri.fromFile(loaded.audio)
             // A reopened library session keeps its entry binding (the extracted audio is a cache
             // file, so derive it from the SOURCE uri) — renames still reach the library row.
@@ -1134,7 +1184,13 @@ private fun TranscribeScreen(
                     }
                     // "Next talk": the previous capture is confirmed safe on disk — roll straight
                     // into the next recording (resets the session; later stale events are dropped).
-                    if (pendingNextTalk) { pendingNextTalk = false; beginRecording() }
+                    // Only while the user is STILL in the capture flow: if they backed out to Studio
+                    // during the async save window, auto-starting a new recording would yank them
+                    // into CaptureScreen with a live mic they never asked for from there.
+                    if (pendingNextTalk) {
+                        pendingNextTalk = false
+                        if (screen == Screen.Capture) beginRecording()
+                    }
                 }
                 // The finished session (transcript + summary embedded) replaced the raw-capture row.
                 is TranscriptEvent.LibrarySaved -> {
@@ -1180,7 +1236,13 @@ private fun TranscribeScreen(
                             runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(it)) }.getOrNull()
                         }
                         if (shareUri == null) {
-                            scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.session_share_failed)) }
+                            // Like Failed: the snackbar host lives in the Session scaffold, so a
+                            // result landing while the user is on Studio/Capture must Toast instead.
+                            if (screen != Screen.Session) {
+                                Toast.makeText(context, context.getString(R.string.session_share_failed), Toast.LENGTH_LONG).show()
+                            } else {
+                                scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.session_share_failed)) }
+                            }
                         } else {
                             val send = Intent(Intent.ACTION_SEND).apply {
                                 type = VoxsumSession.Format.M4A.mime
@@ -1204,7 +1266,11 @@ private fun TranscribeScreen(
                             }
                             RecentSessions.add(context, u.toString(), title ?: "", System.currentTimeMillis()); recentsVersion++
                         }
-                        scope.launch { snackbarHostState.showSnackbar(msg) }
+                        // The exporting overlay is dismissible and the export runs in the service, so
+                        // the user may be on Studio/Capture when the result lands — the Session-scoped
+                        // snackbar would silently drop "Saved as…" / "Save failed" there. Toast instead.
+                        if (screen != Screen.Session) Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        else scope.launch { snackbarHostState.showSnackbar(msg) }
                     }
                 }
                 else -> Unit
@@ -1579,23 +1645,38 @@ private fun TranscribeScreen(
     BackHandler(
         screen != Screen.Studio && !showConfigSheet && !showPodcastSheet &&
             !showAddSourceSheet && !showYouTubeSheet,
-    ) { watchingQueue = false; screen = Screen.Studio }
+    ) {
+        // Leaving a watched queue item: running was borrowed by watchQueueItem purely to render the
+        // live view. Without clearing it here, foregroundRun (= running && !watchingQueue) flips
+        // TRUE on Studio — a phantom "processing" banner for a background drain, duplicated with
+        // the row's own chip, that never clears (the drain's terminal QUEUE_GEN events are dropped
+        // once watchingQueue is false, so nothing else resets running).
+        if (watchingQueue) running = false
+        watchingQueue = false; screen = Screen.Studio
+    }
 
     when (screen) {
         Screen.Studio -> {
             val studioEntries = remember(recentsVersion, queueItemId) { SessionLibrary.list(context) }
+            val studioQueuedIds = remember(recentsVersion, queueItemId) { ProcessingQueue.ids(context).toSet() }
             StudioScreen(
                 entries = studioEntries,
-                queuedIds = remember(recentsVersion, queueItemId) { ProcessingQueue.ids(context).toSet() },
+                queuedIds = studioQueuedIds,
                 processingId = queueItemId,
                 processingLabel = queueLabel,
                 processingFraction = queueFraction,
                 isRecording = isRecording,
                 recSeconds = recSeconds,
-                foregroundRun = running && !watchingQueue,
+                // !deferStopped: after ⏹ Stop&save, running stays true until the deferred Complete
+                // lands — that short window must not flash a "processing: saved for later" banner.
+                foregroundRun = running && !watchingQueue && !deferStopped,
                 foregroundLabel = title ?: status,
                 onResumeSession = { screen = Screen.Session },
-                pendingCount = studioEntries.count { it.status == SessionLibrary.Status.RECORDED && it.wavFile.exists() },
+                // Exclude already-queued items: they show the Queued glyph on their row, and counting
+                // them kept the "Process N" button up (same N) right after tapping it.
+                pendingCount = studioEntries.count {
+                    it.status == SessionLibrary.Status.RECORDED && it.wavFile.exists() && it.id !in studioQueuedIds
+                },
                 onRecord = { requestRecord() },
                 onResumeCapture = { screen = Screen.Capture },
                 onOpen = { e -> openSessionUri(Uri.fromFile(e.sessionFile)) },
@@ -1641,7 +1722,9 @@ private fun TranscribeScreen(
                 running = running,
                 progress = progress,
                 transcriptAvailable = utterances.isNotEmpty(),
-                onBack = { watchingQueue = false; screen = Screen.Studio },
+                // Same contract as the system BackHandler above: leaving a watched queue item must
+                // also release the borrowed running flag or Studio paints a stuck phantom banner.
+                onBack = { if (watchingQueue) running = false; watchingQueue = false; screen = Screen.Studio },
                 onStop = { handleStop() },
                 showNextTalk = running && recordingRun && !isRecording,
                 onNextTalk = { nextTalk() },

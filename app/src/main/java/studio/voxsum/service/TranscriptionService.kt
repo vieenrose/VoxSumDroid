@@ -143,11 +143,12 @@ class TranscriptionService : LifecycleService() {
         @Volatile
         private var queueDraining = false
 
-        /** A drain was superseded with items still pending — resume it when the interrupting
-         *  run finishes. Never set by ⏭ deferral (no drain was running), so back-to-back
-         *  recording days stay processing-free until the user asks. */
+        /** True while any pipeline job is active in this process — the UI's cold-start
+         *  queue-resume check reads it so an Activity recreation can't kick a drain into a
+         *  live foreground run (which would supersede/cancel it). */
         @Volatile
-        private var queueInterrupted = false
+        var pipelineActive = false
+            private set
     }
 
     /** A pending session export, handed to the service via [pendingExport] (utterances can be large,
@@ -317,18 +318,24 @@ class TranscriptionService : LifecycleService() {
                         emitEvent(TranscriptEvent.Failed(e.message ?: "pipeline error"))
                     }
                 }
-            // An interrupted drain resumes after the run that interrupted it (never after a plain
-            // queue start — that IS the drain). Tagged QUEUE_GEN like any drain.
-            if (!processQueue && queueInterrupted && pipelineJob === job) {
-                queueInterrupted = false
+            // A pending queue resumes after the run that blocked it — a drain superseded by a
+            // recording/import, or items enqueued DURING a foreground import (the UI defers the
+            // drain start to protect the unsaved import; without this resume those rows would sit
+            // "Queued" forever). Never after a plain queue start — that IS the drain. Enqueued
+            // means the user asked: ⏭ deferral enqueues nothing, so back-to-back recording days
+            // stay processing-free until the user asks. A user-cancelled job (Stop) skips this
+            // naturally: runQueue aborts at its first suspension inside the cancelled coroutine.
+            if (!processQueue && pipelineJob === job && ProcessingQueue.size(this@TranscriptionService) > 0) {
                 runCatching { withContext(RunGen(QUEUE_GEN)) { runQueue() } }
             }
             // Only tear down if still the active job — a newer run may have superseded this one.
             if (pipelineJob === job) {
+                pipelineActive = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
         }
+        pipelineActive = true
         pipelineJob = job
         // Now that the new job is the active one, supersede any in-flight run (e.g. Re-summarize
         // while the first summary is still streaming). Done after the reassignment so the old job's
@@ -681,9 +688,13 @@ class TranscriptionService : LifecycleService() {
         }
         } finally {
             queueDraining = false
-            // Cancelled mid-drain with work left (a recording or import superseded us) →
-            // remember to resume once the interrupting run completes.
-            queueInterrupted = ProcessingQueue.size(this) > 0
+            // Drain over (queue empty, last item failed terminally, or superseded): nudge the UI's
+            // QUEUE_GEN branch so it re-reads currentQueueItemId (null by now — the per-item finally
+            // ran first) and clears the Studio row's "Processing" chip. The success path's
+            // LibrarySaved already does this, but the failure and cancellation paths emit nothing
+            // else, leaving the row stuck "Processing" with no worker running. tryEmit because this
+            // must also fire from a CANCELLED coroutine (supersede); the flow has a 256 buffer.
+            events.tryEmit(QUEUE_GEN to TranscriptEvent.Progress(0f))
         }
     }
 
