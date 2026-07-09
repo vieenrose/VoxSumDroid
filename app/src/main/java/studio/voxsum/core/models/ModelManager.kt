@@ -223,7 +223,7 @@ class ModelManager(context: Context) {
      *  inference keeps its open handle and finishes fine; the space frees once it's released. */
     fun storedModels(): List<StoredModel> =
         (modelsDir.listFiles()?.toList() ?: emptyList())
-            .filterNot { it.isFile && it.name.endsWith(PART_SUFFIX) }   // hide in-flight/stale temp files
+            .filterNot { it.isFile && (it.name.endsWith(PART_SUFFIX) || it.name.endsWith("$PART_SUFFIX.vld")) }   // hide in-flight/stale temp files
             .map { f -> StoredModel(f.name, kindOf(f.name), dirSize(f), f) }
             .filter { it.bytes > 0L }
             .sortedByDescending { it.bytes }
@@ -236,7 +236,7 @@ class ModelManager(context: Context) {
     fun sweepStalePartFiles() {
         runCatching {
             modelsDir.walkTopDown()
-                .filter { it.isFile && it.name.endsWith(PART_SUFFIX) }
+                .filter { it.isFile && (it.name.endsWith(PART_SUFFIX) || it.name.endsWith("$PART_SUFFIX.vld")) }
                 .forEach { it.delete() }
         }
     }
@@ -321,6 +321,7 @@ class ModelManager(context: Context) {
         mutex.withLock {
             if (dest.exists()) return@withLock
             val tmp = File(dest.parentFile, "${dest.name}$PART_SUFFIX")
+            fun clearPartial() { tmp.delete(); File(tmp.parentFile, "${tmp.name}.vld").delete() }
             // Retry transient failures (flaky mobile network, a 5xx, a body that fails the checksum)
             // with linear backoff. A transient failure KEEPS the .part so the next attempt RESUMES
             // from where the stream died (Range request in fetchToFile) — on weak Wi-Fi a large
@@ -338,14 +339,15 @@ class ModelManager(context: Context) {
                         if (!actual.equals(sha256, ignoreCase = true))
                             throw ChecksumMismatch("expected ${sha256.take(12)}..., got ${actual.take(12)}...")
                     }
+                    File(tmp.parentFile, "${tmp.name}.vld").delete()   // done — drop the resume validator
                     check(tmp.renameTo(dest)) { "Could not move ${tmp.name} into place" }
                     return@withLock
                 } catch (ce: kotlinx.coroutines.CancellationException) {
-                    tmp.delete(); throw ce
+                    clearPartial(); throw ce
                 } catch (e: Exception) {
-                    if (e is ChecksumMismatch) tmp.delete()   // corrupt bytes — resume can't fix them
+                    if (e is ChecksumMismatch) clearPartial()   // corrupt bytes — resume can't fix them
                     if (e is ModelNotFound || isOutOfSpace(e) || attempt >= MAX_DOWNLOAD_ATTEMPTS) {
-                        tmp.delete()
+                        clearPartial()
                         throw java.io.IOException(downloadErrorMessage(e, dest.name, attempt), e)
                     }
                     delay(RETRY_BACKOFF_MS * attempt)
@@ -361,17 +363,30 @@ class ModelManager(context: Context) {
      *  stale .part from a changed upstream file) clears the partial so the retry starts clean. */
     private suspend fun fetchToFile(url: String, tmp: File, onProgress: (Float) -> Unit) {
         val offset = tmp.length()
+        // Integrity for unpinned (no-checksum) resumes: a plain Range resume assumes the upstream
+        // file is byte-identical to the partial — but a CDN/mirror could serve a changed file,
+        // committing head(old)+tail(new). If-Range makes the server honour the range ONLY when the
+        // validator (ETag/Last-Modified, captured on the first fetch into a .vld sidecar) still
+        // matches; otherwise it returns a full 200 and we truncate + restart clean below.
+        val vld = File(tmp.parentFile, "${tmp.name}.vld")
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 30_000; readTimeout = 30_000; instanceFollowRedirects = true
-            if (offset > 0) setRequestProperty("Range", "bytes=$offset-")
+            if (offset > 0) {
+                setRequestProperty("Range", "bytes=$offset-")
+                vld.takeIf { it.exists() }?.let { setRequestProperty("If-Range", it.readText()) }
+            }
         }
         try {
             val code = conn.responseCode
             val resumed = code == 206 && offset > 0
+            // Remember the validator for the NEXT resume (only useful when the server supports it).
+            (conn.getHeaderField("ETag") ?: conn.getHeaderField("Last-Modified"))
+                ?.let { runCatching { vld.writeText(it) } }
+                ?: runCatching { vld.delete() }
             when {
                 code == 206 || code in 200..299 -> {}
                 code == 404 -> throw ModelNotFound("HTTP 404")
-                code == 416 -> { tmp.delete(); throw java.io.IOException("server returned HTTP 416 (stale partial cleared)") }
+                code == 416 -> { tmp.delete(); vld.delete(); throw java.io.IOException("server returned HTTP 416 (stale partial cleared)") }
                 else -> throw java.io.IOException("server returned HTTP $code")
             }
             conn.inputStream.use { input ->

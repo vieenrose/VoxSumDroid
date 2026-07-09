@@ -136,8 +136,12 @@ object Podcast {
             setRequestProperty("User-Agent", "VoxSum/1.0")
         }.inputStream
 
+    // Bound ONLY this feature's own downloads (podcast_*). filesDir/audio also holds pipeline work
+    // WAVs (decoded_*) and shared imports (shared_*) the user may still be transcribing or have
+    // saved — an all-files cap could delete an in-use file out from under an active session.
     private fun enforceRetentionCap(dir: File, max: Int) {
-        val files = dir.listFiles()?.filter { it.isFile }?.sortedBy { it.lastModified() } ?: return
+        val files = dir.listFiles()?.filter { it.isFile && it.name.startsWith("podcast_") }
+            ?.sortedBy { it.lastModified() } ?: return
         if (files.size > max) files.take(files.size - max).forEach { it.delete() }
     }
 }

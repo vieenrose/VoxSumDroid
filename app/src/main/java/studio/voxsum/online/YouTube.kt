@@ -112,8 +112,11 @@ object YouTube {
             Uri.fromFile(out)
         }
 
+    // Bound ONLY this feature's own downloads (youtube_*) — filesDir/audio also holds pipeline work
+    // WAVs and shared imports the user may still be using; an all-files cap could delete them.
     private fun enforceRetentionCap(dir: File, max: Int) {
-        val files = dir.listFiles()?.filter { it.isFile }?.sortedBy { it.lastModified() } ?: return
+        val files = dir.listFiles()?.filter { it.isFile && it.name.startsWith("youtube_") }
+            ?.sortedBy { it.lastModified() } ?: return
         if (files.size > max) files.take(files.size - max).forEach { it.delete() }
     }
 
