@@ -57,7 +57,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -70,6 +71,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
@@ -88,6 +90,15 @@ private val Gutter = 16.dp
 /** Filter over the entry list. Processing is a runtime concept (not an Entry status), so the
  *  filter is limited to the two persistent states plus All. */
 private enum class StatusFilter { ALL, NEW, DONE }
+
+/** A row's single derived state (computed once at the list call site) — one priority definition, so
+ *  the color and glyph decoders can't silently drift out of order. Selection is an orthogonal overlay. */
+private enum class RowStatus { New, Queued, Processing, Done }
+
+/** Two shared, locale-bound formatters (composition is main-thread, so a single instance is safe)
+ *  — avoids re-allocating a DateFormat per row/day-header composition. */
+private val TIME_FMT: DateFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
+private val DATE_FMT: DateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
 
 /**
  * The studio home — VoxSum 2.0 "session shelf". Sessions grouped by day; status carried by a
@@ -131,35 +142,42 @@ fun StudioScreen(
     var query by remember { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf(StatusFilter.ALL) }
 
-    // Multi-select for batch delete. selected holds entry ids.
+    // Multi-select for batch delete. A Set (not a List) so membership/removal is O(1) per row — after
+    // Select-all that matters. Value is Unit; keys are entry ids.
     var selectionMode by remember { mutableStateOf(false) }
-    val selected = remember { mutableStateListOf<String>() }
+    val selected = remember { mutableStateMapOf<String, Unit>() }
     fun exitSelection() { selectionMode = false; selected.clear() }
     BackHandler(selectionMode) { exitSelection() }
 
     val shown = remember(entries, query, statusFilter) {
         val q = query.trim()
+        val want = when (statusFilter) {   // map the filter to a target status once, not per entry
+            StatusFilter.ALL -> null
+            StatusFilter.NEW -> SessionLibrary.Status.RECORDED
+            StatusFilter.DONE -> SessionLibrary.Status.DONE
+        }
         entries.filter { e ->
-            (statusFilter == StatusFilter.ALL ||
-                (statusFilter == StatusFilter.DONE && e.status == SessionLibrary.Status.DONE) ||
-                (statusFilter == StatusFilter.NEW && e.status == SessionLibrary.Status.RECORDED)) &&
+            (want == null || e.status == want) &&
                 (q.isBlank() || (e.title ?: SessionLibrary.defaultTitle(e.createdAt)).contains(q, ignoreCase = true))
         }
     }
     // Group ONCE (LinkedHashMap preserves the newest-first order of the already-sorted list) instead
     // of allocating a Calendar per entry on every recomposition inside the LazyColumn lambda.
     val groups = remember(shown) { shown.groupBy { dayStart(it.createdAt) } }
-    // Recompute per StudioScreen recomposition (cheap — NOT per entry; the per-entry Calendar storm
-    // is fixed by grouping once above), so the TODAY/YESTERDAY anchors self-correct if the app is
-    // left open across midnight. Yesterday is derived by CALENDAR (a day isn't always 86.4e6 ms — DST).
-    val today = dayStart(System.currentTimeMillis())
-    val yesterday = Calendar.getInstance().apply { timeInMillis = today; add(Calendar.DAY_OF_MONTH, -1) }.timeInMillis
+    // Day anchors: remember keyed on an hourly bucket so StudioScreen's per-progress-tick
+    // recompositions don't re-allocate two Calendars each, while the anchors still self-correct
+    // across midnight (the key rolls over ~hourly). Yesterday via CALENDAR (a day isn't 86.4e6 ms — DST).
+    val dayTick = System.currentTimeMillis() / 3_600_000L
+    val today = remember(dayTick) { dayStart(System.currentTimeMillis()) }
+    val yesterday = remember(dayTick) {
+        Calendar.getInstance().apply { timeInMillis = today; add(Calendar.DAY_OF_MONTH, -1) }.timeInMillis
+    }
     val doneCount = remember(entries) { entries.count { it.status == SessionLibrary.Status.DONE } }
     val newCount = remember(entries) { entries.count { it.status == SessionLibrary.Status.RECORDED } }
     // The active filter's chip stops rendering once its count hits 0 (e.g. the last New session was
     // processed, or all Done were batch-deleted) — reset to ALL so we don't strand the list on an
     // empty 'no match' screen with no way back except guessing to tap All.
-    androidx.compose.runtime.LaunchedEffect(newCount, doneCount) {
+    LaunchedEffect(newCount, doneCount) {
         if ((statusFilter == StatusFilter.NEW && newCount == 0) || (statusFilter == StatusFilter.DONE && doneCount == 0)) {
             statusFilter = StatusFilter.ALL
         }
@@ -172,7 +190,7 @@ fun StudioScreen(
             SelectionHeader(
                 count = selected.size,
                 onClose = { exitSelection() },
-                onSelectAll = { selected.clear(); selected.addAll(shown.map { it.id }) },
+                onSelectAll = { selected.clear(); shown.forEach { selected[it.id] = Unit } },
                 onDelete = { if (selected.isNotEmpty()) confirmDeleteMany = true },
             )
         } else {
@@ -262,7 +280,7 @@ fun StudioScreen(
                 Text(
                     if (query.isBlank() && statusFilter == StatusFilter.ALL) stringResource(R.string.library_empty) else stringResource(R.string.studio_no_match),
                     color = pal.Slate400, style = MaterialTheme.typography.bodyLarge,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    textAlign = TextAlign.Center,
                 )
             }
         } else {
@@ -281,29 +299,33 @@ fun StudioScreen(
                         )
                     }
                     items(list, key = { it.id }, contentType = { "row" }) { e ->
-                        val done = e.status == SessionLibrary.Status.DONE
-                        val processing = e.id == processingId
-                        val queued = !done && !processing && e.id in queuedIds
+                        // One priority definition for the row's status (color + glyph decode from it).
+                        val status = when {
+                            e.id == processingId -> RowStatus.Processing
+                            e.status == SessionLibrary.Status.DONE -> RowStatus.Done
+                            e.id in queuedIds -> RowStatus.Queued
+                            else -> RowStatus.New
+                        }
                         SessionRow(
-                            entry = e, done = done, processing = processing, queued = queued,
+                            entry = e, status = status,
                             // Feed live progress ONLY to the processing row — otherwise every tick
                             // changes the args of every visible row and defeats skipping (a full
                             // e-ink refresh per tick).
-                            processingLabel = if (processing) processingLabel else "",
-                            processingFraction = if (processing) processingFraction else 0f,
+                            processingLabel = if (status == RowStatus.Processing) processingLabel else "",
+                            processingFraction = if (status == RowStatus.Processing) processingFraction else 0f,
                             selectionMode = selectionMode,
                             selected = e.id in selected,
                             onClick = {
                                 if (selectionMode) {
-                                    if (e.id in selected) selected.remove(e.id) else selected.add(e.id)
-                                } else when {
-                                    processing -> onWatchLive(e)
-                                    done -> onOpen(e)
+                                    if (e.id in selected) selected.remove(e.id) else selected[e.id] = Unit
+                                } else when (status) {
+                                    RowStatus.Processing -> onWatchLive(e)
+                                    RowStatus.Done -> onOpen(e)
                                     else -> actionsFor = e
                                 }
                             },
                             onLongClick = {
-                                if (!selectionMode) { selectionMode = true; selected.add(e.id) }
+                                if (!selectionMode) { selectionMode = true; selected[e.id] = Unit }
                             },
                             onManage = { actionsFor = e },
                         )
@@ -442,9 +464,7 @@ private fun SelectionHeader(count: Int, onClose: () -> Unit, onSelectAll: () -> 
 @Composable
 private fun SessionRow(
     entry: SessionLibrary.Entry,
-    done: Boolean,
-    processing: Boolean,
-    queued: Boolean,
+    status: RowStatus,
     processingLabel: String,
     processingFraction: Float,
     selectionMode: Boolean,
@@ -454,10 +474,11 @@ private fun SessionRow(
     onManage: () -> Unit,
 ) {
     val pal = LocalVoxSumPalette.current
-    val statusColor = when {
-        processing || queued -> VoxSumPalette.Warning
-        done -> VoxSumPalette.Success
-        else -> pal.Slate400
+    val processing = status == RowStatus.Processing
+    val statusColor = when (status) {
+        RowStatus.Processing, RowStatus.Queued -> VoxSumPalette.Warning
+        RowStatus.Done -> VoxSumPalette.Success
+        RowStatus.New -> pal.Slate400
     }
     Column(
         Modifier
@@ -470,14 +491,18 @@ private fun SessionRow(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // Leading glyph doubles as the selection checkbox in selection mode (same 36dp footprint,
-            // no layout shift).
+            // no layout shift). Status is encoded by SHAPE, not just color, so it reads on e-ink.
             when {
                 selectionMode && selected -> GlyphTile(pal.Sky, filled = true) { Icon(Icons.Filled.CheckCircle, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
-                selectionMode -> GlyphTile(pal.Slate400) {}
-                processing -> GlyphTile(statusColor) { WaveBars(statusColor) }
-                else -> GlyphTile(statusColor) {
+                selectionMode -> GlyphTile(pal.Slate400, outlined = true) {}
+                status == RowStatus.Processing -> GlyphTile(statusColor) { WaveBars(statusColor) }
+                else -> GlyphTile(statusColor, outlined = status == RowStatus.New) {
                     Icon(
-                        when { done -> Icons.Filled.CheckCircle; queued -> Icons.Filled.Schedule; else -> Icons.Filled.GraphicEq },
+                        when (status) {
+                            RowStatus.Done -> Icons.Filled.CheckCircle
+                            RowStatus.Queued -> Icons.Filled.Schedule
+                            else -> Icons.Filled.GraphicEq
+                        },
                         contentDescription = null, tint = statusColor, modifier = Modifier.size(20.dp),
                     )
                 }
@@ -489,20 +514,18 @@ private fun SessionRow(
                     color = pal.Slate200, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge, maxLines = 2,
                 )
                 val meta = buildString {
-                    append(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(entry.createdAt)))
+                    append(TIME_FMT.format(Date(entry.createdAt)))
                     append(" · ")
                     append("%d:%02d".format(entry.durationSec / 60, entry.durationSec % 60))
                     if (processing && processingLabel.isNotBlank()) { append(" · "); append(processingLabel) }
                 }
                 Text(meta, color = pal.Slate400, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelMedium, maxLines = 2)
             }
-            if (selectionMode) {
-                // trailing empty — the leading glyph is the checkbox.
-            } else if (processing) {
-                Chip("%d%%".format((processingFraction * 100).toInt()), VoxSumPalette.Warning)
-            } else {
-                // Visible manage affordance for EVERY row (no more hidden long-press-only menu).
-                IconButton(onClick = onManage, modifier = Modifier.size(36.dp)) {
+            // In selection mode the leading glyph IS the checkbox, so no trailing control.
+            if (!selectionMode) {
+                if (processing) Chip("%d%%".format((processingFraction * 100).toInt()), VoxSumPalette.Warning)
+                // Visible manage affordance for EVERY non-processing row (no hidden long-press-only menu).
+                else IconButton(onClick = onManage, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.cd_manage), tint = pal.Slate400)
                 }
             }
@@ -516,16 +539,16 @@ private fun SessionRow(
     }
 }
 
-/** A 36dp rounded tile holding a status glyph — soft-tinted, or filled when it's the selection check. */
+/** A 36dp rounded tile holding a status glyph — soft-tinted, [filled] for the selection check, or
+ *  [outlined] with a hairline for the faint New/unselected states that need an edge on e-ink. */
 @Composable
-private fun GlyphTile(color: Color, filled: Boolean = false, content: @Composable () -> Unit) {
+private fun GlyphTile(color: Color, filled: Boolean = false, outlined: Boolean = false, content: @Composable () -> Unit) {
     Box(
         Modifier.size(36.dp).clip(RoundedCornerShape(11.dp))
             .background(if (filled) color else color.copy(alpha = 0.14f))
-            .then(if (filled) Modifier else Modifier.border(if (color == LocalVoxSumPalette.current.Slate400) 1.5.dp else 0.dp, color.copy(alpha = 0.5f), RoundedCornerShape(11.dp))),
+            .then(if (outlined) Modifier.border(1.5.dp, color.copy(alpha = 0.5f), RoundedCornerShape(11.dp)) else Modifier),
         contentAlignment = Alignment.Center,
-        content = { content() },
-    )
+    ) { content() }
 }
 
 /** Four mini waveform bars — the processing-state glyph (motion-free but distinctive). */
@@ -597,5 +620,5 @@ private fun dayStart(t: Long): Long = Calendar.getInstance().apply {
 private fun dayLabel(day: Long, today: Long, yesterday: Long): String = when (day) {
     today -> stringResource(R.string.day_today)
     yesterday -> stringResource(R.string.day_yesterday)
-    else -> DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(day)).uppercase()
+    else -> DATE_FMT.format(Date(day)).uppercase()
 }

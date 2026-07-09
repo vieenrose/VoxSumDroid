@@ -58,8 +58,10 @@ object TranscriptExport {
 
     // A BLANK line inside cue text terminates the cue early and desyncs every following cue's number/
     // timing — collapse any internal blank line to a single newline (rare, but ASR/edited text can
-    // contain one). Applied to both the speaker label and the body.
-    private fun oneCue(s: String): String = s.replace(Regex("\\n\\s*\\n+"), "\n").trim()
+    // contain one). Applied to both the speaker label and the body. Pattern compiled once (this runs
+    // per utterance × per format).
+    private val BLANK_LINE = Regex("\\n\\s*\\n+")
+    private fun oneCue(s: String): String = s.replace(BLANK_LINE, "\n").trim()
 
     /** WebVTT treats `<` as a cue tag and `&` as an entity — escape so literal text isn't mangled. */
     private fun vttEscape(s: String): String = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

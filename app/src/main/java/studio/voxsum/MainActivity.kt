@@ -1613,7 +1613,7 @@ private fun TranscribeScreen(
                 },
                 onShareAudio = { e -> shareEntryAudio(e) },
                 onDelete = { e -> deleteEntries(listOf(e)) },
-                onDeleteMany = { victims -> deleteEntries(victims) },
+                onDeleteMany = ::deleteEntries,
                 onImport = { showAddSourceSheet = true },
                 onSettings = { showConfigSheet = true },
             )

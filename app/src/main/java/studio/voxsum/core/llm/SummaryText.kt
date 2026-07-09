@@ -96,9 +96,8 @@ internal object SummaryText {
      * group (it can't be split here); order and completeness are always preserved.
      *
      * NOTE: this does NOT guarantee the group count strictly shrinks — if every partial is itself
-     * near/over budget, every group is a singleton and the count is unchanged. Callers that fold in
-     * a loop MUST detect that no group had size>1 and break, or they spin forever (see Summarizer /
-     * ActionItemExtractor's `folded` guard).
+     * near/over budget, every group is a singleton and the count is unchanged. Do NOT fold in a raw
+     * loop over this; use [foldToFit], which owns the no-progress break.
      */
     fun groupPartials(partials: List<String>, budgetChars: Int): List<List<String>> {
         val groups = ArrayList<List<String>>()
@@ -114,6 +113,38 @@ internal object SummaryText {
         }
         if (cur.isNotEmpty()) groups.add(cur)
         return groups
+    }
+
+    /**
+     * Hierarchically fold [partials] in budget-sized groups — re-reducing each group of ≥2 via
+     * [reduceGroup] — until the whole set joins under [budgetChars] (joined with [separator]) or no
+     * further folding is possible. Returns the final level (usually one string; possibly a few
+     * unmergeable oversized partials the caller reduces in one final pass).
+     *
+     * OWNS the termination guarantee that [groupPartials] can't provide: when every partial is
+     * itself near/over budget, groupPartials returns all singletons, nothing folds, and this breaks
+     * — so callers never spin at 100% CPU (the map-reduce hang this replaced). `inline` so a
+     * suspending [reduceGroup] (e.g. emitting progress from a flow) works without forcing suspend.
+     */
+    inline fun foldToFit(
+        partials: List<String>,
+        budgetChars: Int,
+        separator: String,
+        reduceGroup: (List<String>) -> String,
+    ): List<String> {
+        var level = partials
+        while (level.size > 1 && level.joinToString(separator).length > budgetChars) {
+            var folded = false
+            val next = ArrayList<String>()
+            for (group in groupPartials(level, budgetChars)) {
+                if (group.size == 1) { next += group[0]; continue }
+                folded = true
+                next += reduceGroup(group)
+            }
+            level = next
+            if (!folded) break
+        }
+        return level
     }
 
     /** Naive char-window chunker; replace with a sentence-aware splitter in Phase 2. */

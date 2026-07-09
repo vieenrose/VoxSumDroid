@@ -42,22 +42,10 @@ class ActionItemExtractor(
 
         // Fold in budget-sized groups until one prompt fits — never join all partials into one
         // over-n_ctx reduce prompt (which returns empty on a long meeting).
-        var level: List<String> = partials
-        while (level.size > 1 && level.joinToString("\n").length > budget) {
-            var folded = false
-            val next = ArrayList<String>()
-            for (group in SummaryText.groupPartials(level, budget)) {
-                if (group.size == 1) { next += group[0]; continue }
-                folded = true
-                val sb = StringBuilder()
-                llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(langClause, group.joinToString("\n"))), maxTokens = MAX_TOKENS) { sb.append(it) }
-                next += sb.toString().trim()
-            }
-            level = next
-            // No-progress guard (see Summarizer): when every partial is near/over budget, all groups
-            // are singletons, nothing folds, and the loop would spin forever at 100% CPU. Break to the
-            // final single reduce (which the model truncates at n_ctx) so extract() always returns.
-            if (!folded) break
+        val level = SummaryText.foldToFit(partials, budget, "\n") { group ->
+            val sb = StringBuilder()
+            llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(langClause, group.joinToString("\n"))), maxTokens = MAX_TOKENS) { sb.append(it) }
+            sb.toString().trim()
         }
 
         val finalSb = StringBuilder()
