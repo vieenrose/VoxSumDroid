@@ -189,6 +189,10 @@ class TranscriptionService : LifecycleService() {
     @Volatile private var deferProcessing = false
     // Whether the current foreground notification should show the "Finish recording" action.
     @Volatile private var notifRecording = false
+    // Last text shown on the foreground notification, so an early-return that must re-assert
+    // startForeground() (see satisfyForegroundContract) can do so without clobbering a running
+    // job's live progress text.
+    @Volatile private var notifText = ""
     // Last reported download percent, so reportDownload() throttles to integer-percent changes.
     @Volatile private var lastDlPct = -1
 
@@ -271,8 +275,16 @@ class TranscriptionService : LifecycleService() {
         val diarizeOnly = intent?.action == ACTION_DIARIZE
         val processQueue = intent?.action == ACTION_PROCESS_QUEUE
         // A drain is already running → the new ids just enqueued will be picked up by its loop;
-        // restarting would cancel and redo the item currently in progress.
-        if (processQueue && queueDraining) return START_NOT_STICKY
+        // restarting would cancel and redo the item currently in progress. This request still
+        // arrived via startForegroundService(), so we MUST call startForeground() before returning
+        // or Android kills the process (RemoteServiceException). Re-assert the drain's existing
+        // foreground notification to satisfy the contract, then let its loop pick up the new ids.
+        // (Repro: finish talk 1 → its queue drain is still running when you finish the NEXT talk →
+        // that talk's auto-process fires a second ACTION_PROCESS_QUEUE → crash to home screen.)
+        if (processQueue && queueDraining) {
+            satisfyForegroundContract()
+            return START_NOT_STICKY
+        }
         stopRecordingRequested = false
         deferProcessing = false
         val previousJob = pipelineJob
@@ -334,7 +346,14 @@ class TranscriptionService : LifecycleService() {
      * transcription [pipelineJob] (shared foreground notification; common case is export-when-idle).
      */
     private fun runExport(req: ExportRequest?) {
-        if (req == null) return
+        if (req == null) {
+            // The request was already consumed (a rare double ACTION_EXPORT dispatch). This still
+            // arrived via startForegroundService(), so satisfy the foreground contract, then stop
+            // the service only if no pipeline/drain is running (don't kill a live job).
+            satisfyForegroundContract()
+            if (pipelineJob?.isActive != true) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+            return
+        }
         startForegroundTyped(recording = false, getString(R.string.exporting))
         lifecycleScope.launch(Dispatchers.IO) {
             val done = runCatching {
@@ -1174,7 +1193,20 @@ class TranscriptionService : LifecycleService() {
         nm.notify(NOTIF_ID, buildNotification(text))
     }
 
+    /**
+     * Honor the startForegroundService() → startForeground() contract on an early return that arrived
+     * via startForegroundService() but has no fresh work to start (a redundant queue kick while a drain
+     * is already running, a consumed export). Android kills the process with RemoteServiceException
+     * (the app just vanishes to the home screen) if startForeground() isn't called within ~5s of
+     * startForegroundService() — even when we're about to bow out. Re-asserts the CURRENT notification
+     * (same FGS type + last-shown text) so a running job's live progress isn't disturbed.
+     */
+    private fun satisfyForegroundContract() {
+        startForegroundTyped(recording = notifRecording, text = notifText.ifEmpty { getString(R.string.exporting) })
+    }
+
     private fun buildNotification(text: String): Notification {
+        notifText = text
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannel(
