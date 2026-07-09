@@ -632,7 +632,10 @@ class TranscriptionService : LifecycleService() {
             try {
                 val cfg = TranscriptionConfig.Holder.config
                 val res = runPipeline(Uri.fromFile(entry.wavFile).toString())
-                if (res != null) {
+                // The user may have DELETED this entry while it processed. attachResults →
+                // buildSessionOgg would mkdirs() the deleted dir and resurrect a ghost session, so
+                // bail if the entry is gone. (onDelete also removes it from the queue.)
+                if (res != null && SessionLibrary.byId(this, id) != null) {
                     val updated = SessionLibrary.attachResults(
                         this, entry, res.first, emptyMap(), res.second.summary, null,
                         res.second.title, cfg.asrModelId, cfg.llmModelId,

@@ -589,7 +589,7 @@ private fun TranscribeScreen(
         // Consume the carry-over from a source swap (null on a genuinely new session → start at 0).
         val seekTo = pendingSeekMs; val resume = resumeAfterSwap
         pendingSeekMs = null; resumeAfterSwap = false
-        durationMs = 0; positionMs = seekTo ?: 0; dragMs = null
+        durationMs = 0; positionMs = seekTo ?: 0; dragMs = null; buffering = false
         audioUri?.let { uri ->
             val mp = MediaPlayer()
             mp.setVolume(volume, volume)
@@ -696,6 +696,12 @@ private fun TranscribeScreen(
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh session → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         watchingQueue = false; pendingNextTalk = false; pendingAutoProcess = false
+        // deferStopped must reset here: a ⏹ Stop&save sets it true and its terminal event goes to
+        // the QUEUE collector (never the main Complete that clears it), so without this a later
+        // recording's Complete would see a stale true and tear its run down BEFORE the summary
+        // phase. isDetecting/exporting/buffering closed too (a delete mid-action could otherwise
+        // leave their overlays/indicators painted over the next session).
+        deferStopped = false; isDetecting = false; exporting = false; buffering = false
     }
 
     // Start a run from any audio Uri (SAF pick or podcast download): reset session + go.
@@ -1515,7 +1521,9 @@ private fun TranscribeScreen(
         scope.launch {
             val named = withContext(Dispatchers.IO) {
                 runCatching {
-                    val dir = File(context.cacheDir, "shared").apply { mkdirs() }
+                    // Own cache dir (NOT the export flow's cacheDir/shared) so a share-audio and a
+                    // session-export share can't wipe each other's in-flight file.
+                    val dir = File(context.cacheDir, "share_audio").apply { mkdirs() }
                     dir.listFiles()?.forEach { it.delete() }
                     File(dir, VoxsumSession.suggestFileName(subject, f.extension)).also { f.copyTo(it, overwrite = true) }
                 }.getOrNull()
@@ -1591,7 +1599,16 @@ private fun TranscribeScreen(
                         audioUri = null; libraryDir = null; recordingRun = false
                         running = false; transcriptReady = false; status = ""
                     }
-                    scope.launch { withContext(Dispatchers.IO) { SessionLibrary.discard(context, e.wavFile) }; recentsVersion++ }
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            // Drop it from the queue too, so a delete of a queued/processing entry
+                            // doesn't leave a dangling id (and the drain won't re-embed into the
+                            // just-deleted dir — runQueue re-checks existence before attachResults).
+                            ProcessingQueue.remove(context, e.id)
+                            SessionLibrary.discard(context, e.wavFile)
+                        }
+                        recentsVersion++
+                    }
                 },
                 onImport = { showAddSourceSheet = true },
                 onSettings = { showConfigSheet = true },
