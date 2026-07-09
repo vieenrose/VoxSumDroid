@@ -561,6 +561,12 @@ class TranscriptionService : LifecycleService() {
      * the remainder queued for later.
      */
     private suspend fun runQueue() {
+        // The Holder contract is "the UI sets the config when it starts a run" — but a queue drain
+        // can start with no UI run ever having happened in this process (fresh process, auto-start
+        // after ⏹). Load the persisted settings so target language / script conversion / model
+        // choices apply to queue items exactly like foreground runs. (Regression: queue transcripts
+        // ignored the user's zh-Hant target and came out simplified with default-locale summaries.)
+        TranscriptionConfig.Holder.config = studio.voxsum.core.config.ConfigStore.load(this)
         while (true) {
             val id = ProcessingQueue.peek(this) ?: break
             val entry = SessionLibrary.byId(this, id)
