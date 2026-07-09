@@ -142,6 +142,12 @@ class TranscriptionService : LifecycleService() {
         /** True while a queue drain loop is running (idle between items included). */
         @Volatile
         private var queueDraining = false
+
+        /** A drain was superseded with items still pending — resume it when the interrupting
+         *  run finishes. Never set by ⏭ deferral (no drain was running), so back-to-back
+         *  recording days stay processing-free until the user asks. */
+        @Volatile
+        private var queueInterrupted = false
     }
 
     /** A pending session export, handed to the service via [pendingExport] (utterances can be large,
@@ -299,6 +305,12 @@ class TranscriptionService : LifecycleService() {
                         emitEvent(TranscriptEvent.Failed(e.message ?: "pipeline error"))
                     }
                 }
+            // An interrupted drain resumes after the run that interrupted it (never after a plain
+            // queue start — that IS the drain). Tagged QUEUE_GEN like any drain.
+            if (!processQueue && queueInterrupted && pipelineJob === job) {
+                queueInterrupted = false
+                runCatching { withContext(RunGen(QUEUE_GEN)) { runQueue() } }
+            }
             // Only tear down if still the active job — a newer run may have superseded this one.
             if (pipelineJob === job) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -615,7 +627,12 @@ class TranscriptionService : LifecycleService() {
             }
             ProcessingQueue.remove(this, id)
         }
-        } finally { queueDraining = false }
+        } finally {
+            queueDraining = false
+            // Cancelled mid-drain with work left (a recording or import superseded us) →
+            // remember to resume once the interrupting run completes.
+            queueInterrupted = ProcessingQueue.size(this).let { it > 0 }
+        }
     }
 
     /**

@@ -1576,6 +1576,15 @@ private fun TranscribeScreen(
                 },
                 onShareAudio = { e -> shareEntryAudio(e) },
                 onDelete = { e ->
+                    // Deleting the entry behind the OPEN session view: tear that session down too,
+                    // or its player keeps pointing at files that no longer exist.
+                    if (libraryDir == e.dir) {
+                        utterances.clear(); speakerNames.clear()
+                        title = null; summary = null; actionItems = null
+                        audioUri = null; libraryDir = null; transcriptReady = false
+                        isPlaying = false; running = false; watchingQueue = false
+                        status = ""
+                    }
                     scope.launch { withContext(Dispatchers.IO) { SessionLibrary.discard(context, e.wavFile) }; recentsVersion++ }
                 },
                 onImport = { showAddSourceSheet = true },
