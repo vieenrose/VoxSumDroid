@@ -171,7 +171,6 @@ import studio.voxsum.data.speakerColor
 import studio.voxsum.service.TranscriptionService
 import studio.voxsum.ui.AddSourceSheet
 import studio.voxsum.ui.CaptureScreen
-import studio.voxsum.ui.LibrarySheet
 import studio.voxsum.ui.SessionTabs
 import studio.voxsum.ui.SessionTopBar
 import studio.voxsum.ui.StudioScreen
@@ -442,7 +441,6 @@ private fun TranscribeScreen(
     var showPodcastSheet by remember { mutableStateOf(false) }
     var showAddSourceSheet by remember { mutableStateOf(false) }
     var showYouTubeSheet by remember { mutableStateOf(false) }
-    var showLibrarySheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val utterances = remember { mutableStateListOf<TranscriptEvent.Utterance>() }
 
@@ -1386,16 +1384,8 @@ private fun TranscribeScreen(
         }
     }
 
-    // Active-model summary for the header chip + a one-shot download-pending probe.
+    // Active-model summary for the summary/title cards' attribution chip.
     val llmDisplay = LlmRegistry.byId(config.llmModelId).displayName
-    var downloadPending by remember { mutableStateOf(false) }
-    LaunchedEffect(config.asrBackend, config.llmModelId) {
-        downloadPending = withContext(Dispatchers.IO) {
-            val m = ModelManager(context)
-            !(runCatching { m.asrReady(AsrBackend.fromId(config.asrBackend)) }.getOrDefault(false) &&
-                runCatching { m.llmReady(LlmRegistry.byId(config.llmModelId)) }.getOrDefault(false))
-        }
-    }
 
     // The utterance list — shared by the portrait (single column) and landscape (right pane) layouts.
     val speakerIds = utterances.mapNotNull { it.speaker }.distinct().sorted()
@@ -1524,7 +1514,7 @@ private fun TranscribeScreen(
     // Back inside the stack: Capture/Session → Studio (sheets keep their own handler below).
     BackHandler(
         screen != Screen.Studio && !showConfigSheet && !showPodcastSheet &&
-            !showAddSourceSheet && !showYouTubeSheet && !showLibrarySheet,
+            !showAddSourceSheet && !showYouTubeSheet,
     ) { watchingQueue = false; screen = Screen.Studio }
 
     when (screen) {
@@ -1712,8 +1702,6 @@ private fun TranscribeScreen(
             if (isEmptyState) {
                 EmptyState(
                     onAddSource = { showAddSourceSheet = true },
-                    recents = recents,
-                    onOpenRecent = { openSessionUri(Uri.parse(it.uri)) },
                     modifier = Modifier.weight(1f),
                 )
             } else if (twoPane) {
@@ -1817,6 +1805,10 @@ private fun TranscribeScreen(
                 val old = config
                 config = newCfg
                 ConfigStore.save(context, newCfg)
+                // Keep the service-visible config in sync IMMEDIATELY — actions that don't restart
+                // a run (Re-detect speakers, a queue already draining) read the Holder, and the old
+                // "set it when a run starts" contract left them on stale settings.
+                TranscriptionConfig.Holder.config = newCfg
                 // Target-language change: a pure Traditional↔Simplified switch is only a script re-render,
                 // so convert every text node in place (OpenCC, instant, no LLM) — even user-edited ones,
                 // since conversion preserves wording. Any other language change needs the LLM (→ snackbar).
@@ -1861,35 +1853,6 @@ private fun TranscribeScreen(
             onYouTube = { showYouTubeSheet = true },
             onOpenSession = { sessionOpener.launch(arrayOf("audio/ogg", "application/ogg", "audio/mp4", "audio/x-m4a", "*/*")) },
             onDismiss = { showAddSourceSheet = false },
-            pendingCount = remember(recentsVersion) {
-                SessionLibrary.list(context).count { it.status == SessionLibrary.Status.RECORDED && it.wavFile.exists() }
-            },
-            libraryCount = remember(recentsVersion) { SessionLibrary.list(context).size },
-            onLibrary = { showLibrarySheet = true },
-            onProcessAll = {
-                // Queue every pending recording, then let the foreground service drain them.
-                scope.launch {
-                    withContext(Dispatchers.IO) {
-                        val ids = SessionLibrary.list(context)
-                            .filter { it.status == SessionLibrary.Status.RECORDED && it.wavFile.exists() }
-                            .map { it.id }
-                        ProcessingQueue.enqueue(context, ids)
-                    }
-                    onProcessQueue()
-                }
-            },
-        )
-    }
-    if (showLibrarySheet) {
-        LibrarySheet(
-            entries = remember(recentsVersion, showLibrarySheet) { SessionLibrary.list(context) },
-            queuedIds = remember(recentsVersion, showLibrarySheet) { ProcessingQueue.ids(context).toSet() },
-            onOpen = { e ->
-                showLibrarySheet = false
-                if (e.sessionFile.exists()) openSessionUri(Uri.fromFile(e.sessionFile))
-                else launchAudio(Uri.fromFile(e.wavFile))   // unprocessed capture → transcribe now
-            },
-            onDismiss = { showLibrarySheet = false },
         )
     }
     if (showYouTubeSheet) {
