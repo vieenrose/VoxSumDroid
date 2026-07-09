@@ -1507,19 +1507,30 @@ private fun TranscribeScreen(
     // Share a library entry's audio via the FileProvider (files/library is an exported path).
     fun shareEntryAudio(e: SessionLibrary.Entry) {
         val f = e.audioFile
-        // Semantic filename for the receiver: the title, not the internal fixed name — a shared
-        // file called 'session.m4a' tells the recipient nothing.
-        val displayName = VoxsumSession.suggestFileName(e.title ?: SessionLibrary.defaultTitle(e.createdAt), f.extension)
-        val shareUri = runCatching {
-            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f, displayName)
-        }.getOrNull() ?: return
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = if (f.extension == "wav") "audio/wav" else "audio/mp4"
-            putExtra(Intent.EXTRA_STREAM, shareUri)
-            putExtra(Intent.EXTRA_SUBJECT, e.title ?: SessionLibrary.defaultTitle(e.createdAt))
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val subject = e.title ?: SessionLibrary.defaultTitle(e.createdAt)
+        // Give the receiver a SEMANTIC filename ('My meeting.m4a', not 'session.m4a'). A
+        // getUriForFile display-name only overrides the queryable DISPLAY_NAME — many share
+        // targets (incl. this device's sheet) still show the URI's path segment. So copy to the
+        // shared cache under the title-derived name and share THAT — the file itself is named.
+        scope.launch {
+            val named = withContext(Dispatchers.IO) {
+                runCatching {
+                    val dir = File(context.cacheDir, "shared").apply { mkdirs() }
+                    dir.listFiles()?.forEach { it.delete() }
+                    File(dir, VoxsumSession.suggestFileName(subject, f.extension)).also { f.copyTo(it, overwrite = true) }
+                }.getOrNull()
+            } ?: return@launch
+            val shareUri = runCatching {
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", named)
+            }.getOrNull() ?: return@launch
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = if (f.extension == "wav") "audio/wav" else "audio/mp4"
+                putExtra(Intent.EXTRA_STREAM, shareUri)
+                putExtra(Intent.EXTRA_SUBJECT, subject)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.action_share_audio))) }
         }
-        runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.action_share_audio))) }
     }
     fun enqueueAndStart(ids: List<String>) {
         if (ids.isEmpty()) return
