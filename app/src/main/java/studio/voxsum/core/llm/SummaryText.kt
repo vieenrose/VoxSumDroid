@@ -94,6 +94,11 @@ internal object SummaryText {
      * separators) stays within [budgetChars], so a hierarchical reduce never builds a prompt that
      * overflows the LLM context window. A single partial larger than the budget still gets its own
      * group (it can't be split here); order and completeness are always preserved.
+     *
+     * NOTE: this does NOT guarantee the group count strictly shrinks — if every partial is itself
+     * near/over budget, every group is a singleton and the count is unchanged. Callers that fold in
+     * a loop MUST detect that no group had size>1 and break, or they spin forever (see Summarizer /
+     * ActionItemExtractor's `folded` guard).
      */
     fun groupPartials(partials: List<String>, budgetChars: Int): List<List<String>> {
         val groups = ArrayList<List<String>>()

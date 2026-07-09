@@ -149,13 +149,21 @@ fun StudioScreen(
     // Group ONCE (LinkedHashMap preserves the newest-first order of the already-sorted list) instead
     // of allocating a Calendar per entry on every recomposition inside the LazyColumn lambda.
     val groups = remember(shown) { shown.groupBy { dayStart(it.createdAt) } }
-    // Snapshot the clock once, and derive yesterday by CALENDAR (a day isn't always 86.4e6 ms — DST).
-    val today = remember { dayStart(System.currentTimeMillis()) }
-    val yesterday = remember(today) {
-        Calendar.getInstance().apply { timeInMillis = today; add(Calendar.DAY_OF_MONTH, -1) }.timeInMillis
-    }
+    // Recompute per StudioScreen recomposition (cheap — NOT per entry; the per-entry Calendar storm
+    // is fixed by grouping once above), so the TODAY/YESTERDAY anchors self-correct if the app is
+    // left open across midnight. Yesterday is derived by CALENDAR (a day isn't always 86.4e6 ms — DST).
+    val today = dayStart(System.currentTimeMillis())
+    val yesterday = Calendar.getInstance().apply { timeInMillis = today; add(Calendar.DAY_OF_MONTH, -1) }.timeInMillis
     val doneCount = remember(entries) { entries.count { it.status == SessionLibrary.Status.DONE } }
     val newCount = remember(entries) { entries.count { it.status == SessionLibrary.Status.RECORDED } }
+    // The active filter's chip stops rendering once its count hits 0 (e.g. the last New session was
+    // processed, or all Done were batch-deleted) — reset to ALL so we don't strand the list on an
+    // empty 'no match' screen with no way back except guessing to tap All.
+    androidx.compose.runtime.LaunchedEffect(newCount, doneCount) {
+        if ((statusFilter == StatusFilter.NEW && newCount == 0) || (statusFilter == StatusFilter.DONE && doneCount == 0)) {
+            statusFilter = StatusFilter.ALL
+        }
+    }
 
     Column(
         Modifier.fillMaxSize().background(pal.Slate900Grad).statusBarsPadding().navigationBarsPadding(),

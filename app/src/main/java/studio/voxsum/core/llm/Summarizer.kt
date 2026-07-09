@@ -89,9 +89,11 @@ class Summarizer(
         // meeting's ~16+ partials would otherwise join into one over-n_ctx reduce prompt -> empty summary.)
         var level: List<String> = partials
         while (level.size > 1 && level.joinToString("\n\n").length > reduceBudget) {
+            var folded = false
             val next = ArrayList<String>()
             for (group in SummaryText.groupPartials(level, reduceBudget)) {
                 if (group.size == 1) { next += group[0]; continue }
+                folded = true
                 val sb = StringBuilder()
                 llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, reduceInstruction, group.joinToString("\n\n"))), reduceMax) { sb.append(it) }
                 next += sb.toString().trim()
@@ -99,6 +101,11 @@ class Summarizer(
                 emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
             }
             level = next
+            // No-progress guard: when every partial is individually near/over budget, groupPartials
+            // returns all singletons and no group could be folded — `next` equals `level`, so the
+            // loop would spin forever at 100% CPU with zero LLM work. Break; the final single reduce
+            // below (one generate the model truncates at n_ctx) terminates the pass with a result.
+            if (!folded) break
         }
 
         // One chunk (or a single folded summary) IS the final summary — skip a redundant pass.
