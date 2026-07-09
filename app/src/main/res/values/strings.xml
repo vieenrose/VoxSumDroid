@@ -285,4 +285,6 @@
     <string name="action_share_audio">Share audio</string>
     <string name="action_delete">Delete</string>
     <string name="delete_confirm">Delete “%s” permanently? The audio and its transcript are removed.</string>
+
+    <string name="studio_processing_banner">Processing — %s (tap to view live)</string>
 </resources>

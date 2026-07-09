@@ -84,10 +84,16 @@ fun StudioScreen(
     processingFraction: Float,
     isRecording: Boolean,
     recSeconds: Int,
+    // A FOREGROUND run (file/podcast/YouTube import) is processing in the session view — show a
+    // return banner, since imports have no list row to re-enter through.
+    foregroundRun: Boolean,
+    foregroundLabel: String,
+    onResumeSession: () -> Unit,
     pendingCount: Int,
     onRecord: () -> Unit,
     onResumeCapture: () -> Unit,
     onOpen: (SessionLibrary.Entry) -> Unit,
+    onWatchLive: (SessionLibrary.Entry) -> Unit,
     onProcessNow: (SessionLibrary.Entry) -> Unit,
     onProcessAll: () -> Unit,
     onRename: (SessionLibrary.Entry, String) -> Unit,
@@ -152,6 +158,30 @@ fun StudioScreen(
                     stringResource(R.string.studio_recording_banner, "%d:%02d".format(recSeconds / 60, recSeconds % 60)),
                     color = pal.Slate200,
                     fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+
+        // A foreground import is processing — same pattern as the recording banner: tap to return
+        // to its live view (the transcript keeps streaming there).
+        if (foregroundRun && !isRecording) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(pal.Sky.copy(alpha = 0.15f))
+                    .combinedClickable(onClick = onResumeSession)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                Icon(Icons.Filled.PlaylistPlay, contentDescription = null, tint = pal.Sky, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.studio_processing_banner, foregroundLabel),
+                    color = pal.Slate200,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
                 )
             }
         }
@@ -222,7 +252,17 @@ fun StudioScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .combinedClickable(
-                                    onClick = { if (done) onOpen(e) else actionsFor = e },
+                                    // A processing row opens as a LIVE view — the transcript
+                                    // streams in as it's recognized (edge AI must show progress,
+                                    // not a spinner). Done opens the finished session; a pending
+                                    // row offers its management actions.
+                                    onClick = {
+                                        when {
+                                            processing -> onWatchLive(e)
+                                            done -> onOpen(e)
+                                            else -> actionsFor = e
+                                        }
+                                    },
                                     onLongClick = { actionsFor = e },
                                 ),
                         )

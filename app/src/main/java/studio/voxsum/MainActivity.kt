@@ -507,6 +507,16 @@ private fun TranscribeScreen(
     var queueItemId by remember { mutableStateOf<String?>(null) }
     var queueLabel by remember { mutableStateOf("") }
     var queueFraction by remember { mutableFloatStateOf(0f) }
+    // Live buffers for the CURRENT queue item, kept even when nobody watches — so tapping its
+    // Processing row mid-run backfills the session view with everything recognized so far.
+    // Streaming results as they're computed is what makes on-device AI feel fast.
+    val queueUtterances = remember { mutableStateListOf<TranscriptEvent.Utterance>() }
+    var queueTitle by remember { mutableStateOf<String?>(null) }
+    var queueSummary by remember { mutableStateOf<String?>(null) }
+    // True while the Session screen is a LIVE VIEW of the queue's current item: QUEUE_GEN events
+    // are forwarded into the normal session handlers (transcript streams in, progress bar moves,
+    // summary lands) exactly like a foreground run. Back returns to Studio; processing continues.
+    var watchingQueue by remember { mutableStateOf(false) }
     LaunchedEffect(title, libraryDir) {
         val dir = libraryDir ?: return@LaunchedEffect
         val t = title?.trim()?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
@@ -679,6 +689,7 @@ private fun TranscribeScreen(
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         libraryDir = SessionLibrary.entryDirOf(context, uri)   // non-null when re-running a library capture
         recordingRun = libraryDir != null
+        watchingQueue = false
         screen = Screen.Session   // watch the import/transcription live
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri, sessionGen)
     }
@@ -765,6 +776,7 @@ private fun TranscribeScreen(
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh recording → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         audioUri = null; libraryDir = null; recordingRun = true; running = true; transcriptReady = false; isRecording = true; progress = 0f
+        watchingQueue = false
         captureName = ""; screen = Screen.Capture
         status = context.getString(R.string.status_recording); onRecord(sessionGen)
     }
@@ -811,6 +823,27 @@ private fun TranscribeScreen(
         } else { onStop(); running = false; status = context.getString(R.string.status_stopped) }
     }
 
+    // Live view of the queue's current item: adopt its buffered results into the session view and
+    // keep streaming (the collector forwards QUEUE_GEN events while watchingQueue). Seeing the
+    // transcript grow in real time is what makes on-device processing feel fast — no staring at a
+    // spinner until the very end. Back returns to Studio; processing continues either way.
+    fun watchQueueItem(e: SessionLibrary.Entry) {
+        utterances.clear(); utterances.addAll(queueUtterances)
+        speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
+        diarizeOnlyRun = false
+        editingTitle = false; editingSummary = false; editingActions = false
+        title = queueTitle; summary = queueSummary; actionItems = null
+        isPlaying = false; searchActive = false; searchQuery = ""
+        coverEnabled = true; coverBitmap = null; coverFromSession = false; lastSaveUri = null
+        summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false
+        sessionGen++   // stale events from any prior session run are dropped
+        libraryDir = e.dir; recordingRun = true
+        audioUri = Uri.fromFile(e.wavFile)   // the synced player works while it processes
+        transcriptReady = false; running = true; progress = queueFraction
+        status = queueLabel.ifBlank { context.getString(R.string.status_processing) }
+        watchingQueue = true
+        screen = Screen.Session
+    }
 
     // --- Session as a self-describing .ogg: Save (SAF), Open (SAF → recover), Share (one .ogg). ---
     // Build+write a session (.ogg or .m4a) in the foreground service so it finishes even if the app
@@ -885,6 +918,7 @@ private fun TranscribeScreen(
             // A reopened library session keeps its entry binding (the extracted audio is a cache
             // file, so derive it from the SOURCE uri) — renames still reach the library row.
             libraryDir = SessionLibrary.entryDirOf(context, uri)
+            watchingQueue = false
             screen = Screen.Session
             status = context.getString(R.string.status_session_loaded, loaded.utterances.size)
             RecentSessions.add(context, uri.toString(), loaded.title ?: "", System.currentTimeMillis()); recentsVersion++
@@ -989,22 +1023,33 @@ private fun TranscribeScreen(
 
     LaunchedEffect(Unit) {
         TranscriptionService.eventStream.collect { (gen, e) ->
-            // Queue-drain events never touch the open session — they drive the Studio list's
-            // per-row status chip and progress bar instead.
+            // Queue-drain events drive the Studio list's per-row status chip/progress AND the live
+            // buffers; they only touch the open session when the user is WATCHING that item.
             if (gen == TranscriptionService.QUEUE_GEN) {
                 val qid = TranscriptionService.currentQueueItemId
+                if (qid != null && qid != queueItemId) {
+                    // A new item started — reset the live buffers to it.
+                    queueUtterances.clear(); queueTitle = null; queueSummary = null
+                    queueItemId = qid; queueFraction = 0f
+                }
                 when (e) {
-                    is TranscriptEvent.Status -> { queueItemId = qid; queueLabel = e.message }
-                    is TranscriptEvent.Progress -> { queueItemId = qid; queueFraction = e.fraction }
-                    is TranscriptEvent.DownloadProgress -> { queueItemId = qid; queueLabel = e.label; queueFraction = e.fraction }
+                    is TranscriptEvent.Status -> queueLabel = e.message
+                    is TranscriptEvent.Progress -> queueFraction = e.fraction
+                    is TranscriptEvent.DownloadProgress -> { queueLabel = e.label; queueFraction = e.fraction }
+                    is TranscriptEvent.Utterance -> queueUtterances.add(e)
+                    is TranscriptEvent.Title -> queueTitle = e.title
+                    is TranscriptEvent.SummaryComplete -> queueSummary = e.summary
                     else -> Unit
                 }
                 if (qid == null) { queueItemId = null; queueFraction = 0f }
-                return@collect
+                // Not watching → the list row is the only consumer. Watching → fall through so the
+                // Session screen streams this item's results in real time, like a foreground run.
+                if (!watchingQueue) return@collect
             }
             // Drop a superseded run's still-buffered events: a tagged event whose generation isn't the
-            // current session's must not mutate it (untagged events — e.g. export — always apply).
-            if (gen != TranscriptionService.UNTAGGED && gen != sessionGen) return@collect
+            // current session's must not mutate it (untagged events — e.g. export — always apply;
+            // QUEUE_GEN reaches here only in watch mode).
+            else if (gen != TranscriptionService.UNTAGGED && gen != sessionGen) return@collect
             when (e) {
                 is TranscriptEvent.Status -> status = e.message
                 is TranscriptEvent.Utterance -> utterances.add(e)
@@ -1448,7 +1493,7 @@ private fun TranscribeScreen(
     BackHandler(
         screen != Screen.Studio && !showConfigSheet && !showPodcastSheet &&
             !showAddSourceSheet && !showYouTubeSheet && !showLibrarySheet,
-    ) { screen = Screen.Studio }
+    ) { watchingQueue = false; screen = Screen.Studio }
 
     when (screen) {
         Screen.Studio -> {
@@ -1461,10 +1506,14 @@ private fun TranscribeScreen(
                 processingFraction = queueFraction,
                 isRecording = isRecording,
                 recSeconds = recSeconds,
+                foregroundRun = running && !watchingQueue,
+                foregroundLabel = title ?: status,
+                onResumeSession = { screen = Screen.Session },
                 pendingCount = studioEntries.count { it.status == SessionLibrary.Status.RECORDED && it.wavFile.exists() },
                 onRecord = { requestRecord() },
                 onResumeCapture = { screen = Screen.Capture },
                 onOpen = { e -> openSessionUri(Uri.fromFile(e.sessionFile)) },
+                onWatchLive = { e -> watchQueueItem(e) },
                 onProcessNow = { e -> enqueueAndStart(listOf(e.id)) },
                 onProcessAll = {
                     enqueueAndStart(

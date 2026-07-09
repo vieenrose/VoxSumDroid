@@ -285,4 +285,6 @@
     <string name="action_share_audio">Partager l\'audio</string>
     <string name="action_delete">Supprimer</string>
     <string name="delete_confirm">Supprimer « %s » définitivement ? L\'audio et sa transcription seront effacés.</string>
+
+    <string name="studio_processing_banner">Traitement — %s (touchez pour suivre en direct)</string>
 </resources>

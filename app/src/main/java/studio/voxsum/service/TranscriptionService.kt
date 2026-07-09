@@ -524,7 +524,33 @@ class TranscriptionService : LifecycleService() {
             emitEvent(TranscriptEvent.Complete(emptyList(), speakerCount = null))
             return null
         }
-        return finishPipeline(utterances, diarized, cfg, models, converter)
+        val result = finishPipeline(utterances, diarized, cfg, models, converter)
+
+        // Auto-save FOREGROUND runs into the library too — a transcribed podcast/YouTube/file
+        // used to exist only in the open session (gone once you left it). The queue drain skips
+        // this (it attaches results to its own entry); a re-run of a library capture UPDATES that
+        // entry instead of duplicating it. Non-fatal on failure: the session view still has it.
+        if ((kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED) != QUEUE_GEN) {
+            runCatching {
+                val existing = if (ownWav && srcFile!!.name == SessionLibrary.WAV_NAME)
+                    srcFile.parentFile?.let { SessionLibrary.byId(this, it.name) } else null
+                val entry = existing
+                    ?: SessionLibrary.promoteRecording(this, wav, totalDurationSec.toInt())
+                if (entry != null) {
+                    // The decoded WAV just moved into the entry — swap the player source (the UI
+                    // carries the playhead across this swap).
+                    if (existing == null) emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(entry.wavFile).toString()))
+                    val updated = SessionLibrary.attachResults(
+                        this, entry, result.first, emptyMap(), result.second.summary, null,
+                        result.second.title, cfg.asrModelId, cfg.llmModelId,
+                    )
+                    if (updated != null) {
+                        emitEvent(TranscriptEvent.LibrarySaved(Uri.fromFile(updated.sessionFile).toString(), updated.title))
+                    }
+                }
+            }.onFailure { android.util.Log.w("voxsum-library", "could not auto-save import", it) }
+        }
+        return result
     }
 
     /**

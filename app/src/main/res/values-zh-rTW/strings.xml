@@ -284,4 +284,6 @@
     <string name="action_share_audio">分享音訊</string>
     <string name="action_delete">刪除</string>
     <string name="delete_confirm">確定要永久刪除「%s」嗎？音訊與逐字稿都會被移除。</string>
+
+    <string name="studio_processing_banner">處理中——%s（點按即時查看）</string>
 </resources>
