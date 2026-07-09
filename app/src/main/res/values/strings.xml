@@ -259,4 +259,12 @@
     <string name="source_process_all_desc">Transcribe and summarize the saved recordings one by one</string>
     <string name="svc_processing_queue">Processing %1$s (%2$d left)</string>
     <string name="svc_queue_item_failed">Could not process %s — kept in the library</string>
+
+    <string name="library_title">Recorded sessions</string>
+    <string name="library_empty">No saved recordings yet — every recording is saved here automatically.</string>
+    <string name="lib_status_done">Done</string>
+    <string name="lib_status_queued">Queued</string>
+    <string name="lib_status_recorded">Not processed</string>
+    <string name="source_library">Recorded sessions (%d)</string>
+    <string name="source_library_desc">Every auto-saved recording and its processing status</string>
 </resources>

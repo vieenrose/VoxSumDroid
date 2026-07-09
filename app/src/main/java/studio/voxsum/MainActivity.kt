@@ -170,6 +170,7 @@ import studio.voxsum.data.computeDiarizationStats
 import studio.voxsum.data.speakerColor
 import studio.voxsum.service.TranscriptionService
 import studio.voxsum.ui.AddSourceSheet
+import studio.voxsum.ui.LibrarySheet
 import studio.voxsum.ui.ConfigSheet
 import studio.voxsum.ui.EmptyState
 import studio.voxsum.ui.PodcastSheet
@@ -434,6 +435,7 @@ private fun TranscribeScreen(
     var showPodcastSheet by remember { mutableStateOf(false) }
     var showAddSourceSheet by remember { mutableStateOf(false) }
     var showYouTubeSheet by remember { mutableStateOf(false) }
+    var showLibrarySheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val utterances = remember { mutableStateListOf<TranscriptEvent.Utterance>() }
 
@@ -483,6 +485,10 @@ private fun TranscribeScreen(
     // OR a user edit in the header — propagate to the entry's meta + its home-screen row, so the
     // auto-saved name upgrades from "MM-dd HH:mm · hash" to the real title automatically.
     var libraryDir by remember { mutableStateOf<File?>(null) }
+    // True while the current session came from the mic / a library capture (its audio is safe in
+    // the library once capture ends) — the condition under which ⏭ "next talk" stays available
+    // during post-stop processing: abandoning that processing costs nothing, the queue redoes it.
+    var recordingRun by remember { mutableStateOf(false) }
     LaunchedEffect(title, libraryDir) {
         val dir = libraryDir ?: return@LaunchedEffect
         val t = title?.trim()?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
@@ -653,6 +659,7 @@ private fun TranscribeScreen(
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh session → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         libraryDir = SessionLibrary.entryDirOf(context, uri)   // non-null when re-running a library capture
+        recordingRun = libraryDir != null
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri, sessionGen)
     }
 
@@ -737,7 +744,7 @@ private fun TranscribeScreen(
         TranscriptionConfig.Holder.config = config
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh recording → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
-        audioUri = null; libraryDir = null; running = true; transcriptReady = false; isRecording = true; progress = 0f
+        audioUri = null; libraryDir = null; recordingRun = true; running = true; transcriptReady = false; isRecording = true; progress = 0f
         status = context.getString(R.string.status_recording); onRecord(sessionGen)
     }
     val recordPermission = rememberLauncherForActivityResult(
@@ -755,11 +762,17 @@ private fun TranscribeScreen(
     // once RecordingSaved confirms the capture is safe — immediately start recording the next one.
     var pendingNextTalk by remember { mutableStateOf(false) }
     fun nextTalk() {
-        if (!isRecording) return
-        pendingNextTalk = true
-        isRecording = false
-        status = context.getString(R.string.status_saved_for_later)
-        onStopRecordingDefer()
+        if (isRecording) {
+            pendingNextTalk = true
+            isRecording = false
+            status = context.getString(R.string.status_saved_for_later)
+            onStopRecordingDefer()
+        } else if (running) {
+            // Post-stop processing (diarize/summary) of an auto-saved capture: skip the wait —
+            // starting the next recording supersedes the old job; the talk stays RECORDED and is
+            // picked up by "Process pending".
+            beginRecording()
+        }
     }
     // Stop routing: end recording gracefully (continue to diarization/summary) vs cancel a run.
     fun handleStop() {
@@ -1362,6 +1375,7 @@ private fun TranscribeScreen(
                 onAddSource = { showAddSourceSheet = true },
                 onStop = { handleStop() },
                 onNextTalk = { nextTalk() },
+                showNextTalk = isRecording || recordingRun,
                 // All re-run actions are disabled while a run is in flight (each fun also guards `running`);
                 // this also blocks Re-transcribe/Detect-names from starting a second run whose buffered
                 // events would otherwise land on the freshly-reset session.
@@ -1623,6 +1637,8 @@ private fun TranscribeScreen(
             pendingCount = remember(recentsVersion) {
                 SessionLibrary.list(context).count { it.status == SessionLibrary.Status.RECORDED && it.wavFile.exists() }
             },
+            libraryCount = remember(recentsVersion) { SessionLibrary.list(context).size },
+            onLibrary = { showLibrarySheet = true },
             onProcessAll = {
                 // Queue every pending recording, then let the foreground service drain them.
                 scope.launch {
@@ -1635,6 +1651,18 @@ private fun TranscribeScreen(
                     onProcessQueue()
                 }
             },
+        )
+    }
+    if (showLibrarySheet) {
+        LibrarySheet(
+            entries = remember(recentsVersion, showLibrarySheet) { SessionLibrary.list(context) },
+            queuedIds = remember(recentsVersion, showLibrarySheet) { ProcessingQueue.ids(context).toSet() },
+            onOpen = { e ->
+                showLibrarySheet = false
+                if (e.sessionFile.exists()) openSessionUri(Uri.fromFile(e.sessionFile))
+                else launchAudio(Uri.fromFile(e.wavFile))   // unprocessed capture → transcribe now
+            },
+            onDismiss = { showLibrarySheet = false },
         )
     }
     if (showYouTubeSheet) {

@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.SmartDisplay
@@ -46,6 +47,8 @@ fun AddSourceSheet(
     onDismiss: () -> Unit,
     pendingCount: Int = 0,          // library recordings awaiting processing
     onProcessAll: () -> Unit = {},
+    libraryCount: Int = 0,          // total saved sessions in the library
+    onLibrary: () -> Unit = {},
 ) {
     val pal = LocalVoxSumPalette.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -68,6 +71,14 @@ fun AddSourceSheet(
             SourceRow(Icons.Filled.Podcasts, stringResource(R.string.source_podcast), stringResource(R.string.source_podcast_desc)) { onDismiss(); onPodcast() }
             SourceRow(Icons.Filled.SmartDisplay, stringResource(R.string.source_youtube), stringResource(R.string.source_youtube_desc)) { onDismiss(); onYouTube() }
             SourceRow(Icons.Filled.FolderZip, stringResource(R.string.source_session), stringResource(R.string.source_session_desc)) { onDismiss(); onOpenSession() }
+            if (libraryCount > 0) {
+                // Every auto-saved recording, with its processing status — the batch workflow's home.
+                SourceRow(
+                    Icons.Filled.LibraryMusic,
+                    stringResource(R.string.source_library, libraryCount),
+                    stringResource(R.string.source_library_desc),
+                ) { onDismiss(); onLibrary() }
+            }
             if (pendingCount > 0) {
                 // Batch workflow: recordings saved with "Next talk" (or recovered) wait in the
                 // library; this drains them through the pipeline one by one.

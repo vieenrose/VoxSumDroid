@@ -22,7 +22,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onEach
@@ -600,6 +602,34 @@ class TranscriptionService : LifecycleService() {
         // restores it after a model-download status was shown above.
         emitEvent(TranscriptEvent.Status(getString(R.string.status_recording)))
         updateNotification(getString(R.string.status_recording))
+
+        // Start mic capture IMMEDIATELY, in its own job. The ASR engine below takes ~10 s to
+        // construct on slow devices, and the recorder used to start only when the engine first
+        // collected its flow — the opening seconds of every talk (and the level meter) were
+        // silently lost. Blocks buffer in the channel (~33 s of slack, same anti-overrun sizing
+        // as before: the channel keeps draining the mic regardless of decode latency, bounded so
+        // a permanently-behind decoder can't OOM) while the engine loads and between decodes.
+        // Mic level indicator: peak per mic block, quantized to 5 buckets and emitted only on
+        // bucket change — visible proof the mic hears something, cheap enough for e-ink.
+        val runGen = kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED
+        val mic = kotlinx.coroutines.channels.Channel<FloatArray>(MIC_BUFFER_BLOCKS)
+        val capture = lifecycleScope.launch(Dispatchers.IO) {
+            var lastLevelBucket = -1
+            try {
+                recorder.record(wav) { stopRecordingRequested }.collect { chunk ->
+                    var pk = 0f
+                    for (v in chunk) { val a = if (v < 0f) -v else v; if (a > pk) pk = a }
+                    val bucket = micLevelBucket(pk)
+                    if (bucket != lastLevelBucket) {
+                        lastLevelBucket = bucket
+                        events.tryEmit(runGen to TranscriptEvent.MicLevel(bucket / 5f))
+                    }
+                    mic.send(chunk)
+                }
+            } finally {
+                mic.close()   // end-of-stream for transcribeLive (clean stop AND cancellation)
+            }
+        }
         try {
         AsrEngine(
             backend = backend,
@@ -610,31 +640,7 @@ class TranscriptionService : LifecycleService() {
             useItn = cfg.useItn,
             vadThreshold = cfg.vadThreshold,
         ).use { asr ->
-            // Decouple mic capture from ASR decode. AudioRecorder.record() emits each mic block and
-            // only reads the next one after the collector returns — but the collector here runs the
-            // heavy native VAD + recognizer.decode() inline. A multi-second segment decode would stall
-            // rec.read(), overrunning the AudioRecord hardware buffer (~256 ms) and DROPPING samples →
-            // choppy capture and missed live recognition (exactly "didn't record well / didn't
-            // recognize while recording"). buffer() runs the mic loop in its own coroutine (on IO) so
-            // it keeps draining the mic regardless of decode latency; 256 blocks ≈ 33 s of slack
-            // absorbs decode spikes, and it's bounded so a permanently-behind decoder can't OOM.
-            // Mic level indicator: peak per mic block, quantized to 5 buckets and emitted only on
-            // bucket change — visible proof the mic hears something, cheap enough for e-ink.
-            var lastLevelBucket = -1
-            asr.transcribeLive(
-                recorder.record(wav) { stopRecordingRequested }
-                    .onEach { chunk ->
-                        var pk = 0f
-                        for (v in chunk) { val a = if (v < 0f) -v else v; if (a > pk) pk = a }
-                        val bucket = micLevelBucket(pk)
-                        if (bucket != lastLevelBucket) {
-                            lastLevelBucket = bucket
-                            emitEvent(TranscriptEvent.MicLevel(bucket / 5f))
-                        }
-                    }
-                    .buffer(MIC_BUFFER_BLOCKS)
-                    .flowOn(Dispatchers.IO),
-            )
+            asr.transcribeLive(mic.consumeAsFlow())
                 .flowOn(Dispatchers.Default)
                 .collect { e ->
                     when (e) {
@@ -679,6 +685,11 @@ class TranscriptionService : LifecycleService() {
             // Capture finished (clean stop or user cancel) — the WAV header was finalized in
             // WavWriter.close(); drop the recovery marker so next launch doesn't re-offer it. A hard
             // process kill skips this, leaving the marker for RecordingRecovery.pending() to find.
+            // Tear down the capture job first (an engine-load failure or a cancellation would
+            // otherwise leave the mic running) and WAIT for it: its own finally closes the WAV,
+            // which must be finalized before the promote below moves the file. NonCancellable so
+            // the join still runs when this very coroutine was cancelled.
+            withContext(NonCancellable) { capture.cancelAndJoin() }
             recordingActive = false
             RecordingRecovery.clear(this)
             // Auto-save the finalized capture into the app library immediately — this `finally`
