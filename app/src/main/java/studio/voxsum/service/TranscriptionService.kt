@@ -631,7 +631,7 @@ class TranscriptionService : LifecycleService() {
             queueDraining = false
             // Cancelled mid-drain with work left (a recording or import superseded us) →
             // remember to resume once the interrupting run completes.
-            queueInterrupted = ProcessingQueue.size(this).let { it > 0 }
+            queueInterrupted = ProcessingQueue.size(this) > 0
         }
     }
 

@@ -11,6 +11,7 @@ import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -677,9 +678,18 @@ private fun TranscribeScreen(
         buffering = false
     }
 
-    // Start a run from any audio Uri (SAF pick or podcast download): reset session + go.
-    fun launchAudio(uri: Uri) {
-        TranscriptionConfig.Holder.config = config   // apply settings to this run
+    // Swap the player's source to another file of the SAME audio, carrying the playhead and
+    // play-state across the rebuild (end-of-ASR decoded-WAV swap, WAV→session.m4a promotion).
+    fun swapAudioKeepingPlayhead(newUri: Uri) {
+        pendingSeekMs = positionMs.takeIf { it > 0 }
+        resumeAfterSwap = isPlaying
+        audioUri = newUri
+    }
+
+    // ONE place to tear down the open session and every pending-intent flag — launchAudio,
+    // beginRecording and row-deletion all reset through here, so a new flag has exactly one
+    // reset site instead of three drifting copies.
+    fun clearSession() {
         SessionAutosave.clear(context)
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         diarizeOnlyRun = false
@@ -690,9 +700,15 @@ private fun TranscribeScreen(
         showAddSourceSheet = false; showYouTubeSheet = false
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh session → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
+        watchingQueue = false; pendingNextTalk = false; pendingAutoProcess = false
+    }
+
+    // Start a run from any audio Uri (SAF pick or podcast download): reset session + go.
+    fun launchAudio(uri: Uri) {
+        TranscriptionConfig.Holder.config = config   // apply settings to this run
+        clearSession()
         libraryDir = SessionLibrary.entryDirOf(context, uri)   // non-null when re-running a library capture
         recordingRun = libraryDir != null
-        watchingQueue = false
         screen = Screen.Session   // watch the import/transcription live
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri, sessionGen)
     }
@@ -767,19 +783,9 @@ private fun TranscribeScreen(
         while (isRecording) { delay(1000); recSeconds++ }
     }
     fun beginRecording() {
-        SessionAutosave.clear(context)
-        utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
-        diarizeOnlyRun = false
-        editingTitle = false; editingSummary = false; editingActions = false
-        title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
-        coverEnabled = true
-        showPodcastSheet = false; showConfigSheet = false
-        showAddSourceSheet = false; showYouTubeSheet = false
         TranscriptionConfig.Holder.config = config
-        lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh recording → reset Save target + identicon
-        summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
+        clearSession()
         audioUri = null; libraryDir = null; recordingRun = true; running = true; transcriptReady = false; isRecording = true; progress = 0f
-        watchingQueue = false; pendingNextTalk = false
         captureName = ""; screen = Screen.Capture
         status = context.getString(R.string.status_recording); onRecord(sessionGen)
     }
@@ -1034,7 +1040,7 @@ private fun TranscribeScreen(
                     // A new item started — reset the live buffers to it. If the user was watching
                     // the PREVIOUS item, stop forwarding: item B's transcript must not stream into
                     // item A's open session view (A's terminal events already landed).
-                    if (watchingQueue) watchingQueue = false
+                    watchingQueue = false
                     queueUtterances.clear(); queueTitle = null; queueSummary = null
                     queueItemId = qid; queueFraction = 0f
                 }
@@ -1099,11 +1105,9 @@ private fun TranscribeScreen(
                     // End-of-ASR source swap (original file → decoded WAV of the SAME audio): keep the
                     // player where it was instead of rebuilding at 0. (For a live recording audioUri was
                     // null, so this is skipped and the first player correctly starts at 0.)
-                    if (audioUri != null && newUri != audioUri) {
-                        pendingSeekMs = positionMs.takeIf { it > 0 }
-                        resumeAfterSwap = isPlaying
-                    }
-                    audioUri = newUri; isRecording = false; micLevel = 0f
+                    if (audioUri != null && newUri != audioUri) swapAudioKeepingPlayhead(newUri)
+                    else audioUri = newUri
+                    isRecording = false; micLevel = 0f
                     // A finished recording was auto-saved into the library (promoted on mic stop) —
                     // its raw-capture row is already in Recents; refresh the home list and bind the
                     // session to its entry so title changes propagate.
@@ -1143,9 +1147,7 @@ private fun TranscribeScreen(
                     val savedUri = Uri.parse(e.uri)
                     val entryDir = SessionLibrary.entryDirOf(context, savedUri)
                     if (entryDir != null && audioUri?.let { SessionLibrary.entryDirOf(context, it) } == entryDir) {
-                        pendingSeekMs = positionMs.takeIf { it > 0 }
-                        resumeAfterSwap = isPlaying
-                        audioUri = savedUri
+                        swapAudioKeepingPlayhead(savedUri)
                     }
                 }
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
@@ -1158,7 +1160,7 @@ private fun TranscribeScreen(
                     // on Studio/Capture (e.g. "no audio recorded" after ⏹) was INVISIBLE. Toast
                     // reaches every screen.
                     if (screen != Screen.Session) {
-                        android.widget.Toast.makeText(context, context.getString(R.string.status_error, e.error), android.widget.Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, context.getString(R.string.status_error, e.error), Toast.LENGTH_LONG).show()
                     }
                     status = context.getString(R.string.status_error, e.error); running = false; diarizeOnlyRun = false
                     // Offer a one-tap Retry for the same source (a corrupt model was cleared server-
@@ -1579,11 +1581,9 @@ private fun TranscribeScreen(
                     // Deleting the entry behind the OPEN session view: tear that session down too,
                     // or its player keeps pointing at files that no longer exist.
                     if (libraryDir == e.dir) {
-                        utterances.clear(); speakerNames.clear()
-                        title = null; summary = null; actionItems = null
-                        audioUri = null; libraryDir = null; transcriptReady = false
-                        isPlaying = false; running = false; watchingQueue = false
-                        status = ""
+                        clearSession()
+                        audioUri = null; libraryDir = null; recordingRun = false
+                        running = false; transcriptReady = false; status = ""
                     }
                     scope.launch { withContext(Dispatchers.IO) { SessionLibrary.discard(context, e.wavFile) }; recentsVersion++ }
                 },

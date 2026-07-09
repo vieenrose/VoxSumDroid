@@ -131,8 +131,10 @@ object SessionLibrary {
         // processing must never rename "Talk 3 — Dr. Smith" to whatever the model invents. Re-read
         // the meta rather than trusting [entry]: a rename made WHILE this item processed would
         // otherwise be clobbered by the stale snapshot taken at drain start.
-        val freshTitle = byId(context, entry.id)?.title ?: entry.title
-        val updated = entry.copy(title = freshTitle ?: title?.trim()?.ifBlank { null }, status = Status.DONE)
+        val updated = entry.copy(
+            title = byId(context, entry.id)?.title ?: entry.title ?: title?.trim()?.ifBlank { null },
+            status = Status.DONE,
+        )
         runCatching { writeMeta(updated) }.onFailure { Log.w(TAG, "could not update library meta", it) }
         // Replace the raw-capture Recent row with the finished session (different uri AND title, so
         // RecentSessions' own dedup wouldn't collapse them).
