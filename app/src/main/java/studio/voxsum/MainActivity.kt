@@ -170,7 +170,9 @@ import studio.voxsum.data.computeDiarizationStats
 import studio.voxsum.data.speakerColor
 import studio.voxsum.service.TranscriptionService
 import studio.voxsum.ui.AddSourceSheet
+import studio.voxsum.ui.CaptureScreen
 import studio.voxsum.ui.LibrarySheet
+import studio.voxsum.ui.StudioScreen
 import studio.voxsum.ui.ConfigSheet
 import studio.voxsum.ui.EmptyState
 import studio.voxsum.ui.PodcastSheet
@@ -384,6 +386,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** Studio navigation: list-first stack — Studio (home) → Capture / Session, back returns home. */
+private enum class Screen { Studio, Capture, Session }
+
 @Composable
 private fun TranscribeScreen(
     onPicked: (Uri, Int) -> Unit,
@@ -489,6 +494,19 @@ private fun TranscribeScreen(
     // the library once capture ends) — the condition under which ⏭ "next talk" stays available
     // during post-stop processing: abandoning that processing costs nothing, the queue redoes it.
     var recordingRun by remember { mutableStateOf(false) }
+    // --- Studio navigation + batch-workflow state ---
+    var screen by remember { mutableStateOf(Screen.Studio) }
+    // User-typed session name on the Capture screen — outranks the LLM title for that entry.
+    var captureName by remember { mutableStateOf("") }
+    // ⏹ Stop & save: after the capture is confirmed saved (RecordingSaved), auto-enqueue it and
+    // start the queue — stop always defers, processing is always the queue's job now.
+    var pendingAutoProcess by remember { mutableStateOf(false) }
+    // A defer-stopped run's terminal event is Complete (no summary follows) — clear `running` there.
+    var deferStopped by remember { mutableStateOf(false) }
+    // Live per-row queue progress (Studio list), fed by QUEUE_GEN-tagged service events.
+    var queueItemId by remember { mutableStateOf<String?>(null) }
+    var queueLabel by remember { mutableStateOf("") }
+    var queueFraction by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(title, libraryDir) {
         val dir = libraryDir ?: return@LaunchedEffect
         val t = title?.trim()?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
@@ -519,6 +537,7 @@ private fun TranscribeScreen(
         actionItems = snap.actionItems
         transcriptReady = true
         status = context.getString(R.string.status_transcript_lines, snap.utterances.size)
+        screen = Screen.Session   // the restored session is the thing to show
     }
     // Find-in-transcript (a slim search bar above the list; suppresses playback auto-follow while open).
     var searchActive by remember { mutableStateOf(false) }
@@ -660,6 +679,7 @@ private fun TranscribeScreen(
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         libraryDir = SessionLibrary.entryDirOf(context, uri)   // non-null when re-running a library capture
         recordingRun = libraryDir != null
+        screen = Screen.Session   // watch the import/transcription live
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri, sessionGen)
     }
 
@@ -745,6 +765,7 @@ private fun TranscribeScreen(
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh recording → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         audioUri = null; libraryDir = null; recordingRun = true; running = true; transcriptReady = false; isRecording = true; progress = 0f
+        captureName = ""; screen = Screen.Capture
         status = context.getString(R.string.status_recording); onRecord(sessionGen)
     }
     val recordPermission = rememberLauncherForActivityResult(
@@ -764,6 +785,7 @@ private fun TranscribeScreen(
     fun nextTalk() {
         if (isRecording) {
             pendingNextTalk = true
+            deferStopped = true
             isRecording = false
             status = context.getString(R.string.status_saved_for_later)
             onStopRecordingDefer()
@@ -774,15 +796,19 @@ private fun TranscribeScreen(
             beginRecording()
         }
     }
-    // Stop routing: end recording gracefully (continue to diarization/summary) vs cancel a run.
+    // Stop routing. Recording → STOP ALWAYS DEFERS: the capture is auto-saved, then auto-enqueued
+    // for background processing (the queue), and the user lands on the Studio list watching the
+    // row's progress — recording is never blocked by processing. A non-recording stop CANCELS the
+    // in-flight run: the service emits no terminal event, so clear `running` here.
     fun handleStop() {
-        // Recording → finish gracefully (continues into diarization/summary, stays running). Otherwise
-        // the user is CANCELLING a transcription/summary: the service stops but emits no terminal event,
-        // so clear `running` here or the UI is stuck on the Stop button with no way back to Add audio.
-        // Recording stops → the mic closes and processing begins, but no Status event flows until the
-        // summarize phase; set one now so the bar+text don't sit at "Recording…" over a 0% bar.
-        if (isRecording) { isRecording = false; status = context.getString(R.string.status_processing); onStopRecording() }
-        else { onStop(); running = false; status = context.getString(R.string.status_stopped) }
+        if (isRecording) {
+            deferStopped = true
+            pendingAutoProcess = true
+            isRecording = false
+            status = context.getString(R.string.status_saved_for_later)
+            onStopRecordingDefer()
+            screen = Screen.Studio
+        } else { onStop(); running = false; status = context.getString(R.string.status_stopped) }
     }
 
 
@@ -859,6 +885,7 @@ private fun TranscribeScreen(
             // A reopened library session keeps its entry binding (the extracted audio is a cache
             // file, so derive it from the SOURCE uri) — renames still reach the library row.
             libraryDir = SessionLibrary.entryDirOf(context, uri)
+            screen = Screen.Session
             status = context.getString(R.string.status_session_loaded, loaded.utterances.size)
             RecentSessions.add(context, uri.toString(), loaded.title ?: "", System.currentTimeMillis()); recentsVersion++
         }
@@ -962,6 +989,19 @@ private fun TranscribeScreen(
 
     LaunchedEffect(Unit) {
         TranscriptionService.eventStream.collect { (gen, e) ->
+            // Queue-drain events never touch the open session — they drive the Studio list's
+            // per-row status chip and progress bar instead.
+            if (gen == TranscriptionService.QUEUE_GEN) {
+                val qid = TranscriptionService.currentQueueItemId
+                when (e) {
+                    is TranscriptEvent.Status -> { queueItemId = qid; queueLabel = e.message }
+                    is TranscriptEvent.Progress -> { queueItemId = qid; queueFraction = e.fraction }
+                    is TranscriptEvent.DownloadProgress -> { queueItemId = qid; queueLabel = e.label; queueFraction = e.fraction }
+                    else -> Unit
+                }
+                if (qid == null) { queueItemId = null; queueFraction = 0f }
+                return@collect
+            }
             // Drop a superseded run's still-buffered events: a tagged event whose generation isn't the
             // current session's must not mutate it (untagged events — e.g. export — always apply).
             if (gen != TranscriptionService.UNTAGGED && gen != sessionGen) return@collect
@@ -977,6 +1017,9 @@ private fun TranscribeScreen(
                 // Stop would re-stick the UI in "running" (running is already set when a run starts).
                 is TranscriptEvent.DownloadProgress -> { if (running) { progress = e.fraction; status = e.label } }
                 is TranscriptEvent.Complete -> {
+                    // A defer-stopped recording's terminal event is Complete (no summary phase
+                    // follows) — release the run state so nothing waits for a SummaryComplete.
+                    if (deferStopped) { deferStopped = false; running = false }
                     // Preserve any in-flight text edits (merge by index); speaker-name map is
                     // separate and untouched by the rebuild.
                     // Preserve in-flight text edits keyed by START TIME, not index: diarization can split
@@ -1015,12 +1058,33 @@ private fun TranscribeScreen(
                     // session to its entry so title changes propagate.
                     libraryDir = SessionLibrary.entryDirOf(context, newUri) ?: libraryDir
                     recentsVersion++
+                    // A user-typed capture name outranks the LLM title — write it into the entry
+                    // NOW (the rename effect can't: next-talk resets title/libraryDir right below).
+                    val savedDir = SessionLibrary.entryDirOf(context, newUri)
+                    val givenName = captureName.trim()
+                    if (savedDir != null && givenName.isNotBlank()) {
+                        scope.launch {
+                            withContext(Dispatchers.IO) { SessionLibrary.rename(context, savedDir, givenName) }
+                            recentsVersion++
+                        }
+                    }
+                    // ⏹ Stop & save: the capture is safe — auto-enqueue it and start the queue.
+                    if (pendingAutoProcess) {
+                        pendingAutoProcess = false
+                        savedDir?.name?.let { id ->
+                            scope.launch {
+                                withContext(Dispatchers.IO) { ProcessingQueue.enqueue(context, listOf(id)) }
+                                onProcessQueue()
+                                recentsVersion++
+                            }
+                        }
+                    }
                     // "Next talk": the previous capture is confirmed safe on disk — roll straight
                     // into the next recording (resets the session; later stale events are dropped).
                     if (pendingNextTalk) { pendingNextTalk = false; beginRecording() }
                 }
                 // The finished session (transcript + summary embedded) replaced the raw-capture row.
-                is TranscriptEvent.LibrarySaved -> recentsVersion++
+                is TranscriptEvent.LibrarySaved -> { recentsVersion++; queueItemId = null; queueFraction = 0f }
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
                 is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
                 is TranscriptEvent.Failed -> {
@@ -1357,6 +1421,81 @@ private fun TranscribeScreen(
     // its source actions to avoid duplicating it; they appear once there's content / a run.
     val isEmptyState = utterances.isEmpty() && !running && player == null
 
+    // Share a library entry's audio via the FileProvider (files/library is an exported path).
+    fun shareEntryAudio(e: SessionLibrary.Entry) {
+        val f = e.audioFile
+        val shareUri = runCatching {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
+        }.getOrNull() ?: return
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = if (f.extension == "wav") "audio/wav" else "audio/mp4"
+            putExtra(Intent.EXTRA_STREAM, shareUri)
+            putExtra(Intent.EXTRA_SUBJECT, e.title ?: SessionLibrary.defaultTitle(e.createdAt))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.action_share_audio))) }
+    }
+    fun enqueueAndStart(ids: List<String>) {
+        if (ids.isEmpty()) return
+        scope.launch {
+            withContext(Dispatchers.IO) { ProcessingQueue.enqueue(context, ids) }
+            onProcessQueue()
+            recentsVersion++
+        }
+    }
+
+    // Back inside the stack: Capture/Session → Studio (sheets keep their own handler below).
+    BackHandler(
+        screen != Screen.Studio && !showConfigSheet && !showPodcastSheet &&
+            !showAddSourceSheet && !showYouTubeSheet && !showLibrarySheet,
+    ) { screen = Screen.Studio }
+
+    when (screen) {
+        Screen.Studio -> {
+            val studioEntries = remember(recentsVersion, queueItemId) { SessionLibrary.list(context) }
+            StudioScreen(
+                entries = studioEntries,
+                queuedIds = remember(recentsVersion, queueItemId) { ProcessingQueue.ids(context).toSet() },
+                processingId = queueItemId,
+                processingLabel = queueLabel,
+                processingFraction = queueFraction,
+                isRecording = isRecording,
+                recSeconds = recSeconds,
+                pendingCount = studioEntries.count { it.status == SessionLibrary.Status.RECORDED && it.wavFile.exists() },
+                onRecord = { requestRecord() },
+                onResumeCapture = { screen = Screen.Capture },
+                onOpen = { e -> openSessionUri(Uri.fromFile(e.sessionFile)) },
+                onProcessNow = { e -> enqueueAndStart(listOf(e.id)) },
+                onProcessAll = {
+                    enqueueAndStart(
+                        SessionLibrary.list(context)
+                            .filter { it.status == SessionLibrary.Status.RECORDED && it.wavFile.exists() }
+                            .map { it.id },
+                    )
+                },
+                onRename = { e, n ->
+                    scope.launch { withContext(Dispatchers.IO) { SessionLibrary.rename(context, e.dir, n) }; recentsVersion++ }
+                },
+                onShareAudio = { e -> shareEntryAudio(e) },
+                onDelete = { e ->
+                    scope.launch { withContext(Dispatchers.IO) { SessionLibrary.discard(context, e.wavFile) }; recentsVersion++ }
+                },
+                onImport = { showAddSourceSheet = true },
+                onSettings = { showConfigSheet = true },
+            )
+        }
+        Screen.Capture -> CaptureScreen(
+            isRecording = isRecording,
+            recSeconds = recSeconds,
+            micLevel = micLevel,
+            sessionName = captureName,
+            onSessionName = { captureName = it },
+            utterances = utterances,
+            onNextTalk = { nextTalk() },
+            onStop = { handleStop() },
+            onBack = { screen = Screen.Studio },
+        )
+        Screen.Session ->
     Scaffold(
         modifier = Modifier.fillMaxSize().background(pal.Slate900Grad),
         containerColor = Color.Transparent,
@@ -1550,6 +1689,7 @@ private fun TranscribeScreen(
             }
         }
     }
+    }   // end when(screen)
 
     // A hand-edited transcript makes its summary child stale → offer a one-tap re-summarize (once per
     // edit episode; the flag stays set while the snackbar shows so further edits don't stack it).

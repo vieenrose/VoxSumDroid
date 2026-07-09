@@ -130,8 +130,14 @@ class TranscriptionService : LifecycleService() {
 
         // Queue-drain runs are tagged with this generation: never equal to UNTAGGED (always
         // accepted) nor to any UI sessionGen (starts at 0, only increments), so the UI collector
-        // drops queue events instead of letting them mutate the open session.
+        // routes queue events to the Studio list's per-row progress instead of the open session.
         const val QUEUE_GEN = -2
+
+        /** Library entry id the queue drain is processing right now (null when idle) — the UI
+         *  attributes QUEUE_GEN-tagged Status/Progress events to this row. */
+        @Volatile
+        var currentQueueItemId: String? = null
+            private set
     }
 
     /** A pending session export, handed to the service via [pendingExport] (utterances can be large,
@@ -537,6 +543,7 @@ class TranscriptionService : LifecycleService() {
                 continue
             }
             val remaining = ProcessingQueue.size(this)
+            currentQueueItemId = id
             updateNotification(getString(R.string.svc_processing_queue, entry.title ?: SessionLibrary.defaultTitle(entry.createdAt), remaining))
             // Track decode temp files this item creates so they're reclaimed per-item (a long
             // queue would otherwise stack one decoded WAV copy per entry in filesDir/audio).
@@ -562,6 +569,7 @@ class TranscriptionService : LifecycleService() {
                 // capture stays safe (RECORDED) in the library for a manual retry.
                 events.emit(UNTAGGED to TranscriptEvent.Status(getString(R.string.svc_queue_item_failed, entry.title ?: SessionLibrary.defaultTitle(entry.createdAt))))
             } finally {
+                currentQueueItemId = null
                 audioDir.listFiles()?.forEach { if (it.name !in before) runCatching { it.delete() } }
             }
             ProcessingQueue.remove(this, id)

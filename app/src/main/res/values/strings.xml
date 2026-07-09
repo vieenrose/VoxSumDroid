@@ -267,4 +267,22 @@
     <string name="lib_status_recorded">Not processed</string>
     <string name="source_library">Recorded sessions (%d)</string>
     <string name="source_library_desc">Every auto-saved recording and its processing status</string>
+
+    <!-- Studio refonte -->
+    <string name="back">Back</string>
+    <string name="capture_title">Record</string>
+    <string name="capture_session_name">Session name (optional)</string>
+    <string name="capture_next_talk">Next talk</string>
+    <string name="capture_stop">Stop &amp; save</string>
+    <string name="capture_live_transcript">Live transcript</string>
+    <string name="capture_live_waiting">Listening…</string>
+    <string name="studio_recording_banner">Recording — %s (tap to return)</string>
+    <string name="studio_return_capture">Recording… (return)</string>
+    <string name="lib_status_processing">Processing</string>
+    <string name="action_process_now">Process now</string>
+    <string name="action_open">Open</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_share_audio">Share audio</string>
+    <string name="action_delete">Delete</string>
+    <string name="delete_confirm">Delete “%s” permanently? The audio and its transcript are removed.</string>
 </resources>

@@ -267,4 +267,22 @@
     <string name="lib_status_recorded">Non traité</string>
     <string name="source_library">Sessions enregistrées (%d)</string>
     <string name="source_library_desc">Tous les enregistrements auto-sauvegardés et leur statut de traitement</string>
+
+    <!-- Studio refonte -->
+    <string name="back">Retour</string>
+    <string name="capture_title">Enregistrer</string>
+    <string name="capture_session_name">Nom de la session (facultatif)</string>
+    <string name="capture_next_talk">Session suivante</string>
+    <string name="capture_stop">Arrêter et sauvegarder</string>
+    <string name="capture_live_transcript">Transcription en direct</string>
+    <string name="capture_live_waiting">Écoute en cours…</string>
+    <string name="studio_recording_banner">Enregistrement — %s (touchez pour revenir)</string>
+    <string name="studio_return_capture">Enregistrement… (revenir)</string>
+    <string name="lib_status_processing">Traitement</string>
+    <string name="action_process_now">Traiter maintenant</string>
+    <string name="action_open">Ouvrir</string>
+    <string name="action_rename">Renommer</string>
+    <string name="action_share_audio">Partager l\'audio</string>
+    <string name="action_delete">Supprimer</string>
+    <string name="delete_confirm">Supprimer « %s » définitivement ? L\'audio et sa transcription seront effacés.</string>
 </resources>

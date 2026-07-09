@@ -266,4 +266,22 @@
     <string name="lib_status_recorded">未處理</string>
     <string name="source_library">已錄音的場次（%d）</string>
     <string name="source_library_desc">所有自動儲存的錄音及其處理狀態</string>
+
+    <!-- Studio refonte -->
+    <string name="back">返回</string>
+    <string name="capture_title">錄音</string>
+    <string name="capture_session_name">場次名稱（選填）</string>
+    <string name="capture_next_talk">下一場</string>
+    <string name="capture_stop">停止並儲存</string>
+    <string name="capture_live_transcript">即時逐字稿</string>
+    <string name="capture_live_waiting">聆聽中…</string>
+    <string name="studio_recording_banner">錄音中——%s（點按返回）</string>
+    <string name="studio_return_capture">錄音中…（返回）</string>
+    <string name="lib_status_processing">處理中</string>
+    <string name="action_process_now">立即處理</string>
+    <string name="action_open">開啟</string>
+    <string name="action_rename">重新命名</string>
+    <string name="action_share_audio">分享音訊</string>
+    <string name="action_delete">刪除</string>
+    <string name="delete_confirm">確定要永久刪除「%s」嗎？音訊與逐字稿都會被移除。</string>
 </resources>

@@ -127,7 +127,9 @@ object SessionLibrary {
             summary, actionItems, title, asrModelId, llmModelId,
             coverEnabled = true, fileName = SESSION_NAME, format = VoxsumSession.Format.M4A,
         ) ?: return null
-        val updated = entry.copy(title = title?.trim()?.ifBlank { null } ?: entry.title, status = Status.DONE)
+        // A user-given name (set at capture time or via rename) outranks the LLM title — batch
+        // processing must never rename "Talk 3 — Dr. Smith" to whatever the model invents.
+        val updated = entry.copy(title = entry.title ?: title?.trim()?.ifBlank { null }, status = Status.DONE)
         runCatching { writeMeta(updated) }.onFailure { Log.w(TAG, "could not update library meta", it) }
         // Replace the raw-capture Recent row with the finished session (different uri AND title, so
         // RecentSessions' own dedup wouldn't collapse them).

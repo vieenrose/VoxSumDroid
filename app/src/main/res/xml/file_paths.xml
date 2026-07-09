@@ -3,4 +3,6 @@
 <paths>
     <cache-path name="updates" path="updates/" />
     <cache-path name="shared" path="shared/" />
+    <!-- Session library entries (share-audio from the Studio list). -->
+    <files-path name="library" path="library/" />
 </paths>

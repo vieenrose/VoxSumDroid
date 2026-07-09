@@ -267,7 +267,7 @@ private fun OnDeviceBadge() {
 /** 5-segment mic input level shown while recording — quantized service-side, so the e-ink
  *  screen only repaints when the level crosses a bucket boundary. */
 @Composable
-private fun MicLevelBars(level: Float, color: androidx.compose.ui.graphics.Color) {
+fun MicLevelBars(level: Float, color: androidx.compose.ui.graphics.Color) {
     val active = (level * 5 + 0.5f).toInt().coerceIn(0, 5)
     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         repeat(5) { i ->
