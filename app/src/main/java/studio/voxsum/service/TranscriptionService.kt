@@ -32,6 +32,7 @@ import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioRecorder
 import studio.voxsum.core.audio.RecordingRecovery
+import studio.voxsum.core.audio.WavIo
 import studio.voxsum.core.audio.WavSlicer
 import studio.voxsum.core.audio.WavNormalizer
 import studio.voxsum.core.config.TargetLanguage
@@ -39,6 +40,7 @@ import studio.voxsum.core.config.SummaryStyle
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
+import studio.voxsum.core.library.SessionLibrary
 import studio.voxsum.core.llm.ActionItemExtractor
 import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.Summarizer
@@ -474,6 +476,7 @@ class TranscriptionService : LifecycleService() {
         val wav = File(File(filesDir, "audio").apply { mkdirs() }, "recording_${System.currentTimeMillis()}.wav")
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         var diarized: Pair<List<TranscriptEvent.Utterance>, Int>? = null
+        var libEntry: SessionLibrary.Entry? = null
 
         // Track this capture so a process kill mid-meeting is recoverable on next launch. The finally
         // below clears it on a clean stop AND on user cancellation (both run finally) — only a hard
@@ -563,18 +566,43 @@ class TranscriptionService : LifecycleService() {
             // process kill skips this, leaving the marker for RecordingRecovery.pending() to find.
             recordingActive = false
             RecordingRecovery.clear(this)
+            // Auto-save the finalized capture into the app library immediately — this `finally`
+            // runs on a clean stop AND on cancellation (ACTION_STOP), so a recording can no longer
+            // be lost by a stray Stop. A hard process kill skips it, but then RecordingRecovery
+            // promotes the repaired WAV on next launch. Plain file rename: cheap, non-suspending,
+            // safe on a cancelled coroutine.
+            if (wav.exists() && wav.length() > WavIo.HEADER + WavIo.SAMPLE_RATE * 2L) {
+                libEntry = SessionLibrary.promoteRecording(
+                    this, wav, (recorder.totalSamples / AsrEngine.SAMPLE_RATE).toInt(),
+                )
+            }
         }
 
         // Drop the microphone foreground type for the CPU-bound finish. The WAV is already on disk.
         startForegroundTyped(recording = false, text = "Processing…")
         if (recorder.totalSamples == 0L) { emitEvent(TranscriptEvent.Failed("No audio recorded")); return }
-        emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
+        val savedWav = libEntry?.wavFile ?: wav
+        emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(savedWav).toString()))
 
         if (utterances.isEmpty()) {
             emitEvent(TranscriptEvent.Complete(emptyList(), speakerCount = null))
             return
         }
-        finishPipeline(utterances, diarized, cfg, models, converter)
+        val (tagged, result) = finishPipeline(utterances, diarized, cfg, models, converter)
+        // Embed the finished results into the library entry (auto-save of the SESSION, not just the
+        // audio): the entry becomes a self-describing session.m4a that reopens fully editable. A
+        // failure here is non-fatal — the raw capture stays safe in the library either way.
+        libEntry?.let { entry ->
+            val updated = runCatching {
+                SessionLibrary.attachResults(
+                    this, entry, tagged, emptyMap(), result.summary, null, result.title,
+                    cfg.asrModelId, cfg.llmModelId,
+                )
+            }.getOrNull()
+            if (updated != null) {
+                emitEvent(TranscriptEvent.LibrarySaved(Uri.fromFile(updated.sessionFile).toString(), updated.title))
+            }
+        }
     }
 
     /**
@@ -653,7 +681,11 @@ class TranscriptionService : LifecycleService() {
             models.ensureAsrModels(backend) { frac -> reportDownload(R.string.svc_downloading_models_pct, frac) }
         }
         val src = if (uri.scheme == "file") uri.path?.let(::File) else null
-        val wav = if (src != null && src.exists() && src.extension == "wav" && src.parentFile?.name == "audio") src
+        // Our own 16 kHz work WAVs (filesDir/audio decode outputs AND library captures) are reused
+        // directly; anything else is decoded first.
+        val wav = if (src != null && src.exists() && src.extension == "wav" &&
+            (src.parentFile?.name == "audio" || src.name == SessionLibrary.WAV_NAME)
+        ) src
         else File(File(filesDir, "audio").apply { mkdirs() }, "decoded_${System.currentTimeMillis()}.wav").also { dest ->
             AudioDecoder.decodeToWav16k(this@TranscriptionService, uri, dest, normalize = true) { _, _ -> }
         }
@@ -706,16 +738,21 @@ class TranscriptionService : LifecycleService() {
         cfg: TranscriptionConfig,
         models: ModelManager,
         converter: OpenCcConverter?,
-    ) {
+    ): Pair<List<TranscriptEvent.Utterance>, SummaryResult> {
         val tagged = diarized?.first ?: utterances
         emitEvent(TranscriptEvent.Complete(tagged, diarized?.second))
 
-        summarize(tagged.joinToString("\n") { it.text }, cfg, models, converter)
+        return tagged to summarize(tagged.joinToString("\n") { it.text }, cfg, models, converter)
     }
+
+    /** What the summary phase produced — captured so the recording pipeline can auto-save the
+     *  finished session into the library ([SessionLibrary.attachResults]). */
+    private data class SummaryResult(val title: String?, val summary: String?)
 
     /**
      * Load the LLM and stream a title + summary for [transcript]. Shared by the full pipeline and
-     * the standalone re-summarize action ([ACTION_SUMMARIZE]).
+     * the standalone re-summarize action ([ACTION_SUMMARIZE]). Returns the final title/summary
+     * (alongside the emitted events) for callers that persist the finished session.
      */
     private suspend fun summarize(
         transcript: String,
@@ -723,7 +760,7 @@ class TranscriptionService : LifecycleService() {
         models: ModelManager,
         converter: OpenCcConverter?,
         withTitle: Boolean = true,
-    ) {
+    ): SummaryResult {
         val spec = LlmRegistry.byId(cfg.llmModelId)
         if (!models.llmReady(spec)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
@@ -731,6 +768,8 @@ class TranscriptionService : LifecycleService() {
         }
         updateNotification(getString(R.string.svc_summarizing))
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_summarizing)))   // localized (Summarizer no longer sets it)
+        var outTitle: String? = null
+        var outSummary: String? = null
         LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler).use { llm ->
             activeLlm = llm
             try {
@@ -760,12 +799,18 @@ class TranscriptionService : LifecycleService() {
                                 }
                             }
                         }
+                        when (e) {
+                            is TranscriptEvent.Title -> outTitle = e.title
+                            is TranscriptEvent.SummaryComplete -> outSummary = e.summary
+                            else -> Unit
+                        }
                         emitEvent(e)
                     }
             } finally {
                 activeLlm = null
             }
         }
+        return SummaryResult(outTitle, outSummary)
     }
 
     /** Re-summarize an existing transcript with the current settings (no re-decode / re-ASR). Keeps the

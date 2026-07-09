@@ -143,6 +143,7 @@ import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.RecordingRecovery
+import studio.voxsum.core.library.SessionLibrary
 import studio.voxsum.core.session.SessionAutosave
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TargetLanguage
@@ -427,37 +428,10 @@ private fun TranscribeScreen(
     // --- Crash recovery: a live recording the OS killed mid-capture (OEM freeze, OOM, swipe-away)
     // is repaired and offered on next launch, so a meeting is never silently lost. ---
     var recoveredRec by remember { mutableStateOf<File?>(null) }
-    LaunchedEffect(Unit) {
-        // Skip if a capture is still live in this process (Activity recreated under memory pressure
-        // while the foreground service kept recording) — only a real kill should trigger recovery.
-        if (!TranscriptionService.recordingActive) {
-            recoveredRec = withContext(Dispatchers.IO) { RecordingRecovery.pending(context) }
-        }
-    }
 
     // --- Inline editing (mirrors the web app): id->name overrides + which row/speaker is open. ---
     val speakerNames = remember { mutableStateMapOf<Int, SpeakerName>() }
 
-    // --- Session autosave restore: a COMPLETED session lost to a process kill while the app was
-    // backgrounded and asleep (see SessionAutosave — an ordinary screen-off doesn't kill the process,
-    // this is specifically the OEM-freeze/low-memory-kill case). Recovering an interrupted live
-    // recording takes priority, so this checks RecordingRecovery again itself (cheap, no side effects)
-    // rather than racing the other effect's state.
-    LaunchedEffect(Unit) {
-        if (TranscriptionService.recordingActive) return@LaunchedEffect
-        val interruptedRecording = withContext(Dispatchers.IO) { RecordingRecovery.pending(context) }
-        if (interruptedRecording != null) return@LaunchedEffect
-        val snap = withContext(Dispatchers.IO) { SessionAutosave.load(context) } ?: return@LaunchedEffect
-        if (utterances.isNotEmpty()) return@LaunchedEffect   // something already populated this launch
-        audioUri = snap.audioUri
-        utterances.addAll(snap.utterances)
-        speakerNames.putAll(snap.speakerNames)
-        title = snap.title
-        summary = snap.summary
-        actionItems = snap.actionItems
-        transcriptReady = true
-        status = context.getString(R.string.status_transcript_lines, snap.utterances.size)
-    }
     var editingIndex by remember { mutableIntStateOf(-1) }
     var editingSpeakerId by remember { mutableStateOf<Int?>(null) }
     var editingTitle by remember { mutableStateOf(false) }
@@ -486,6 +460,41 @@ private fun TranscribeScreen(
     // Recently opened/saved sessions for the home screen (a derived cache over the user's own files).
     var recentsVersion by remember { mutableIntStateOf(0) }
     val recents = remember(recentsVersion) { RecentSessions.list(context) }
+    // The library entry backing the current session, if any. Title changes — the LLM title arriving
+    // OR a user edit in the header — propagate to the entry's meta + its home-screen row, so the
+    // auto-saved name upgrades from "MM-dd HH:mm · hash" to the real title automatically.
+    var libraryDir by remember { mutableStateOf<File?>(null) }
+    LaunchedEffect(title, libraryDir) {
+        val dir = libraryDir ?: return@LaunchedEffect
+        val t = title?.trim()?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        withContext(Dispatchers.IO) { SessionLibrary.rename(context, dir, t) }
+        recentsVersion++
+    }
+
+    // --- Launch recovery, in priority order. (1) An interrupted live recording (OEM freeze, OOM,
+    // swipe-away mid-capture): the repaired WAV is promoted into the app library FIRST — so even if
+    // the recovery dialog is never answered (another kill), the audio is already safe — then offered.
+    // (2) A COMPLETED session lost to a process kill (see SessionAutosave). One effect, so the two
+    // paths can't race each other's RecordingRecovery.pending() side effects. ---
+    LaunchedEffect(Unit) {
+        if (TranscriptionService.recordingActive) return@LaunchedEffect
+        val interrupted = withContext(Dispatchers.IO) {
+            RecordingRecovery.pending(context)?.let { wav ->
+                SessionLibrary.promoteRecording(context, wav, RecordingRecovery.seconds(wav))?.wavFile ?: wav
+            }
+        }
+        if (interrupted != null) { recoveredRec = interrupted; recentsVersion++; return@LaunchedEffect }
+        val snap = withContext(Dispatchers.IO) { SessionAutosave.load(context) } ?: return@LaunchedEffect
+        if (utterances.isNotEmpty()) return@LaunchedEffect   // something already populated this launch
+        audioUri = snap.audioUri
+        utterances.addAll(snap.utterances)
+        speakerNames.putAll(snap.speakerNames)
+        title = snap.title
+        summary = snap.summary
+        actionItems = snap.actionItems
+        transcriptReady = true
+        status = context.getString(R.string.status_transcript_lines, snap.utterances.size)
+    }
     // Find-in-transcript (a slim search bar above the list; suppresses playback auto-follow while open).
     var searchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -624,6 +633,7 @@ private fun TranscribeScreen(
         showAddSourceSheet = false; showYouTubeSheet = false
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh session → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
+        libraryDir = SessionLibrary.entryDirOf(context, uri)   // non-null when re-running a library capture
         running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri, sessionGen)
     }
 
@@ -647,7 +657,9 @@ private fun TranscribeScreen(
                 TextButton(onClick = {
                     recoveredRec = null
                     RecordingRecovery.clear(context)
-                    wav.delete()
+                    // Explicit user deletion — removes the promoted library entry (or a bare file).
+                    SessionLibrary.discard(context, wav)
+                    recentsVersion++
                 }) { Text(stringResource(R.string.recover_discard)) }
             },
         )
@@ -706,7 +718,7 @@ private fun TranscribeScreen(
         TranscriptionConfig.Holder.config = config
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh recording → reset Save target + identicon
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
-        audioUri = null; running = true; transcriptReady = false; isRecording = true; progress = 0f
+        audioUri = null; libraryDir = null; running = true; transcriptReady = false; isRecording = true; progress = 0f
         status = context.getString(R.string.status_recording); onRecord(sessionGen)
     }
     val recordPermission = rememberLauncherForActivityResult(
@@ -802,6 +814,9 @@ private fun TranscribeScreen(
             coverEnabled = true
             isPlaying = false; running = false; transcriptReady = true; progress = 0f
             audioUri = Uri.fromFile(loaded.audio)
+            // A reopened library session keeps its entry binding (the extracted audio is a cache
+            // file, so derive it from the SOURCE uri) — renames still reach the library row.
+            libraryDir = SessionLibrary.entryDirOf(context, uri)
             status = context.getString(R.string.status_session_loaded, loaded.utterances.size)
             RecentSessions.add(context, uri.toString(), loaded.title ?: "", System.currentTimeMillis()); recentsVersion++
         }
@@ -953,7 +968,14 @@ private fun TranscribeScreen(
                         resumeAfterSwap = isPlaying
                     }
                     audioUri = newUri; isRecording = false; micLevel = 0f
+                    // A finished recording was auto-saved into the library (promoted on mic stop) —
+                    // its raw-capture row is already in Recents; refresh the home list and bind the
+                    // session to its entry so title changes propagate.
+                    libraryDir = SessionLibrary.entryDirOf(context, newUri) ?: libraryDir
+                    recentsVersion++
                 }
+                // The finished session (transcript + summary embedded) replaced the raw-capture row.
+                is TranscriptEvent.LibrarySaved -> recentsVersion++
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
                 is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
                 is TranscriptEvent.Failed -> {
