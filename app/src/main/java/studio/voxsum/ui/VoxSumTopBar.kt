@@ -72,6 +72,9 @@ fun VoxSumTopBar(
     transcriptAvailable: Boolean,
     showSourceActions: Boolean,   // false on the blank slate (the hero CTA covers "Add audio" there)
     isRecording: Boolean,
+    // Show ⏭ "next talk" — while recording, AND while post-stop processing of a library-backed
+    // capture (its audio is already auto-saved, so moving on only defers the processing).
+    showNextTalk: Boolean,
     recSeconds: Int,
     micLevel: Float = 0f,
     onAddSource: () -> Unit,
@@ -162,9 +165,12 @@ fun VoxSumTopBar(
                             )
                             Spacer(Modifier.width(2.dp))
                         }
-                        if (isRecording) {
+                        if (showNextTalk) {
                             // "Next talk": end this capture (auto-saved, processing deferred) and
                             // immediately start recording the next one — for back-to-back sessions.
+                            // Also shown while a stopped recording is still diarizing/summarizing:
+                            // the audio is already in the library, so recording the next talk just
+                            // defers the rest of its processing to the queue.
                             IconButton(onClick = onNextTalk) {
                                 Icon(
                                     Icons.Filled.SkipNext,
