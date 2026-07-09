@@ -143,6 +143,7 @@ import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.RecordingRecovery
+import studio.voxsum.core.library.ProcessingQueue
 import studio.voxsum.core.library.SessionLibrary
 import studio.voxsum.core.session.SessionAutosave
 import studio.voxsum.core.config.ConfigStore
@@ -274,7 +275,7 @@ class MainActivity : ComponentActivity() {
             CompositionLocalProvider(LocalThemeController provides controller) {
                 VoxSumTheme(themeMode) {
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                        TranscribeScreen(::startTranscription, ::stopTranscription, ::startRecording, ::stopRecording)
+                        TranscribeScreen(::startTranscription, ::stopTranscription, ::startRecording, ::stopRecording, ::stopRecordingDefer, ::processQueue)
                     }
                 }
             }
@@ -306,6 +307,22 @@ class MainActivity : ComponentActivity() {
     private fun stopRecording() {
         startService(
             Intent(this, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_STOP_RECORDING)
+        )
+    }
+
+    /** "Next talk": end the live recording but defer its processing (auto-saved as RECORDED). */
+    private fun stopRecordingDefer() {
+        startService(
+            Intent(this, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_STOP_RECORDING_DEFER)
+        )
+    }
+
+    /** Drain the processing queue over the library's pending recordings. */
+    private fun processQueue() {
+        maybeRequestBackgroundExemptionOnce()
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_PROCESS_QUEUE),
         )
     }
 
@@ -372,6 +389,8 @@ private fun TranscribeScreen(
     onStop: () -> Unit,
     onRecord: (Int) -> Unit,
     onStopRecording: () -> Unit,
+    onStopRecordingDefer: () -> Unit,
+    onProcessQueue: () -> Unit,
 ) {
     val pal = LocalVoxSumPalette.current
     val context = LocalContext.current
@@ -732,6 +751,16 @@ private fun TranscribeScreen(
             PackageManager.PERMISSION_GRANTED
         if (granted) beginRecording() else recordPermission.launch(Manifest.permission.RECORD_AUDIO)
     }
+    // "Next talk": end this capture with DEFERRED processing (it's auto-saved as RECORDED), then —
+    // once RecordingSaved confirms the capture is safe — immediately start recording the next one.
+    var pendingNextTalk by remember { mutableStateOf(false) }
+    fun nextTalk() {
+        if (!isRecording) return
+        pendingNextTalk = true
+        isRecording = false
+        status = context.getString(R.string.status_saved_for_later)
+        onStopRecordingDefer()
+    }
     // Stop routing: end recording gracefully (continue to diarization/summary) vs cancel a run.
     fun handleStop() {
         // Recording → finish gracefully (continues into diarization/summary, stays running). Otherwise
@@ -973,12 +1002,16 @@ private fun TranscribeScreen(
                     // session to its entry so title changes propagate.
                     libraryDir = SessionLibrary.entryDirOf(context, newUri) ?: libraryDir
                     recentsVersion++
+                    // "Next talk": the previous capture is confirmed safe on disk — roll straight
+                    // into the next recording (resets the session; later stale events are dropped).
+                    if (pendingNextTalk) { pendingNextTalk = false; beginRecording() }
                 }
                 // The finished session (transcript + summary embedded) replaced the raw-capture row.
                 is TranscriptEvent.LibrarySaved -> recentsVersion++
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
                 is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
                 is TranscriptEvent.Failed -> {
+                    pendingNextTalk = false   // capture wasn't saved → don't roll into a new recording
                     status = context.getString(R.string.status_error, e.error); running = false; diarizeOnlyRun = false
                     // Offer a one-tap Retry for the same source (a corrupt model was cleared server-
                     // side, so the retry re-downloads it). Only when we still hold the source Uri.
@@ -1328,6 +1361,7 @@ private fun TranscribeScreen(
                 micLevel = micLevel,
                 onAddSource = { showAddSourceSheet = true },
                 onStop = { handleStop() },
+                onNextTalk = { nextTalk() },
                 // All re-run actions are disabled while a run is in flight (each fun also guards `running`);
                 // this also blocks Re-transcribe/Detect-names from starting a second run whose buffered
                 // events would otherwise land on the freshly-reset session.
@@ -1586,6 +1620,21 @@ private fun TranscribeScreen(
             onYouTube = { showYouTubeSheet = true },
             onOpenSession = { sessionOpener.launch(arrayOf("audio/ogg", "application/ogg", "audio/mp4", "audio/x-m4a", "*/*")) },
             onDismiss = { showAddSourceSheet = false },
+            pendingCount = remember(recentsVersion) {
+                SessionLibrary.list(context).count { it.status == SessionLibrary.Status.RECORDED && it.wavFile.exists() }
+            },
+            onProcessAll = {
+                // Queue every pending recording, then let the foreground service drain them.
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        val ids = SessionLibrary.list(context)
+                            .filter { it.status == SessionLibrary.Status.RECORDED && it.wavFile.exists() }
+                            .map { it.id }
+                        ProcessingQueue.enqueue(context, ids)
+                    }
+                    onProcessQueue()
+                }
+            },
         )
     }
     if (showYouTubeSheet) {

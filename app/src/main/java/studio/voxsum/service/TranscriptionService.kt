@@ -40,6 +40,7 @@ import studio.voxsum.core.config.SummaryStyle
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
+import studio.voxsum.core.library.ProcessingQueue
 import studio.voxsum.core.library.SessionLibrary
 import studio.voxsum.core.llm.ActionItemExtractor
 import studio.voxsum.core.llm.LlmEngine
@@ -84,6 +85,14 @@ class TranscriptionService : LifecycleService() {
         // Gracefully end live recording and continue into diarization/summary (vs ACTION_STOP,
         // which cancels the whole job).
         const val ACTION_STOP_RECORDING = "studio.voxsum.STOP_RECORDING"
+        // "Next talk": gracefully end live recording but DEFER the heavy processing (no diarize,
+        // no summary) — the capture is auto-saved to the library as RECORDED and the mic frees up
+        // for the next back-to-back session. Processed later via ACTION_PROCESS_QUEUE.
+        const val ACTION_STOP_RECORDING_DEFER = "studio.voxsum.STOP_RECORDING_DEFER"
+        // Drain the ProcessingQueue: serially run the full pipeline over each queued library
+        // entry and embed the results. Events are tagged QUEUE_GEN so they never touch the UI's
+        // current session; progress lives in the notification + the library rows.
+        const val ACTION_PROCESS_QUEUE = "studio.voxsum.PROCESS_QUEUE"
         // Build/write a session .ogg in the foreground service so it completes even if the user
         // leaves/closes the app mid-export (the SAF document is created empty up front; a UI-scoped
         // build that got interrupted left a 0-byte file). Request passed via [pendingExport] —
@@ -116,6 +125,11 @@ class TranscriptionService : LifecycleService() {
         val events = MutableSharedFlow<Pair<Int, TranscriptEvent>>(extraBufferCapacity = 256)
         val eventStream = events.asSharedFlow()
         const val UNTAGGED = -1
+
+        // Queue-drain runs are tagged with this generation: never equal to UNTAGGED (always
+        // accepted) nor to any UI sessionGen (starts at 0, only increments), so the UI collector
+        // drops queue events instead of letting them mutate the open session.
+        const val QUEUE_GEN = -2
     }
 
     /** A pending session export, handed to the service via [pendingExport] (utterances can be large,
@@ -152,6 +166,9 @@ class TranscriptionService : LifecycleService() {
     // coroutine cancellation while inside a blocking JNI call).
     @Volatile private var activeLlm: LlmEngine? = null
     @Volatile private var stopRecordingRequested = false
+    // "Next talk": when the graceful stop above was requested with DEFER semantics — skip
+    // diarization + summary, auto-save the capture as RECORDED, and return immediately.
+    @Volatile private var deferProcessing = false
     // Whether the current foreground notification should show the "Finish recording" action.
     @Volatile private var notifRecording = false
     // Last reported download percent, so reportDownload() throttles to integer-percent changes.
@@ -217,6 +234,12 @@ class TranscriptionService : LifecycleService() {
                 stopRecordingRequested = true
                 return START_NOT_STICKY
             }
+            // "Next talk": end recording, auto-save, skip processing — the mic frees up fast.
+            ACTION_STOP_RECORDING_DEFER -> {
+                deferProcessing = true
+                stopRecordingRequested = true
+                return START_NOT_STICKY
+            }
             ACTION_EXPORT -> {
                 runExport(pendingExport.also { pendingExport = null })
                 return START_NOT_STICKY
@@ -228,7 +251,9 @@ class TranscriptionService : LifecycleService() {
         val retitle = intent?.action == ACTION_RETITLE
         val extractActions = intent?.action == ACTION_EXTRACT_ACTIONS
         val diarizeOnly = intent?.action == ACTION_DIARIZE
+        val processQueue = intent?.action == ACTION_PROCESS_QUEUE
         stopRecordingRequested = false
+        deferProcessing = false
         val previousJob = pipelineJob
         val previousLlm = activeLlm
         startForegroundTyped(recording, "Preparing…")
@@ -236,7 +261,8 @@ class TranscriptionService : LifecycleService() {
         val transcript = intent?.getStringExtra(EXTRA_TRANSCRIPT)
         val summaryExtra = intent?.getStringExtra(EXTRA_SUMMARY)
         val summarizeWithTitle = intent?.getBooleanExtra(EXTRA_WITH_TITLE, false) ?: false
-        val runGen = intent?.getIntExtra(EXTRA_RUN_GEN, UNTAGGED) ?: UNTAGGED
+        // Queue drains are tagged QUEUE_GEN so their events never reach the UI's open session.
+        val runGen = if (processQueue) QUEUE_GEN else intent?.getIntExtra(EXTRA_RUN_GEN, UNTAGGED) ?: UNTAGGED
         // Run the whole pipeline off the main thread — the MediaCodec decode is a long
         // blocking call that would otherwise ANR the UI (lifecycleScope defaults to Main). RunGen tags
         // every event this job emits with the owning session generation.
@@ -248,6 +274,7 @@ class TranscriptionService : LifecycleService() {
                     retitle -> runTitleOnly(summaryExtra.orEmpty())
                     extractActions -> runExtractActions(transcript.orEmpty())
                     diarizeOnly -> runDiarizeOnly(uri)
+                    processQueue -> runQueue()
                     recording -> runRecordingPipeline()
                     else -> runPipeline(uri)
                 }
@@ -356,9 +383,9 @@ class TranscriptionService : LifecycleService() {
      * released before the LLM loads — never both resident (see SPIKE.md "memory"). Phase 3
      * inserts diarization between ASR and the Complete event.
      */
-    private suspend fun runPipeline(audioUri: String?) {
+    private suspend fun runPipeline(audioUri: String?): Pair<List<TranscriptEvent.Utterance>, SummaryResult>? {
         val uri = audioUri?.let(Uri::parse)
-            ?: run { emitEvent(TranscriptEvent.Failed("No audio source")); return }
+            ?: run { emitEvent(TranscriptEvent.Failed("No audio source")); return null }
         val cfg = TranscriptionConfig.Holder.config
 
         val models = ModelManager(this)
@@ -377,10 +404,44 @@ class TranscriptionService : LifecycleService() {
         // ends up in one consistent script — Traditional / Simplified / none per Target language × locale.
         val converter = outputConverter(cfg)
 
+        // Our own 16 kHz work WAVs (library captures, prior decode outputs) are streamed directly —
+        // same policy as runDiarizeOnly; routing them through the MediaCodec decode path is both
+        // wasteful (a byte-identical copy) and unreliable for WAV input on some devices (observed:
+        // zero decoded samples → empty transcript when the queue re-processed a library capture).
+        val srcFile = if (uri.scheme == "file") uri.path?.let(::File) else null
+        val ownWav = srcFile != null && srcFile.exists() && srcFile.extension == "wav" &&
+            (srcFile.parentFile?.name == "audio" || srcFile.name == SessionLibrary.WAV_NAME)
+
         // Stream-decode the source to a 16 kHz mono work WAV while feeding the live VAD/ASR — never
         // the whole waveform in RAM. The WAV is the player + diarization source (16 kHz mono).
-        val wav = File(File(filesDir, "audio").apply { mkdirs() }, "decoded_${System.currentTimeMillis()}.wav")
-        val chunks = channelFlow {
+        val wav = if (ownWav) srcFile!!
+        else File(File(filesDir, "audio").apply { mkdirs() }, "decoded_${System.currentTimeMillis()}.wav")
+        val chunks = if (ownWav) {
+            // Raw PCM16 read in recorder-sized blocks (the capture was already AGC'd/normalized).
+            kotlinx.coroutines.flow.flow {
+                java.io.DataInputStream(wav.inputStream().buffered(1 shl 16)).use { ins ->
+                    ins.skipBytes(WavIo.HEADER)
+                    val bytes = ByteArray(2048 * 2)
+                    while (true) {
+                        var n = 0
+                        while (n < bytes.size) {
+                            val k = ins.read(bytes, n, bytes.size - n)
+                            if (k < 0) break
+                            n += k
+                        }
+                        if (n < 2) break
+                        val f = FloatArray(n / 2)
+                        for (i in f.indices) {
+                            val lo = bytes[2 * i].toInt() and 0xFF
+                            val hi = bytes[2 * i + 1].toInt()
+                            f[i] = ((hi shl 8) or lo).toShort() / 32768f
+                        }
+                        emit(f)
+                        if (n < bytes.size) break
+                    }
+                }
+            }.flowOn(Dispatchers.IO)
+        } else channelFlow {
             // normalize: quiet far-field imports get an automatic constant gain before the live
             // VAD/ASR sees them — and the work WAV (player + diarization source) carries the same
             // gain, so every downstream consumer hears identical audio.
@@ -407,7 +468,7 @@ class TranscriptionService : LifecycleService() {
             // surface a clear, retryable message instead of a raw native error in the transcript.
             runCatching { models.deleteAsr(backend) }
             emitEvent(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))
-            return
+            return null
         }
         var diarized: Pair<List<TranscriptEvent.Utterance>, Int>? = null
         asr.use {
@@ -453,9 +514,56 @@ class TranscriptionService : LifecycleService() {
         emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
         if (utterances.isEmpty()) {
             emitEvent(TranscriptEvent.Complete(emptyList(), speakerCount = null))
-            return
+            return null
         }
-        finishPipeline(utterances, diarized, cfg, models, converter)
+        return finishPipeline(utterances, diarized, cfg, models, converter)
+    }
+
+    /**
+     * Drain the [ProcessingQueue]: run the full pipeline over each queued library entry, embed the
+     * results ([SessionLibrary.attachResults]), and remove it. Serial by design (the models are the
+     * bottleneck). An item is removed only after it finished (or failed terminally), so a kill
+     * mid-item resumes it on the next drain; a cancellation (new run superseding this one) leaves
+     * the remainder queued for later.
+     */
+    private suspend fun runQueue() {
+        while (true) {
+            val id = ProcessingQueue.peek(this) ?: break
+            val entry = SessionLibrary.byId(this, id)
+            if (entry == null || entry.status == SessionLibrary.Status.DONE || !entry.wavFile.exists()) {
+                ProcessingQueue.remove(this, id)   // stale/already-done → drop and move on
+                continue
+            }
+            val remaining = ProcessingQueue.size(this)
+            updateNotification(getString(R.string.svc_processing_queue, entry.title ?: SessionLibrary.defaultTitle(entry.createdAt), remaining))
+            // Track decode temp files this item creates so they're reclaimed per-item (a long
+            // queue would otherwise stack one decoded WAV copy per entry in filesDir/audio).
+            val audioDir = File(filesDir, "audio")
+            val before = audioDir.listFiles()?.map { it.name }?.toSet() ?: emptySet()
+            try {
+                val cfg = TranscriptionConfig.Holder.config
+                val res = runPipeline(Uri.fromFile(entry.wavFile).toString())
+                if (res != null) {
+                    val updated = SessionLibrary.attachResults(
+                        this, entry, res.first, emptyMap(), res.second.summary, null,
+                        res.second.title, cfg.asrModelId, cfg.llmModelId,
+                    )
+                    if (updated != null) {
+                        // UNTAGGED on purpose: the only UI effect is a recents-list refresh.
+                        events.emit(UNTAGGED to TranscriptEvent.LibrarySaved(Uri.fromFile(updated.sessionFile).toString(), updated.title))
+                    }
+                }
+            } catch (ce: CancellationException) {
+                throw ce   // superseded/stopped: keep the item queued for the next drain
+            } catch (t: Throwable) {
+                // A terminally failed item must not wedge the queue — drop it and continue; its
+                // capture stays safe (RECORDED) in the library for a manual retry.
+                events.emit(UNTAGGED to TranscriptEvent.Status(getString(R.string.svc_queue_item_failed, entry.title ?: SessionLibrary.defaultTitle(entry.createdAt))))
+            } finally {
+                audioDir.listFiles()?.forEach { if (it.name !in before) runCatching { it.delete() } }
+            }
+            ProcessingQueue.remove(this, id)
+        }
     }
 
     /**
@@ -477,6 +585,10 @@ class TranscriptionService : LifecycleService() {
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         var diarized: Pair<List<TranscriptEvent.Utterance>, Int>? = null
         var libEntry: SessionLibrary.Entry? = null
+        // Snapshot of deferProcessing taken the moment capture ends: the UI's next-talk flow fires
+        // a new ACTION_RECORD (which resets the service-global flag) while THIS run is still
+        // finishing — the run must keep the defer decision it stopped under.
+        var deferred = false
 
         // Track this capture so a process kill mid-meeting is recoverable on next launch. The finally
         // below clears it on a clean stop AND on user cancellation (both run finally) — only a hard
@@ -536,6 +648,7 @@ class TranscriptionService : LifecycleService() {
                         else -> emitEvent(e)
                     }
                 }
+            deferred = deferProcessing   // capture just ended — freeze this run's defer decision
             // Playback-volume normalization for the capture: a too-quiet recording is fixed in
             // the WAV itself (players can only attenuate, never amplify), so the player AND the
             // diarization pass below hear a comfortable level. Imported files don't need this —
@@ -545,7 +658,9 @@ class TranscriptionService : LifecycleService() {
             // can be split by re-decode on timestamp-less backends. The capture WAV is already
             // finalized (WavWriter.close() ran when the record flow completed, before
             // transcribeLive returned).
-            if (utterances.isNotEmpty() && cfg.diarizationEnabled) {
+            // "Next talk" defers ALL heavy processing — skip diarization too (the queue drain
+            // re-runs the full pipeline over the saved WAV later).
+            if (!deferred && utterances.isNotEmpty() && cfg.diarizationEnabled) {
                 // Diarization is an enhancement, not a prerequisite: a failure here (typically a
                 // model download dying on flaky Wi-Fi — seen on-device) must NOT cost the session.
                 // Continue to Complete/summary with the untagged transcript instead of Failed,
@@ -583,6 +698,14 @@ class TranscriptionService : LifecycleService() {
         if (recorder.totalSamples == 0L) { emitEvent(TranscriptEvent.Failed("No audio recorded")); return }
         val savedWav = libEntry?.wavFile ?: wav
         emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(savedWav).toString()))
+
+        if (deferred) {
+            // "Next talk": capture is auto-saved (RECORDED); processing happens later via the
+            // queue. Complete carries the live transcript so the UI isn't left mid-run — the next
+            // recording's session reset supersedes it anyway.
+            emitEvent(TranscriptEvent.Complete(utterances, speakerCount = null))
+            return
+        }
 
         if (utterances.isEmpty()) {
             emitEvent(TranscriptEvent.Complete(emptyList(), speakerCount = null))

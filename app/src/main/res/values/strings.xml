@@ -251,4 +251,12 @@
     <string name="recover_message">A recording of about %d min was interrupted before it finished. Finish transcribing it now?</string>
     <string name="recover_finish">Finish transcribing</string>
     <string name="recover_discard">Discard</string>
+
+    <!-- Batch recording: "Next talk" + deferred processing queue -->
+    <string name="cd_next_talk">Next talk (save and record the next one)</string>
+    <string name="status_saved_for_later">Recording saved — process it later from Add audio</string>
+    <string name="source_process_all">Process pending (%d)</string>
+    <string name="source_process_all_desc">Transcribe and summarize the saved recordings one by one</string>
+    <string name="svc_processing_queue">Processing %1$s (%2$d left)</string>
+    <string name="svc_queue_item_failed">Could not process %s — kept in the library</string>
 </resources>

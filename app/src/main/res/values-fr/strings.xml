@@ -251,4 +251,12 @@
     <string name="recover_message">Un enregistrement d\'environ %d min a été interrompu avant la fin. Terminer sa transcription maintenant ?</string>
     <string name="recover_finish">Terminer la transcription</string>
     <string name="recover_discard">Supprimer</string>
+
+    <!-- Batch recording: "Next talk" + deferred processing queue -->
+    <string name="cd_next_talk">Session suivante (sauvegarder et enregistrer la suivante)</string>
+    <string name="status_saved_for_later">Enregistrement sauvegardé — à traiter plus tard depuis Ajouter de l\'audio</string>
+    <string name="source_process_all">Traiter en attente (%d)</string>
+    <string name="source_process_all_desc">Transcrire et résumer les enregistrements sauvegardés un par un</string>
+    <string name="svc_processing_queue">Traitement de %1$s (%2$d restants)</string>
+    <string name="svc_queue_item_failed">Impossible de traiter %s — conservé dans la bibliothèque</string>
 </resources>

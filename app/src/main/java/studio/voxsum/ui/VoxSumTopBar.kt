@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.Title
@@ -75,6 +76,7 @@ fun VoxSumTopBar(
     micLevel: Float = 0f,
     onAddSource: () -> Unit,
     onStop: () -> Unit,
+    onNextTalk: () -> Unit,
     canReTranscribe: Boolean,
     onReTranscribe: () -> Unit,
     canReSummarize: Boolean,
@@ -159,6 +161,17 @@ fun VoxSumTopBar(
                                 color = pal.OnBrand,
                             )
                             Spacer(Modifier.width(2.dp))
+                        }
+                        if (isRecording) {
+                            // "Next talk": end this capture (auto-saved, processing deferred) and
+                            // immediately start recording the next one — for back-to-back sessions.
+                            IconButton(onClick = onNextTalk) {
+                                Icon(
+                                    Icons.Filled.SkipNext,
+                                    contentDescription = stringResource(R.string.cd_next_talk),
+                                    tint = pal.OnBrand,
+                                )
+                            }
                         }
                         IconButton(onClick = onStop) {
                             Icon(

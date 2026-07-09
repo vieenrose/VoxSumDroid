@@ -250,4 +250,12 @@
     <string name="recover_message">一段約 %d 分鐘的錄音在完成前被中斷。要立即完成轉錄嗎？</string>
     <string name="recover_finish">完成轉錄</string>
     <string name="recover_discard">捨棄</string>
+
+    <!-- Batch recording: "Next talk" + deferred processing queue -->
+    <string name="cd_next_talk">下一場（儲存並開始下一段錄音）</string>
+    <string name="status_saved_for_later">錄音已儲存——稍後可從「加入音訊」進行處理</string>
+    <string name="source_process_all">處理待辦（%d）</string>
+    <string name="source_process_all_desc">逐一轉錄並摘要已儲存的錄音</string>
+    <string name="svc_processing_queue">正在處理 %1$s（剩餘 %2$d）</string>
+    <string name="svc_queue_item_failed">無法處理 %s——已保留在資料庫中</string>
 </resources>

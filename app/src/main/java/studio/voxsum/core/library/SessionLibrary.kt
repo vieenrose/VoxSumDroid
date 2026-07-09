@@ -139,6 +139,9 @@ object SessionLibrary {
         return updated
     }
 
+    /** A single entry by id, or null if missing/corrupt. */
+    fun byId(context: Context, id: String): Entry? = readMeta(File(root(context), id))
+
     /** All library entries, newest first. Corrupt/foreign directories are skipped, never deleted. */
     fun list(context: Context): List<Entry> =
         root(context).listFiles()?.mapNotNull { dir -> readMeta(dir) }?.sortedByDescending { it.createdAt }
