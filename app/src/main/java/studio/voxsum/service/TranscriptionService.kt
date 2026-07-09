@@ -563,8 +563,12 @@ class TranscriptionService : LifecycleService() {
         // The decoded 16 kHz WAV is the player source now (per the streaming design).
         emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
         if (utterances.isEmpty()) {
+            // No speech detected — a legitimate (empty) SUCCESS, not an error. Return an empty
+            // result (not null) so the queue marks the entry DONE with an audio-only session,
+            // instead of leaving it RECORDED and re-transcribing it on every 'Process all'. Real
+            // errors (no source / corrupt model) return null above and stay retryable.
             emitEvent(TranscriptEvent.Complete(emptyList(), speakerCount = null))
-            return null
+            return emptyList<TranscriptEvent.Utterance>() to SummaryResult(null, null)
         }
         val result = finishPipeline(utterances, diarized, cfg, models, converter)
 
