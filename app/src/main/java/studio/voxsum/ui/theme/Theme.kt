@@ -59,12 +59,13 @@ data class VoxSumColors(
  * the speaker alphas are pure ratios — so these never flip and stay a plain object.
  */
 object VoxSumPalette {
-    // Semantic status colors (mirror the web app's status pill).
-    val Success = Color(0xFF22C55E)
-    val Warning = Color(0xFFF59E0B)
-    val Info = Color(0xFF3B82F6)
+    // Semantic status colors (VoxSum 2.0): status never borrows the accent — done is green,
+    // queue-at-work is amber, live recording is red. Tuned to read on light AND dark grounds.
+    val Success = Color(0xFF2E9E63)
+    val Warning = Color(0xFFE08A0B)
+    val Info = Color(0xFF2F6BFF)
     val Idle = Color(0xFFEAB308)
-    val Red = Color(0xFFEF4444)
+    val Red = Color(0xFFE5484D)
     /** Neutral fallback for [statusColor] (mid-slate — legible on any background). */
     val Neutral = Color(0xFF64748B)
 
@@ -73,27 +74,28 @@ object VoxSumPalette {
     const val SpeakerBorderAlpha = 0.6f
 }
 
-/** Dark theme — the original VoxSum look (sky→indigo on dark slate). */
+/** Dark theme — VoxSum 2.0: deep blue-black ground, calm navy cards, one electric-blue accent.
+ *  The old sky→indigo gradient is retired; "brand" fills are now the solid accent. */
 val DarkColors = VoxSumColors(
     isDark = true,
-    Sky = Color(0xFF38BDF8),
-    Indigo = Color(0xFF818CF8),
-    Slate900 = Color(0xFF0F172A),
-    Slate800 = Color(0xFF1E293B),
-    Slate700 = Color(0xFF334155),
-    Slate600 = Color(0xFF475569),
-    Slate400 = Color(0xFF94A3B8),
-    Slate200 = Color(0xFFE2E8F0),
+    Sky = Color(0xFF7DA2FF),
+    Indigo = Color(0xFF9DB8FF),
+    Slate900 = Color(0xFF0E1420),
+    Slate800 = Color(0xFF1A2233),
+    Slate700 = Color(0xFF2A3550),
+    Slate600 = Color(0xFF3D4A69),
+    Slate400 = Color(0xFF93A0B8),
+    Slate200 = Color(0xFFE9EDF6),
     OnBrand = Color.White,
     OnBrandMuted = Color.White.copy(alpha = 0.70f),
     OnBrandFaint = Color.White.copy(alpha = 0.35f),
-    BrandGradient = Brush.linearGradient(listOf(Color(0xFF38BDF8), Color(0xFF818CF8))),
-    Slate900Grad = Brush.verticalGradient(listOf(Color(0xFF0F172A), Color(0xFF111827))),
-    PanelSurface = Color(0xFF1E293B).copy(alpha = 0.85f),
-    InsetSurface = Color(0xFF0F172A).copy(alpha = 0.50f),
-    Hairline = Color(0xFF94A3B8).copy(alpha = 0.15f),
-    ActiveTint = Color(0xFF38BDF8).copy(alpha = 0.15f),
-    ActiveBar = Color(0xFF38BDF8),
+    BrandGradient = Brush.linearGradient(listOf(Color(0xFF23304B), Color(0xFF23304B))),
+    Slate900Grad = Brush.verticalGradient(listOf(Color(0xFF0E1420), Color(0xFF0E1420))),
+    PanelSurface = Color(0xFF1A2233),
+    InsetSurface = Color(0xFF0E1420).copy(alpha = 0.55f),
+    Hairline = Color(0xFF93A0B8).copy(alpha = 0.18f),
+    ActiveTint = Color(0xFF7DA2FF).copy(alpha = 0.16f),
+    ActiveBar = Color(0xFF7DA2FF),
 )
 
 /**
@@ -103,24 +105,24 @@ val DarkColors = VoxSumColors(
  */
 val LightColors = VoxSumColors(
     isDark = false,
-    Sky = Color(0xFF0EA5E9),        // Sky-500 — better contrast than 400 on white
-    Indigo = Color(0xFF6366F1),
-    Slate900 = Color(0xFFF8FAFC),   // darkest-role token → lightest surface base
+    Sky = Color(0xFF2F6BFF),        // the ONE accent — actions and identity
+    Indigo = Color(0xFF1E4FD6),     // deepened accent for primary-role fills
+    Slate900 = Color(0xFFF2F4F1),   // soft warm-grey ground
     Slate800 = Color(0xFFFFFFFF),   // card surface
-    Slate700 = Color(0xFFCBD5E1),   // inactive tracks / disabled fills
-    Slate600 = Color(0xFF94A3B8),   // borders / secondary lines
-    Slate400 = Color(0xFF64748B),   // muted text (Slate-500 — readable on white)
-    Slate200 = Color(0xFF0F172A),   // primary text = near-black
+    Slate700 = Color(0xFFDFE4DD),   // inactive tracks / disabled fills
+    Slate600 = Color(0xFF9AA7B8),   // borders / secondary lines
+    Slate400 = Color(0xFF5A6982),   // muted text
+    Slate200 = Color(0xFF17263F),   // primary text = deep navy ink
     OnBrand = Color.White,
     OnBrandMuted = Color.White.copy(alpha = 0.80f),
     OnBrandFaint = Color.White.copy(alpha = 0.45f),
-    BrandGradient = Brush.linearGradient(listOf(Color(0xFF38BDF8), Color(0xFF818CF8))),
-    Slate900Grad = Brush.verticalGradient(listOf(Color(0xFFFFFFFF), Color(0xFFF1F5F9))),
+    BrandGradient = Brush.linearGradient(listOf(Color(0xFF2F6BFF), Color(0xFF2F6BFF))),
+    Slate900Grad = Brush.verticalGradient(listOf(Color(0xFFF2F4F1), Color(0xFFF2F4F1))),
     PanelSurface = Color(0xFFFFFFFF),
-    InsetSurface = Color(0xFFF1F5F9),
-    Hairline = Color(0xFF0F172A).copy(alpha = 0.12f),
-    ActiveTint = Color(0xFF0EA5E9).copy(alpha = 0.14f),
-    ActiveBar = Color(0xFF0EA5E9),
+    InsetSurface = Color(0xFFECEFEA),
+    Hairline = Color(0xFF17263F).copy(alpha = 0.10f),
+    ActiveTint = Color(0xFF2F6BFF).copy(alpha = 0.12f),
+    ActiveBar = Color(0xFF2F6BFF),
 )
 
 /**

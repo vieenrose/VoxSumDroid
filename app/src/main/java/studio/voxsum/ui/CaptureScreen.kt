@@ -91,7 +91,8 @@ fun CaptureScreen(
         Text(
             "%d:%02d".format(recSeconds / 60, recSeconds % 60),
             fontSize = 72.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,   // tabular: no layout shift per tick
             color = pal.Slate200,
             modifier = Modifier.align(Alignment.CenterHorizontally),
         )

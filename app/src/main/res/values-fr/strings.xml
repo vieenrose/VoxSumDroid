@@ -287,4 +287,10 @@
     <string name="delete_confirm">Supprimer « %s » définitivement ? L\'audio et sa transcription seront effacés.</string>
 
     <string name="studio_processing_banner">Traitement — %s (touchez pour suivre en direct)</string>
+
+    <string name="studio_search_hint">Rechercher une session…</string>
+    <string name="studio_no_match">Aucune session ne correspond à votre recherche.</string>
+    <string name="chip_new">Nouveau</string>
+    <string name="day_today">AUJOURD’HUI</string>
+    <string name="day_yesterday">HIER</string>
 </resources>

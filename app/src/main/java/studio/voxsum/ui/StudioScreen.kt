@@ -2,9 +2,11 @@ package studio.voxsum.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,17 +21,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
@@ -43,7 +45,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -58,7 +59,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import studio.voxsum.R
@@ -66,13 +70,14 @@ import studio.voxsum.core.library.SessionLibrary
 import studio.voxsum.ui.theme.LocalVoxSumPalette
 import studio.voxsum.ui.theme.VoxSumPalette
 import java.text.DateFormat
+import java.util.Calendar
 import java.util.Date
 
 /**
- * The studio home: every session (auto-saved recordings + processed results) as a list with live
- * status — New / Queued / Processing (phase + %) / Done — plus the primary actions: Record,
- * Process all, import (+). Tapping a Done row opens it; any row's long-press (or a pending row's
- * tap) opens the management sheet: Process now / Rename / Share audio / Delete.
+ * The studio home — VoxSum 2.0 "session shelf". Sessions grouped by day; status carried by the
+ * waveform glyph's color (green = done and QUIET — no chip; grey = new; amber = processing with an
+ * inline progress bar and phase text; red would be live). One accent action: Record. "Process all"
+ * appears as a banner chip only while there is pending work. Search filters by title.
  */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -106,6 +111,12 @@ fun StudioScreen(
     var actionsFor by remember { mutableStateOf<SessionLibrary.Entry?>(null) }
     var renameFor by remember { mutableStateOf<SessionLibrary.Entry?>(null) }
     var deleteFor by remember { mutableStateOf<SessionLibrary.Entry?>(null) }
+    var query by remember { mutableStateOf("") }
+
+    val shown = remember(entries, query) {
+        if (query.isBlank()) entries
+        else entries.filter { (it.title ?: SessionLibrary.defaultTitle(it.createdAt)).contains(query.trim(), ignoreCase = true) }
+    }
 
     Column(
         Modifier
@@ -114,192 +125,159 @@ fun StudioScreen(
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        // Brand header — same gradient band as the session screen, studio-level actions only.
+        // Flat identity row — the gradient band is retired. Content over chrome.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
+        ) {
+            Box(
+                Modifier.size(32.dp).clip(RoundedCornerShape(9.dp)).background(pal.Sky),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Filled.GraphicEq, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp)) }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                stringResource(R.string.app_name),
+                style = MaterialTheme.typography.headlineSmall,
+                color = pal.Slate200,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Spacer(Modifier.weight(1f))
+            Box(
+                Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(pal.ActiveTint).clickable(onClick = onImport),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.add_audio), tint = pal.Sky) }
+            Spacer(Modifier.width(8.dp))
+            IconButton(onClick = onSettings) {
+                Icon(Icons.Filled.Tune, contentDescription = stringResource(R.string.cd_settings), tint = pal.Slate400)
+            }
+        }
+
+        // Search over titles — after a month of sessions the flat list needs it.
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
-                .background(pal.BrandGradient)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(pal.PanelSurface)
+                .border(1.dp, pal.Hairline, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 9.dp),
         ) {
-            Icon(Icons.Filled.GraphicEq, contentDescription = null, tint = pal.OnBrand)
+            Icon(Icons.Filled.Search, contentDescription = null, tint = pal.Slate400, modifier = Modifier.size(17.dp))
             Spacer(Modifier.width(8.dp))
-            Text(
-                stringResource(R.string.app_name),
-                style = MaterialTheme.typography.headlineSmall,
-                color = pal.OnBrand,
-                fontWeight = FontWeight.Bold,
+            BasicTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                textStyle = TextStyle(color = pal.Slate200, fontSize = MaterialTheme.typography.bodyMedium.fontSize),
+                cursorBrush = SolidColor(pal.Sky),
+                decorationBox = { inner ->
+                    if (query.isEmpty()) Text(stringResource(R.string.studio_search_hint), color = pal.Slate400, style = MaterialTheme.typography.bodyMedium)
+                    inner()
+                },
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onImport) {
-                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.add_audio), tint = pal.OnBrand)
-            }
-            IconButton(onClick = onSettings) {
-                Icon(Icons.Filled.Tune, contentDescription = stringResource(R.string.cd_settings), tint = pal.OnBrand)
-            }
         }
 
-        // Live-recording banner: capture keeps running when the user backs out to the list.
+        // Live-recording / foreground-processing return banners.
         if (isRecording) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(VoxSumPalette.Red.copy(alpha = 0.15f))
-                    .combinedClickable(onClick = onResumeCapture)
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-            ) {
-                Icon(Icons.Filled.FiberManualRecord, contentDescription = null, tint = VoxSumPalette.Red, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    stringResource(R.string.studio_recording_banner, "%d:%02d".format(recSeconds / 60, recSeconds % 60)),
-                    color = pal.Slate200,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
+            Banner(
+                icon = Icons.Filled.FiberManualRecord, tint = VoxSumPalette.Red,
+                text = stringResource(R.string.studio_recording_banner, "%d:%02d".format(recSeconds / 60, recSeconds % 60)),
+                onClick = onResumeCapture,
+            )
+        } else if (foregroundRun) {
+            Banner(
+                icon = Icons.Filled.PlaylistPlay, tint = pal.Sky,
+                text = stringResource(R.string.studio_processing_banner, foregroundLabel),
+                onClick = onResumeSession,
+            )
         }
 
-        // A foreground import is processing — same pattern as the recording banner: tap to return
-        // to its live view (the transcript keeps streaming there).
-        if (foregroundRun && !isRecording) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(pal.Sky.copy(alpha = 0.15f))
-                    .combinedClickable(onClick = onResumeSession)
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-            ) {
-                Icon(Icons.Filled.PlaylistPlay, contentDescription = null, tint = pal.Sky, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    stringResource(R.string.studio_processing_banner, foregroundLabel),
-                    color = pal.Slate200,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                )
-            }
-        }
-
-        if (entries.isEmpty() && !isRecording) {
+        if (shown.isEmpty() && !isRecording) {
             Column(
                 Modifier.weight(1f).fillMaxWidth().padding(32.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    stringResource(R.string.library_empty),
+                    if (query.isBlank()) stringResource(R.string.library_empty) else stringResource(R.string.studio_no_match),
                     color = pal.Slate400,
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
         } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(entries, key = { it.id }) { e ->
-                    val done = e.status == SessionLibrary.Status.DONE
-                    val processing = e.id == processingId
-                    val queued = !done && !processing && e.id in queuedIds
-                    val statusText = when {
-                        processing -> stringResource(R.string.lib_status_processing)
-                        done -> stringResource(R.string.lib_status_done)
-                        queued -> stringResource(R.string.lib_status_queued)
-                        else -> stringResource(R.string.lib_status_recorded)
-                    }
-                    val statusColor = when {
-                        processing -> VoxSumPalette.Warning
-                        done -> pal.Sky
-                        queued -> VoxSumPalette.Warning
-                        else -> pal.Slate400
-                    }
-                    Column {
-                        ListItem(
-                            headlineContent = {
-                                Text(e.title ?: SessionLibrary.defaultTitle(e.createdAt), color = pal.Slate200, maxLines = 2)
-                            },
-                            supportingContent = {
-                                val meta = "${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(e.createdAt))} · %d:%02d".format(e.durationSec / 60, e.durationSec % 60)
-                                Text(if (processing) "$meta — $processingLabel" else meta, color = pal.Slate400, maxLines = 2)
-                            },
-                            leadingContent = {
-                                Icon(
-                                    when {
-                                        processing -> Icons.Filled.PlaylistPlay
-                                        done -> Icons.Filled.CheckCircle
-                                        queued -> Icons.Filled.HourglassTop
-                                        else -> Icons.Filled.GraphicEq
-                                    },
-                                    contentDescription = null,
-                                    tint = statusColor,
-                                )
-                            },
-                            trailingContent = {
-                                Text(
-                                    statusText,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = statusColor,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(50))
-                                        .background(statusColor.copy(alpha = 0.14f))
-                                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                                )
-                            },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .combinedClickable(
-                                    // A processing row opens as a LIVE view — the transcript
-                                    // streams in as it's recognized (edge AI must show progress,
-                                    // not a spinner). Done opens the finished session; a pending
-                                    // row offers its management actions.
-                                    onClick = {
-                                        when {
-                                            processing -> onWatchLive(e)
-                                            done -> onOpen(e)
-                                            else -> actionsFor = e
-                                        }
-                                    },
-                                    onLongClick = { actionsFor = e },
-                                ),
-                        )
-                        if (processing) {
-                            LinearProgressIndicator(
-                                progress = { processingFraction },
-                                color = pal.Sky,
-                                trackColor = pal.Slate700,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            val today = dayStart(System.currentTimeMillis())
+            LazyColumn(
+                Modifier.weight(1f).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 10.dp, bottom = 8.dp),
+            ) {
+                var lastDay = -1L
+                shown.forEach { e ->
+                    val day = dayStart(e.createdAt)
+                    if (day != lastDay) {
+                        lastDay = day
+                        item(key = "day-$day") {
+                            Text(
+                                dayLabel(day, today),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = pal.Slate400,
+                                letterSpacing = androidx.compose.ui.unit.TextUnit(1.5f, androidx.compose.ui.unit.TextUnitType.Sp),
+                                modifier = Modifier.padding(start = 22.dp, top = 8.dp, bottom = 0.dp),
                             )
                         }
+                    }
+                    item(key = e.id) {
+                        val done = e.status == SessionLibrary.Status.DONE
+                        val processing = e.id == processingId
+                        val queued = !done && !processing && e.id in queuedIds
+                        SessionRow(
+                            entry = e, done = done, processing = processing, queued = queued,
+                            processingLabel = processingLabel, processingFraction = processingFraction,
+                            onClick = {
+                                when {
+                                    processing -> onWatchLive(e)
+                                    done -> onOpen(e)
+                                    else -> actionsFor = e
+                                }
+                            },
+                            onLongClick = { actionsFor = e },
+                        )
                     }
                 }
             }
         }
 
-        // Primary actions, pinned: giant Record; Process all when work is pending.
+        // Pinned actions: Process-all exists only while there's pending work; Record owns the bottom.
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
             if (pendingCount > 0) {
-                OutlinedButton(
-                    onClick = onProcessAll,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(pal.ActiveTint)
+                        .clickable(onClick = onProcessAll)
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
                 ) {
-                    Icon(Icons.Filled.PlaylistPlay, contentDescription = null, tint = pal.Sky)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.source_process_all, pendingCount), color = pal.Slate200)
+                    Icon(Icons.Filled.PlaylistPlay, contentDescription = null, tint = pal.Sky, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        stringResource(R.string.source_process_all, pendingCount),
+                        color = pal.Sky, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium,
+                    )
                 }
                 Spacer(Modifier.height(8.dp))
             }
             Button(
                 onClick = { if (isRecording) onResumeCapture() else onRecord() },
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = if (isRecording) VoxSumPalette.Red else pal.Sky),
-                modifier = Modifier.fillMaxWidth().height(64.dp),
+                modifier = Modifier.fillMaxWidth().height(58.dp),
             ) {
-                Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(28.dp))
+                Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(24.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     stringResource(if (isRecording) R.string.studio_return_capture else R.string.source_record),
@@ -366,6 +344,126 @@ fun StudioScreen(
     }
 }
 
+/** One shelf row: waveform glyph carries the status color; Done rows stay chip-less and quiet. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SessionRow(
+    entry: SessionLibrary.Entry,
+    done: Boolean,
+    processing: Boolean,
+    queued: Boolean,
+    processingLabel: String,
+    processingFraction: Float,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    val pal = LocalVoxSumPalette.current
+    val statusColor = when {
+        processing -> VoxSumPalette.Warning
+        done -> VoxSumPalette.Success
+        queued -> VoxSumPalette.Warning
+        else -> pal.Slate400
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(pal.PanelSurface)
+            .border(1.dp, pal.Hairline, RoundedCornerShape(16.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            WaveGlyph(statusColor)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    entry.title ?: SessionLibrary.defaultTitle(entry.createdAt),
+                    color = pal.Slate200,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 2,
+                )
+                val meta = buildString {
+                    append(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(entry.createdAt)))
+                    append(" · ")
+                    append("%d:%02d".format(entry.durationSec / 60, entry.durationSec % 60))
+                    if (processing && processingLabel.isNotBlank()) { append(" · "); append(processingLabel) }
+                }
+                Text(
+                    meta,
+                    color = pal.Slate400,
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                )
+            }
+            when {
+                processing -> Chip("%d%%".format((processingFraction * 100).toInt()), VoxSumPalette.Warning)
+                queued -> Chip(stringResource(R.string.lib_status_queued), VoxSumPalette.Warning)
+                !done -> Chip(stringResource(R.string.chip_new), pal.Slate400)
+                // Done rows are quiet: the green glyph is the whole message.
+            }
+        }
+        if (processing) {
+            LinearProgressIndicator(
+                progress = { processingFraction },
+                color = VoxSumPalette.Warning,
+                trackColor = pal.Slate700,
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).clip(RoundedCornerShape(2.dp)),
+            )
+        }
+    }
+}
+
+/** Four mini waveform bars in a soft-tinted rounded square — the session's status glyph. */
+@Composable
+private fun WaveGlyph(color: Color) {
+    Row(
+        Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(color.copy(alpha = 0.14f)),
+        horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        listOf(9, 17, 12, 19).forEach { h ->
+            Box(Modifier.width(3.dp).height(h.dp).clip(RoundedCornerShape(2.dp)).background(color))
+        }
+    }
+}
+
+@Composable
+private fun Chip(text: String, color: Color) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = color,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(color.copy(alpha = 0.13f))
+            .padding(horizontal = 9.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun Banner(icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, text: String, onClick: () -> Unit) {
+    val pal = LocalVoxSumPalette.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(tint.copy(alpha = 0.13f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(text, color = pal.Slate200, fontWeight = FontWeight.Bold, maxLines = 1, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
 @Composable
 private fun ActionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color? = null, onClick: () -> Unit) {
     val pal = LocalVoxSumPalette.current
@@ -375,4 +473,16 @@ private fun ActionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     )
+}
+
+private fun dayStart(t: Long): Long = Calendar.getInstance().apply {
+    timeInMillis = t
+    set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+}.timeInMillis
+
+@Composable
+private fun dayLabel(day: Long, today: Long): String = when (day) {
+    today -> stringResource(R.string.day_today)
+    today - 86_400_000L -> stringResource(R.string.day_yesterday)
+    else -> DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(day)).uppercase()
 }

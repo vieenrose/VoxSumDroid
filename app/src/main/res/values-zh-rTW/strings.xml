@@ -286,4 +286,10 @@
     <string name="delete_confirm">確定要永久刪除「%s」嗎？音訊與逐字稿都會被移除。</string>
 
     <string name="studio_processing_banner">處理中——%s（點按即時查看）</string>
+
+    <string name="studio_search_hint">搜尋場次…</string>
+    <string name="studio_no_match">沒有符合搜尋的場次。</string>
+    <string name="chip_new">新</string>
+    <string name="day_today">今天</string>
+    <string name="day_yesterday">昨天</string>
 </resources>
