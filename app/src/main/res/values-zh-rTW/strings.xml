@@ -302,4 +302,14 @@
     <string name="mic_capture_failed">麥克風失效——未錄到任何聲音。請關閉其他使用麥克風的 App 後重試。</string>
 
     <string name="notif_session_ready">場次已完成</string>
+
+    <string name="delete_confirm_many">確定要永久刪除 %d 個場次嗎？音訊與逐字稿都會被移除。</string>
+    <string name="selection_count">已選取 %d 個</string>
+    <string name="select_all">全選</string>
+    <string name="cd_exit_selection">結束選取</string>
+    <string name="cd_manage">管理</string>
+    <string name="action_watch_live">即時查看</string>
+    <string name="filter_all">全部（%d）</string>
+    <string name="filter_new">新（%d）</string>
+    <string name="filter_done">已完成（%d）</string>
 </resources>

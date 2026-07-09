@@ -303,4 +303,14 @@
     <string name="mic_capture_failed">Microphone failed — nothing was recorded. Close other apps using the mic and try again.</string>
 
     <string name="notif_session_ready">Session ready</string>
+
+    <string name="delete_confirm_many">Delete %d sessions permanently? Their audio and transcripts are removed.</string>
+    <string name="selection_count">%d selected</string>
+    <string name="select_all">Select all</string>
+    <string name="cd_exit_selection">Exit selection</string>
+    <string name="cd_manage">Manage</string>
+    <string name="action_watch_live">Watch live</string>
+    <string name="filter_all">All (%d)</string>
+    <string name="filter_new">New (%d)</string>
+    <string name="filter_done">Done (%d)</string>
 </resources>

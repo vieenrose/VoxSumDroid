@@ -1540,6 +1540,27 @@ private fun TranscribeScreen(
             runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.action_share_audio))) }
         }
     }
+    // Delete one or many library entries in a single pass: tear down the OPEN session if it's among
+    // them (else its player points at deleted files), drop each from the queue (a queued/processing
+    // entry mustn't leave a dangling id — the drain re-checks existence before re-embedding), then
+    // discard the dirs. One IO launch, one recents refresh.
+    fun deleteEntries(victims: List<SessionLibrary.Entry>) {
+        if (victims.isEmpty()) return
+        if (victims.any { it.dir == libraryDir }) {
+            clearSession()
+            audioUri = null; libraryDir = null; recordingRun = false
+            running = false; transcriptReady = false; status = ""
+        }
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                victims.forEach { e ->
+                    ProcessingQueue.remove(context, e.id)
+                    SessionLibrary.discard(context, e.wavFile)
+                }
+            }
+            recentsVersion++
+        }
+    }
     fun enqueueAndStart(ids: List<String>) {
         if (ids.isEmpty()) return
         scope.launch {
@@ -1591,25 +1612,8 @@ private fun TranscribeScreen(
                     scope.launch { withContext(Dispatchers.IO) { SessionLibrary.rename(context, e.dir, n) }; recentsVersion++ }
                 },
                 onShareAudio = { e -> shareEntryAudio(e) },
-                onDelete = { e ->
-                    // Deleting the entry behind the OPEN session view: tear that session down too,
-                    // or its player keeps pointing at files that no longer exist.
-                    if (libraryDir == e.dir) {
-                        clearSession()
-                        audioUri = null; libraryDir = null; recordingRun = false
-                        running = false; transcriptReady = false; status = ""
-                    }
-                    scope.launch {
-                        withContext(Dispatchers.IO) {
-                            // Drop it from the queue too, so a delete of a queued/processing entry
-                            // doesn't leave a dangling id (and the drain won't re-embed into the
-                            // just-deleted dir — runQueue re-checks existence before attachResults).
-                            ProcessingQueue.remove(context, e.id)
-                            SessionLibrary.discard(context, e.wavFile)
-                        }
-                        recentsVersion++
-                    }
-                },
+                onDelete = { e -> deleteEntries(listOf(e)) },
+                onDeleteMany = { victims -> deleteEntries(victims) },
                 onImport = { showAddSourceSheet = true },
                 onSettings = { showConfigSheet = true },
             )

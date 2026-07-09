@@ -303,4 +303,14 @@
     <string name="mic_capture_failed">Échec du microphone — rien n\'a été enregistré. Fermez les autres applis utilisant le micro et réessayez.</string>
 
     <string name="notif_session_ready">Session prête</string>
+
+    <string name="delete_confirm_many">Supprimer %d sessions définitivement ? Leur audio et leurs transcriptions seront effacés.</string>
+    <string name="selection_count">%d sélectionnée(s)</string>
+    <string name="select_all">Tout sélectionner</string>
+    <string name="cd_exit_selection">Quitter la sélection</string>
+    <string name="cd_manage">Gérer</string>
+    <string name="action_watch_live">Suivre en direct</string>
+    <string name="filter_all">Toutes (%d)</string>
+    <string name="filter_new">Nouvelles (%d)</string>
+    <string name="filter_done">Terminées (%d)</string>
 </resources>

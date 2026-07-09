@@ -201,6 +201,7 @@ private val VoxSumShapes = Shapes(
     large = RoundedCornerShape(16.dp),
 )
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun VoxSumTheme(themeMode: ThemeMode = ThemeMode.AUTO, content: @Composable () -> Unit) {
     val pal = when (themeMode) {
@@ -217,6 +218,14 @@ fun VoxSumTheme(themeMode: ThemeMode = ThemeMode.AUTO, content: @Composable () -
         }
     }
     CompositionLocalProvider(LocalVoxSumPalette provides pal) {
+        // Ripples fade over several frames and leave grey ghost smears on e-ink — kill them there
+        // (taps then register instantly, no ghosting). Other themes keep the normal ripple.
+        if (themeMode == ThemeMode.EINK) {
+            CompositionLocalProvider(androidx.compose.material3.LocalRippleConfiguration provides null) {
+                MaterialTheme(colorScheme = schemeFor(pal), shapes = VoxSumShapes, content = content)
+            }
+            return@CompositionLocalProvider
+        }
         MaterialTheme(colorScheme = schemeFor(pal), shapes = VoxSumShapes, content = content)
     }
 }
