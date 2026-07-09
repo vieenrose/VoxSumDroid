@@ -119,7 +119,8 @@ fun CaptureScreen(
                 enabled = isRecording,
                 shape = RoundedCornerShape(20.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = pal.Sky),
-                modifier = Modifier.weight(1f).height(96.dp),
+                // On a batch day ⏭ is tapped ten times for every ⏹ — it gets the primary width.
+                modifier = Modifier.weight(1.5f).height(96.dp),
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Filled.SkipNext, contentDescription = null, modifier = Modifier.size(36.dp))

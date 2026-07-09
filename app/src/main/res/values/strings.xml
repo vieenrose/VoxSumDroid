@@ -293,4 +293,10 @@
     <string name="chip_new">New</string>
     <string name="day_today">TODAY</string>
     <string name="day_yesterday">YESTERDAY</string>
+
+    <string name="tab_summary">Summary</string>
+    <string name="tab_transcript">Transcript</string>
+    <string name="tab_actions">Actions</string>
+    <string name="summary_pending_hint">No summary yet — it appears here once processing finishes.</string>
+    <string name="actions_pending_hint">No action items yet.</string>
 </resources>

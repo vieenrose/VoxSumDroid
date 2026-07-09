@@ -292,4 +292,10 @@
     <string name="chip_new">新</string>
     <string name="day_today">今天</string>
     <string name="day_yesterday">昨天</string>
+
+    <string name="tab_summary">摘要</string>
+    <string name="tab_transcript">逐字稿</string>
+    <string name="tab_actions">行動項目</string>
+    <string name="summary_pending_hint">尚無摘要——處理完成後會顯示在這裡。</string>
+    <string name="actions_pending_hint">尚無行動項目。</string>
 </resources>

@@ -172,6 +172,8 @@ import studio.voxsum.service.TranscriptionService
 import studio.voxsum.ui.AddSourceSheet
 import studio.voxsum.ui.CaptureScreen
 import studio.voxsum.ui.LibrarySheet
+import studio.voxsum.ui.SessionTabs
+import studio.voxsum.ui.SessionTopBar
 import studio.voxsum.ui.StudioScreen
 import studio.voxsum.ui.ConfigSheet
 import studio.voxsum.ui.EmptyState
@@ -517,6 +519,9 @@ private fun TranscribeScreen(
     // are forwarded into the normal session handlers (transcript streams in, progress bar moves,
     // summary lands) exactly like a foreground run. Back returns to Studio; processing continues.
     var watchingQueue by remember { mutableStateOf(false) }
+    // Session tabs (portrait): 0 = Summary, 1 = Transcript, 2 = Actions. Each session opens on
+    // Summary when one exists, else on the (possibly still streaming) Transcript.
+    var sessTab by remember { mutableIntStateOf(1) }
     LaunchedEffect(title, libraryDir) {
         val dir = libraryDir ?: return@LaunchedEffect
         val t = title?.trim()?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
@@ -547,6 +552,7 @@ private fun TranscribeScreen(
         actionItems = snap.actionItems
         transcriptReady = true
         status = context.getString(R.string.status_transcript_lines, snap.utterances.size)
+        sessTab = if (snap.summary != null) 0 else 1
         screen = Screen.Session   // the restored session is the thing to show
     }
     // Find-in-transcript (a slim search bar above the list; suppresses playback auto-follow while open).
@@ -1347,6 +1353,7 @@ private fun TranscribeScreen(
     fun mergeSpeaker(from: Int, into: Int) =
         applySpeakerEdit(SpeakerEdits.merge(utterances.toList(), speakerNames.toMap(), from, into))
 
+    LaunchedEffect(sessionGen) { sessTab = if (summary != null) 0 else 1 }
     val stats = computeDiarizationStats(utterances)
     // Landscape uses a two-pane layout: title/summary/stats move to a left overview pane, so the
     // transcript list has no header items (in portrait they precede the utterances and shift the
@@ -1356,7 +1363,7 @@ private fun TranscribeScreen(
     // Landscape with something to show → side-by-side overview + transcript panes; otherwise a single
     // column. The stacked column carries the overview as one header item (which shifts auto-scroll).
     val twoPane = landscape && hasOverview
-    val headerCount = if (!twoPane && hasOverview) 1 else 0
+    val headerCount = 0   // tabs (portrait) and the left pane (landscape) own the overview now
     // Matches for find-in-transcript; recompute when the query or transcript length changes.
     val searchMatches = remember(searchQuery, utterances.size) {
         if (searchQuery.isBlank()) emptyList()
@@ -1426,9 +1433,9 @@ private fun TranscribeScreen(
         }
     }
 
-    // Title / summary / speaker-stats overview — one header item in portrait, the left pane in
+    // Title / summary / speaker-stats overview — the Summary tab in portrait, the left pane in
     // landscape. Self-spaces its cards so both call sites get consistent gaps.
-    val overviewCards: @Composable () -> Unit = {
+    val summaryCards: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             title?.let { t ->
                 TitleCard(t, llmDisplay, editingTitle,
@@ -1447,6 +1454,18 @@ private fun TranscribeScreen(
                         scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.summary_copied)) }
                     })
             }
+            if (stats.perSpeaker.isNotEmpty()) SpeakerStatsPanel(stats = stats)
+            if (title == null && summary == null && stats.perSpeaker.isEmpty()) {
+                Text(
+                    stringResource(R.string.summary_pending_hint),
+                    color = pal.Slate400,
+                    modifier = Modifier.padding(top = 24.dp),
+                )
+            }
+        }
+    }
+    val actionsCards: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             actionItems?.let { ai ->
                 ActionItemsCard(ai, editingActions,
                     onBeginEdit = { editingActions = true },
@@ -1458,7 +1477,20 @@ private fun TranscribeScreen(
                         scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.action_items_copied)) }
                     })
             }
-            if (stats.perSpeaker.isNotEmpty()) SpeakerStatsPanel(stats = stats)
+            if (actionItems == null) {
+                Text(stringResource(R.string.actions_pending_hint), color = pal.Slate400, modifier = Modifier.padding(top = 24.dp))
+                if (transcriptReady && !running) {
+                    androidx.compose.material3.OutlinedButton(onClick = { extractActions() }) {
+                        Text(stringResource(R.string.re_extract_actions))
+                    }
+                }
+            }
+        }
+    }
+    val overviewCards: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            summaryCards()
+            if (actionItems != null) actionsCards()
         }
     }
 
@@ -1549,21 +1581,15 @@ private fun TranscribeScreen(
         modifier = Modifier.fillMaxSize().background(pal.Slate900Grad),
         containerColor = Color.Transparent,
         topBar = {
-            VoxSumTopBar(
-                downloadPending = downloadPending,
-                cover = coverBitmap?.asImageBitmap(),
+            SessionTopBar(
+                title = title,
                 status = status,
                 running = running,
                 progress = progress,
                 transcriptAvailable = utterances.isNotEmpty(),
-                showSourceActions = !isEmptyState,
-                isRecording = isRecording,
-                recSeconds = recSeconds,
-                micLevel = micLevel,
-                onAddSource = { showAddSourceSheet = true },
+                onBack = { watchingQueue = false; screen = Screen.Studio },
                 onStop = { handleStop() },
-                onNextTalk = { nextTalk() },
-                showNextTalk = isRecording || recordingRun,
+                canExport = utterances.isNotEmpty() && !running,
                 // All re-run actions are disabled while a run is in flight (each fun also guards `running`);
                 // this also blocks Re-transcribe/Detect-names from starting a second run whose buffered
                 // events would otherwise land on the freshly-reset session.
@@ -1583,7 +1609,7 @@ private fun TranscribeScreen(
                 onReDetect = { detectNames() },
                 canExtractActions = transcriptReady && !running,
                 onExtractActions = { extractActions() },
-                onSearch = { searchActive = !searchActive; if (!searchActive) searchQuery = "" },
+                onSearch = { sessTab = 1; searchActive = !searchActive; if (!searchActive) searchQuery = "" },
                 onSettings = { showConfigSheet = true },
                 // No pre-decode here; the picker callback hands the build+write to the service.
                 onSaveSessionM4a = {
@@ -1721,19 +1747,31 @@ private fun TranscribeScreen(
                     }
                 }
             } else {
+                // Portrait: Summary · Transcript · Actions tabs — each job gets a shallow room
+                // instead of one long scroll (VoxSum 2.0).
+                SessionTabs(selected = sessTab, onSelect = { sessTab = it })
                 Spacer(Modifier.height(8.dp))
-                if (searchActive) TranscriptSearchBar(
-                    query = searchQuery, onQuery = { searchQuery = it },
-                    matchCount = searchMatches.size, matchPos = matchPos,
-                    onPrev = { searchPrev() }, onNext = { searchNext() }, onClose = { closeSearch() },
-                )
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    if (hasOverview) item { overviewCards() }
-                    transcriptItems(this)
+                when (sessTab) {
+                    0 -> Column(
+                        Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                    ) { summaryCards(); Spacer(Modifier.height(8.dp)) }
+                    2 -> Column(
+                        Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                    ) { actionsCards(); Spacer(Modifier.height(8.dp)) }
+                    else -> {
+                        if (searchActive) TranscriptSearchBar(
+                            query = searchQuery, onQuery = { searchQuery = it },
+                            matchCount = searchMatches.size, matchPos = matchPos,
+                            onPrev = { searchPrev() }, onNext = { searchNext() }, onClose = { closeSearch() },
+                        )
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            transcriptItems(this)
+                        }
+                    }
                 }
             }
         }
