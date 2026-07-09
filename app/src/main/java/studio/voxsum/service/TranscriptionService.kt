@@ -383,6 +383,29 @@ class TranscriptionService : LifecycleService() {
         }
     }
 
+    /** A dismissable "session ready" notification for background queue completions — the LLM's
+     *  recognized title is the payload, so the user learns what finished without opening the app. */
+    private fun notifySessionReady(title: String) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "VoxSum pipeline", NotificationManager.IMPORTANCE_LOW))
+        }
+        val open = PendingIntent.getActivity(
+            this, 2, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        nm.notify(
+            NOTIF_ID + 2,
+            Notification.Builder(this, CHANNEL_ID)
+                .setContentTitle(getString(R.string.notif_session_ready))
+                .setContentText(title)
+                .setSmallIcon(android.R.drawable.stat_notify_chat)
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .build(),
+        )
+    }
+
     /** A dismissable result notification (separate id from the foreground one) so a user who left
      *  the app still learns the save finished. Share fires an in-app chooser, so it needs none. */
     private fun notifyExportResult(done: TranscriptEvent.ExportDone) {
@@ -613,6 +636,9 @@ class TranscriptionService : LifecycleService() {
                     if (updated != null) {
                         // UNTAGGED on purpose: the only UI effect is a recents-list refresh.
                         events.emit(UNTAGGED to TranscriptEvent.LibrarySaved(Uri.fromFile(updated.sessionFile).toString(), updated.title))
+                        // Background processing finished while the user may be elsewhere — tell
+                        // them the session is ready, by its recognized title.
+                        notifySessionReady(updated.title ?: SessionLibrary.defaultTitle(updated.createdAt))
                     }
                 }
             } catch (ce: CancellationException) {

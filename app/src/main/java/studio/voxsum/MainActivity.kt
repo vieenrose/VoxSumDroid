@@ -1515,8 +1515,11 @@ private fun TranscribeScreen(
     // Share a library entry's audio via the FileProvider (files/library is an exported path).
     fun shareEntryAudio(e: SessionLibrary.Entry) {
         val f = e.audioFile
+        // Semantic filename for the receiver: the title, not the internal fixed name — a shared
+        // file called 'session.m4a' tells the recipient nothing.
+        val displayName = VoxsumSession.suggestFileName(e.title ?: SessionLibrary.defaultTitle(e.createdAt), f.extension)
         val shareUri = runCatching {
-            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f, displayName)
         }.getOrNull() ?: return
         val send = Intent(Intent.ACTION_SEND).apply {
             type = if (f.extension == "wav") "audio/wav" else "audio/mp4"
