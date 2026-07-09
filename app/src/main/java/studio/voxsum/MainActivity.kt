@@ -501,6 +501,9 @@ private fun TranscribeScreen(
     // ⏹ Stop & save: after the capture is confirmed saved (RecordingSaved), auto-enqueue it and
     // start the queue — stop always defers, processing is always the queue's job now.
     var pendingAutoProcess by remember { mutableStateOf(false) }
+    // "Next talk": end this capture with DEFERRED processing (it's auto-saved as RECORDED), then —
+    // once RecordingSaved confirms the capture is safe — immediately start recording the next one.
+    var pendingNextTalk by remember { mutableStateOf(false) }
     // A defer-stopped run's terminal event is Complete (no summary follows) — clear `running` there.
     var deferStopped by remember { mutableStateOf(false) }
     // Live per-row queue progress (Studio list), fed by QUEUE_GEN-tagged service events.
@@ -800,9 +803,6 @@ private fun TranscribeScreen(
             PackageManager.PERMISSION_GRANTED
         if (granted) beginRecording() else recordPermission.launch(Manifest.permission.RECORD_AUDIO)
     }
-    // "Next talk": end this capture with DEFERRED processing (it's auto-saved as RECORDED), then —
-    // once RecordingSaved confirms the capture is safe — immediately start recording the next one.
-    var pendingNextTalk by remember { mutableStateOf(false) }
     fun nextTalk() {
         if (isRecording) {
             pendingNextTalk = true
