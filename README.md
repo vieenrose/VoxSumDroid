@@ -23,6 +23,11 @@ Record a meeting, open a voice memo, drop in a podcast or a YouTube link — Vox
 what**, then gives you a **concise summary** in the language you choose. Everything happens **on the
 device**: no account, no cloud, no subscription, and nothing ever leaves your phone.
 
+VoxSum is a **recording studio**: the home screen is your **session list**, every recording is
+**auto-saved the moment you stop** (a crash or a stray tap can never lose one), and **recording never
+waits for processing** — capture talks back-to-back all day, then let the app transcribe and summarize
+them one by one while you watch each session's live status.
+
 > New here? The **[5-minute Quick Start →](docs/QUICKSTART.md)** walks through every feature.
 
 ## Why VoxSum
@@ -39,17 +44,24 @@ device**: no account, no cloud, no subscription, and nothing ever leaves your ph
   <img src="docs/screenshots/04-summary.png" width="190" alt="Summary">
   <img src="docs/screenshots/05-summary-language.png" width="190" alt="Summary language">
 </p>
-<p align="center"><i>Home · live transcript with speakers · summary · summary-language picker</i></p>
+<p align="center"><i>The studio home (session list with live statuses) · live transcript with speakers · summary · summary-language picker</i></p>
 
 ## What you can do
+
+**🎛️ Work like a studio**
+- **The home screen is your session list** — every recording, with its live status: *Not processed · Queued · Processing (with phase and %) · Done*.
+- **Record talks back-to-back** — a full-screen recording booth with a big timer, mic level bars, and two giant buttons: **⏭ Next talk** ends one session and instantly starts the next (its processing is deferred); **⏹ Stop & save** saves and processes in the background while you're free to record again.
+- **Never lose a recording** — audio is saved to the library the moment the mic stops, even on a crash or an accidental stop; finished sessions embed their transcript + summary into a self-contained `.m4a` automatically.
+- **Process on your schedule** — *Process pending (n)* transcribes, diarizes, summarizes and titles every saved recording, one by one, in the background (it survives app kills and resumes where it left off).
+- **Manage your files** — tap or long-press any session: *Process now · Rename · Share audio · Delete*. Name a session while recording — your name always outranks the AI-generated title.
 
 **🎙️ Bring in audio from anywhere**
 - **A file** on your device — most common audio and video formats work.
 - **Share from another app** — send a voice note or an audio/video file straight to VoxSum (from LINE, a recorder, your browser…) and it starts transcribing.
-- **Record live** — capture a meeting and watch the transcript appear sentence by sentence as you speak, with **mic level bars** next to the timer so you know it hears you.
+- **Record live** — watch the transcript appear sentence by sentence as you speak (a collapsible strip in the recording booth), with **mic level bars** so you know it hears you.
 - **A podcast** — search, pick an episode, and transcribe it.
 - **A YouTube link** — paste a URL, or search by keyword.
-- **Reopen a saved session** — pick up exactly where you left off (see below); your **recent sessions** are one tap away on the home screen.
+- **Reopen a saved session** — tap any *Done* session in the list and pick up exactly where you left off.
 
 **📝 Read and understand**
 - **Live transcript** — lines show up as soon as you speak; you can start reading (and playing) before it finishes.

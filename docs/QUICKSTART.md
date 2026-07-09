@@ -19,42 +19,75 @@ one-time model download nothing leaves your phone.
 > progress bar shows the download. After that you can go fully offline. If a download breaks or a model
 > file is corrupt, VoxSum cleans it up and shows a one-tap **Retry**.
 
-<p align="center"><img src="screenshots/qs-home.png" width="260" alt="VoxSum home screen"></p>
-<p align="center"><i>The home screen: the offline promise up front, one <b>Add audio</b> button, and your
-<b>Recent</b> sessions one tap away.</i></p>
+<p align="center"><img src="screenshots/qs-home.png" width="260" alt="VoxSum studio home — session list"></p>
+<p align="center"><i>The studio home: every session with its live status — <b>Not processed</b>,
+<b>Queued</b>, <b>Processing</b> (phase and progress), <b>Done</b> — plus the big <b>Record</b> button
+and <b>Process pending (n)</b>.</i></p>
 
-## 1. Bring in audio — five ways
+## 1. Record — one talk, or a whole day of them
 
-Tap **➕ Add audio** (the button on the home screen, or the **+** in the top bar). Pick a source:
+Tap the big **🎙 Record** button. You land in the recording booth: a large timer, mic level bars, an
+optional **session name** field (your name permanently outranks the AI title), and two giant buttons:
+
+<p align="center"><img src="screenshots/qs-capture.png" width="260" alt="Recording booth"></p>
+<p align="center"><i>The recording booth. The collapsible <b>Live transcript</b> strip at the bottom
+shows the last recognized lines as proof it hears you.</i></p>
+
+- **⏭ Next talk** — ends this session and **instantly starts recording the next one**. The finished
+  capture is auto-saved as *Not processed*; its heavy processing is deferred. This is the
+  back-to-back workflow: tap it between every talk of a meeting day.
+- **⏹ Stop & save** — saves the capture and processes it **in the background**: you return to the
+  session list and watch its row go *Processing → Done* while you're already free to record again.
+
+**You can't lose a recording.** Audio lands in the library the moment the mic stops — a stray tap, a
+crash, or the OS killing the app mid-meeting costs you nothing (an interrupted capture is recovered
+and saved on the next launch).
+
+Recording keeps running if you back out to the list — a red **Recording** banner brings you back.
+
+### Process on your schedule
+
+Deferred sessions wait as *Not processed*. Tap **Process pending (n)** (bottom of the home screen, or
+in the ➕ sheet) and VoxSum transcribes, identifies speakers, summarizes and titles them **one by one**
+— each row shows the live phase and progress. The queue survives app kills and resumes where it left
+off. Or handle a single session: tap its row → **Process now**.
+
+### Manage your sessions
+
+Tap a *Not processed* row (or long-press any row) for the management sheet:
+
+<p align="center"><img src="screenshots/qs-manage.png" width="260" alt="Session management sheet"></p>
+<p align="center"><i>Per-session actions: <b>Process now · Rename · Share audio · Delete</b> (with a
+confirmation).</i></p>
+
+Tapping a **Done** row opens the full session — transcript, speakers, summary, synced player.
+
+## 2. Bring in audio from elsewhere
+
+Tap **➕** in the top bar. Pick a source:
 
 | Source | What it's for |
 |---|---|
 | **Audio file** | Any audio/video already on your phone — pick it with the file browser. |
-| **Record** | Capture a meeting live and watch the transcript appear as you speak. |
+| **Record** | The same recording booth as the big Record button. |
 | **Podcast** | Search a show, pick an episode, and transcribe it. |
 | **YouTube** | Paste a link or search by keyword. |
-| **Open session (.ogg / .m4a)** | Reopen a session you saved earlier and keep editing. |
+| **Open session (.ogg / .m4a)** | Reopen a session file received from elsewhere and keep editing. |
 
 You can also **Share** a voice note or audio/video file *to* VoxSum from another app (LINE, WhatsApp,
 a recorder, your browser) — VoxSum appears in the share sheet and starts transcribing.
 
 <p align="center"><img src="screenshots/qs-add-source.png" width="260" alt="Add audio sheet"></p>
-<p align="center"><i>The five input sources. "Open session" reopens a saved <code>.ogg</code> or <code>.m4a</code>.</i></p>
-
-### Record a meeting
-**Add audio → Record.** Grant the microphone permission the first time. Lines appear as you talk —
-small **level bars** next to the timer show the mic hears you — and tap **Stop** when you're done;
-VoxSum finishes the speakers and the summary (long passes show a **time-to-finish estimate**).
-Quiet recordings get an automatic volume boost, for transcription and playback alike.
+<p align="center"><i>The input sources, plus shortcuts to the session list and the processing queue.</i></p>
 
 ### Transcribe a podcast
-**Add audio → Podcast.** Type a show name, pick an episode, and it downloads and transcribes.
+**➕ → Podcast.** Type a show name, pick an episode, and it downloads and transcribes.
 
 ### Transcribe a YouTube video
-**Add audio → YouTube.** Paste a video URL (or type keywords to search), pick the result, and it pulls
+**➕ → YouTube.** Paste a video URL (or type keywords to search), pick the result, and it pulls
 the audio and transcribes it.
 
-## 2. Read and understand
+## 3. Read and understand
 
 <p align="center">
   <img src="screenshots/qs-transcript.png" width="260" alt="Transcript with summary, speakers and player">
@@ -78,7 +111,7 @@ player. Right: tap 🔍 to search — matches highlight and you step through the
 - **Action items** — top-bar ↻ menu → *Extract action items* pulls a draft checklist of who-does-what
   and the key decisions out of a meeting.
 
-## 3. Make it yours
+## 4. Make it yours
 
 <p align="center"><img src="screenshots/qs-rerun.png" width="260" alt="Re-run menu"></p>
 <p align="center"><i>The top-bar ↻ menu: re-transcribe, re-summarize, re-detect names, or extract action items.</i></p>
@@ -92,7 +125,7 @@ player. Right: tap 🔍 to search — matches highlight and you step through the
   wrote your own). Switching only between **繁體中文 ↔ 简体中文** converts the title, summary, and
   transcript **instantly** — no re-run needed.
 
-## 4. Save, share, export
+## 5. Save, share, export
 
 <p align="center"><img src="screenshots/qs-export-menu.png" width="260" alt="Export menu"></p>
 <p align="center"><i>The Export menu: save/share the whole session as <code>.ogg</code> or <code>.m4a</code>,
@@ -112,9 +145,9 @@ settings are briefly locked so a session can't be saved half-finished — they u
 
 Manage downloaded models (and reclaim space) any time under **Settings → Storage**.
 
-Saved and reopened sessions show up under **Recent** on the home screen, one tap to continue.
+Every session lives in the home-screen list — reopen a **Done** one any time with a tap.
 
-## 5. Settings worth knowing
+## 6. Settings worth knowing
 
 <p align="center">
   <img src="screenshots/qs-settings-summary.png" width="260" alt="Summary language and style settings">

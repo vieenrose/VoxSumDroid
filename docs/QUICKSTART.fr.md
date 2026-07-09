@@ -15,36 +15,62 @@ Voici un tour en 5 minutes de tout ce que VoxSum sait faire. Rien ici ne nécess
 
 > **Le premier lancement télécharge des modèles.** À la première transcription, VoxSum récupère le modèle de reconnaissance vocale ; au premier résumé, le modèle de résumé (depuis Hugging Face, avec vérification d'intégrité). Une barre de progression suit le téléchargement. Ensuite, vous pouvez passer entièrement hors ligne. Si un téléchargement échoue ou qu'un modèle est corrompu, VoxSum le nettoie et affiche un **Réessayer** en un geste.
 
-<p align="center"><img src="screenshots/qs-home-fr.png" width="260" alt="Écran d'accueil de VoxSum"></p>
-<p align="center"><i>L'écran d'accueil : la promesse hors ligne en évidence, un seul bouton <b>Ajouter de l'audio</b>, et vos sessions <b>Récentes</b> à portée d'un geste.</i></p>
+<p align="center"><img src="screenshots/qs-home-fr.png" width="260" alt="Accueil studio de VoxSum — liste des sessions"></p>
+<p align="center"><i>L'accueil studio : chaque session avec son statut en direct — <b>Non traité</b>,
+<b>En attente</b>, <b>Traitement</b> (phase et progression), <b>Terminé</b> — plus le grand bouton
+<b>Enregistrer</b> et <b>Traiter en attente (n)</b>.</i></p>
 
-## 1. Importer de l'audio — cinq façons
+## 1. Enregistrer — une session, ou toute une journée
 
-Touchez **➕ Ajouter de l'audio** (le bouton de l'accueil, ou le **+** de la barre du haut). Choisissez une source :
+Touchez le grand bouton **🎙 Enregistrer**. Vous arrivez dans la cabine d'enregistrement : un grand minuteur, des barres de niveau micro, un champ **nom de la session** facultatif (votre nom prime définitivement sur le titre généré par l'IA), et deux boutons géants :
+
+<p align="center"><img src="screenshots/qs-capture-fr.png" width="260" alt="Cabine d'enregistrement"></p>
+<p align="center"><i>La cabine d'enregistrement. Le bandeau repliable <b>Transcription en direct</b> montre les dernières lignes reconnues — la preuve que le micro vous entend.</i></p>
+
+- **⏭ Session suivante** — termine cette session et **démarre immédiatement la suivante**. La capture terminée est auto-sauvegardée en *Non traité* ; son traitement lourd est différé. C'est le mode enchaîné : touchez-le entre chaque intervention d'une journée de réunions.
+- **⏹ Arrêter et sauvegarder** — sauvegarde la capture et la traite **en arrière-plan** : vous revenez à la liste des sessions et voyez sa ligne passer *Traitement → Terminé*, tout en étant déjà libre de réenregistrer.
+
+**Impossible de perdre un enregistrement.** L'audio est sauvegardé dans la bibliothèque dès que le micro s'arrête — un geste malheureux, un plantage ou le système qui tue l'appli en pleine réunion ne vous coûte rien (une capture interrompue est récupérée et sauvegardée au prochain lancement).
+
+L'enregistrement continue si vous revenez à la liste — un bandeau rouge **Enregistrement** vous y ramène.
+
+### Traiter quand vous voulez
+
+Les sessions différées attendent en *Non traité*. Touchez **Traiter en attente (n)** (en bas de l'accueil, ou dans la feuille ➕) : VoxSum les transcrit, identifie les locuteurs, résume et titre **une par une** — chaque ligne affiche la phase et la progression en direct. La file survit aux arrêts de l'appli et reprend où elle en était. Ou traitez une seule session : touchez sa ligne → **Traiter maintenant**.
+
+### Gérer vos sessions
+
+Touchez une ligne *Non traité* (ou faites un appui long sur n'importe quelle ligne) pour la feuille de gestion :
+
+<p align="center"><img src="screenshots/qs-manage-fr.png" width="260" alt="Feuille de gestion d'une session"></p>
+<p align="center"><i>Actions par session : <b>Traiter maintenant · Renommer · Partager l'audio · Supprimer</b> (avec confirmation).</i></p>
+
+Toucher une ligne **Terminé** ouvre la session complète — transcription, locuteurs, résumé, lecteur synchronisé.
+
+## 2. Importer de l'audio d'ailleurs
+
+Touchez **➕** dans la barre du haut. Choisissez une source :
 
 | Source | À quoi ça sert |
 |---|---|
 | **Fichier audio** | N'importe quel audio/vidéo déjà sur votre téléphone — choisissez-le dans l'explorateur. |
-| **Enregistrer** | Captez une réunion en direct et voyez la transcription apparaître pendant que vous parlez. |
+| **Enregistrer** | La même cabine d'enregistrement que le grand bouton Enregistrer. |
 | **Podcast** | Cherchez une émission, choisissez un épisode, et transcrivez-le. |
 | **YouTube** | Collez un lien, ou cherchez par mot-clé. |
-| **Ouvrir une session (.ogg / .m4a)** | Rouvrez une session enregistrée et continuez à l'éditer. |
+| **Ouvrir une session (.ogg / .m4a)** | Rouvrez un fichier de session reçu d'ailleurs et continuez à l'éditer. |
 
 Vous pouvez aussi **partager** une note vocale ou un fichier audio/vidéo *vers* VoxSum depuis une autre appli (LINE, WhatsApp, un dictaphone, votre navigateur) — VoxSum apparaît dans le menu de partage et démarre la transcription.
 
 <p align="center"><img src="screenshots/qs-add-source-fr.png" width="260" alt="Feuille Ajouter de l'audio"></p>
-<p align="center"><i>Les cinq sources. « Ouvrir une session » rouvre un <code>.ogg</code> ou <code>.m4a</code> enregistré.</i></p>
-
-### Enregistrer une réunion
-**Ajouter de l'audio → Enregistrer.** Accordez la permission micro la première fois. Les lignes apparaissent au fil de la parole — de petites **barres de niveau** près du minuteur montrent que le micro vous entend — puis touchez **Arrêter** ; VoxSum termine les locuteurs et le résumé (les passes longues affichent une **estimation du temps restant**). Les enregistrements trop faibles reçoivent un gain automatique, pour la transcription comme pour la lecture.
+<p align="center"><i>Les sources d'entrée, plus des raccourcis vers la liste des sessions et la file de traitement.</i></p>
 
 ### Transcrire un podcast
-**Ajouter de l'audio → Podcast.** Tapez le nom d'une émission, choisissez un épisode, et il se télécharge puis se transcrit.
+**➕ → Podcast.** Tapez le nom d'une émission, choisissez un épisode, et il se télécharge puis se transcrit.
 
 ### Transcrire une vidéo YouTube
-**Ajouter de l'audio → YouTube.** Collez l'URL d'une vidéo (ou tapez des mots-clés pour chercher), choisissez le résultat, et l'audio est extrait puis transcrit.
+**➕ → YouTube.** Collez l'URL d'une vidéo (ou tapez des mots-clés pour chercher), choisissez le résultat, et l'audio est extrait puis transcrit.
 
-## 2. Lire et comprendre
+## 3. Lire et comprendre
 
 <p align="center">
   <img src="screenshots/qs-transcript-fr.png" width="260" alt="Transcription avec résumé, intervenants et lecteur">
@@ -59,7 +85,7 @@ Vous pouvez aussi **partager** une note vocale ou un fichier audio/vidéo *vers*
 - **Un résumé à votre façon** — un titre court et un résumé en **puces, en synthèse ou en récit** (choisissez le style dans **Paramètres**), dans la langue de votre choix. (Remarquez la capture : un résumé en anglais sur une transcription en chinois — la langue du résumé est indépendante de l'audio.)
 - **Actions à mener** — barre du haut, menu ↻ → *Extraire les actions* : tire d'une réunion une liste (brouillon) de qui-fait-quoi et des décisions clés.
 
-## 3. Personnaliser
+## 4. Personnaliser
 
 <p align="center"><img src="screenshots/qs-rerun-fr.png" width="260" alt="Menu Relancer"></p>
 <p align="center"><i>Le menu ↻ de la barre du haut : re-transcrire, re-résumer, redétecter les noms, ou extraire les actions.</i></p>
@@ -68,7 +94,7 @@ Vous pouvez aussi **partager** une note vocale ou un fichier audio/vidéo *vers*
 - **Corrigez les intervenants** — sur n'importe quelle ligne, le menu ⇄ déplace une ligne mal attribuée vers la bonne personne, ou fusionne deux intervenants.
 - **Relancez** — le menu ↻ de la barre du haut relance la transcription, le résumé, la détection des noms, ou l'extraction des actions. VoxSum suit aussi les dépendances entre contenus : changez la langue ou le style du résumé, ou modifiez la transcription, et il propose un **re-résumé** en un geste (qui rafraîchit aussi le titre, sauf si vous l'avez écrit vous-même). Un simple passage entre **繁體中文 ↔ 简体中文** convertit le titre, le résumé et la transcription **instantanément**, sans relance.
 
-## 4. Enregistrer, partager, exporter
+## 5. Enregistrer, partager, exporter
 
 <p align="center"><img src="screenshots/qs-export-menu-fr.png" width="260" alt="Menu Exporter"></p>
 <p align="center"><i>Le menu Exporter : enregistrer/partager toute la session en <code>.ogg</code> ou <code>.m4a</code>, ou exporter la transcription en texte, sous-titres, Markdown ou PDF.</i></p>
@@ -81,9 +107,9 @@ Ouvrez le menu **⋮ (Exporter)** de la barre du haut. (Pendant une transcriptio
 
 Gérez les modèles téléchargés (et récupérez de l'espace) à tout moment dans **Paramètres → Stockage**.
 
-Les sessions enregistrées et rouvertes apparaissent sous **Récent** sur l'écran d'accueil, à un toucher de la reprise.
+Chaque session vit dans la liste de l'accueil — rouvrez une session **Terminé** à tout moment d'un toucher.
 
-## 5. Réglages à connaître
+## 6. Réglages à connaître
 
 <p align="center">
   <img src="screenshots/qs-settings-summary-fr.png" width="260" alt="Réglages langue et style du résumé">

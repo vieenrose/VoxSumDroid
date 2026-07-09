@@ -23,6 +23,12 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
 **qui a dit quoi**, puis vous donne un **résumé concis** dans la langue de votre choix. Tout se passe
 **sur l'appareil** : sans compte, sans cloud, sans abonnement, et rien ne quitte jamais votre téléphone.
 
+VoxSum est un **studio d'enregistrement** : l'écran d'accueil est votre **liste de sessions**, chaque
+enregistrement est **auto-sauvegardé dès l'arrêt du micro** (un plantage ou un geste malheureux ne
+peut plus rien vous faire perdre), et **l'enregistrement n'attend jamais le traitement** — enchaînez
+les interventions toute la journée, puis laissez l'appli les transcrire et les résumer une par une
+pendant que vous suivez le statut de chaque session en direct.
+
 > Vous débutez ? Le **[guide de démarrage en 5 minutes →](docs/QUICKSTART.fr.md)** présente chaque fonction.
 
 ## Pourquoi VoxSum
@@ -39,17 +45,24 @@ Enregistrez une réunion, ouvrez un mémo vocal, glissez un podcast ou un lien Y
   <img src="docs/screenshots/04-summary.png" width="190" alt="Résumé">
   <img src="docs/screenshots/05-summary-language.png" width="190" alt="Langue du résumé">
 </p>
-<p align="center"><i>Accueil · transcription en direct avec intervenants · résumé · choix de la langue du résumé</i></p>
+<p align="center"><i>L'accueil studio (liste des sessions avec statuts en direct) · transcription en direct avec intervenants · résumé · choix de la langue du résumé</i></p>
 
 ## Ce que vous pouvez faire
+
+**🎛️ Travaillez comme dans un studio**
+- **L'accueil est votre liste de sessions** — chaque enregistrement, avec son statut en direct : *Non traité · En attente · Traitement (phase et %) · Terminé*.
+- **Enchaînez les interventions** — une cabine d'enregistrement plein écran avec un grand minuteur, des barres de niveau micro et deux boutons géants : **⏭ Session suivante** termine une session et démarre immédiatement la suivante (traitement différé) ; **⏹ Arrêter et sauvegarder** sauvegarde puis traite en arrière-plan pendant que vous êtes déjà libre de réenregistrer.
+- **Impossible de perdre un enregistrement** — l'audio est sauvegardé dès que le micro s'arrête, même en cas de plantage ou d'arrêt accidentel ; les sessions terminées embarquent automatiquement leur transcription + résumé dans un `.m4a` autonome.
+- **Traitez quand vous voulez** — *Traiter en attente (n)* transcrit, identifie les locuteurs, résume et titre chaque enregistrement sauvegardé, un par un, en arrière-plan (la file survit aux arrêts de l'appli et reprend où elle en était).
+- **Gérez vos fichiers** — touchez ou appuyez longuement sur une session : *Traiter maintenant · Renommer · Partager l'audio · Supprimer*. Nommez une session pendant l'enregistrement — votre nom prime toujours sur le titre généré par l'IA.
 
 **🎙️ Importez de l'audio depuis n'importe où**
 - **Un fichier** de votre appareil — la plupart des formats audio et vidéo courants fonctionnent.
 - **Partagé depuis une autre appli** — envoyez une note vocale ou un fichier audio/vidéo directement à VoxSum (depuis LINE, un dictaphone, votre navigateur…) et la transcription démarre.
-- **Enregistrez en direct** — captez une réunion et voyez la transcription apparaître phrase après phrase.
+- **Enregistrez en direct** — voyez la transcription apparaître phrase après phrase pendant que vous parlez (bandeau repliable dans la cabine d'enregistrement), avec des **barres de niveau micro**.
 - **Un podcast** — cherchez, choisissez un épisode et transcrivez-le.
 - **Un lien YouTube** — collez une URL, ou cherchez par mot-clé.
-- **Rouvrez une session enregistrée** — reprenez exactement là où vous vous étiez arrêté (voir plus bas) ; vos **sessions récentes** sont à portée d'un geste sur l'écran d'accueil.
+- **Rouvrez une session enregistrée** — touchez n'importe quelle session *Terminé* de la liste et reprenez exactement là où vous vous étiez arrêté.
 
 **📝 Lisez et comprenez**
 - **Transcription en direct** — les lignes apparaissent dès que vous parlez ; vous pouvez lire (et écouter) avant la fin.
