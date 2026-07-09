@@ -167,7 +167,23 @@ object VoxsumSession {
             }
         }.ifBlank { null }
         val tagged = File(dir, fileName)
-        val embedded: Boolean = when (format) {
+        // A null blob (too large to round-trip) → embed a playable file with just player metadata,
+        // no VOXSUM session; transcriptEmbedded=false so the caller reports PARTIAL, not FULL.
+        val embedded: Boolean = if (blob == null) {
+            when (format) {
+                Format.OGG -> {
+                    val lite = LinkedHashMap<String, String>()
+                    cleanTitle?.let { lite["TITLE"] = it }
+                    cleanSummary?.let { lite["DESCRIPTION"] = it }
+                    coverJpeg?.let { lite[CoverArt.FIELD] = CoverArt.encode(it, coverW, coverH) }
+                    if (lite.isEmpty() || !OggOpusTags.write(plain, tagged, lite)) plain.copyTo(tagged, overwrite = true)
+                }
+                Format.M4A -> {
+                    if (!Mp4Tags.write(plain, tagged, voxsum = null, title = cleanTitle, description = cleanSummary, coverJpeg = coverJpeg, lyrics = null)) plain.copyTo(tagged, overwrite = true)
+                }
+            }
+            false
+        } else when (format) {
             Format.OGG -> {
                 val comments = LinkedHashMap<String, String>()
                 comments[FIELD] = blob
@@ -230,9 +246,17 @@ object VoxsumSession {
             // No embedded session (or an implausibly large blob) — load as plain audio.
             return@withContext Loaded(audio, emptyList(), emptyMap(), null, null, null, null, recovered = false, coverJpeg = coverJpeg)
         }
-        val json = runCatching { JSONObject(gunzip(Base64.decode(blob, Base64.NO_WRAP)).toString(Charsets.UTF_8)) }
-            .getOrElse { error("Session metadata is corrupt") }
-        parseManifest(json, audio, coverJpeg)
+        // Parse under one guard: 'Open session'/share-in accept arbitrary files, so a blob that is
+        // valid gzip+JSON but semantically off (a future schema, a hand-edited or truncated file —
+        // a non-object utterance, a non-integer speaker key) must degrade to plain audio, not crash
+        // the open flow. parseManifest's strict getInt/getJSONObject calls are inside this guard.
+        return@withContext runCatching {
+            val json = JSONObject(gunzip(Base64.decode(blob, Base64.NO_WRAP)).toString(Charsets.UTF_8))
+            parseManifest(json, audio, coverJpeg)
+        }.getOrElse {
+            android.util.Log.w("voxsum-session", "unreadable embedded session, opening as plain audio", it)
+            Loaded(audio, emptyList(), emptyMap(), null, null, null, null, recovered = false, coverJpeg = coverJpeg)
+        }
     }
 
     /** Cheap probe (tag read only, no decode/extract): does [file] embed a recoverable VoxSum session,
@@ -268,10 +292,12 @@ object VoxsumSession {
 
     // --- session (de)serialization: lossless JSON, gzip+base64 into one comment ---
 
+    /** The gzip+base64 session blob, or null when it exceeds the read-side size ceiling (so the
+     *  caller embeds a session-less but playable file and reports PARTIAL instead of a false FULL). */
     private fun encodeSession(
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
         summary: String?, actionItems: String?, title: String?, asrModelId: String?, llmModelId: String?,
-    ): String {
+    ): String? {
         val root = JSONObject()
         root.put("voxsum_version", VERSION)
         title?.let { root.put("title", it) }
@@ -298,7 +324,15 @@ object VoxsumSession {
             })
         }
         root.put("utterances", arr)
-        return Base64.encodeToString(gzip(root.toString().toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+        val json = root.toString().toByteArray(Charsets.UTF_8)
+        // A blob that the READ path would reject must not be embedded as if it round-trips. open()
+        // aborts gunzip past MAX_JSON_BYTES (decompressed) and rejects base64 over MAX_BLOB_CHARS —
+        // so bail here when the raw JSON already exceeds the decompressed ceiling, rather than
+        // writing a "FULL" file that throws 'metadata is corrupt' on reopen. Returns null → caller
+        // embeds a playable-but-session-less file and reports PARTIAL.
+        if (json.size > MAX_JSON_BYTES) return null
+        val blob = Base64.encodeToString(gzip(json), Base64.NO_WRAP)
+        return blob.takeIf { it.length <= MAX_BLOB_CHARS }
     }
 
     private fun parseManifest(m: JSONObject, audio: File, coverJpeg: ByteArray? = null): Loaded {

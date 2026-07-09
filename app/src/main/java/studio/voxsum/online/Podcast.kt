@@ -97,7 +97,7 @@ object Podcast {
         withContext(Dispatchers.IO) {
             requireHttp(ep.audioUrl)
             val dir = File(ctx.filesDir, "audio").apply { mkdirs() }
-            val ext = ep.audioUrl.substringAfterLast('.', "mp3").substringBefore('?').take(4)
+            val ext = ep.audioUrl.substringAfterLast('.', "mp3").substringBefore('?').filter { it.isLetterOrDigit() }.take(4).ifBlank { "mp3" }
                 .ifBlank { "mp3" }
             val out = File(dir, "podcast_${ep.audioUrl.hashCode().toUInt()}.$ext")
             val conn = (URL(ep.audioUrl).openConnection() as HttpURLConnection).apply {

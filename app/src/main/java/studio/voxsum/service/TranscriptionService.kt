@@ -687,6 +687,9 @@ class TranscriptionService : LifecycleService() {
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         var diarized: Pair<List<TranscriptEvent.Utterance>, Int>? = null
         var libEntry: SessionLibrary.Entry? = null
+        // Set by the capture coroutine on a mic failure so the post-collect path doesn't ALSO emit
+        // 'No audio recorded' (one cause, one terminal event). AtomicBoolean for cross-coroutine visibility.
+        val captureFailed = java.util.concurrent.atomic.AtomicBoolean(false)
         // Snapshot of deferProcessing taken the moment capture ends: the UI's next-talk flow fires
         // a new ACTION_RECORD (which resets the service-global flag) while THIS run is still
         // finishing — the run must keep the defer decision it stopped under.
@@ -724,7 +727,14 @@ class TranscriptionService : LifecycleService() {
                         lastLevelBucket = bucket
                         events.tryEmit(runGen to TranscriptEvent.MicLevel(bucket / 5f))
                     }
-                    mic.send(chunk)
+                    // trySend, NOT send: the WAV write already happened inside recorder.record()
+                    // BEFORE this chunk was emitted, so the saved file is always complete. If the
+                    // ASR decode falls &gt;33 s behind (channel full), a suspending send() would stall
+                    // the recorder's read loop and DROP mic samples at the hardware buffer — instead
+                    // we drop the chunk for the LIVE-PREVIEW recognizer only (the full WAV is
+                    // re-transcribed by the queue anyway) and keep the mic draining + the graceful
+                    // stop flag responsive.
+                    mic.trySend(chunk)
                 }
             } catch (ce: CancellationException) {
                 throw ce
@@ -732,6 +742,7 @@ class TranscriptionService : LifecycleService() {
                 // Mic init/read failure (busy device, dead HAL). Surface it — a capture job dying
                 // silently produced empty "recordings" the user only discovered much later.
                 android.util.Log.w("voxsum-capture", "mic capture failed", t)
+                captureFailed.set(true)
                 events.tryEmit(runGen to TranscriptEvent.Failed(getString(R.string.mic_capture_failed)))
             } finally {
                 mic.close()   // end-of-stream for transcribeLive (clean stop AND cancellation)
@@ -813,7 +824,7 @@ class TranscriptionService : LifecycleService() {
 
         // Drop the microphone foreground type for the CPU-bound finish. The WAV is already on disk.
         startForegroundTyped(recording = false, text = "Processing…")
-        if (recorder.totalSamples == 0L) { emitEvent(TranscriptEvent.Failed("No audio recorded")); return }
+        if (recorder.totalSamples == 0L) { if (!captureFailed.get()) emitEvent(TranscriptEvent.Failed("No audio recorded")); return }
         val savedWav = libEntry?.wavFile ?: wav
         emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(savedWav).toString()))
 
