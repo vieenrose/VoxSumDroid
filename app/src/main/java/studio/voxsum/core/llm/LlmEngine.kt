@@ -16,14 +16,48 @@ class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : A
         fun onToken(piece: String)
     }
 
-    fun generate(prompt: String, maxTokens: Int, onToken: TokenCallback): String =
-        nativeGenerate(handle, prompt, maxTokens, onToken)
+    // cancel() arrives from the MAIN thread (service Stop / supersede) while the owning pipeline
+    // thread may concurrently be inside generate() or tearing down via close() — without exclusion
+    // that is a native use-after-free (nativeCancel on a freed llama.cpp handle → SIGSEGV). All
+    // handle transitions go through [lock]; a close() during generation defers the free to
+    // generate's finally (nativeCancel makes the native loop exit promptly).
+    private val lock = Any()
+    private var generating = false
+    private var closeRequested = false
+
+    fun generate(prompt: String, maxTokens: Int, onToken: TokenCallback): String {
+        val h = synchronized(lock) {
+            if (handle == 0L) return ""   // already closed — a superseded run's late call
+            generating = true
+            handle
+        }
+        try {
+            return nativeGenerate(h, prompt, maxTokens, onToken)
+        } finally {
+            synchronized(lock) {
+                generating = false
+                if (closeRequested && handle != 0L) { nativeFree(handle); handle = 0L }
+            }
+        }
+    }
 
     /** Stop an in-flight generation (foreground service stop / new request). */
-    fun cancel() = nativeCancel(handle)
+    fun cancel() {
+        synchronized(lock) { if (handle != 0L) nativeCancel(handle) }
+    }
 
     override fun close() {
-        if (handle != 0L) { nativeFree(handle); handle = 0L }
+        synchronized(lock) {
+            if (handle == 0L) return
+            if (generating) {
+                // Can't free under the generator's feet: flag it and break the native loop; the
+                // free happens in generate's finally the moment it returns.
+                closeRequested = true
+                nativeCancel(handle)
+            } else {
+                nativeFree(handle); handle = 0L
+            }
+        }
     }
 
     private external fun nativeGenerate(

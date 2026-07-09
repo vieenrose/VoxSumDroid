@@ -149,6 +149,15 @@ class TranscriptionService : LifecycleService() {
         @Volatile
         var pipelineActive = false
             private set
+
+        /** True from onStartCommand(ACTION_RECORD) until that recording job's teardown — set and
+         *  cleared on MAIN (unlike [recordingActive], which the job sets later on Default), so
+         *  main-thread guards can't race the recording's startup: the queue-kick guard uses it to
+         *  never supersede a live capture, and the UI's crash-recovery check reads it so an
+         *  Activity recreation can't "recover" (move!) the WAV of a recording that just started. */
+        @Volatile
+        var recordingJobActive = false
+            private set
     }
 
     /** A pending session export, handed to the service via [pendingExport] (utterances can be large,
@@ -241,15 +250,22 @@ class TranscriptionService : LifecycleService() {
         } catch (t: Throwable) { 0.0 } finally { runCatching { mmr.release() } }
     }
 
+    // startId of the most recent start command (main-written). Every teardown must use
+    // stopSelf(lastStartId), never stopSelf(): AMS ignores a startId-stop when a NEWER start has
+    // already been accepted, whereas the no-arg form stops unconditionally — it could bring the
+    // service down under a start that was accepted but not yet delivered, killing the fresh run.
+    private var lastStartId = -1
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        lastStartId = startId
 
         when (intent?.action) {
             ACTION_STOP -> {
                 activeLlm?.cancel()
                 pipelineJob?.cancel()
                 stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                stopSelf(lastStartId)
                 return START_NOT_STICKY
             }
             // End recording but let the job carry on into diarization/summary.
@@ -276,13 +292,15 @@ class TranscriptionService : LifecycleService() {
         val diarizeOnly = intent?.action == ACTION_DIARIZE
         val processQueue = intent?.action == ACTION_PROCESS_QUEUE
         // A drain is already running → the new ids just enqueued will be picked up by its loop;
-        // restarting would cancel and redo the item currently in progress. This request still
-        // arrived via startForegroundService(), so we MUST call startForeground() before returning
-        // or Android kills the process (RemoteServiceException). Re-assert the drain's existing
-        // foreground notification to satisfy the contract, then let its loop pick up the new ids.
-        // (Repro: finish talk 1 → its queue drain is still running when you finish the NEXT talk →
-        // that talk's auto-process fires a second ACTION_PROCESS_QUEUE → crash to home screen.)
-        if (processQueue && queueDraining) {
+        // restarting would cancel and redo the item currently in progress. And recordings are
+        // SACRED: a queue kick (a Stop&save auto-process coroutine resuming late, or "Process
+        // pending" tapped while a backgrounded capture runs) must never supersede a live mic
+        // capture — the queue auto-resumes after the recording via the post-run resume below.
+        // Either way this request still arrived via startForegroundService(), so we MUST call
+        // startForeground() before returning or Android kills the process (RemoteServiceException).
+        // Both flags are written on MAIN (here and in the teardown's main hop), so this main-thread
+        // guard cannot race them.
+        if (processQueue && (queueDraining || recordingJobActive)) {
             satisfyForegroundContract()
             return START_NOT_STICKY
         }
@@ -290,6 +308,14 @@ class TranscriptionService : LifecycleService() {
         deferProcessing = false
         val previousJob = pipelineJob
         val previousLlm = activeLlm
+        // Main-owned run-type flags for the guard above (and the UI's recovery check): a new start
+        // of ANY kind supersedes whatever ran before, so overwrite rather than accumulate.
+        recordingJobActive = recording
+        queueDraining = processQueue
+        // Snapshot the config on MAIN at start time: a drain re-loads the persisted config into the
+        // shared Holder from its own thread, and without a per-run snapshot it could clobber the
+        // config the UI just staged for this run. The job re-asserts the snapshot after the join.
+        val cfgSnapshot = TranscriptionConfig.Holder.config
         startForegroundTyped(recording, "Preparing…")
         val uri = intent?.getStringExtra(EXTRA_AUDIO_URI)
         val transcript = intent?.getStringExtra(EXTRA_TRANSCRIPT)
@@ -302,6 +328,20 @@ class TranscriptionService : LifecycleService() {
         // every event this job emits with the owning session generation.
         var job: Job? = null
         job = lifecycleScope.launch(Dispatchers.Default + RunGen(runGen)) {
+            // SERIALIZE with the superseded job: wait for its unwinding (cancellation lands only at
+            // a suspension point — under a native ASR/LLM loop that is seconds away) to fully
+            // finish, finally blocks included, before doing ANY work. Those finallys otherwise run
+            // concurrently with this job and trash its resources: the drain's per-item temp cleanup
+            // deleted the WAV a superseding recording was actively writing (silently lost talk), a
+            // superseded recording's finally cleared the NEW recording's crash-recovery marker and
+            // recordingActive, its `activeLlm = null` deregistered the new run's engine (Stop
+            // stopped working), and two multi-GB GGUF models resident at once invited a low-memory
+            // process kill. join() is cancellable: if THIS job is itself superseded while waiting,
+            // it unwinds normally.
+            previousJob?.let { runCatching { it.join() } }
+            // Re-assert this run's config after the join (a dying drain may have overwritten the
+            // shared Holder); a drain loads its own persisted config inside runQueue.
+            if (!processQueue) TranscriptionConfig.Holder.config = cfgSnapshot
             runCatching {
                 when {
                     summarizeOnly -> runSummarizeOnly(transcript.orEmpty(), summarizeWithTitle)
@@ -336,7 +376,10 @@ class TranscriptionService : LifecycleService() {
             // deliberately not reported) — the Capture screen waited forever and the talk was
             // LOST. Serializing on main makes check-then-stop atomic w.r.t. new starts.
             val resumeQueue = withContext(NonCancellable + Dispatchers.Main) {
-                !processQueue && pipelineJob === job && ProcessingQueue.size(this@TranscriptionService) > 0
+                val r = !processQueue && pipelineJob === job && ProcessingQueue.size(this@TranscriptionService) > 0
+                // The resumed drain must be guarded like a plain one — flag flips on MAIN.
+                if (r) queueDraining = true
+                r
             }
             if (resumeQueue) {
                 runCatching { withContext(RunGen(QUEUE_GEN)) { runQueue() } }
@@ -345,8 +388,15 @@ class TranscriptionService : LifecycleService() {
             withContext(NonCancellable + Dispatchers.Main) {
                 if (pipelineJob === job) {
                     pipelineActive = false
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
+                    recordingJobActive = false
+                    queueDraining = false
+                    // Leave the service (and its foreground notification) up for an in-flight
+                    // export — the last export's own tail stops it. stopSelf(lastStartId): a stop
+                    // must never bring the service down under a newer, already-accepted start.
+                    if (activeExports == 0) {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf(lastStartId)
+                    }
                 }
             }
         }
@@ -367,16 +417,28 @@ class TranscriptionService : LifecycleService() {
      * result notification so a backgrounded user still sees the outcome. Runs independently of the
      * transcription [pipelineJob] (shared foreground notification; common case is export-when-idle).
      */
+    // In-flight export jobs (main-confined: incremented here on main, decremented in each export's
+    // main teardown hop). Exports run OUTSIDE pipelineJob, so both teardowns must consult BOTH: a
+    // pipeline finishing must not stopSelf under a live export, and one export must not stop the
+    // service under another.
+    private var activeExports = 0
+
     private fun runExport(req: ExportRequest?) {
         if (req == null) {
             // The request was already consumed (a rare double ACTION_EXPORT dispatch). This still
             // arrived via startForegroundService(), so satisfy the foreground contract, then stop
-            // the service only if no pipeline/drain is running (don't kill a live job).
+            // the service only if nothing else is running (don't kill a live job or export).
             satisfyForegroundContract()
-            if (pipelineJob?.isActive != true) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+            if (pipelineJob?.isActive != true && activeExports == 0) {
+                stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(lastStartId)
+            }
             return
         }
-        startForegroundTyped(recording = false, getString(R.string.exporting))
+        // Preserve the current foreground-service TYPE: an export during a live recording must not
+        // swap MICROPHONE for DATA_SYNC — Android would cut the mic once the app backgrounds,
+        // silencing the rest of the capture.
+        startForegroundTyped(recording = notifRecording, getString(R.string.exporting))
+        activeExports++
         lifecycleScope.launch(Dispatchers.IO) {
             val done = runCatching {
                 if (req.share) {
@@ -422,9 +484,15 @@ class TranscriptionService : LifecycleService() {
             // Leave a running transcription's foreground intact; otherwise we're done. On MAIN
             // (like the pipeline teardown): checking from this IO thread raced onStartCommand —
             // an export finishing exactly as a new run starts could stopSelf() the service under
-            // that run's freshly-launched job.
+            // that run's freshly-launched job. Also count ourselves out first, so concurrent
+            // exports don't stop the service under each other; stopSelf(lastStartId) so a stop
+            // can never land under a newer, already-accepted start.
             withContext(NonCancellable + Dispatchers.Main) {
-                if (pipelineJob?.isActive != true) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+                activeExports--
+                if (pipelineJob?.isActive != true && activeExports == 0) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf(lastStartId)
+                }
             }
         }
     }
@@ -659,7 +727,10 @@ class TranscriptionService : LifecycleService() {
         // choices apply to queue items exactly like foreground runs. (Regression: queue transcripts
         // ignored the user's zh-Hant target and came out simplified with default-locale summaries.)
         TranscriptionConfig.Holder.config = studio.voxsum.core.config.ConfigStore.load(this)
-        queueDraining = true
+        // NOTE: queueDraining is main-owned — set in onStartCommand / the resume hop, cleared in
+        // the teardown hop — so the main-thread guard can never race a Default-thread write. (The
+        // old set-it-here had a window: a second ACTION_PROCESS_QUEUE arriving before this line ran
+        // passed the guard and superseded the first drain, redoing its in-flight item.)
         try {
         while (true) {
             val id = ProcessingQueue.peek(this) ?: break
@@ -707,13 +778,13 @@ class TranscriptionService : LifecycleService() {
             ProcessingQueue.remove(this, id)
         }
         } finally {
-            queueDraining = false
             // Drain over (queue empty, last item failed terminally, or superseded): nudge the UI's
             // QUEUE_GEN branch so it re-reads currentQueueItemId (null by now — the per-item finally
             // ran first) and clears the Studio row's "Processing" chip. The success path's
             // LibrarySaved already does this, but the failure and cancellation paths emit nothing
             // else, leaving the row stuck "Processing" with no worker running. tryEmit because this
             // must also fire from a CANCELLED coroutine (supersede); the flow has a 256 buffer.
+            // (queueDraining itself is cleared on MAIN in the teardown hop.)
             events.tryEmit(QUEUE_GEN to TranscriptEvent.Progress(0f))
         }
     }

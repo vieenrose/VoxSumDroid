@@ -32,6 +32,13 @@ import java.util.Locale
 object SessionLibrary {
     private const val TAG = "SessionLibrary"
     private const val META = "meta.json"
+
+    // meta.json is written from BOTH the UI (rename, on Dispatchers.IO) and the service pipeline
+    // (attachResults/promoteRecording, on Default) in read-modify-write sequences — without
+    // exclusion a rename during attachResults is lost, or a concurrent reader sees torn JSON
+    // (readMeta then returns null and the caller treats the entry as corrupt). One process-wide
+    // reentrant lock over every meta read/write and each read-modify-write pair.
+    private val metaLock = Any()
     const val WAV_NAME = "recording.wav"
     const val SESSION_NAME = "session.m4a"
 
@@ -70,11 +77,16 @@ object SessionLibrary {
      *  the entry's RecentSessions row label. The on-disk file names never change — export/share
      *  already derive their file name from the title. */
     fun rename(context: Context, dir: File, title: String) {
-        val entry = readMeta(dir) ?: return
         val t = title.trim().ifBlank { return }
-        if (entry.title == t) return
-        runCatching { writeMeta(entry.copy(title = t)) }
-            .onFailure { Log.w(TAG, "could not rename library entry", it) }
+        // Read-modify-write under the lock: interleaving with attachResults' own re-read/write
+        // would otherwise lose one of the two updates.
+        val entry = synchronized(metaLock) {
+            val e = readMeta(dir) ?: return
+            if (e.title == t) return
+            runCatching { writeMeta(e.copy(title = t)) }
+                .onFailure { Log.w(TAG, "could not rename library entry", it) }
+            e
+        }
         RecentSessions.add(context, Uri.fromFile(entry.audioFile).toString(), t, System.currentTimeMillis())
     }
 
@@ -130,12 +142,16 @@ object SessionLibrary {
         // A user-given name (set at capture time or via rename) outranks the LLM title — batch
         // processing must never rename "Talk 3 — Dr. Smith" to whatever the model invents. Re-read
         // the meta rather than trusting [entry]: a rename made WHILE this item processed would
-        // otherwise be clobbered by the stale snapshot taken at drain start.
-        val updated = entry.copy(
-            title = byId(context, entry.id)?.title ?: entry.title ?: title?.trim()?.ifBlank { null },
-            status = Status.DONE,
-        )
-        runCatching { writeMeta(updated) }.onFailure { Log.w(TAG, "could not update library meta", it) }
+        // otherwise be clobbered by the stale snapshot taken at drain start. The re-read + write
+        // is one atomic section (metaLock) so a rename can't slip between them and be lost.
+        val updated = synchronized(metaLock) {
+            val u = entry.copy(
+                title = byId(context, entry.id)?.title ?: entry.title ?: title?.trim()?.ifBlank { null },
+                status = Status.DONE,
+            )
+            runCatching { writeMeta(u) }.onFailure { Log.w(TAG, "could not update library meta", it) }
+            u
+        }
         // Replace the raw-capture Recent row with the finished session (different uri AND title, so
         // RecentSessions' own dedup wouldn't collapse them).
         RecentSessions.remove(context, Uri.fromFile(entry.wavFile).toString())
@@ -179,7 +195,7 @@ object SessionLibrary {
         }
     }
 
-    private fun writeMeta(entry: Entry) {
+    private fun writeMeta(entry: Entry) = synchronized(metaLock) {
         val o = JSONObject()
             .put("id", entry.id)
             .put("createdAt", entry.createdAt)
@@ -189,7 +205,7 @@ object SessionLibrary {
         File(entry.dir, META).writeText(o.toString())
     }
 
-    private fun readMeta(dir: File): Entry? {
+    private fun readMeta(dir: File): Entry? = synchronized(metaLock) {
         val f = File(dir, META)
         if (!f.exists()) return null
         return runCatching {

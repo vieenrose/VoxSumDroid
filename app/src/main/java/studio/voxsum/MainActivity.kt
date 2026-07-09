@@ -267,8 +267,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         maybeRequestNotifications()
         // Reclaim space from any download the app was killed mid-way through (stale "*.part" temp
-        // files). Safe here: nothing is downloading yet at launch. Off the main thread — it's file IO.
-        Thread { ModelManager(applicationContext).sweepStalePartFiles() }.start()
+        // files). Off the main thread — it's file IO. NOT safe when the foreground service is
+        // mid-run (an Activity recreation, not a cold start): the sweep would delete the pipeline's
+        // in-flight .part download and restart a multi-hundred-MB fetch from zero.
+        if (!TranscriptionService.pipelineActive) {
+            Thread { ModelManager(applicationContext).sweepStalePartFiles() }.start()
+        }
         handleIncoming(intent)
         setContent {
             var themeMode by remember { mutableStateOf(ThemeStore.load(this)) }
@@ -536,7 +540,10 @@ private fun TranscribeScreen(
     // (2) A COMPLETED session lost to a process kill (see SessionAutosave). One effect, so the two
     // paths can't race each other's RecordingRecovery.pending() side effects. ---
     LaunchedEffect(Unit) {
-        if (TranscriptionService.recordingActive) return@LaunchedEffect
+        // recordingJobActive is set on MAIN in onStartCommand — before any recreation could run
+        // this check — closing the window where recordingActive (set later, on the pipeline
+        // thread) was still false and pending() would "recover" (move!) a live capture's WAV.
+        if (TranscriptionService.recordingActive || TranscriptionService.recordingJobActive) return@LaunchedEffect
         val interrupted = withContext(Dispatchers.IO) {
             RecordingRecovery.pending(context)?.let { wav ->
                 SessionLibrary.promoteRecording(context, wav, RecordingRecovery.seconds(wav))?.wavFile ?: wav
@@ -583,6 +590,10 @@ private fun TranscribeScreen(
     // can't collide with another transition on the same player. Returns whether it ended up prepared;
     // updates durationMs and optionally seeks.
     suspend fun preparePlayer(p: MediaPlayer, uri: Uri, seekTo: Int?): Boolean = playerMutex.withLock {
+        // Coalesce queued recoveries: while this call waited on the mutex, an earlier recovery (or
+        // the poll loop's gentle retry) may have already brought p back to life — reset()ing a
+        // player that is playing again would kill live playback and jump the cursor.
+        if (runCatching { p.isPlaying }.getOrDefault(false)) return@withLock true
         runCatching {
             withContext(Dispatchers.IO) { p.reset(); p.setDataSource(context, uri); p.prepare() }
             durationMs = p.duration
@@ -590,9 +601,17 @@ private fun TranscribeScreen(
             true
         }.getOrDefault(false)
     }
-    DisposableEffect(audioUri) {
+    // Retire a player without racing its in-flight prepare: sever the state reference NOW (main),
+    // release under the SAME mutex preparePlayer holds — release() on an instance that another
+    // coroutine has inside native prepare() is the classic MediaPlayer crash.
+    fun retirePlayer() {
         enhancer?.release(); enhancer = null
-        player?.release(); player = null
+        val p = player ?: return
+        player = null
+        scope.launch { playerMutex.withLock { runCatching { p.release() } } }
+    }
+    DisposableEffect(audioUri) {
+        retirePlayer()
         // Consume the carry-over from a source swap (null on a genuinely new session → start at 0).
         val seekTo = pendingSeekMs; val resume = resumeAfterSwap
         pendingSeekMs = null; resumeAfterSwap = false
@@ -623,15 +642,16 @@ private fun TranscribeScreen(
             // failed prepare here just leaves durationMs at 0 (no UI block either way).
             scope.launch {
                 // Prepare at the carried-over position; resume playing if it was playing before the
-                // swap — but only if the Session screen is STILL on top when the async prepare lands:
-                // the end-of-ASR / LibrarySaved swaps can fire while the user is on Studio, and
-                // resuming there would start audio on a screen with no transport controls at all.
-                if (preparePlayer(mp, uri, seekTo) && resume && screen == Screen.Session) {
+                // swap — but only if the Session screen is STILL on top when the async prepare lands
+                // (the end-of-ASR / LibrarySaved swaps can fire while the user is on Studio, and
+                // resuming there would start audio on a screen with no transport controls at all)
+                // AND mp is still the live player (another swap may have retired it meanwhile).
+                if (preparePlayer(mp, uri, seekTo) && resume && screen == Screen.Session && player === mp) {
                     runCatching { mp.start() }.onSuccess { isPlaying = true }
                 }
             }
         }
-        onDispose { enhancer?.release(); enhancer = null; player?.release(); player = null }
+        onDispose { retirePlayer() }
     }
     // Measure the loaded track off the main thread and apply its normalization gain.
     LaunchedEffect(audioUri, enhancer) {
@@ -657,12 +677,18 @@ private fun TranscribeScreen(
         // from 0 — and start, so playback self-heals without ever freezing the UI thread.
         val resumeAt = seekMs ?: positionMs
         scope.launch {
-            if (preparePlayer(p, uri, resumeAt)) {
+            // Re-check after the async prepare: the session may have been cleared/swapped (p
+            // retired) or the user may have left the Session screen — starting then would play
+            // orphaned audio with no visible transport.
+            if (preparePlayer(p, uri, resumeAt) && player === p && screen == Screen.Session) {
                 runCatching { p.start() }.onSuccess { isPlaying = true; buffering = false }
             }
         }
     }
-    LaunchedEffect(isPlaying) {
+    // Also keyed on player: a source swap must cancel the old loop — its gentle start() retry
+    // otherwise races the NEW player's async prepare (start() on an unprepared/mid-reset player
+    // drives it to the Error state and loses the carried-over playhead/auto-resume).
+    LaunchedEffect(isPlaying, player) {
         // Poll the position and watch for stalls: while we intend to play, if the player isn't
         // advancing (a buffer underrun under decode/CPU contention freezes it), show "buffering" and
         // keep gently retrying start() — so it resumes when the buffer refills, like a streaming
@@ -826,6 +852,7 @@ private fun TranscribeScreen(
 
     // --- Live recording (mic → streaming ASR; diarization/summary run on stop). ---
     fun beginRecording() {
+        if (isRecording) return   // double-tap / racing next-talk: one live capture at a time
         TranscriptionConfig.Holder.config = config
         clearSession()
         audioUri = null; libraryDir = null; recordingRun = true; running = true; transcriptReady = false; isRecording = true; progress = 0f
@@ -921,9 +948,18 @@ private fun TranscribeScreen(
         if (uri == null) { exporting = false; return@rememberLauncherForActivityResult }
         stageSessionExport(false, uri, VoxsumSession.Format.M4A)
     }
+    // Monotonic ticket for openSessionUri loads (main-thread only) — see the tickets note inside.
+    var openTicket by remember { mutableIntStateOf(0) }
     fun openSessionUri(uri: Uri) {
+        // Two tickets: the open() below suspends for seconds on a big file, and applying a STALE
+        // load afterwards would hijack whatever the user opened/started meanwhile (including a
+        // live recording). sessionGen invalidates this load when any session-changing action ran;
+        // openTicket orders rapid open-vs-open so the LATEST tap wins even if it loads first.
+        val myOpen = ++openTicket
+        val gen = sessionGen
         scope.launch {
             val loaded = runCatching { VoxsumSession.open(context, uri) }.getOrNull()
+            if (openTicket != myOpen || sessionGen != gen) return@launch   // superseded — drop
             if (loaded == null) {
                 // Stale entry (file moved / grant revoked) → drop it from Recent and tell the user.
                 RecentSessions.remove(context, uri.toString()); recentsVersion++
@@ -1316,7 +1352,9 @@ private fun TranscribeScreen(
     // not overlap a service run), and guarded by [sessionGen] so a slow detection that finishes after
     // the user opened/started another session doesn't write stale names into it.
     fun detectNames() {
-        if (running || isDetecting) return
+        // Also blocked while a queue drain runs (queueItemId set): drains never set `running`, and
+        // detection loads its OWN in-process LLM — two resident multi-GB models invite an LMK kill.
+        if (running || isDetecting || queueItemId != null) return
         val gen = sessionGen
         val snapshot = utterances.toList()
         scope.launch {
