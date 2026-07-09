@@ -543,18 +543,10 @@ private fun TranscribeScreen(
             }
         }
         if (interrupted != null) { recoveredRec = interrupted; recentsVersion++; return@LaunchedEffect }
-        val snap = withContext(Dispatchers.IO) { SessionAutosave.load(context) } ?: return@LaunchedEffect
-        if (utterances.isNotEmpty()) return@LaunchedEffect   // something already populated this launch
-        audioUri = snap.audioUri
-        utterances.addAll(snap.utterances)
-        speakerNames.putAll(snap.speakerNames)
-        title = snap.title
-        summary = snap.summary
-        actionItems = snap.actionItems
-        transcriptReady = true
-        status = context.getString(R.string.status_transcript_lines, snap.utterances.size)
-        sessTab = if (snap.summary != null) 0 else 1
-        screen = Screen.Session   // the restored session is the thing to show
+        // SessionAutosave is legacy: the library now durably holds every session, so restoring a
+        // snapshot into a stale Session view on cold launch only hijacked the home (the user
+        // expects the Studio shelf — the same content is a library row). Discard any old snapshot.
+        withContext(Dispatchers.IO) { SessionAutosave.clear(context) }
     }
     // Find-in-transcript (a slim search bar above the list; suppresses playback auto-follow while open).
     var searchActive by remember { mutableStateOf(false) }
