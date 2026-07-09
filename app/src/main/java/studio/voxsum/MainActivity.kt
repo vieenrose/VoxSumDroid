@@ -182,7 +182,6 @@ import studio.voxsum.ui.renderMarkdown
 import studio.voxsum.ui.SpeakerStatsPanel
 import studio.voxsum.ui.TranscriptSearchBar
 import studio.voxsum.ui.highlightedTranscript
-import studio.voxsum.ui.VoxSumTopBar
 import studio.voxsum.ui.YouTubeSheet
 import studio.voxsum.ui.theme.LocalThemeController
 import studio.voxsum.ui.theme.LocalVoxSumPalette
@@ -1572,6 +1571,7 @@ private fun TranscribeScreen(
         containerColor = Color.Transparent,
         topBar = {
             SessionTopBar(
+                cover = coverBitmap?.asImageBitmap(),
                 title = title,
                 status = status,
                 running = running,
@@ -1579,6 +1579,8 @@ private fun TranscribeScreen(
                 transcriptAvailable = utterances.isNotEmpty(),
                 onBack = { watchingQueue = false; screen = Screen.Studio },
                 onStop = { handleStop() },
+                showNextTalk = running && recordingRun && !isRecording,
+                onNextTalk = { nextTalk() },
                 canExport = utterances.isNotEmpty() && !running,
                 // All re-run actions are disabled while a run is in flight (each fun also guards `running`);
                 // this also blocks Re-transcribe/Detect-names from starting a second run whose buffered

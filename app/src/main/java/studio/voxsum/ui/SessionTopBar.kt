@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Badge
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.Title
@@ -56,6 +58,7 @@ import studio.voxsum.ui.theme.statusColor
  */
 @Composable
 fun SessionTopBar(
+    cover: androidx.compose.ui.graphics.ImageBitmap?,
     title: String?,
     status: String,
     running: Boolean,
@@ -63,6 +66,10 @@ fun SessionTopBar(
     transcriptAvailable: Boolean,
     onBack: () -> Unit,
     onStop: () -> Unit,
+    // ⏭ while this session is a live/processing run of a saved capture: start recording the next
+    // talk immediately — the interrupted processing stays pending for the queue.
+    showNextTalk: Boolean,
+    onNextTalk: () -> Unit,
     onSearch: () -> Unit,
     canReTranscribe: Boolean, onReTranscribe: () -> Unit,
     canReSummarize: Boolean, onReSummarize: () -> Unit,
@@ -86,6 +93,13 @@ fun SessionTopBar(
             IconButton(onClick = onBack) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back), tint = pal.Slate200)
             }
+            cover?.let {
+                androidx.compose.foundation.Image(
+                    bitmap = it,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 8.dp).size(26.dp).clip(RoundedCornerShape(7.dp)),
+                )
+            }
             Text(
                 title ?: stringResource(R.string.app_name),
                 style = MaterialTheme.typography.titleMedium,
@@ -95,6 +109,15 @@ fun SessionTopBar(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            if (showNextTalk) {
+                IconButton(onClick = onNextTalk) {
+                    Icon(
+                        Icons.Filled.SkipNext,
+                        contentDescription = stringResource(R.string.cd_next_talk),
+                        tint = pal.Sky,
+                    )
+                }
+            }
             if (running) {
                 IconButton(onClick = onStop) {
                     Icon(Icons.Filled.Stop, contentDescription = stringResource(R.string.stop), tint = VoxSumPalette.Red)
