@@ -86,11 +86,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -1626,10 +1628,27 @@ private fun TranscribeScreen(
     fun searchPrev() { if (searchMatches.isNotEmpty()) matchPos = (matchPos - 1 + searchMatches.size) % searchMatches.size }
     fun searchNext() { if (searchMatches.isNotEmpty()) matchPos = (matchPos + 1) % searchMatches.size }
     fun closeSearch() { searchActive = false; searchQuery = "" }
-    // Playback auto-follow — but NOT while searching, or the list would yank away from a match.
+    // Playback auto-follow — karaoke-style, but it must not FIGHT the user. Suppressed while
+    // searching (would yank off a match), while editing a line/speaker (would yank the field away),
+    // when NOT actively playing (a paused reader shouldn't be scrolled), and for a few seconds after
+    // the user manually scrolls (so scrolling back to re-read isn't instantly undone on the next
+    // utterance). `autoScrolling` tags our OWN programmatic scroll so it isn't mistaken for a drag.
+    var autoScrolling by remember { mutableStateOf(false) }
+    var lastUserScrollNanos by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (scrolling && !autoScrolling) lastUserScrollNanos = System.nanoTime()
+        }
+    }
     LaunchedEffect(activeIndex) {
-        if (searchQuery.isBlank() && activeIndex in utterances.indices) {
+        val editing = editingIndex >= 0 || editingSpeakerId != null
+        val recentlyUserScrolled = System.nanoTime() - lastUserScrollNanos < 4_000_000_000L
+        if (searchQuery.isBlank() && isPlaying && !editing && !recentlyUserScrolled &&
+            activeIndex in utterances.indices
+        ) {
+            autoScrolling = true
             runCatching { listState.animateScrollToItem(headerCount + activeIndex, scrollOffset = -200) }
+            autoScrolling = false
         }
     }
     // Keep the current search match in view as the user steps through.
