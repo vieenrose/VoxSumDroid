@@ -249,6 +249,23 @@ private fun documentLabel(context: android.content.Context, uri: Uri): String =
             ?.use { if (it.moveToFirst()) it.getString(0) else null }
     }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: uri.toString()
 
+/**
+ * Reclaim the transient work files under filesDir/audio (import copies, decode outputs, orphaned
+ * captures). Every library session keeps its own durable copy elsewhere, so on a cold start these
+ * are all disposable — except the WAV an interrupted recording will be recovered from (named by the
+ * recovery marker), which is kept. Call only when no pipeline is running.
+ */
+private fun reclaimAudioTemps(context: android.content.Context) {
+    val dir = File(context.filesDir, "audio")
+    if (!dir.isDirectory) return
+    val keep = runCatching {
+        File(context.filesDir, "recording.inprogress").takeIf { it.exists() }?.readText()?.trim()
+    }.getOrNull()
+    dir.listFiles()?.forEach { f ->
+        if (f.absolutePath != keep) runCatching { f.delete() }
+    }
+}
+
 /** Copy a shared/opened content Uri into the app's audio dir, so a run doesn't depend on the
  *  caller's transient read grant (SEND/VIEW grants aren't persistable). Returns the local file. */
 private fun copyToAppAudio(context: android.content.Context, uri: Uri): File {
@@ -269,11 +286,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         maybeRequestNotifications()
         // Reclaim space from any download the app was killed mid-way through (stale "*.part" temp
-        // files). Off the main thread — it's file IO. NOT safe when the foreground service is
-        // mid-run (an Activity recreation, not a cold start): the sweep would delete the pipeline's
-        // in-flight .part download and restart a multi-hundred-MB fetch from zero.
+        // files) AND the transient audio work files (shared_* import copies, decoded_* decode
+        // outputs, orphaned recording_* captures) that filesDir/audio accumulated — the durable
+        // copies live under filesDir/library, so these are all reclaimable. Off the main thread —
+        // it's file IO. NOT safe while the foreground service is mid-run (an Activity recreation,
+        // not a cold start): the sweep would delete the pipeline's in-flight files.
         if (!TranscriptionService.pipelineActive) {
-            Thread { ModelManager(applicationContext).sweepStalePartFiles() }.start()
+            Thread {
+                ModelManager(applicationContext).sweepStalePartFiles()
+                reclaimAudioTemps(applicationContext)
+            }.start()
         }
         handleIncoming(intent)
         setContent {
@@ -394,6 +416,22 @@ class MainActivity : ComponentActivity() {
 }
 
 /** Studio navigation: list-first stack — Studio (home) → Capture / Session, back returns home. */
+/**
+ * Decode a (possibly untrusted) JPEG/PNG byte array with its longest side capped at [maxDim] px, so
+ * a hostile embedded cover with enormous declared dimensions can't OOM-crash the app. Reads the
+ * header first (inJustDecodeBounds) to pick a power-of-two inSampleSize, then decodes.
+ */
+private fun decodeBoundedBitmap(bytes: ByteArray, maxDim: Int): android.graphics.Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    val longest = maxOf(bounds.outWidth, bounds.outHeight)
+    if (longest <= 0) return null
+    var sample = 1
+    while (longest / sample > maxDim) sample *= 2
+    val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+    return runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) }.getOrNull()
+}
+
 private enum class Screen { Studio, Capture, Session }
 
 @Composable
@@ -408,6 +446,8 @@ private fun TranscribeScreen(
     val pal = LocalVoxSumPalette.current
     val context = LocalContext.current
     var status by remember { mutableStateOf(context.getString(R.string.empty_status)) }
+    // Semantic error flag for the status pill's color (locale-independent, unlike parsing the text).
+    var statusIsError by remember { mutableStateOf(false) }
     var title by remember { mutableStateOf<String?>(null) }
     var summary by remember { mutableStateOf<String?>(null) }
     var actionItems by remember { mutableStateOf<String?>(null) }
@@ -417,6 +457,7 @@ private fun TranscribeScreen(
     // keys off this rather than !running, so it's available while the summary is still streaming
     // (cancel-and-re-summarize). Reset when a fresh transcription starts.
     var transcriptReady by remember { mutableStateOf(false) }
+    LaunchedEffect(running) { if (running) statusIsError = false }
     var progress by remember { mutableFloatStateOf(0f) }
     // Load the user's persisted settings (survives restarts) and seed the process-wide Holder.
     var config by remember {
@@ -811,7 +852,7 @@ private fun TranscribeScreen(
         // re-sets isRecording=true right after its clearSession call.
         isRecording = false; micLevel = 0f
         title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
-        sessionDirty = false
+        sessionDirty = false; statusIsError = false
         coverEnabled = true
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
@@ -1064,8 +1105,10 @@ private fun TranscribeScreen(
                 llmModelId = loaded.llmModelId ?: config.llmModelId,
                 asrModelId = loaded.asrModelId ?: config.asrModelId,
             )
-            // Restore the EMBEDDED cover verbatim (re-fingerprinting the lossy audio would change it).
-            coverBitmap = loaded.coverJpeg?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+            // Restore the EMBEDDED cover. Bounded decode: an opened session is an untrusted file, and
+            // a cover declaring huge pixel dimensions would OOM-crash an unbounded decodeByteArray.
+            // The cover renders small, so downsample to <= 1024 px.
+            coverBitmap = loaded.coverJpeg?.let { decodeBoundedBitmap(it, 1024) }
             coverFromSession = coverBitmap != null
             coverEnabled = true
             isPlaying = false; running = false; transcriptReady = true; progress = 0f
@@ -1319,7 +1362,7 @@ private fun TranscribeScreen(
                     if (screen != Screen.Session) {
                         Toast.makeText(context, context.getString(R.string.status_error, e.error), Toast.LENGTH_LONG).show()
                     }
-                    status = context.getString(R.string.status_error, e.error); running = false; diarizeOnlyRun = false
+                    status = context.getString(R.string.status_error, e.error); statusIsError = true; running = false; diarizeOnlyRun = false
                     // Offer a one-tap Retry for the same source (a corrupt model was cleared server-
                     // side, so the retry re-downloads it). Only when we still hold the source Uri.
                     // The Retry snackbar is only useful in-context: on Studio/Capture the error is
@@ -1839,6 +1882,7 @@ private fun TranscribeScreen(
                 running = running,
                 progress = progress,
                 transcriptAvailable = utterances.isNotEmpty(),
+                statusIsError = statusIsError,
                 // Same contract as the system BackHandler above: leaving a watched queue item must
                 // also release the borrowed running flag or Studio paints a stuck phantom banner.
                 onBack = { if (watchingQueue) running = false; persistSessionEdits(); watchingQueue = false; screen = Screen.Studio },

@@ -164,16 +164,16 @@ data class ThemeController(val mode: ThemeMode, val setMode: (ThemeMode) -> Unit
 
 val LocalThemeController = staticCompositionLocalOf { ThemeController(ThemeMode.AUTO) {} }
 
-/** Map a pipeline status string to a semantic color (matches the web app's status pill). */
-fun statusColor(status: String): Color {
-    val s = status.lowercase()
-    return when {
-        s.startsWith("error") || s.contains("failed") -> VoxSumPalette.Red
-        s.startsWith("done") || s.startsWith("transcript") || s.contains("detected") -> VoxSumPalette.Success
-        s.contains("transcrib") || s.contains("decod") || s.contains("identif") ||
-            s.contains("summar") || s.contains("detect") || s.contains("start") -> VoxSumPalette.Info
-        else -> VoxSumPalette.Neutral
-    }
+/**
+ * Semantic color for the pipeline status pill, from TYPED state — not by matching English keywords
+ * in the localized status text (that left every pill Neutral in fr/zh-rTW). Red on error, Info while
+ * a run is in flight, Success once a transcript exists and the run is idle, Neutral otherwise.
+ */
+fun statusColor(running: Boolean, transcriptReady: Boolean, isError: Boolean): Color = when {
+    isError -> VoxSumPalette.Red
+    running -> VoxSumPalette.Info
+    transcriptReady -> VoxSumPalette.Success
+    else -> VoxSumPalette.Neutral
 }
 
 private fun schemeFor(pal: VoxSumColors): ColorScheme {

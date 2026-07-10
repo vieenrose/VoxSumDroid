@@ -64,6 +64,7 @@ fun SessionTopBar(
     running: Boolean,
     progress: Float,
     transcriptAvailable: Boolean,
+    statusIsError: Boolean,
     onBack: () -> Unit,
     onStop: () -> Unit,
     // ⏭ while this session is a live/processing run of a saved capture: start recording the next
@@ -139,7 +140,7 @@ fun SessionTopBar(
             Text(
                 status,
                 style = MaterialTheme.typography.bodyMedium,
-                color = statusColor(status),
+                color = statusColor(running, transcriptAvailable, statusIsError),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
             )
         }

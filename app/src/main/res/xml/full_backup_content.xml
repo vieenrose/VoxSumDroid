@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pre-API-31 counterpart of backup_rules.xml (android:fullBackupContent). Exclude all of filesDir
+  (private recordings/transcripts/sessions) from Auto Backup; settings (shared_prefs) still back up.
+-->
+<full-backup-content>
+    <exclude domain="file" />
+</full-backup-content>
