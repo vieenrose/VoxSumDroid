@@ -259,6 +259,7 @@
     <string name="source_process_all_desc">Transcribe and summarize the saved recordings one by one</string>
     <string name="svc_processing_queue">Processing %1$s (%2$d left)</string>
     <string name="svc_queue_item_failed">Could not process %s — kept in the library</string>
+    <string name="svc_paused_time_limit">Processing paused by the system time limit — reopen VoxSum to resume.</string>
 
     <string name="library_title">Recorded sessions</string>
     <string name="library_empty">No saved recordings yet — every recording is saved here automatically.</string>

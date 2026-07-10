@@ -91,6 +91,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
@@ -437,11 +438,19 @@ private fun TranscribeScreen(
     var pendingReextract by remember { mutableStateOf(false) }
     // Guards for the async OpenCC conversion: [sessionGen] bumps on every new session (a stale convert
     // that finishes late must not clobber the new one); [scriptSeq] bumps per convert (only the latest applies).
-    var sessionGen by remember { mutableIntStateOf(0) }
+    // rememberSaveable: sessionGen ALSO tags every event the service emits for the current run (via
+    // EXTRA_RUN_GEN); if an activity recreation (an unhandled config change) reset it to 0, the live
+    // run's events would never match again and the UI would be permanently detached from the pipeline.
+    // Surviving recreation keeps the gen stable so the run stays attached.
+    var sessionGen by rememberSaveable { mutableIntStateOf(0) }
     var scriptSeq by remember { mutableIntStateOf(0) }
     // Bumped by every hand-edit; snapshotted by applyChineseScript so an edit made during its off-main
     // OpenCC window isn't overwritten by the converted pre-edit snapshot.
     var editSeq by remember { mutableIntStateOf(0) }
+    // True when the open session holds edits (text/speakers/summary/actions/re-run results) not yet
+    // written back to its library entry — persistSessionEdits() flushes on leaving the session.
+    // Without this the whole review loop was silently lost on Back (reopen reloaded the stale file).
+    var sessionDirty by remember { mutableStateOf(false) }
     var showPodcastSheet by remember { mutableStateOf(false) }
     var showAddSourceSheet by remember { mutableStateOf(false) }
     var showYouTubeSheet by remember { mutableStateOf(false) }
@@ -748,10 +757,42 @@ private fun TranscribeScreen(
         while (isRecording) { delay(1000); recSeconds++ }
     }
 
+    // Transient feedback that reaches EVERY screen. The one SnackbarHost lives in the Session
+    // scaffold, so a message raised while the user is on Studio/Capture (mic-permission denial,
+    // failed open/import, save result) was invisible — and worse, queued on the snackbar mutex to
+    // replay later over an unrelated session. Toast off-Session (no host needed, no queue), snackbar
+    // on Session (richer, matches the surrounding UI). Mirrors the existing Failed/ExportDone paths.
+    fun notify(msg: String) {
+        if (screen == Screen.Session) scope.launch { snackbarHostState.showSnackbar(msg) }
+        else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+    }
+
+    // Flush the open session's edits back into its library entry (service-side attachResults —
+    // rebuilds session.m4a so reopening the row shows the corrected transcript/names/summary).
+    // No-op unless the session is library-bound, dirty, and idle: a running pipeline writes its
+    // own results at completion, and the service ignores requests for deleted entries.
+    fun persistSessionEdits() {
+        if (!sessionDirty || running || isRecording) return
+        val id = libraryDir?.name ?: return
+        if (utterances.isEmpty()) return
+        TranscriptionService.pendingPersist = TranscriptionService.PersistRequest(
+            entryId = id, audioUri = audioUri,
+            utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
+            summary = summary, actionItems = actionItems, title = title,
+            asrModelId = config.asrModelId, llmModelId = config.llmModelId,
+        )
+        sessionDirty = false
+        ContextCompat.startForegroundService(
+            context,
+            Intent(context, TranscriptionService::class.java).setAction(TranscriptionService.ACTION_PERSIST_LIBRARY),
+        )
+    }
+
     // ONE place to tear down the open session and every pending-intent flag — launchAudio,
     // beginRecording and row-deletion all reset through here, so a new flag has exactly one
     // reset site instead of three drifting copies.
     fun clearSession() {
+        persistSessionEdits()   // don't drop edits when another session/recording takes over
         SessionAutosave.clear(context)
         utterances.clear(); speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         diarizeOnlyRun = false
@@ -766,6 +807,7 @@ private fun TranscribeScreen(
         // re-sets isRecording=true right after its clearSession call.
         isRecording = false; micLevel = 0f
         title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
+        sessionDirty = false
         coverEnabled = true
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
@@ -845,7 +887,7 @@ private fun TranscribeScreen(
                 else launchAudio(luri)
             } else {
                 status = context.getString(R.string.empty_status)
-                snackbarHostState.showSnackbar(context.getString(R.string.import_failed))
+                notify(context.getString(R.string.import_failed))
             }
         }
     }
@@ -863,7 +905,7 @@ private fun TranscribeScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) beginRecording()
-        else scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.mic_permission_required)) }
+        else notify(context.getString(R.string.mic_permission_required))
     }
     fun requestRecord() {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
@@ -913,6 +955,7 @@ private fun TranscribeScreen(
         coverEnabled = true; coverBitmap = null; coverFromSession = false; lastSaveUri = null
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false
         isDetecting = false   // hand-rolled reset path: don't inherit a prior session's in-flight detection
+        sessionDirty = false
         sessionGen++   // stale events from any prior session run are dropped
         // NOT a recording run: recordingRun gates the ⏭ Next-talk affordance (showNextTalk), and a
         // view that merely WATCHES a background drain must not offer to start a new recording.
@@ -963,7 +1006,7 @@ private fun TranscribeScreen(
             if (loaded == null) {
                 // Stale entry (file moved / grant revoked) → drop it from Recent and tell the user.
                 RecentSessions.remove(context, uri.toString()); recentsVersion++
-                snackbarHostState.showSnackbar(context.getString(R.string.session_open_failed)); return@launch
+                notify(context.getString(R.string.session_open_failed)); return@launch
             }
             if (!loaded.recovered) {
                 // A plain .ogg with no embedded session → just transcribe it as a normal source.
@@ -1006,7 +1049,7 @@ private fun TranscribeScreen(
             // cross-session flags too: a slow Detect-names from the PREVIOUS session must not keep
             // this one's action disabled, and a pending next-talk/auto-process from a capture whose
             // terminal event this sessionGen++ just orphaned must not fire much later.
-            isDetecting = false; pendingNextTalk = false; pendingAutoProcess = false
+            isDetecting = false; pendingNextTalk = false; pendingAutoProcess = false; sessionDirty = false
             audioUri = Uri.fromFile(loaded.audio)
             // A reopened library session keeps its entry binding (the extracted audio is a cache
             // file, so derive it from the SOURCE uri) — renames still reach the library row.
@@ -1081,7 +1124,7 @@ private fun TranscribeScreen(
                     } != null
                 }.getOrDefault(false)
             }
-            snackbarHostState.showSnackbar(context.getString(
+            notify(context.getString(
                 if (ok) R.string.session_saved_as else R.string.session_save_failed,
                 documentLabel(context, uri),
             ))
@@ -1183,7 +1226,7 @@ private fun TranscribeScreen(
                     if (diarizeOnlyRun) { diarizeOnlyRun = false; running = false }
                     autosaveSessionNow()
                 }
-                is TranscriptEvent.Title -> { title = e.title; autosaveSessionNow() }
+                is TranscriptEvent.Title -> { title = e.title; if (libraryDir != null && !watchingQueue) sessionDirty = true; autosaveSessionNow() }
                 is TranscriptEvent.RecordingSaved -> {
                     val newUri = Uri.parse(e.uri)
                     // End-of-ASR source swap (original file → decoded WAV of the SAME audio): keep the
@@ -1240,8 +1283,8 @@ private fun TranscribeScreen(
                         swapAudioKeepingPlayhead(savedUri)
                     }
                 }
-                is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
-                is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false; autosaveSessionNow() }
+                is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false; if (libraryDir != null && !watchingQueue) sessionDirty = true; autosaveSessionNow() }
+                is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false; if (libraryDir != null && !watchingQueue) sessionDirty = true; autosaveSessionNow() }
                 is TranscriptEvent.Failed -> {
                     pendingNextTalk = false   // capture wasn't saved → don't roll into a new recording
                     pendingAutoProcess = false
@@ -1255,14 +1298,22 @@ private fun TranscribeScreen(
                     status = context.getString(R.string.status_error, e.error); running = false; diarizeOnlyRun = false
                     // Offer a one-tap Retry for the same source (a corrupt model was cleared server-
                     // side, so the retry re-downloads it). Only when we still hold the source Uri.
+                    // The Retry snackbar is only useful in-context: on Studio/Capture the error is
+                    // already Toasted above, and a queued Retry would replay much later over an
+                    // UNRELATED session, re-launching a transcription the user abandoned. Show it
+                    // only while on the Session it belongs to, and drop the action if the session
+                    // moved on in the meantime (sessionGen ticket).
                     val src = audioUri
-                    scope.launch {
-                        val res = snackbarHostState.showSnackbar(
-                            message = context.getString(R.string.status_error, e.error),
-                            actionLabel = src?.let { context.getString(R.string.retry) },
-                            duration = SnackbarDuration.Long,
-                        )
-                        if (res == SnackbarResult.ActionPerformed && src != null) launchAudio(src)
+                    if (screen == Screen.Session && src != null) {
+                        val ticket = sessionGen
+                        scope.launch {
+                            val res = snackbarHostState.showSnackbar(
+                                message = context.getString(R.string.status_error, e.error),
+                                actionLabel = context.getString(R.string.retry),
+                                duration = SnackbarDuration.Long,
+                            )
+                            if (res == SnackbarResult.ActionPerformed && sessionGen == ticket) launchAudio(src)
+                        }
                     }
                 }
                 is TranscriptEvent.ExportDone -> {
@@ -1377,7 +1428,7 @@ private fun TranscribeScreen(
             result
                 .onSuccess { names ->
                     names.forEach { (id, n) -> if (speakerNames[id]?.confidence != "user") speakerNames[id] = n }
-                    if (names.isNotEmpty()) status = context.getString(R.string.status_detected_names, names.size)
+                    if (names.isNotEmpty()) { status = context.getString(R.string.status_detected_names, names.size); sessionDirty = true }
                 }
                 .onFailure { status = context.getString(R.string.status_name_detection_failed, it.message) }
             isDetecting = false
@@ -1407,6 +1458,7 @@ private fun TranscribeScreen(
             for (i in newUtts.indices) if (i < utterances.size) utterances[i] = newUtts[i]
             title = newTitle; summary = newSummary; actionItems = newActions
             newNames.forEach { (id, n) -> speakerNames[id] = n }
+            sessionDirty = true
         }
     }
 
@@ -1419,9 +1471,10 @@ private fun TranscribeScreen(
         summary = null
         if (regenerateTitle) { title = null; titleEdited = false }
         running = true; progress = 0f; status = context.getString(R.string.status_starting)   // transcript persists
+        // Transcript rides the holder, not an Intent extra (Binder 1 MB limit → crash on long meetings).
+        TranscriptionService.pendingText = utterances.joinToString("\n") { it.text }
         val intent = Intent(context, TranscriptionService::class.java)
             .setAction(TranscriptionService.ACTION_SUMMARIZE)
-            .putExtra(TranscriptionService.EXTRA_TRANSCRIPT, utterances.joinToString("\n") { it.text })
             .putExtra(TranscriptionService.EXTRA_WITH_TITLE, regenerateTitle)
             .putExtra(TranscriptionService.EXTRA_RUN_GEN, sessionGen)
         ContextCompat.startForegroundService(context, intent)
@@ -1434,9 +1487,9 @@ private fun TranscribeScreen(
         TranscriptionConfig.Holder.config = config
         title = null; titleEdited = false   // regenerated title is machine-made, not a sticky user edit
         running = true; progress = 0f; status = context.getString(R.string.status_starting)
+        TranscriptionService.pendingText = summary
         val intent = Intent(context, TranscriptionService::class.java)
             .setAction(TranscriptionService.ACTION_RETITLE)
-            .putExtra(TranscriptionService.EXTRA_SUMMARY, summary)
             .putExtra(TranscriptionService.EXTRA_RUN_GEN, sessionGen)
         ContextCompat.startForegroundService(context, intent)
     }
@@ -1446,9 +1499,9 @@ private fun TranscribeScreen(
         if (running || utterances.isEmpty()) return
         TranscriptionConfig.Holder.config = config
         running = true; progress = 0f; status = context.getString(R.string.status_starting)   // transcript persists
+        TranscriptionService.pendingText = utterances.joinToString("\n") { it.text }
         val intent = Intent(context, TranscriptionService::class.java)
             .setAction(TranscriptionService.ACTION_EXTRACT_ACTIONS)
-            .putExtra(TranscriptionService.EXTRA_TRANSCRIPT, utterances.joinToString("\n") { it.text })
             .putExtra(TranscriptionService.EXTRA_RUN_GEN, sessionGen)
         ContextCompat.startForegroundService(context, intent)
     }
@@ -1529,7 +1582,7 @@ private fun TranscribeScreen(
                 onBeginEdit = { editingIndex = idx; editingSpeakerId = null },
                 onSaveText = { newText ->
                     if (newText.isNotEmpty()) {
-                        utterances[idx] = u.copy(text = newText); editingIndex = -1; editSeq++
+                        utterances[idx] = u.copy(text = newText); editingIndex = -1; editSeq++; sessionDirty = true
                         // Transcript changed → its summary AND action-items children are now stale.
                         if (!summary.isNullOrBlank() || actionItems != null) transcriptDirty = true
                     }
@@ -1539,6 +1592,7 @@ private fun TranscribeScreen(
                 onCommitSpeakerName = { sid, name ->
                     if (name.isBlank()) speakerNames.remove(sid)
                     else speakerNames[sid] = SpeakerName(name, confidence = "user")
+                    sessionDirty = true
                     editingSpeakerId = null
                 },
                 onCancelSpeakerEdit = { editingSpeakerId = null },
@@ -1556,13 +1610,13 @@ private fun TranscribeScreen(
             title?.let { t ->
                 TitleCard(t, llmDisplay, editingTitle,
                     onBeginEdit = { editingTitle = true },
-                    onSave = { title = it; editingTitle = false; titleEdited = true; editSeq++ },
+                    onSave = { title = it; editingTitle = false; titleEdited = true; editSeq++; sessionDirty = true },
                     onCancel = { editingTitle = false })
             }
             summary?.let { s ->
                 SummaryCard(s, llmDisplay, editingSummary,
                     onBeginEdit = { editingSummary = true },
-                    onSave = { summary = it; editingSummary = false; editSeq++ },
+                    onSave = { summary = it; editingSummary = false; editSeq++; sessionDirty = true },
                     onCancel = { editingSummary = false },
                     onCopy = {
                         val cm = context.getSystemService(android.content.ClipboardManager::class.java)
@@ -1585,7 +1639,7 @@ private fun TranscribeScreen(
             actionItems?.let { ai ->
                 ActionItemsCard(ai, editingActions,
                     onBeginEdit = { editingActions = true },
-                    onSave = { actionItems = it; editingActions = false; editSeq++ },
+                    onSave = { actionItems = it; editingActions = false; editSeq++; sessionDirty = true },
                     onCancel = { editingActions = false },
                     onCopy = {
                         val cm = context.getSystemService(android.content.ClipboardManager::class.java)
@@ -1690,6 +1744,7 @@ private fun TranscribeScreen(
         // the row's own chip, that never clears (the drain's terminal QUEUE_GEN events are dropped
         // once watchingQueue is false, so nothing else resets running).
         if (watchingQueue) running = false
+        if (screen == Screen.Session) persistSessionEdits()
         watchingQueue = false; screen = Screen.Studio
     }
 
@@ -1762,7 +1817,7 @@ private fun TranscribeScreen(
                 transcriptAvailable = utterances.isNotEmpty(),
                 // Same contract as the system BackHandler above: leaving a watched queue item must
                 // also release the borrowed running flag or Studio paints a stuck phantom banner.
-                onBack = { if (watchingQueue) running = false; watchingQueue = false; screen = Screen.Studio },
+                onBack = { if (watchingQueue) running = false; persistSessionEdits(); watchingQueue = false; screen = Screen.Studio },
                 onStop = { handleStop() },
                 showNextTalk = running && recordingRun && !isRecording,
                 onNextTalk = { nextTalk() },
@@ -1956,7 +2011,9 @@ private fun TranscribeScreen(
     // A hand-edited transcript makes its summary child stale → offer a one-tap re-summarize (once per
     // edit episode; the flag stays set while the snackbar shows so further edits don't stack it).
     LaunchedEffect(transcriptDirty) {
-        if (transcriptDirty && !summary.isNullOrBlank() && !running) {
+        // Only on the Session screen: this snackbar carries a Re-summarize action, so it must land
+        // where there's a host AND where acting on it makes sense (transcript edits happen here).
+        if (transcriptDirty && !summary.isNullOrBlank() && !running && screen == Screen.Session) {
             val res = snackbarHostState.showSnackbar(
                 message = context.getString(R.string.transcript_changed_resummarize),
                 actionLabel = context.getString(R.string.re_summarize),
@@ -1974,7 +2031,10 @@ private fun TranscribeScreen(
     // When Settings closes after a change that needs the LLM (and a summary exists), offer a one-tap
     // re-summarize — the setting alone doesn't touch the on-screen summary, so this closes that gap.
     LaunchedEffect(showConfigSheet) {
-        if (!showConfigSheet && summaryStale && !summary.isNullOrBlank() && !running) {
+        // Settings is reachable from Studio too, but the actionable+visible place for this
+        // Re-summarize prompt is the Session screen; skip (keep summaryStale) otherwise so it
+        // surfaces when the user next opens the session.
+        if (!showConfigSheet && summaryStale && !summary.isNullOrBlank() && !running && screen == Screen.Session) {
             summaryStale = false
             val res = snackbarHostState.showSnackbar(
                 message = context.getString(R.string.summary_settings_changed),

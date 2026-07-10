@@ -258,6 +258,7 @@
     <string name="source_process_all_desc">逐一轉錄並摘要已儲存的錄音</string>
     <string name="svc_processing_queue">正在處理 %1$s（剩餘 %2$d）</string>
     <string name="svc_queue_item_failed">無法處理 %s——已保留在資料庫中</string>
+    <string name="svc_paused_time_limit">處理已因系統時間限制而暫停——重新開啟 VoxSum 即可繼續。</string>
 
     <string name="library_title">已錄音的場次</string>
     <string name="library_empty">尚無錄音——每段錄音都會自動儲存在這裡。</string>

@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.annotation.SuppressLint
 import android.os.Build
 import android.os.PowerManager
+import android.util.Log
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.lifecycle.LifecycleService
@@ -101,6 +102,14 @@ class TranscriptionService : LifecycleService() {
         // utterances can be large, so it rides an in-memory holder, not Intent extras.
         const val ACTION_EXPORT = "studio.voxsum.EXPORT"
 
+        // Persist the open session's EDITS back into its library entry (rebuild session.m4a +
+        // meta): the review loop (fix speaker names, correct text, re-summarize) otherwise lived
+        // only in Compose state and was silently lost on Back — reopening the entry reloaded the
+        // stale session.m4a. Request rides [pendingPersist] (transcripts are too big for Intent
+        // extras); runs in the foreground service like an export so closing the app can't
+        // truncate the file mid-write.
+        const val ACTION_PERSIST_LIBRARY = "studio.voxsum.PERSIST_LIBRARY"
+
         // True while a live capture is in flight *in this process*. The Activity can be destroyed and
         // recreated (low memory) while the foreground service keeps recording; the crash-recovery
         // check reads this so it doesn't mistake a still-active recording's marker for an interrupted
@@ -116,6 +125,14 @@ class TranscriptionService : LifecycleService() {
         private const val MIC_BUFFER_BLOCKS = 256
 
         @Volatile var pendingExport: ExportRequest? = null
+
+        /** A pending edits-persist into a library entry (see ACTION_PERSIST_LIBRARY). */
+        @Volatile var pendingPersist: PersistRequest? = null
+
+        /** The transcript/summary text for ACTION_SUMMARIZE/RETITLE/EXTRACT_ACTIONS. Rides a holder
+         *  rather than an Intent extra: a long meeting's transcript exceeds the ~1 MB Binder
+         *  transaction limit → TransactionTooLargeException crash. Consumed in onStartCommand. */
+        @Volatile var pendingText: String? = null
 
         /** The transcript a pending ACTION_DIARIZE re-clusters (see that action's comment). */
         @Volatile var pendingDiarize: List<TranscriptEvent.Utterance>? = null
@@ -162,6 +179,19 @@ class TranscriptionService : LifecycleService() {
 
     /** A pending session export, handed to the service via [pendingExport] (utterances can be large,
      *  so it rides an in-memory holder rather than Intent extras). */
+    /** The open session's current state, to be written back into its library entry. */
+    data class PersistRequest(
+        val entryId: String,
+        val audioUri: Uri?,
+        val utterances: List<TranscriptEvent.Utterance>,
+        val speakerNames: Map<Int, SpeakerName>,
+        val summary: String?,
+        val actionItems: String?,
+        val title: String?,
+        val asrModelId: String?,
+        val llmModelId: String?,
+    )
+
     data class ExportRequest(
         val share: Boolean,           // true → build to cache for sharing; false → write to [saveUri]
         val saveUri: Uri?,
@@ -236,6 +266,46 @@ class TranscriptionService : LifecycleService() {
     }
 
     /**
+     * Android 15+ (API 35) hard-caps a dataSync foreground service at ~6 h/day: when it elapses the
+     * system calls this, and NOT calling stopSelf here escalates to an ANR-style kill mid-run. A
+     * multi-hour batch drain (or one enormous import) can reach it. Wind down gracefully like
+     * ACTION_STOP — cancel the LLM + pipeline job — but keep any remaining QUEUE items intact so the
+     * cold-start kick resumes them next time the app opens, and post a dismissible notification so a
+     * backgrounded user learns processing paused (and how to resume). Recording (microphone type) is
+     * far below the cap, so this realistically only trims a very long processing session.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        activeLlm?.cancel()
+        pipelineJob?.cancel()
+        notifyPaused()
+        pipelineActive = false; recordingJobActive = false; queueDraining = false
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf(lastStartId)
+    }
+
+    /** Dismissible heads-up that a long run was paused by the system's FGS time limit. */
+    private fun notifyPaused() {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "VoxSum pipeline", NotificationManager.IMPORTANCE_LOW))
+        }
+        val open = PendingIntent.getActivity(
+            this, 3, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        nm.notify(
+            NOTIF_ID + 3,
+            Notification.Builder(this, CHANNEL_ID)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText(getString(R.string.svc_paused_time_limit))
+                .setSmallIcon(android.R.drawable.stat_sys_warning)
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .build(),
+        )
+    }
+
+    /**
      * Surface a model-download fraction to BOTH the notification AND the UI (a [TranscriptEvent.DownloadProgress]
      * that drives the same progress bar + status). Throttled to whole-percent changes; uses tryEmit because
      * the download callback is not a suspend context and the events buffer is bounded. [msgRes] takes one %d.
@@ -293,6 +363,10 @@ class TranscriptionService : LifecycleService() {
                 runExport(pendingExport.also { pendingExport = null })
                 return START_NOT_STICKY
             }
+            ACTION_PERSIST_LIBRARY -> {
+                runPersist(pendingPersist.also { pendingPersist = null })
+                return START_NOT_STICKY
+            }
         }
 
         val recording = intent?.action == ACTION_RECORD
@@ -328,8 +402,11 @@ class TranscriptionService : LifecycleService() {
         val cfgSnapshot = TranscriptionConfig.Holder.config
         startForegroundTyped(recording, "Preparing…")
         val uri = intent?.getStringExtra(EXTRA_AUDIO_URI)
-        val transcript = intent?.getStringExtra(EXTRA_TRANSCRIPT)
-        val summaryExtra = intent?.getStringExtra(EXTRA_SUMMARY)
+        // Transcript/summary text rides pendingText (Binder-limit safe). Consume it here on the
+        // main thread before the job launches so a rapid second dispatch can't steal it.
+        val pendingBody = if (summarizeOnly || retitle || extractActions) pendingText.also { pendingText = null } else null
+        val transcript = pendingBody ?: intent?.getStringExtra(EXTRA_TRANSCRIPT)
+        val summaryExtra = pendingBody ?: intent?.getStringExtra(EXTRA_SUMMARY)
         val summarizeWithTitle = intent?.getBooleanExtra(EXTRA_WITH_TITLE, false) ?: false
         // Queue drains are tagged QUEUE_GEN so their events never reach the UI's open session.
         val runGen = if (processQueue) QUEUE_GEN else intent?.getIntExtra(EXTRA_RUN_GEN, UNTAGGED) ?: UNTAGGED
@@ -432,6 +509,50 @@ class TranscriptionService : LifecycleService() {
     // pipeline finishing must not stopSelf under a live export, and one export must not stop the
     // service under another.
     private var activeExports = 0
+
+    /**
+     * Write the open session's edits back into its library entry (rebuild session.m4a + meta via
+     * [SessionLibrary.attachResults]). Counted in [activeExports] and shaped like [runExport]: an
+     * out-of-pipeline IO job under the shared foreground, so quitting the app can't truncate the
+     * session file mid-write. Emits [TranscriptEvent.LibrarySaved] so the Studio list refreshes.
+     */
+    private fun runPersist(req: PersistRequest?) {
+        if (req == null) {
+            satisfyForegroundContract()
+            if (pipelineJob?.isActive != true && activeExports == 0) {
+                stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(lastStartId)
+            }
+            return
+        }
+        startForegroundTyped(recording = notifRecording, getString(R.string.exporting))
+        activeExports++
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                // Entry may have been deleted while the session was open — attachResults would
+                // mkdirs() the dir back and resurrect a ghost row, so bail if it is gone.
+                val entry = SessionLibrary.byId(this@TranscriptionService, req.entryId) ?: return@runCatching
+                // Prefer the raw capture; older entries have it pruned, so fall back to the open
+                // session's audio (safe even when that IS the entry's session.m4a: buildSessionOgg
+                // decodes the input to a temp before it overwrites the output).
+                val audio = if (entry.wavFile.exists()) Uri.fromFile(entry.wavFile) else req.audioUri
+                val updated = SessionLibrary.attachResults(
+                    this@TranscriptionService, entry, req.utterances, req.speakerNames,
+                    req.summary, req.actionItems, req.title, req.asrModelId, req.llmModelId,
+                    audio = audio,
+                )
+                if (updated != null) {
+                    emitEvent(TranscriptEvent.LibrarySaved(Uri.fromFile(updated.sessionFile).toString(), updated.title))
+                }
+            }
+            withContext(NonCancellable + Dispatchers.Main) {
+                activeExports--
+                if (pipelineJob?.isActive != true && activeExports == 0) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf(lastStartId)
+                }
+            }
+        }
+    }
 
     private fun runExport(req: ExportRequest?) {
         if (req == null) {
@@ -781,6 +902,7 @@ class TranscriptionService : LifecycleService() {
             } catch (t: Throwable) {
                 // A terminally failed item must not wedge the queue — drop it and continue; its
                 // capture stays safe (RECORDED) in the library for a manual retry.
+                Log.w("TranscriptionService", "queue item $id failed terminally", t)
                 events.emit(UNTAGGED to TranscriptEvent.Status(getString(R.string.svc_queue_item_failed, entry.title ?: SessionLibrary.defaultTitle(entry.createdAt))))
             } finally {
                 currentQueueItemId = null
