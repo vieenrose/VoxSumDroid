@@ -34,6 +34,9 @@ import studio.voxsum.core.config.ThemeMode
 data class VoxSumColors(
     /** Whether this palette reads as a dark theme (drives Material's base scheme + status-bar icons). */
     val isDark: Boolean,
+    /** True only for the e-ink palette — UI reads it to avoid continuous animation (spinners) that
+     *  ghosts on e-paper; static indicators are used instead. */
+    val isEink: Boolean = false,
     val Sky: Color,
     val Indigo: Color,
     val Slate900: Color,
@@ -133,6 +136,7 @@ val LightColors = VoxSumColors(
  */
 val EinkColors = VoxSumColors(
     isDark = false,
+    isEink = true,
     Sky = Color(0xFF0B5CAD),
     Indigo = Color(0xFF3730A3),
     Slate900 = Color(0xFFFFFFFF),

@@ -2242,7 +2242,7 @@ private fun ExportingOverlay(onDismiss: () -> Unit) {
     ) {
         Surface(shape = RoundedCornerShape(16.dp), color = pal.PanelSurface, tonalElevation = 6.dp) {
             Row(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
+                WorkingIndicator()
                 Spacer(Modifier.width(16.dp))
                 Column {
                     Text(stringResource(R.string.exporting), color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
@@ -2250,6 +2250,18 @@ private fun ExportingOverlay(onDismiss: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** A "working" indicator that avoids continuous animation on e-ink (a spinning ring ghosts the
+ *  e-paper) — a static accent dot there, the normal spinner on LCD. */
+@Composable
+private fun WorkingIndicator(size: Dp = 28.dp) {
+    val pal = LocalVoxSumPalette.current
+    if (pal.isEink) {
+        Box(Modifier.size(size).clip(RoundedCornerShape(50)).background(pal.ActiveBar))
+    } else {
+        CircularProgressIndicator(strokeWidth = 3.dp, modifier = Modifier.size(size))
     }
 }
 
@@ -2264,7 +2276,7 @@ private fun OpeningOverlay() {
     ) {
         Surface(shape = RoundedCornerShape(16.dp), color = pal.PanelSurface, tonalElevation = 6.dp) {
             Row(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
+                WorkingIndicator()
                 Spacer(Modifier.width(16.dp))
                 Text(stringResource(R.string.opening_session), color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
             }
