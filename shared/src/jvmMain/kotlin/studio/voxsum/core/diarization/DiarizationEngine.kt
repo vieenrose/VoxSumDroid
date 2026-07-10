@@ -387,6 +387,11 @@ class DiarizationEngine(
             val map = HashMap<Int, Int>()
             for (isl in islands) isl.label = map.getOrPut(isl.label) { map.size }
             k = map.size
+            // Recompute centroids from the NEW compacted labels. The merge+remap shifted the whole
+            // label space, so the `cents` from assign() (old label indices) would compare the wrong
+            // clusters on the next iteration and mis-merge/mislabel. Mirrors mergeWeakSpeakers' own
+            // per-merge recompute.
+            cents = centroids(IntArray(n) { islands[it].label }, embs, k)
         }
 
         // 4. Align ASR utterances to the island timeline on a 10 ms grid (frame label = the
