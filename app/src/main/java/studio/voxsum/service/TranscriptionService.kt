@@ -1451,8 +1451,26 @@ class TranscriptionService : LifecycleService() {
         TargetLanguage.scriptFor(cfg.targetLanguage, this)?.let { OpenCcConverter.get(this, it) }
 
     /** Small thread budget — phone big-core count, not all cores (cf. num_vcpus). */
-    private fun asrThreads(): Int =
-        Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
+    // Thread budget for the native ASR/diarization/LLM ops. Prefer the count of highest-frequency
+    // ("big") cores, not all cores: a compute-bound native op with more threads than big cores
+    // schedules the surplus onto slow little cores, and the parallel step runs at the pace of the
+    // slowest thread — so on a lopsided SoC (e.g. 2 big + 6 little) 4 threads is SLOWER than 2. On a
+    // balanced 4-big SoC (this Boox: Snapdragon 662, 4×2.0 GHz + 4×1.8 GHz) it resolves to 4, so no
+    // change there. Falls back to all cores if cpufreq is unreadable. Clamped 1..4 (diminishing
+    // returns + memory-bandwidth bound above that on mobile). Computed once.
+    private val bigCoreThreads: Int by lazy {
+        val cores = Runtime.getRuntime().availableProcessors()
+        val n = runCatching {
+            val freqs = (0 until cores).mapNotNull { c ->
+                File("/sys/devices/system/cpu/cpu$c/cpufreq/cpuinfo_max_freq")
+                    .takeIf { it.exists() }?.readText()?.trim()?.toLongOrNull()
+            }
+            if (freqs.isEmpty()) null else freqs.max().let { top -> freqs.count { it == top } }
+        }.getOrNull() ?: cores
+        n.coerceIn(1, 4)
+    }
+
+    private fun asrThreads(): Int = bigCoreThreads
 
     /** Start/refresh the FGS with the right type: microphone while recording, else data-sync. */
     private fun startForegroundTyped(recording: Boolean, text: String) {
