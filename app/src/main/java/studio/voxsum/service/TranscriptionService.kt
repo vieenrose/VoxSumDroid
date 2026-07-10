@@ -839,29 +839,36 @@ class TranscriptionService : LifecycleService() {
             emitEvent(TranscriptEvent.Complete(emptyList(), speakerCount = null))
             return emptyList<TranscriptEvent.Utterance>() to SummaryResult(null, null)
         }
+        // Promote a FOREGROUND import into the library BEFORE the LLM phase, so a process kill
+        // during summarization leaves a RECORDED entry (audio safe + re-transcribeable) in Studio
+        // instead of an empty home with the whole run lost. This mirrors the recording pipeline,
+        // which promotes its capture before finishPipeline. A re-run of a library capture is
+        // already durable (its audio never left) and the queue drain owns its own entry — both
+        // skip the early promote.
+        val foreground = (kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED) != QUEUE_GEN
+        val existing = if (ownWav && srcFile!!.name == SessionLibrary.WAV_NAME)
+            srcFile.parentFile?.let { SessionLibrary.byId(this, it.name) } else null
+        val entry = if (foreground && existing == null)
+            runCatching { SessionLibrary.promoteRecording(this, wav, totalDurationSec.toInt()) }.getOrNull()
+        else existing
+        // The decoded WAV just moved into the new entry — swap the player source (playhead carried).
+        if (foreground && existing == null && entry != null) {
+            emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(entry.wavFile).toString()))
+        }
+
         val result = finishPipeline(utterances, diarized, cfg, models, converter)
 
-        // Auto-save FOREGROUND runs into the library too — a transcribed podcast/YouTube/file
-        // used to exist only in the open session (gone once you left it). The queue drain skips
-        // this (it attaches results to its own entry); a re-run of a library capture UPDATES that
-        // entry instead of duplicating it. Non-fatal on failure: the session view still has it.
-        if ((kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED) != QUEUE_GEN) {
+        // Embed the finished results into the entry (RECORDED → full self-describing session.m4a).
+        // Non-fatal on failure: the session view still has the results, and the RECORDED entry above
+        // is already a durable, re-runnable fallback.
+        if (foreground && entry != null) {
             runCatching {
-                val existing = if (ownWav && srcFile!!.name == SessionLibrary.WAV_NAME)
-                    srcFile.parentFile?.let { SessionLibrary.byId(this, it.name) } else null
-                val entry = existing
-                    ?: SessionLibrary.promoteRecording(this, wav, totalDurationSec.toInt())
-                if (entry != null) {
-                    // The decoded WAV just moved into the entry — swap the player source (the UI
-                    // carries the playhead across this swap).
-                    if (existing == null) emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(entry.wavFile).toString()))
-                    val updated = SessionLibrary.attachResults(
-                        this, entry, result.first, emptyMap(), result.second.summary, null,
-                        result.second.title, cfg.asrModelId, cfg.llmModelId,
-                    )
-                    if (updated != null) {
-                        emitEvent(TranscriptEvent.LibrarySaved(Uri.fromFile(updated.sessionFile).toString(), updated.title))
-                    }
+                val updated = SessionLibrary.attachResults(
+                    this, entry, result.first, emptyMap(), result.second.summary, null,
+                    result.second.title, cfg.asrModelId, cfg.llmModelId,
+                )
+                if (updated != null) {
+                    emitEvent(TranscriptEvent.LibrarySaved(Uri.fromFile(updated.sessionFile).toString(), updated.title))
                 }
             }.onFailure { android.util.Log.w("voxsum-library", "could not auto-save import", it) }
         }
@@ -1021,9 +1028,12 @@ class TranscriptionService : LifecycleService() {
             } catch (t: Throwable) {
                 // Mic init/read failure (busy device, dead HAL). Surface it — a capture job dying
                 // silently produced empty "recordings" the user only discovered much later.
-                android.util.Log.w("voxsum-capture", "mic capture failed", t)
+                android.util.Log.w("voxsum-capture", "capture failed", t)
                 captureFailed.set(true)
-                events.tryEmit(runGen to TranscriptEvent.Failed(getString(R.string.mic_capture_failed)))
+                // A disk-full write (ENOSPC) mid-recording surfaces here as an IOException — don't
+                // mislabel it "microphone failed"; tell the user it's storage so they can free space.
+                val msg = if (t is java.io.IOException) R.string.rec_storage_failed else R.string.mic_capture_failed
+                events.tryEmit(runGen to TranscriptEvent.Failed(getString(msg)))
             } finally {
                 mic.close()   // end-of-stream for transcribeLive (clean stop AND cancellation)
             }

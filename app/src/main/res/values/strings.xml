@@ -303,6 +303,7 @@
     <string name="actions_pending_hint">No action items yet.</string>
 
     <string name="mic_capture_failed">Microphone failed — nothing was recorded. Close other apps using the mic and try again.</string>
+    <string name="rec_storage_failed">Recording stopped — storage is full. Free some space and try again.</string>
 
     <string name="notif_session_ready">Session ready</string>
 
