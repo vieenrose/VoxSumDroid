@@ -43,7 +43,7 @@ VoxSum 是一間**錄音工作室**：首頁就是你的**場次清單**，每�
   <img src="docs/screenshots/04-summary.png" width="190" alt="摘要">
   <img src="docs/screenshots/05-summary-language.png" width="190" alt="摘要語言">
 </p>
-<p align="center"><i>工作室首頁（帶即時狀態的場次清單） · 帶語者的即時逐字稿 · 摘要 · 摘要語言選擇 —— 截圖為法文介面；App 亦提供英文與繁體中文。</i></p>
+<p align="center"><i>工作室首頁（帶即時狀態的場次清單） · 帶語者的即時逐字稿 · 摘要 · 摘要語言選擇 —— 截圖為英文介面；App 亦提供繁體中文與法文。</i></p>
 
 ## 你可以做什麼
 

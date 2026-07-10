@@ -47,7 +47,7 @@ them one by one while you watch each session's live status.
   <img src="docs/screenshots/04-summary.png" width="190" alt="Summary">
   <img src="docs/screenshots/05-summary-language.png" width="190" alt="Summary language">
 </p>
-<p align="center"><i>The studio home (session list with live statuses) · live transcript with speakers · summary · summary-language picker — UI shown in French; the app is also available in English and 繁體中文.</i></p>
+<p align="center"><i>The studio home (session list with live statuses) · live transcript with speakers · summary · summary-language picker</i></p>
 
 ## What you can do
 

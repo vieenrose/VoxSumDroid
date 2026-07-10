@@ -82,7 +82,7 @@ Vous pouvez aussi **partager** une note vocale ou un fichier audio/vidéo *vers*
 - **Qui a parlé, et quand** — chaque ligne est étiquetée et colorée par intervenant, leur nombre est détecté automatiquement (un segmenteur neuronal trace des frontières de locuteurs précises). VoxSum peut **deviner le vrai nom des intervenants** d'après leurs propos (barre du haut, menu ↻ → *Détecter les noms*), et *Redétecter les locuteurs* ne relance que l'analyse des locuteurs — sans retranscrire.
 - **Lecteur synchronisé** — ancré en bas comme une appli musicale : touchez une ligne pour y sauter ; la ligne en cours se surligne pendant la lecture.
 - **Recherche** — touchez le 🔍 de la barre du haut pour trouver n'importe quel mot dans un long enregistrement ; les résultats se surlignent et se parcourent avec les flèches haut/bas.
-- **Un résumé à votre façon** — un titre court et un résumé en **puces, en synthèse ou en récit** (choisissez le style dans **Paramètres**), dans la langue de votre choix. (Remarquez la capture : un résumé en français sur une transcription en chinois — la langue du résumé est indépendante de l'audio.)
+- **Un résumé à votre façon** — un titre court et un résumé en **puces, en synthèse ou en récit** (choisissez le style dans **Paramètres**), dans la langue de votre choix. (la langue du résumé est indépendante de celle de l'audio.)
 - **Actions à mener** — barre du haut, menu ↻ → *Extraire les actions* : tire d'une réunion une liste (brouillon) de qui-fait-quoi et des décisions clés.
 
 ## 4. Personnaliser
