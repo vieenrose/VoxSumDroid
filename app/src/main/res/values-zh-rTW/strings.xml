@@ -313,4 +313,8 @@
     <string name="filter_all">全部（%d）</string>
     <string name="filter_new">新（%d）</string>
     <string name="filter_done">已完成（%d）</string>
+    <string name="import_confirm_title">匯入這個檔案？</string>
+    <string name="import_confirm_recording">錄音進行中。匯入會先停止並儲存錄音，再轉錄分享的檔案。</string>
+    <string name="import_confirm_running">處理進行中。匯入會中斷處理，並轉錄分享的檔案。</string>
+    <string name="import_confirm_ok">匯入</string>
 </resources>

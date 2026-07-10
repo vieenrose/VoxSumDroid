@@ -314,4 +314,8 @@
     <string name="filter_all">All (%d)</string>
     <string name="filter_new">New (%d)</string>
     <string name="filter_done">Done (%d)</string>
+    <string name="import_confirm_title">Import this file?</string>
+    <string name="import_confirm_recording">A recording is in progress. Importing will stop and save it, then transcribe the shared file.</string>
+    <string name="import_confirm_running">Processing is in progress. Importing will interrupt it and transcribe the shared file.</string>
+    <string name="import_confirm_ok">Import</string>
 </resources>

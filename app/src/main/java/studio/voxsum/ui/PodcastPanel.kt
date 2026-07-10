@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -61,7 +63,9 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
 
     Column(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        // Scrollable: series/episode lists routinely run past one screenful, and without this the
+        // rows below the fold were unreachable (the sheet itself doesn't scroll its content).
+        Modifier.fillMaxWidth().padding(vertical = 4.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

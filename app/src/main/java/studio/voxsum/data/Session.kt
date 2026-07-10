@@ -50,9 +50,25 @@ private val SPEAKER_PALETTE = longArrayOf(
     0xFF81D4FA, 0xFFDCE775, 0xFFFFD54F, 0xFF4DD0E1, 0xFFAED581,
 )
 
-/** Per-speaker color — mirrors src/diarization.py::get_speaker_color. */
+/** Per-speaker color — mirrors src/diarization.py::get_speaker_color. Canonical palette; used as-is
+ *  for the cover-art fingerprint so it stays stable across themes. UI should prefer [speakerColorOn]. */
 fun speakerColor(speaker: Int?): Long {
     if (speaker == null) return 0xFF607D8B
     val n = SPEAKER_PALETTE.size
     return SPEAKER_PALETTE[((speaker % n) + n) % n]
+}
+
+/**
+ * Speaker color adjusted for the current theme. The base palette is bright pastels tuned for the
+ * DARK theme; on light or e-ink (white) grounds those wash out — pale-on-white is illegible. Darken
+ * them to ~55% for the light themes; since e-ink renders color as grey levels, a darker color is a
+ * darker, higher-contrast grey, so the same transform serves both non-dark cases.
+ */
+fun speakerColorOn(speaker: Int?, darkTheme: Boolean): Long {
+    val c = speakerColor(speaker)
+    if (darkTheme) return c
+    val r = (((c ushr 16) and 0xFF) * 55 / 100)
+    val g = (((c ushr 8) and 0xFF) * 55 / 100)
+    val b = ((c and 0xFF) * 55 / 100)
+    return 0xFF000000L or (r shl 16) or (g shl 8) or b
 }

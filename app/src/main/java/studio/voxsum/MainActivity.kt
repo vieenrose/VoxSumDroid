@@ -170,6 +170,7 @@ import studio.voxsum.data.SpeakerEdits
 import studio.voxsum.data.SpeakerName
 import studio.voxsum.data.computeDiarizationStats
 import studio.voxsum.data.speakerColor
+import studio.voxsum.data.speakerColorOn
 import studio.voxsum.service.TranscriptionService
 import studio.voxsum.ui.AddSourceSheet
 import studio.voxsum.ui.CaptureScreen
@@ -467,6 +468,9 @@ private fun TranscribeScreen(
     // --- Crash recovery: a live recording the OS killed mid-capture (OEM freeze, OOM, swipe-away)
     // is repaired and offered on next launch, so a meeting is never silently lost. ---
     var recoveredRec by remember { mutableStateOf<File?>(null) }
+    // A share/open-with import that arrived while a recording or run is active — confirm before it
+    // supersedes (a co-installed app firing ACTION_SEND/VIEW must not silently kill a live capture).
+    var importConfirm by remember { mutableStateOf<Uri?>(null) }
 
     // --- Inline editing (mirrors the web app): id->name overrides + which row/speaker is open. ---
     val speakerNames = remember { mutableStateMapOf<Int, SpeakerName>() }
@@ -835,6 +839,21 @@ private fun TranscribeScreen(
     // Offer to finish a recording the OS killed mid-capture. Requires an explicit choice (no
     // outside-tap dismiss) so the recovered meeting can't be lost by a stray tap. "Finish" re-runs the
     // pipeline over the recovered audio; "Discard" deletes it. Either way the marker is cleared.
+    importConfirm?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { importConfirm = null },
+            title = { Text(stringResource(R.string.import_confirm_title)) },
+            text = { Text(stringResource(if (isRecording) R.string.import_confirm_recording else R.string.import_confirm_running)) },
+            confirmButton = {
+                TextButton(onClick = { importConfirm = null; launchAudio(uri) }) {
+                    Text(stringResource(R.string.import_confirm_ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { importConfirm = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
     recoveredRec?.let { wav ->
         val mins = (RecordingRecovery.seconds(wav) + 59) / 60
         AlertDialog(
@@ -884,6 +903,11 @@ private fun TranscribeScreen(
                 val luri = Uri.fromFile(local)
                 // If it embeds a session, route to recovery; otherwise transcribe it as before.
                 if (VoxsumSession.hasEmbeddedSession(local)) pendingSharedImport = luri
+                // Importing supersedes the open session/recording (clearSession). That's the point
+                // when idle, but a share arriving mid-recording (or from a hostile co-installed app)
+                // must not silently kill a live capture — confirm first. Open-session EDITS are safe
+                // either way now (clearSession flushes them).
+                else if (isRecording || (running && !watchingQueue)) importConfirm = luri
                 else launchAudio(luri)
             } else {
                 status = context.getString(R.string.empty_status)
@@ -2519,7 +2543,7 @@ private fun TimelineStrip(
             val endX = (u.endSec / durSec).toFloat().coerceIn(0f, 1f) * w
             val segW = (endX - startX).coerceAtLeast(1.5f)
             val active = i == activeIndex
-            val base = Color(speakerColor(u.speaker))
+            val base = Color(speakerColorOn(u.speaker, pal.isDark))
             drawRoundRect(
                 color = if (active) base else base.copy(alpha = 0.45f),
                 topLeft = Offset(startX, 0f),
@@ -2657,7 +2681,7 @@ private fun SpeakerTag(
     onCommit: (String) -> Unit,
     onCancel: () -> Unit,
 ) {
-    val color = Color(speakerColor(speakerId))
+    val color = Color(speakerColorOn(speakerId, LocalVoxSumPalette.current.isDark))
     val bg = color.copy(alpha = 0.18f)
     if (!editing) {
         Surface(
