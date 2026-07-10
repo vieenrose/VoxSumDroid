@@ -9,6 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioTranscoder
+import studio.voxsum.core.audio.WavIo
 import studio.voxsum.core.audio.Mp4Tags
 import studio.voxsum.core.audio.OggOpusTags
 import studio.voxsum.core.cover.CoverArt
@@ -76,18 +77,26 @@ object VoxsumSession {
      *  the value [buildSessionOgg] derives from the same audio, so an in-app live preview equals the
      *  cover that gets embedded on save. Decodes to a throwaway temp WAV; null if it can't be decoded. */
     suspend fun audioFingerprint(context: Context, audioUri: Uri): ByteArray? = withContext(Dispatchers.IO) {
-        val tmp = File(context.cacheDir, ".fp_${audioUri.hashCode()}.wav")
+        // Match buildSessionOgg exactly (same bytes hashed → identical cover): if the source is
+        // already a canonical 16 kHz mono WAV, hash it directly (no decode); otherwise decode to a
+        // throwaway temp. Both hash the whole WAV including its 44-byte header, and the decode is
+        // deterministic, so the live-preview cover equals the one embedded on save either way.
+        val srcFile = audioUri.takeIf { it.scheme == "file" }?.path?.let(::File)
+        val direct = srcFile != null && WavIo.isCanonical16kMono(srcFile)
+        val wav = if (direct) srcFile!! else File(context.cacheDir, ".fp_${audioUri.hashCode()}.wav")
         try {
-            val n = runCatching { AudioDecoder.decodeToWav16k(context, audioUri, tmp) { _, _ -> } }.getOrNull()
-            if (n == null || n <= 0L) return@withContext null
+            if (!direct) {
+                val n = runCatching { AudioDecoder.decodeToWav16k(context, audioUri, wav) { _, _ -> } }.getOrNull()
+                if (n == null || n <= 0L) return@withContext null
+            }
             MessageDigest.getInstance("SHA-256").run {
-                tmp.inputStream().use { ins ->
+                wav.inputStream().use { ins ->
                     val b = ByteArray(1 shl 16)
                     while (true) { val k = ins.read(b); if (k < 0) break; update(b, 0, k) }
                 }
                 digest()
             }
-        } finally { tmp.delete() }
+        } finally { if (!direct) wav.delete() }
     }
 
     /**
@@ -115,13 +124,22 @@ object VoxsumSession {
         if (audioUri == null) return@withContext null
         dir.mkdirs()
         // Stream-decode to a 16 kHz mono work WAV, then stream that to OGG/Opus — never the whole
-        // waveform in RAM, so multi-hour sessions encode without OOM. The cover's waveform is
-        // accumulated DURING this same decode (no second pass), then the card is rendered + embedded.
-        val workWav = File(dir, ".audio_tmp.wav")
-        val decoded = runCatching {
-            AudioDecoder.decodeToWav16k(context, audioUri, workWav) { _, _ -> }
-        }.getOrElse { android.util.Log.w("voxsum-ogg", "decode failed", it); null }
-        if (decoded == null || decoded <= 0L) { workWav.delete(); return@withContext null }
+        // waveform in RAM, so multi-hour sessions encode without OOM. BUT when the source is ALREADY
+        // a canonical 16 kHz mono WAV (a library capture / decode output — the common re-save case),
+        // skip the decode entirely and stream that file straight through: on a long meeting that is
+        // the single most expensive step, paid on every attach/edit-save for nothing.
+        val srcFile = audioUri.takeIf { it.scheme == "file" }?.path?.let(::File)
+        val reuseSource = srcFile != null && WavIo.isCanonical16kMono(srcFile)
+        val workWav: File
+        if (reuseSource) {
+            workWav = srcFile!!
+        } else {
+            workWav = File(dir, ".audio_tmp.wav")
+            val decoded = runCatching {
+                AudioDecoder.decodeToWav16k(context, audioUri, workWav) { _, _ -> }
+            }.getOrElse { android.util.Log.w("voxsum-ogg", "decode failed", it); null }
+            if (decoded == null || decoded <= 0L) { workWav.delete(); return@withContext null }
+        }
         // A SHA-256 of the decoded audio — a stable fingerprint that makes the cover an ID for THIS
         // track (unchanged by transcript edits). Hashed here, before the work WAV is consumed below.
         val audioId = MessageDigest.getInstance("SHA-256").run {
@@ -135,7 +153,7 @@ object VoxsumSession {
             Format.OGG -> AudioTranscoder.wavToOggOpus(workWav, plain)
             Format.M4A -> AudioTranscoder.wavToM4aAac(workWav, plain)
         }
-        workWav.delete()
+        if (!reuseSource) workWav.delete()   // never delete the reused SOURCE (the library capture)
         if (!transcoded) {
             android.util.Log.w("voxsum-session", "wav->${format.ext} transcode returned false")
             return@withContext null

@@ -1216,13 +1216,12 @@ private fun TranscribeScreen(
     // utterance — see SessionAutosave) so a process kill while reviewing/summarizing a finished
     // transcript doesn't lose it.
     fun autosaveSessionNow() {
-        val uri = audioUri ?: return
-        val snap = SessionAutosave.Snapshot(
-            audioUri = uri, title = title, summary = summary, actionItems = actionItems,
-            utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
-            asrModelId = config.asrModelId, llmModelId = config.llmModelId,
-        )
-        scope.launch(Dispatchers.IO) { SessionAutosave.save(context, snap) }
+        // No-op: SessionAutosave was WRITE-ONLY — its snapshot is deleted unconditionally at cold
+        // start (never restored, since restoring hijacked the Studio home). Durability is now the
+        // library: imports promote before the LLM phase and edits flush via persistSessionEdits, so
+        // there's nothing left to autosave. This used to serialize the whole session (utterances +
+        // text) to disk on EVERY terminal event for nothing. Kept as a no-op so the call sites read
+        // as intentional "the session is durable here" markers.
     }
 
     LaunchedEffect(Unit) {
