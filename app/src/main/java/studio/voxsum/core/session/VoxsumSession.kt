@@ -310,6 +310,28 @@ object VoxsumSession {
 
     // --- session (de)serialization: lossless JSON, gzip+base64 into one comment ---
 
+    /** One utterance → JSON — shared by the session blob and the queue's pending-transcript
+     *  sidecar ([studio.voxsum.core.library.SessionLibrary.savePendingTranscript]), so both
+     *  round-trip bit-exact (including per-token tokens/tokenTimes used by the diarization split). */
+    fun utteranceToJson(u: TranscriptEvent.Utterance): JSONObject = JSONObject().apply {
+        put("index", u.index); put("start", u.startSec); put("end", u.endSec); put("text", u.text)
+        u.speaker?.let { put("speaker", it) }
+        u.tokens?.let { put("tokens", JSONArray(it)) }
+        u.tokenTimes?.let { put("token_times", JSONArray(it)) }
+    }
+
+    /** JSON → utterance (inverse of [utteranceToJson]); [fallbackIndex] when "index" is absent. */
+    fun utteranceFromJson(o: JSONObject, fallbackIndex: Int = 0): TranscriptEvent.Utterance =
+        TranscriptEvent.Utterance(
+            index = o.optInt("index", fallbackIndex),
+            text = o.optString("text", ""),
+            startSec = o.optDouble("start", 0.0),
+            endSec = o.optDouble("end", 0.0),
+            speaker = if (o.has("speaker")) o.getInt("speaker") else null,
+            tokens = o.optJSONArray("tokens")?.let { t -> List(t.length()) { t.getString(it) } },
+            tokenTimes = o.optJSONArray("token_times")?.let { t -> List(t.length()) { t.getDouble(it) } },
+        )
+
     /** The gzip+base64 session blob, or null when it exceeds the read-side size ceiling (so the
      *  caller embeds a session-less but playable file and reports PARTIAL instead of a false FULL). */
     private fun encodeSession(
@@ -331,16 +353,8 @@ object VoxsumSession {
         }
         root.put("speaker_names", names)
         val arr = JSONArray()
-        utterances.forEach { u ->
-            // Multi-page OpusTags removes the size cap, so embed everything for a bit-exact round-trip
-            // (including per-token tokens/tokenTimes used by the within-utterance diarization split).
-            arr.put(JSONObject().apply {
-                put("index", u.index); put("start", u.startSec); put("end", u.endSec); put("text", u.text)
-                u.speaker?.let { put("speaker", it) }
-                u.tokens?.let { put("tokens", JSONArray(it)) }
-                u.tokenTimes?.let { put("token_times", JSONArray(it)) }
-            })
-        }
+        // Multi-page OpusTags removes the size cap, so embed everything for a bit-exact round-trip.
+        utterances.forEach { u -> arr.put(utteranceToJson(u)) }
         root.put("utterances", arr)
         val json = root.toString().toByteArray(Charsets.UTF_8)
         // A blob that the READ path would reject must not be embedded as if it round-trips. open()
@@ -357,18 +371,7 @@ object VoxsumSession {
         val utts = ArrayList<TranscriptEvent.Utterance>()
         val arr = m.optJSONArray("utterances") ?: JSONArray()
         for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            utts.add(
-                TranscriptEvent.Utterance(
-                    index = o.optInt("index", i),
-                    text = o.optString("text", ""),
-                    startSec = o.optDouble("start", 0.0),
-                    endSec = o.optDouble("end", 0.0),
-                    speaker = if (o.has("speaker")) o.getInt("speaker") else null,
-                    tokens = o.optJSONArray("tokens")?.let { t -> List(t.length()) { t.getString(it) } },
-                    tokenTimes = o.optJSONArray("token_times")?.let { t -> List(t.length()) { t.getDouble(it) } },
-                )
-            )
+            utts.add(utteranceFromJson(arr.getJSONObject(i), fallbackIndex = i))
         }
         val names = HashMap<Int, SpeakerName>()
         m.optJSONObject("speaker_names")?.let { sn ->

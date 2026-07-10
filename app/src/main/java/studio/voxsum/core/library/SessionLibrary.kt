@@ -168,6 +168,48 @@ object SessionLibrary {
     /** A single entry by id, or null if missing/corrupt. */
     fun byId(context: Context, id: String): Entry? = readMeta(File(root(context), id))
 
+    // --- pending transcript sidecar (queue drain, pass 1 → pass 2) ---
+    //
+    // The batch drain transcribes+diarizes EVERY queued item first (ASR models only), then loads
+    // the LLM once and summarizes them all — never both model families resident (SPIKE.md
+    // "memory"), and only one LLM load per drain instead of one per item. Between the passes each
+    // item's transcript lives in this sidecar, so a process kill resumes summarize-only instead of
+    // redoing ASR. The fingerprint (ASR model + language + target + diarization) invalidates a
+    // sidecar written under settings the user has since changed — pass 1 then re-transcribes.
+    private const val PENDING_TRANSCRIPT = "pending_transcript.json"
+
+    fun savePendingTranscript(entry: Entry, utterances: List<TranscriptEvent.Utterance>, fingerprint: String) {
+        runCatching {
+            val arr = org.json.JSONArray()
+            utterances.forEach { arr.put(VoxsumSession.utteranceToJson(it)) }
+            val o = JSONObject().put("fingerprint", fingerprint).put("utterances", arr)
+            File(entry.dir, PENDING_TRANSCRIPT).writeText(o.toString())
+        }.onFailure { Log.w(TAG, "could not persist pending transcript for ${entry.id}", it) }
+    }
+
+    /** The sidecar's utterances, or null when absent, corrupt, or written under different settings
+     *  ([fingerprint] mismatch — the stale file is deleted so pass 1 re-transcribes). */
+    fun loadPendingTranscript(entry: Entry, fingerprint: String): List<TranscriptEvent.Utterance>? {
+        val f = File(entry.dir, PENDING_TRANSCRIPT)
+        if (!f.exists()) return null
+        return runCatching {
+            val o = JSONObject(f.readText())
+            if (o.optString("fingerprint") != fingerprint) {
+                runCatching { f.delete() }
+                return null
+            }
+            val arr = o.getJSONArray("utterances")
+            List(arr.length()) { i -> VoxsumSession.utteranceFromJson(arr.getJSONObject(i), fallbackIndex = i) }
+        }.onFailure {
+            Log.w(TAG, "corrupt pending transcript in ${entry.id}", it)
+            runCatching { f.delete() }
+        }.getOrNull()
+    }
+
+    fun clearPendingTranscript(entry: Entry) {
+        runCatching { File(entry.dir, PENDING_TRANSCRIPT).delete() }
+    }
+
     /** All library entries, newest first. Corrupt/foreign directories are skipped, never deleted. */
     fun list(context: Context): List<Entry> =
         root(context).listFiles()?.mapNotNull { dir -> readMeta(dir) }?.sortedByDescending { it.createdAt }

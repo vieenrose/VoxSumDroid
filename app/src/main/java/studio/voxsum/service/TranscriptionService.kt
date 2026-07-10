@@ -49,6 +49,7 @@ import studio.voxsum.core.llm.ActionItemExtractor
 import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.LlmRegistry
+import studio.voxsum.core.models.LlmSpec
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.core.session.VoxsumSession
 import studio.voxsum.core.text.OpenCcConverter
@@ -701,7 +702,12 @@ class TranscriptionService : LifecycleService() {
      * released before the LLM loads — never both resident (see SPIKE.md "memory"). Phase 3
      * inserts diarization between ASR and the Complete event.
      */
-    private suspend fun runPipeline(audioUri: String?): Pair<List<TranscriptEvent.Utterance>, SummaryResult>? {
+    private suspend fun runPipeline(
+        audioUri: String?,
+        // false = the batch drain's pass 1: stop after ASR + diarization (Complete emitted, no LLM
+        // touched) — the drain summarizes every item later under ONE LlmEngine load.
+        summarizeAfter: Boolean = true,
+    ): Pair<List<TranscriptEvent.Utterance>, SummaryResult>? {
         val uri = audioUri?.let(Uri::parse)
             ?: run { emitEvent(TranscriptEvent.Failed("No audio source")); return null }
         val cfg = TranscriptionConfig.Holder.config
@@ -839,6 +845,11 @@ class TranscriptionService : LifecycleService() {
             emitEvent(TranscriptEvent.Complete(emptyList(), speakerCount = null))
             return emptyList<TranscriptEvent.Utterance>() to SummaryResult(null, null)
         }
+        if (!summarizeAfter) {
+            val tagged = diarized?.first ?: utterances
+            emitEvent(TranscriptEvent.Complete(tagged, diarized?.second))
+            return tagged to SummaryResult(null, null)
+        }
         // Promote a FOREGROUND import into the library BEFORE the LLM phase, so a process kill
         // during summarization leaves a RECORDED entry (audio safe + re-transcribeable) in Studio
         // instead of an empty home with the whole run lost. This mirrors the recording pipeline,
@@ -894,53 +905,127 @@ class TranscriptionService : LifecycleService() {
         // old set-it-here had a window: a second ACTION_PROCESS_QUEUE arriving before this line ran
         // passed the guard and superseded the first drain, redoing its in-flight item.)
         try {
+        // Two-pass drain: pass 1 transcribes+diarizes EVERY queued item (ASR models only), pass 2
+        // loads the LLM ONCE and summarizes them all — one LLM load per drain instead of one per
+        // item (~10s each on Boox), still never co-residing the ASR models with the LLM. Between
+        // the passes each item's transcript is durable in a library sidecar, so a process kill
+        // resumes summarize-only. The outer loop catches items enqueued mid-drain.
+        val cfgAll = TranscriptionConfig.Holder.config
+        // Anything transcription-affecting invalidates a leftover sidecar from an older drain.
+        val fingerprint = listOf(
+            cfgAll.asrBackend, cfgAll.asrModelId, cfgAll.language, cfgAll.targetLanguage,
+            cfgAll.useItn, cfgAll.diarizationEnabled, cfgAll.vadThreshold,
+        ).joinToString("|")
+        var lastLap: List<String>? = null
         while (true) {
-            val id = ProcessingQueue.peek(this) ?: break
-            val entry = SessionLibrary.byId(this, id)
-            if (entry == null || entry.status == SessionLibrary.Status.DONE || !entry.wavFile.exists()) {
-                ProcessingQueue.remove(this, id)   // stale/already-done → drop and move on
-                continue
-            }
-            val remaining = ProcessingQueue.size(this)
-            currentQueueItemId = id
-            updateNotification(getString(R.string.svc_processing_queue, entry.title ?: SessionLibrary.defaultTitle(entry.createdAt), remaining))
-            // Track decode temp files this item creates so they're reclaimed per-item (a long
-            // queue would otherwise stack one decoded WAV copy per entry in filesDir/audio).
-            val audioDir = File(filesDir, "audio")
-            val before = audioDir.listFiles()?.map { it.name }?.toSet() ?: emptySet()
-            try {
-                val cfg = TranscriptionConfig.Holder.config
-                val res = runPipeline(Uri.fromFile(entry.wavFile).toString())
-                // The user may have DELETED this entry while it processed. attachResults →
-                // buildSessionOgg would mkdirs() the deleted dir and resurrect a ghost session, so
-                // bail if the entry is gone. (onDelete also removes it from the queue.)
-                if (res != null && SessionLibrary.byId(this, id) != null) {
-                    val updated = SessionLibrary.attachResults(
-                        this, entry, res.first, emptyMap(), res.second.summary, null,
-                        res.second.title, cfg.asrModelId, cfg.llmModelId,
-                    )
-                    if (updated != null) {
-                        // UNTAGGED on purpose: the only UI effect is a recents-list refresh.
-                        events.emit(UNTAGGED to TranscriptEvent.LibrarySaved(Uri.fromFile(updated.sessionFile).toString(), updated.title))
-                        // Background processing finished while the user may be elsewhere — tell
-                        // them the session is ready, by its recognized title.
-                        notifySessionReady(updated.title ?: SessionLibrary.defaultTitle(updated.createdAt))
-                    }
+            val ids = ProcessingQueue.ids(this)
+            if (ids.isEmpty()) break
+            // No item left the queue AND nothing new arrived since the last lap → every remaining
+            // item is stuck (e.g. sidecar write failing on a full disk). Break instead of spinning.
+            if (ids == lastLap) break
+            lastLap = ids
+
+            // --- Pass 1: ASR + diarization per item; transcript → sidecar; item stays queued. ---
+            for (id in ids) {
+                val entry = SessionLibrary.byId(this, id)
+                if (entry == null || entry.status == SessionLibrary.Status.DONE || !entry.wavFile.exists()) {
+                    ProcessingQueue.remove(this, id)   // stale/already-done → drop and move on
+                    continue
                 }
-            } catch (ce: CancellationException) {
-                throw ce   // superseded/stopped: keep the item queued for the next drain
-            } catch (t: Throwable) {
-                // A terminally failed item must not wedge the queue — drop it and continue; its
-                // capture stays safe (RECORDED) in the library for a manual retry. Surface it via a
-                // NOTIFICATION (a background failure the user may be elsewhere for), not an UNTAGGED
-                // Status — that wrote the failure onto whatever session the user had open.
-                Log.w("TranscriptionService", "queue item $id failed terminally", t)
-                notifyItemFailed(entry.title ?: SessionLibrary.defaultTitle(entry.createdAt))
-            } finally {
-                currentQueueItemId = null
-                audioDir.listFiles()?.forEach { if (it.name !in before) runCatching { it.delete() } }
+                if (SessionLibrary.loadPendingTranscript(entry, fingerprint) != null) continue   // resume: ASR already done
+                currentQueueItemId = id
+                updateNotification(getString(R.string.svc_processing_queue, entry.title ?: SessionLibrary.defaultTitle(entry.createdAt), ProcessingQueue.size(this)))
+                // Track decode temp files this item creates so they're reclaimed per-item (a long
+                // queue would otherwise stack one decoded WAV copy per entry in filesDir/audio).
+                val audioDir = File(filesDir, "audio")
+                val before = audioDir.listFiles()?.map { it.name }?.toSet() ?: emptySet()
+                try {
+                    val res = runPipeline(Uri.fromFile(entry.wavFile).toString(), summarizeAfter = false)
+                    if (res == null) {
+                        ProcessingQueue.remove(this, id)   // terminal (no source / corrupt model) — parity with the old drain
+                        continue
+                    }
+                    // The user may have DELETED this entry while it processed — don't resurrect it.
+                    if (SessionLibrary.byId(this, id) != null) {
+                        SessionLibrary.savePendingTranscript(entry, res.first, fingerprint)
+                    } else ProcessingQueue.remove(this, id)
+                } catch (ce: CancellationException) {
+                    throw ce   // superseded/stopped: keep the item queued for the next drain
+                } catch (t: Throwable) {
+                    // A terminally failed item must not wedge the queue — drop it and continue; its
+                    // capture stays safe (RECORDED) in the library for a manual retry. Surface it
+                    // via a NOTIFICATION (the user may be elsewhere), not an UNTAGGED Status.
+                    Log.w("TranscriptionService", "queue item $id failed terminally", t)
+                    notifyItemFailed(entry.title ?: SessionLibrary.defaultTitle(entry.createdAt))
+                    ProcessingQueue.remove(this, id)
+                } finally {
+                    currentQueueItemId = null
+                    audioDir.listFiles()?.forEach { if (it.name !in before) runCatching { it.delete() } }
+                }
             }
-            ProcessingQueue.remove(this, id)
+
+            // --- Pass 2: one LLM load, summarize + embed + dequeue every item with a sidecar. ---
+            val toSummarize = ProcessingQueue.ids(this)
+            if (toSummarize.isEmpty()) continue
+            val spec = LlmRegistry.byId(cfgAll.llmModelId)
+            val models = ModelManager(this)
+            ensureLlm(spec, models)
+            val llm = try {
+                LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler)
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                // LLM engine itself won't load (corrupt download, OOM): items keep their sidecars
+                // and stay queued for the next drain; don't spin the outer loop on the same failure.
+                Log.w("TranscriptionService", "queue drain: LLM load failed", t)
+                break
+            }
+            llm.use {
+                for (id in toSummarize) {
+                    val entry = SessionLibrary.byId(this, id)
+                    if (entry == null || entry.status == SessionLibrary.Status.DONE || !entry.wavFile.exists()) {
+                        ProcessingQueue.remove(this, id)
+                        continue
+                    }
+                    val utterances = SessionLibrary.loadPendingTranscript(entry, fingerprint)
+                        ?: continue   // no sidecar (its pass-1 was cut short): leave queued, next outer lap redoes ASR
+                    currentQueueItemId = id
+                    updateNotification(getString(R.string.svc_processing_queue, entry.title ?: SessionLibrary.defaultTitle(entry.createdAt), ProcessingQueue.size(this)))
+                    try {
+                        val converter = outputConverter(cfgAll)
+                        val transcript = utterances.joinToString("\n") { it.text }
+                        val summary = if (transcript.isBlank()) SummaryResult(null, null)
+                        else summarizeWith(llm, spec, transcript, cfgAll, converter)
+                        // The user may have DELETED this entry while it summarized. attachResults →
+                        // buildSessionOgg would mkdirs() the deleted dir and resurrect a ghost
+                        // session, so bail if the entry is gone. (onDelete also dequeues it.)
+                        if (SessionLibrary.byId(this, id) == null) {
+                            ProcessingQueue.remove(this, id)
+                            continue
+                        }
+                        val updated = SessionLibrary.attachResults(
+                            this, entry, utterances, emptyMap(), summary.summary, null,
+                            summary.title, cfgAll.asrModelId, cfgAll.llmModelId,
+                        )
+                        if (updated != null) {
+                            SessionLibrary.clearPendingTranscript(entry)
+                            // UNTAGGED on purpose: the only UI effect is a recents-list refresh.
+                            events.emit(UNTAGGED to TranscriptEvent.LibrarySaved(Uri.fromFile(updated.sessionFile).toString(), updated.title))
+                            // Background processing finished while the user may be elsewhere — tell
+                            // them the session is ready, by its recognized title.
+                            notifySessionReady(updated.title ?: SessionLibrary.defaultTitle(updated.createdAt))
+                        }
+                    } catch (ce: CancellationException) {
+                        throw ce   // superseded/stopped: sidecar + queue entry survive → resume summarize-only
+                    } catch (t: Throwable) {
+                        Log.w("TranscriptionService", "queue item $id failed terminally", t)
+                        notifyItemFailed(entry.title ?: SessionLibrary.defaultTitle(entry.createdAt))
+                    } finally {
+                        currentQueueItemId = null
+                    }
+                    ProcessingQueue.remove(this, id)
+                }
+            }
         }
         } finally {
             // Drain over (queue empty, last item failed terminally, or superseded): nudge the UI's
@@ -1309,16 +1394,36 @@ class TranscriptionService : LifecycleService() {
         withTitle: Boolean = true,
     ): SummaryResult {
         val spec = LlmRegistry.byId(cfg.llmModelId)
+        ensureLlm(spec, models)
+        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler).use { llm ->
+            return summarizeWith(llm, spec, transcript, cfg, converter, withTitle)
+        }
+    }
+
+    /** Download the LLM if needed (progress → notification/UI, tagged with the current run gen). */
+    private suspend fun ensureLlm(spec: LlmSpec, models: ModelManager) {
         if (!models.llmReady(spec)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
             val gen = currentGen()
             models.ensureLlmModel(spec) { frac -> reportDownload(gen, R.string.svc_summarization_model_pct, frac) }
         }
+    }
+
+    /** [summarize]'s generation body over an ALREADY-LOADED engine — the batch drain holds one
+     *  [LlmEngine] across every queued item's summary (one model load per drain, not per item). */
+    private suspend fun summarizeWith(
+        llm: LlmEngine,
+        spec: LlmSpec,
+        transcript: String,
+        cfg: TranscriptionConfig,
+        converter: OpenCcConverter?,
+        withTitle: Boolean = true,
+    ): SummaryResult {
         updateNotification(getString(R.string.svc_summarizing))
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_summarizing)))   // localized (Summarizer no longer sets it)
         var outTitle: String? = null
         var outSummary: String? = null
-        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler).use { llm ->
+        run {
             activeLlm = llm
             try {
                 // t0 after the model load, so the ETA reflects generation speed only.
