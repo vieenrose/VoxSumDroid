@@ -169,6 +169,7 @@ import studio.voxsum.core.update.UpdateInstaller
 import studio.voxsum.data.SpeakerEdits
 import studio.voxsum.data.SpeakerName
 import studio.voxsum.data.computeDiarizationStats
+import androidx.compose.ui.graphics.SolidColor
 import studio.voxsum.data.speakerColor
 import studio.voxsum.data.speakerColorOn
 import studio.voxsum.service.TranscriptionService
@@ -2751,7 +2752,10 @@ private fun SpeakerTag(
             value = value,
             onValueChange = { value = it },
             singleLine = true,
-            textStyle = MaterialTheme.typography.labelMedium,
+            // Was uncolored → default black text + black cursor, invisible on the dark chip. Color
+            // both from the speaker color (already theme-adjusted so it's legible on every ground).
+            textStyle = MaterialTheme.typography.labelMedium.copy(color = color),
+            cursorBrush = SolidColor(color),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { onCommit(value.trim()) }),
             modifier = Modifier

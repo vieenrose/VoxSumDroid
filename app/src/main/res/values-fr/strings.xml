@@ -259,6 +259,7 @@
     <string name="source_process_all_desc">Transcrire et résumer les enregistrements sauvegardés un par un</string>
     <string name="svc_processing_queue">Traitement de %1$s (%2$d restants)</string>
     <string name="svc_queue_item_failed">Impossible de traiter %s — conservé dans la bibliothèque</string>
+    <string name="svc_queue_item_failed_hint">Touchez pour ouvrir VoxSum et réessayer.</string>
     <string name="svc_paused_time_limit">Traitement suspendu par la limite de temps du système — rouvrez VoxSum pour reprendre.</string>
 
     <string name="library_title">Sessions enregistrées</string>

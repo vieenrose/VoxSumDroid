@@ -630,6 +630,29 @@ class TranscriptionService : LifecycleService() {
 
     /** A dismissable "session ready" notification for background queue completions — the LLM's
      *  recognized title is the payload, so the user learns what finished without opening the app. */
+    /** Dismissible notification that a background queue item failed to process (its capture stays
+     *  RECORDED for a manual retry) — so the failure isn't silent when the user is elsewhere. */
+    private fun notifyItemFailed(title: String) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "VoxSum pipeline", NotificationManager.IMPORTANCE_LOW))
+        }
+        val open = PendingIntent.getActivity(
+            this, 4, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        nm.notify(
+            NOTIF_ID + 4,
+            Notification.Builder(this, CHANNEL_ID)
+                .setContentTitle(getString(R.string.svc_queue_item_failed, title))
+                .setContentText(getString(R.string.svc_queue_item_failed_hint))
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .build(),
+        )
+    }
+
     private fun notifySessionReady(title: String) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -901,9 +924,11 @@ class TranscriptionService : LifecycleService() {
                 throw ce   // superseded/stopped: keep the item queued for the next drain
             } catch (t: Throwable) {
                 // A terminally failed item must not wedge the queue — drop it and continue; its
-                // capture stays safe (RECORDED) in the library for a manual retry.
+                // capture stays safe (RECORDED) in the library for a manual retry. Surface it via a
+                // NOTIFICATION (a background failure the user may be elsewhere for), not an UNTAGGED
+                // Status — that wrote the failure onto whatever session the user had open.
                 Log.w("TranscriptionService", "queue item $id failed terminally", t)
-                events.emit(UNTAGGED to TranscriptEvent.Status(getString(R.string.svc_queue_item_failed, entry.title ?: SessionLibrary.defaultTitle(entry.createdAt))))
+                notifyItemFailed(entry.title ?: SessionLibrary.defaultTitle(entry.createdAt))
             } finally {
                 currentQueueItemId = null
                 audioDir.listFiles()?.forEach { if (it.name !in before) runCatching { it.delete() } }
