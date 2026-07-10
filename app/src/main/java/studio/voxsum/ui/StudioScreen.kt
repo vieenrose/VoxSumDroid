@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.RemoveCircleOutline
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.GraphicEq
@@ -68,6 +70,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -126,6 +133,8 @@ fun StudioScreen(
     onOpen: (SessionLibrary.Entry) -> Unit,
     onWatchLive: (SessionLibrary.Entry) -> Unit,
     onProcessNow: (SessionLibrary.Entry) -> Unit,
+    onRemoveFromQueue: (SessionLibrary.Entry) -> Unit,
+    onStopProcessing: () -> Unit,
     onProcessAll: () -> Unit,
     onRename: (SessionLibrary.Entry, String) -> Unit,
     onShareAudio: (SessionLibrary.Entry) -> Unit,
@@ -133,6 +142,7 @@ fun StudioScreen(
     onDeleteMany: (List<SessionLibrary.Entry>) -> Unit,
     onImport: () -> Unit,
     onSettings: () -> Unit,
+    updateBanner: @Composable () -> Unit = {},
 ) {
     val pal = LocalVoxSumPalette.current
     var actionsFor by remember { mutableStateOf<SessionLibrary.Entry?>(null) }
@@ -242,6 +252,10 @@ fun StudioScreen(
                     modifier = Modifier.weight(1f),
                 )
             }
+
+            // An available app update — shown here on the home screen (where the user lands), not
+            // only inside an open session. Renders nothing when there's no update / it's dismissed.
+            Box(Modifier.padding(horizontal = Gutter)) { updateBanner() }
 
             // Status filter chips — pairs with multi-select for "clear all junk" (New → Select all → Delete).
             if (entries.isNotEmpty()) {
@@ -382,8 +396,13 @@ fun StudioScreen(
                 )
                 if (e.id == processingId) {
                     ActionRow(Icons.Filled.PlaylistPlay, stringResource(R.string.action_watch_live)) { actionsFor = null; onWatchLive(e) }
+                    ActionRow(Icons.Filled.Stop, stringResource(R.string.action_stop_processing), VoxSumPalette.Red) { actionsFor = null; onStopProcessing() }
                 }
-                if (e.status != SessionLibrary.Status.DONE && e.id != processingId) {
+                // Queued (waiting), not the one being processed → let the user pull it back out.
+                if (e.id != processingId && e.id in queuedIds) {
+                    ActionRow(Icons.Filled.RemoveCircleOutline, stringResource(R.string.action_remove_from_queue)) { actionsFor = null; onRemoveFromQueue(e) }
+                }
+                if (e.status != SessionLibrary.Status.DONE && e.id != processingId && e.id !in queuedIds) {
                     ActionRow(Icons.Filled.PlaylistPlay, stringResource(R.string.action_process_now)) { actionsFor = null; onProcessNow(e) }
                 }
                 if (e.status == SessionLibrary.Status.DONE) {
@@ -484,6 +503,16 @@ private fun SessionRow(
         RowStatus.Done -> VoxSumPalette.Success
         RowStatus.New -> pal.Slate400
     }
+    // Screen-reader description: status is otherwise carried only by a glyph shape + color, invisible
+    // to TalkBack. Announce "<title>, <status>"; selection is exposed as the semantic selected state.
+    val statusLabel = stringResource(when (status) {
+        RowStatus.New -> R.string.cd_status_new
+        RowStatus.Queued -> R.string.cd_status_queued
+        RowStatus.Processing -> R.string.cd_status_processing
+        RowStatus.Done -> R.string.cd_status_done
+    })
+    val rowDesc = "${entry.title ?: SessionLibrary.defaultTitle(entry.createdAt)}, $statusLabel"
+    val isSelected = selected
     Column(
         Modifier
             .fillMaxWidth().padding(horizontal = Gutter)
@@ -491,6 +520,10 @@ private fun SessionRow(
             .background(if (selected) pal.ActiveTint else pal.PanelSurface)
             .border(1.dp, if (selected) pal.Sky else pal.Hairline, RoundedCornerShape(16.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = rowDesc
+                if (selectionMode) this.selected = isSelected
+            }
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -577,6 +610,7 @@ private fun FilterChip(label: String, on: Boolean, onClick: () -> Unit) {
             .background(if (on) pal.Sky else pal.PanelSurface)
             .border(1.dp, if (on) pal.Sky else pal.Hairline, RoundedCornerShape(50))
             .clickable(onClick = onClick)
+            .semantics { selected = on; role = Role.Tab }   // announce the chip's selected state
             .padding(horizontal = 12.dp, vertical = 5.dp),
     )
 }

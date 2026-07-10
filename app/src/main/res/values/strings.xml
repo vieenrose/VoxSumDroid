@@ -324,4 +324,10 @@
     <string name="svc_processing">Processing…</string>
     <string name="svc_no_audio_recorded">No audio was recorded.</string>
     <string name="opening_session">Opening…</string>
+    <string name="action_remove_from_queue">Remove from queue</string>
+    <string name="action_stop_processing">Stop processing</string>
+    <string name="cd_status_new">New</string>
+    <string name="cd_status_queued">Queued</string>
+    <string name="cd_status_processing">Processing</string>
+    <string name="cd_status_done">Done</string>
 </resources>

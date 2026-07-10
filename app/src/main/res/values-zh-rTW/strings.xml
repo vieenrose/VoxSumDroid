@@ -323,4 +323,10 @@
     <string name="svc_processing">處理中…</string>
     <string name="svc_no_audio_recorded">沒有錄到任何音訊。</string>
     <string name="opening_session">開啟中…</string>
+    <string name="action_remove_from_queue">從佇列移除</string>
+    <string name="action_stop_processing">停止處理</string>
+    <string name="cd_status_new">新的</string>
+    <string name="cd_status_queued">排入佇列</string>
+    <string name="cd_status_processing">處理中</string>
+    <string name="cd_status_done">已完成</string>
 </resources>

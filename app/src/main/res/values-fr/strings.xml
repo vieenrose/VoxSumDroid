@@ -324,4 +324,10 @@
     <string name="svc_processing">Traitement…</string>
     <string name="svc_no_audio_recorded">Aucun audio n’a été enregistré.</string>
     <string name="opening_session">Ouverture…</string>
+    <string name="action_remove_from_queue">Retirer de la file</string>
+    <string name="action_stop_processing">Arrêter le traitement</string>
+    <string name="cd_status_new">Nouvelle</string>
+    <string name="cd_status_queued">En file</string>
+    <string name="cd_status_processing">En traitement</string>
+    <string name="cd_status_done">Terminée</string>
 </resources>

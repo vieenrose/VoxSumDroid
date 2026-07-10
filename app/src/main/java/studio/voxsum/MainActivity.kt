@@ -560,6 +560,37 @@ private fun TranscribeScreen(
     var recordingRun by remember { mutableStateOf(false) }
     // --- Studio navigation + batch-workflow state ---
     var screen by remember { mutableStateOf(Screen.Studio) }
+    // The update banner as a reusable slot: rendered on BOTH the Studio home (where the user lands)
+    // and the Session screen. Was Session-only, so an available update was easy to miss. Defined
+    // here (after scope/screen) since it captures them.
+    val updateBannerSlot: @Composable () -> Unit = {
+        updateInfo?.takeIf { !updateDismissed }?.let { info ->
+            UpdateBanner(
+                versionTag = info.tag,
+                notes = info.notes,
+                progress = updateProgress,
+                onUpdate = {
+                    scope.launch {
+                        val apk = updateApk ?: run {
+                            updateProgress = 0f
+                            val f = runCatching {
+                                UpdateInstaller.download(context, info.apkUrl) { updateProgress = it }
+                            }.getOrNull()
+                            updateProgress = null
+                            f?.also { updateApk = it }
+                        }
+                        if (apk == null) {
+                            val msg = context.getString(R.string.update_download_failed)
+                            if (screen == Screen.Session) snackbarHostState.showSnackbar(msg)
+                            else Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        } else UpdateInstaller.install(context, apk)
+                    }
+                },
+                onDismiss = { updateDismissed = true },
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+    }
     // User-typed session name on the Capture screen — outranks the LLM title for that entry.
     var captureName by remember { mutableStateOf("") }
     // ⏹ Stop & save: after the capture is confirmed saved (RecordingSaved), auto-enqueue it and
@@ -1870,6 +1901,12 @@ private fun TranscribeScreen(
                 onOpen = { e -> openSessionUri(Uri.fromFile(e.sessionFile)) },
                 onWatchLive = { e -> watchQueueItem(e) },
                 onProcessNow = { e -> enqueueAndStart(listOf(e.id)) },
+                onRemoveFromQueue = { e ->
+                    scope.launch { withContext(Dispatchers.IO) { ProcessingQueue.remove(context, e.id) }; recentsVersion++ }
+                },
+                // Stop the drain: ACTION_STOP cancels the pipeline job; the current item stays
+                // RECORDED and queued items remain, so "Process pending" resumes them.
+                onStopProcessing = { onStop() },
                 onProcessAll = {
                     enqueueAndStart(
                         SessionLibrary.list(context)
@@ -1885,6 +1922,7 @@ private fun TranscribeScreen(
                 onDeleteMany = ::deleteEntries,
                 onImport = { showAddSourceSheet = true },
                 onSettings = { showConfigSheet = true },
+                updateBanner = updateBannerSlot,
             )
         }
         Screen.Capture -> CaptureScreen(
@@ -2011,29 +2049,7 @@ private fun TranscribeScreen(
                 .padding(horizontal = 16.dp),
         ) {
             Spacer(Modifier.height(10.dp))
-            updateInfo?.takeIf { !updateDismissed }?.let { info ->
-                UpdateBanner(
-                    versionTag = info.tag,
-                    notes = info.notes,
-                    progress = updateProgress,
-                    onUpdate = {
-                        scope.launch {
-                            val apk = updateApk ?: run {
-                                updateProgress = 0f
-                                val f = runCatching {
-                                    UpdateInstaller.download(context, info.apkUrl) { updateProgress = it }
-                                }.getOrNull()
-                                updateProgress = null
-                                f?.also { updateApk = it }
-                            }
-                            if (apk == null) snackbarHostState.showSnackbar(context.getString(R.string.update_download_failed))
-                            else UpdateInstaller.install(context, apk)
-                        }
-                    },
-                    onDismiss = { updateDismissed = true },
-                )
-                Spacer(Modifier.height(8.dp))
-            }
+            updateBannerSlot()
             // Add audio / Stop / Re-run now live in the top bar (top = functions, middle = text,
             // bottom = player), so the content area is just the empty state or the transcript.
 
