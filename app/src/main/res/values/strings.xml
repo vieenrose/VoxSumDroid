@@ -320,4 +320,8 @@
     <string name="import_confirm_recording">A recording is in progress. Importing will stop and save it, then transcribe the shared file.</string>
     <string name="import_confirm_running">Processing is in progress. Importing will interrupt it and transcribe the shared file.</string>
     <string name="import_confirm_ok">Import</string>
+    <string name="svc_preparing">Preparing…</string>
+    <string name="svc_processing">Processing…</string>
+    <string name="svc_no_audio_recorded">No audio was recorded.</string>
+    <string name="opening_session">Opening…</string>
 </resources>

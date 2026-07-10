@@ -319,4 +319,8 @@
     <string name="import_confirm_recording">錄音進行中。匯入會先停止並儲存錄音，再轉錄分享的檔案。</string>
     <string name="import_confirm_running">處理進行中。匯入會中斷處理，並轉錄分享的檔案。</string>
     <string name="import_confirm_ok">匯入</string>
+    <string name="svc_preparing">準備中…</string>
+    <string name="svc_processing">處理中…</string>
+    <string name="svc_no_audio_recorded">沒有錄到任何音訊。</string>
+    <string name="opening_session">開啟中…</string>
 </resources>

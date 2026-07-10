@@ -541,6 +541,9 @@ private fun TranscribeScreen(
     // True while a session .ogg is being built/written (in the foreground service, so it finishes
     // even if the app is closed). The overlay just shows progress. lastSaveUri labels the result.
     var exporting by remember { mutableStateOf(false) }
+    // True while openSessionUri decodes a session file (seconds on a big one) — drives a loading
+    // overlay so tapping a row gives immediate feedback instead of a dead-looking pause.
+    var opening by remember { mutableStateOf(false) }
     var lastSaveUri by remember { mutableStateOf<Uri?>(null) }
     // Recently opened/saved sessions for the home screen (a derived cache over the user's own files).
     var recentsVersion by remember { mutableIntStateOf(0) }
@@ -1066,7 +1069,9 @@ private fun TranscribeScreen(
         // openTicket orders rapid open-vs-open so the LATEST tap wins even if it loads first.
         val myOpen = ++openTicket
         val gen = sessionGen
+        opening = true
         scope.launch {
+          try {
             val loaded = runCatching { VoxsumSession.open(context, uri) }.getOrNull()
             if (openTicket != myOpen || sessionGen != gen) return@launch   // superseded — drop
             if (loaded == null) {
@@ -1126,6 +1131,10 @@ private fun TranscribeScreen(
             screen = Screen.Session
             status = context.getString(R.string.status_session_loaded, loaded.utterances.size)
             RecentSessions.add(context, uri.toString(), loaded.title ?: "", System.currentTimeMillis()); recentsVersion++
+          } finally {
+            // Clear only if still the current open — a newer openSessionUri owns the flag otherwise.
+            if (openTicket == myOpen) opening = false
+          }
         }
     }
     val sessionOpener = rememberLauncherForActivityResult(
@@ -2177,6 +2186,7 @@ private fun TranscribeScreen(
         )
     }
     if (exporting) ExportingOverlay(onDismiss = { exporting = false })
+    if (opening) OpeningOverlay()
     BackHandler(showConfigSheet || showPodcastSheet || showAddSourceSheet || showYouTubeSheet) {
         showConfigSheet = false; showPodcastSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
@@ -2203,6 +2213,25 @@ private fun ExportingOverlay(onDismiss: () -> Unit) {
                     Text(stringResource(R.string.exporting), color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
                     Text(stringResource(R.string.exporting_hint), color = pal.Slate400, style = MaterialTheme.typography.bodySmall)
                 }
+            }
+        }
+    }
+}
+
+/** Brief non-dismissable "Opening…" overlay while a tapped session file decodes (the load switches
+ *  to the Session screen when done), so a row tap gives immediate feedback instead of a dead pause. */
+@Composable
+private fun OpeningOverlay() {
+    val pal = LocalVoxSumPalette.current
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    ) {
+        Surface(shape = RoundedCornerShape(16.dp), color = pal.PanelSurface, tonalElevation = 6.dp) {
+            Row(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
+                Spacer(Modifier.width(16.dp))
+                Text(stringResource(R.string.opening_session), color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
             }
         }
     }

@@ -320,4 +320,8 @@
     <string name="import_confirm_recording">Un enregistrement est en cours. L’importation l’arrêtera et le sauvegardera, puis transcrira le fichier partagé.</string>
     <string name="import_confirm_running">Un traitement est en cours. L’importation l’interrompra et transcrira le fichier partagé.</string>
     <string name="import_confirm_ok">Importer</string>
+    <string name="svc_preparing">Préparation…</string>
+    <string name="svc_processing">Traitement…</string>
+    <string name="svc_no_audio_recorded">Aucun audio n’a été enregistré.</string>
+    <string name="opening_session">Ouverture…</string>
 </resources>

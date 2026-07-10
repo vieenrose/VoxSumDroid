@@ -400,7 +400,7 @@ class TranscriptionService : LifecycleService() {
         // shared Holder from its own thread, and without a per-run snapshot it could clobber the
         // config the UI just staged for this run. The job re-asserts the snapshot after the join.
         val cfgSnapshot = TranscriptionConfig.Holder.config
-        startForegroundTyped(recording, "Preparing…")
+        startForegroundTyped(recording, getString(R.string.svc_preparing))
         val uri = intent?.getStringExtra(EXTRA_AUDIO_URI)
         // Transcript/summary text rides pendingText (Binder-limit safe). Consume it here on the
         // main thread before the job launches so a rapid second dispatch can't steal it.
@@ -1113,8 +1113,8 @@ class TranscriptionService : LifecycleService() {
         }
 
         // Drop the microphone foreground type for the CPU-bound finish. The WAV is already on disk.
-        startForegroundTyped(recording = false, text = "Processing…")
-        if (recorder.totalSamples == 0L) { if (!captureFailed.get()) emitEvent(TranscriptEvent.Failed("No audio recorded")); return }
+        startForegroundTyped(recording = false, text = getString(R.string.svc_processing))
+        if (recorder.totalSamples == 0L) { if (!captureFailed.get()) emitEvent(TranscriptEvent.Failed(getString(R.string.svc_no_audio_recorded))); return }
         val savedWav = libEntry?.wavFile ?: wav
         emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(savedWav).toString()))
 
