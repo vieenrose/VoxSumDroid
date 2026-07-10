@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Xml
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
@@ -35,6 +36,7 @@ data class Episode(
  * No feedparser, no yt-dlp.
  */
 object Podcast {
+    private const val MAX_DOWNLOAD_BYTES = 500L * 1024 * 1024   // storage guard on a single download
 
     /** iTunes Search API — public, no auth. Returns series that have an RSS feed. */
     suspend fun searchSeries(query: String): List<PodcastSeries> = withContext(Dispatchers.IO) {
@@ -102,15 +104,22 @@ object Podcast {
             val out = File(dir, "podcast_${ep.audioUrl.hashCode().toUInt()}.$ext")
             val conn = (URL(ep.audioUrl).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 30_000; readTimeout = 30_000; instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "VoxSum/1.0")
             }
+            // Fail on a non-2xx response instead of saving the error page's HTML body as "audio"
+            // (which then fails to transcribe with a baffling message).
+            check(conn.responseCode in 200..299) { "Download failed (HTTP ${conn.responseCode})" }
             conn.inputStream.use { input ->
                 val total = conn.contentLengthLong.takeIf { it > 0 }
                 val tmp = File(dir, "${out.name}.part")
                 tmp.outputStream().use { o ->
                     val buf = ByteArray(1 shl 16); var read = 0L
                     while (true) {
+                        ensureActive()                    // stop promptly when the user backs out
                         val n = input.read(buf); if (n < 0) break
                         o.write(buf, 0, n); read += n
+                        // Bound the download so a runaway/mislabeled URL can't fill storage.
+                        check(read <= MAX_DOWNLOAD_BYTES) { "Download too large (over ${MAX_DOWNLOAD_BYTES / (1024 * 1024)} MB)" }
                         if (total != null) onProgress((read.toFloat() / total).coerceIn(0f, 1f))
                     }
                 }
