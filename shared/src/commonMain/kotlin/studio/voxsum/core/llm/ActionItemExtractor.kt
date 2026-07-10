@@ -42,16 +42,10 @@ class ActionItemExtractor(
 
         // Fold in budget-sized groups until one prompt fits — never join all partials into one
         // over-n_ctx reduce prompt (which returns empty on a long meeting).
-        var level: List<String> = partials
-        while (level.size > 1 && level.joinToString("\n").length > budget) {
-            val next = ArrayList<String>()
-            for (group in SummaryText.groupPartials(level, budget)) {
-                if (group.size == 1) { next += group[0]; continue }
-                val sb = StringBuilder()
-                llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(langClause, group.joinToString("\n"))), maxTokens = MAX_TOKENS) { sb.append(it) }
-                next += sb.toString().trim()
-            }
-            level = next
+        val level = SummaryText.foldToFit(partials, budget, "\n") { group ->
+            val sb = StringBuilder()
+            llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(langClause, group.joinToString("\n"))), maxTokens = MAX_TOKENS) { sb.append(it) }
+            sb.toString().trim()
         }
 
         val finalSb = StringBuilder()

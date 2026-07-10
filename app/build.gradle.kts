@@ -15,14 +15,14 @@ android {
         applicationId = "studio.voxsum"
         minSdk = 26          // MediaCodec PCM-float output + reasonable native perf
         targetSdk = 35
-        versionCode = 60
-        versionName = "0.18.6"
+        versionCode = 90
+        versionName = "0.24.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
             // arm64 is the only ABI worth shipping for on-device LLM perf. Override with
             // -PvoxsumAbi=x86_64 to build for an emulator (provide a matching ORT via
-            // SHERPA_ONNXRUNTIME_LIB_DIR) — see the emulator test in SPIKE.md.
+            // SHERPA_ONNXRUNTIME_LIB_DIR). See RELEASING.md / the emulator test in SPIKE.md.
             abiFilters += ((project.findProperty("voxsumAbi") as String?) ?: "arm64-v8a")
         }
         externalNativeBuild {
@@ -44,7 +44,7 @@ android {
     }
 
     // Release signing is driven by env vars so CI can inject a keystore from secrets and
-    // local/debug builds still work without any.
+    // local/debug builds still work without any. See RELEASING.md.
     val keystorePath = System.getenv("VOXSUM_KEYSTORE")
     signingConfigs {
         if (keystorePath != null) {
@@ -71,6 +71,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // NewPipeExtractor 0.26+ calls Java 10+ APIs (e.g. URLEncoder.encode(String, Charset))
+        // that don't exist below API 33 — desugar them for older devices (minSdk 26).
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }
@@ -89,8 +92,6 @@ android {
 }
 
 dependencies {
-    // Pure Kotlin business logic shared with the :desktop (Linux) target — see the "linux" branch.
-    implementation(project(":shared"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.service)
@@ -106,6 +107,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     // YouTube source extraction (GPL-3.0, via JitPack). Pulls nanojson/jsoup/rhino transitively.
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.3")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
+    implementation(libs.commons.compress) // tar.bz2 model extraction (Apache-2.0)
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

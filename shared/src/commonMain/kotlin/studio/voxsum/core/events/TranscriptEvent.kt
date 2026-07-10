@@ -59,6 +59,10 @@ sealed interface TranscriptEvent {
     /** Live recording finished and the captured WAV was written — the UI loads it for playback. */
     data class RecordingSaved(val uri: String) : TranscriptEvent
 
+    /** The finished session was auto-saved into the app library (audio + transcript + summary
+     *  embedded) — the home screen's recents list should refresh. */
+    data class LibrarySaved(val uri: String, val title: String?) : TranscriptEvent
+
     /**
      * A session export (run in the foreground service so it survives the app closing) finished.
      * [share] = built for sharing ([sharePath] set) vs saved to a SAF target; [outcome] is

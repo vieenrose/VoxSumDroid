@@ -250,4 +250,83 @@
     <string name="recover_message">一段約 %d 分鐘的錄音在完成前被中斷。要立即完成轉錄嗎？</string>
     <string name="recover_finish">完成轉錄</string>
     <string name="recover_discard">捨棄</string>
+
+    <!-- Batch recording: "Next talk" + deferred processing queue -->
+    <string name="cd_next_talk">下一場（儲存並開始下一段錄音）</string>
+    <string name="status_saved_for_later">錄音已儲存——稍後可從「加入音訊」進行處理</string>
+    <string name="source_process_all">處理待辦（%d）</string>
+    <string name="source_process_all_desc">逐一轉錄並摘要已儲存的錄音</string>
+    <string name="svc_processing_queue">正在處理 %1$s（剩餘 %2$d）</string>
+    <string name="svc_queue_item_failed">無法處理 %s——已保留在資料庫中</string>
+    <string name="svc_queue_item_failed_hint">點一下開啟 VoxSum 再試一次。</string>
+    <string name="svc_paused_time_limit">處理已因系統時間限制而暫停——重新開啟 VoxSum 即可繼續。</string>
+
+    <string name="library_title">已錄音的場次</string>
+    <string name="library_empty">尚無錄音——每段錄音都會自動儲存在這裡。</string>
+    <string name="lib_status_done">已完成</string>
+    <string name="lib_status_queued">排隊中</string>
+    <string name="lib_status_recorded">未處理</string>
+    <string name="source_library">已錄音的場次（%d）</string>
+    <string name="source_library_desc">所有自動儲存的錄音及其處理狀態</string>
+
+    <!-- Studio refonte -->
+    <string name="back">返回</string>
+    <string name="capture_title">錄音</string>
+    <string name="capture_session_name">場次名稱（選填）</string>
+    <string name="capture_next_talk">下一場</string>
+    <string name="capture_stop">停止並儲存</string>
+    <string name="capture_live_transcript">即時逐字稿</string>
+    <string name="capture_live_waiting">聆聽中…</string>
+    <string name="studio_recording_banner">錄音中——%s（點按返回）</string>
+    <string name="studio_return_capture">錄音中…（返回）</string>
+    <string name="lib_status_processing">處理中</string>
+    <string name="action_process_now">立即處理</string>
+    <string name="action_open">開啟</string>
+    <string name="action_rename">重新命名</string>
+    <string name="action_share_audio">分享音訊</string>
+    <string name="action_delete">刪除</string>
+    <string name="delete_confirm">確定要永久刪除「%s」嗎？音訊與逐字稿都會被移除。</string>
+
+    <string name="studio_processing_banner">處理中——%s（點按即時查看）</string>
+
+    <string name="studio_search_hint">搜尋場次…</string>
+    <string name="studio_no_match">沒有符合搜尋的場次。</string>
+    <string name="chip_new">新</string>
+    <string name="day_today">今天</string>
+    <string name="day_yesterday">昨天</string>
+
+    <string name="tab_summary">摘要</string>
+    <string name="tab_transcript">逐字稿</string>
+    <string name="tab_actions">行動項目</string>
+    <string name="summary_pending_hint">尚無摘要——處理完成後會顯示在這裡。</string>
+    <string name="actions_pending_hint">尚無行動項目。</string>
+
+    <string name="mic_capture_failed">麥克風失效——未錄到任何聲音。請關閉其他使用麥克風的 App 後重試。</string>
+    <string name="rec_storage_failed">錄音已停止——儲存空間已滿。請釋出空間後再試。</string>
+
+    <string name="notif_session_ready">場次已完成</string>
+
+    <string name="delete_confirm_many">確定要永久刪除 %d 個場次嗎？音訊與逐字稿都會被移除。</string>
+    <string name="selection_count">已選取 %d 個</string>
+    <string name="select_all">全選</string>
+    <string name="cd_exit_selection">結束選取</string>
+    <string name="cd_manage">管理</string>
+    <string name="action_watch_live">即時查看</string>
+    <string name="filter_all">全部（%d）</string>
+    <string name="filter_new">新（%d）</string>
+    <string name="filter_done">已完成（%d）</string>
+    <string name="import_confirm_title">匯入這個檔案？</string>
+    <string name="import_confirm_recording">錄音進行中。匯入會先停止並儲存錄音，再轉錄分享的檔案。</string>
+    <string name="import_confirm_running">處理進行中。匯入會中斷處理，並轉錄分享的檔案。</string>
+    <string name="import_confirm_ok">匯入</string>
+    <string name="svc_preparing">準備中…</string>
+    <string name="svc_processing">處理中…</string>
+    <string name="svc_no_audio_recorded">沒有錄到任何音訊。</string>
+    <string name="opening_session">開啟中…</string>
+    <string name="action_remove_from_queue">從佇列移除</string>
+    <string name="action_stop_processing">停止處理</string>
+    <string name="cd_status_new">新的</string>
+    <string name="cd_status_queued">排入佇列</string>
+    <string name="cd_status_processing">處理中</string>
+    <string name="cd_status_done">已完成</string>
 </resources>

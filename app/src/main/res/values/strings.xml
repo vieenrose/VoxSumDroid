@@ -251,4 +251,83 @@
     <string name="recover_message">A recording of about %d min was interrupted before it finished. Finish transcribing it now?</string>
     <string name="recover_finish">Finish transcribing</string>
     <string name="recover_discard">Discard</string>
+
+    <!-- Batch recording: "Next talk" + deferred processing queue -->
+    <string name="cd_next_talk">Next talk (save and record the next one)</string>
+    <string name="status_saved_for_later">Recording saved — process it later from Add audio</string>
+    <string name="source_process_all">Process pending (%d)</string>
+    <string name="source_process_all_desc">Transcribe and summarize the saved recordings one by one</string>
+    <string name="svc_processing_queue">Processing %1$s (%2$d left)</string>
+    <string name="svc_queue_item_failed">Could not process %s — kept in the library</string>
+    <string name="svc_queue_item_failed_hint">Tap to open VoxSum and try again.</string>
+    <string name="svc_paused_time_limit">Processing paused by the system time limit — reopen VoxSum to resume.</string>
+
+    <string name="library_title">Recorded sessions</string>
+    <string name="library_empty">No saved recordings yet — every recording is saved here automatically.</string>
+    <string name="lib_status_done">Done</string>
+    <string name="lib_status_queued">Queued</string>
+    <string name="lib_status_recorded">Not processed</string>
+    <string name="source_library">Recorded sessions (%d)</string>
+    <string name="source_library_desc">Every auto-saved recording and its processing status</string>
+
+    <!-- Studio refonte -->
+    <string name="back">Back</string>
+    <string name="capture_title">Record</string>
+    <string name="capture_session_name">Session name (optional)</string>
+    <string name="capture_next_talk">Next talk</string>
+    <string name="capture_stop">Stop &amp; save</string>
+    <string name="capture_live_transcript">Live transcript</string>
+    <string name="capture_live_waiting">Listening…</string>
+    <string name="studio_recording_banner">Recording — %s (tap to return)</string>
+    <string name="studio_return_capture">Recording… (return)</string>
+    <string name="lib_status_processing">Processing</string>
+    <string name="action_process_now">Process now</string>
+    <string name="action_open">Open</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_share_audio">Share audio</string>
+    <string name="action_delete">Delete</string>
+    <string name="delete_confirm">Delete “%s” permanently? The audio and its transcript are removed.</string>
+
+    <string name="studio_processing_banner">Processing — %s (tap to view live)</string>
+
+    <string name="studio_search_hint">Search sessions…</string>
+    <string name="studio_no_match">No session matches your search.</string>
+    <string name="chip_new">New</string>
+    <string name="day_today">TODAY</string>
+    <string name="day_yesterday">YESTERDAY</string>
+
+    <string name="tab_summary">Summary</string>
+    <string name="tab_transcript">Transcript</string>
+    <string name="tab_actions">Actions</string>
+    <string name="summary_pending_hint">No summary yet — it appears here once processing finishes.</string>
+    <string name="actions_pending_hint">No action items yet.</string>
+
+    <string name="mic_capture_failed">Microphone failed — nothing was recorded. Close other apps using the mic and try again.</string>
+    <string name="rec_storage_failed">Recording stopped — storage is full. Free some space and try again.</string>
+
+    <string name="notif_session_ready">Session ready</string>
+
+    <string name="delete_confirm_many">Delete %d sessions permanently? Their audio and transcripts are removed.</string>
+    <string name="selection_count">%d selected</string>
+    <string name="select_all">Select all</string>
+    <string name="cd_exit_selection">Exit selection</string>
+    <string name="cd_manage">Manage</string>
+    <string name="action_watch_live">Watch live</string>
+    <string name="filter_all">All (%d)</string>
+    <string name="filter_new">New (%d)</string>
+    <string name="filter_done">Done (%d)</string>
+    <string name="import_confirm_title">Import this file?</string>
+    <string name="import_confirm_recording">A recording is in progress. Importing will stop and save it, then transcribe the shared file.</string>
+    <string name="import_confirm_running">Processing is in progress. Importing will interrupt it and transcribe the shared file.</string>
+    <string name="import_confirm_ok">Import</string>
+    <string name="svc_preparing">Preparing…</string>
+    <string name="svc_processing">Processing…</string>
+    <string name="svc_no_audio_recorded">No audio was recorded.</string>
+    <string name="opening_session">Opening…</string>
+    <string name="action_remove_from_queue">Remove from queue</string>
+    <string name="action_stop_processing">Stop processing</string>
+    <string name="cd_status_new">New</string>
+    <string name="cd_status_queued">Queued</string>
+    <string name="cd_status_processing">Processing</string>
+    <string name="cd_status_done">Done</string>
 </resources>

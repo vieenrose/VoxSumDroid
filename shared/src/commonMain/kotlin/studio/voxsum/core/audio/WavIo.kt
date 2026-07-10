@@ -17,6 +17,27 @@ import java.nio.ByteOrder
 object WavIo {
     const val SAMPLE_RATE = 16_000
     const val HEADER = 44
+
+    /**
+     * True if [file] is ALREADY a canonical 16 kHz mono 16-bit PCM WAV (the format the whole
+     * pipeline produces — library captures and decode outputs). Lets a re-save skip the expensive
+     * decode-to-work-WAV pass and stream the file straight to Opus/AAC. Strict on purpose: a false
+     * positive would embed a non-canonical WAV the transcoder assumes is 16 kHz mono.
+     */
+    fun isCanonical16kMono(file: File): Boolean = runCatching {
+        if (!file.isFile || file.length() < HEADER) return false
+        val h = ByteArray(HEADER)
+        file.inputStream().use { if (it.read(h) < HEADER) return false }
+        fun str(o: Int, s: String) = s.toByteArray().withIndex().all { (i, b) -> h[o + i] == b }
+        fun u16(o: Int) = (h[o].toInt() and 0xFF) or ((h[o + 1].toInt() and 0xFF) shl 8)
+        fun u32(o: Int) = (h[o].toInt() and 0xFF) or ((h[o + 1].toInt() and 0xFF) shl 8) or
+            ((h[o + 2].toInt() and 0xFF) shl 16) or ((h[o + 3].toInt() and 0xFF) shl 24)
+        str(0, "RIFF") && str(8, "WAVE") && str(12, "fmt ") &&
+            u16(20) == 1 &&               // PCM
+            u16(22) == 1 &&               // mono
+            u32(24) == SAMPLE_RATE &&     // 16 kHz
+            u16(34) == 16                 // 16-bit
+    }.getOrDefault(false)
 }
 
 /**

@@ -20,5 +20,8 @@ local.properties
 /models/*.tar.bz2
 .kotlin/
 
+<<<<<<< HEAD
 # Desktop session sidecars (SessionFile) — written next to whatever audio the user picks
 *.voxsum.json
+=======
+>>>>>>> main

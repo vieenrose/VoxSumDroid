@@ -56,15 +56,25 @@ object TranscriptExport {
         }
     }
 
+    // A BLANK line inside cue text terminates the cue early and desyncs every following cue's number/
+    // timing — collapse any internal blank line to a single newline (rare, but ASR/edited text can
+    // contain one). Applied to both the speaker label and the body. Pattern compiled once (this runs
+    // per utterance × per format).
+    private val BLANK_LINE = Regex("\\n\\s*\\n+")
+    private fun oneCue(s: String): String = s.replace(BLANK_LINE, "\n").trim()
+
+    /** WebVTT treats `<` as a cue tag and `&` as an entity — escape so literal text isn't mangled. */
+    private fun vttEscape(s: String): String = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
     /** SubRip (.srt): numbered cues, `HH:MM:SS,mmm` timestamps, speaker prefix inline. */
     fun srt(utterances: List<TranscriptEvent.Utterance>, label: (Int) -> String): String = buildString {
         var n = 1
         for (u in utterances) {
-            val text = u.text.trim()
+            val text = oneCue(u.text)
             if (text.isEmpty()) continue
             append(n++).append('\n')
             append(stamp(u.startSec, ',')).append(" --> ").append(stamp(endOf(u), ',')).append('\n')
-            u.speaker?.let { append(label(it)).append(": ") }
+            u.speaker?.let { append(oneCue(label(it))).append(": ") }
             append(text).append("\n\n")
         }
     }
@@ -73,11 +83,11 @@ object TranscriptExport {
     fun vtt(utterances: List<TranscriptEvent.Utterance>, label: (Int) -> String): String = buildString {
         append("WEBVTT\n\n")
         for (u in utterances) {
-            val text = u.text.trim()
+            val text = oneCue(u.text)
             if (text.isEmpty()) continue
             append(stamp(u.startSec, '.')).append(" --> ").append(stamp(endOf(u), '.')).append('\n')
-            u.speaker?.let { append(label(it)).append(": ") }
-            append(text).append("\n\n")
+            u.speaker?.let { append(vttEscape(oneCue(label(it)))).append(": ") }
+            append(vttEscape(text)).append("\n\n")
         }
     }
 

@@ -1,11 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Permit cleartext (plain HTTP) traffic. Podcast/RSS audio enclosures are very frequently served
-  over http:// (e.g. BBC's open.live.bbc.co.uk), and so are some YouTube media URLs; Android blocks
-  cleartext by default from API 28+, which made those downloads fail outright. This only affects
-  downloading PUBLIC media — model downloads (Hugging Face) and the optional update check (GitHub)
-  are https and unchanged, and no user audio is ever uploaded, so the privacy promise is intact.
+  Podcast/RSS audio enclosures (and some YouTube media URLs) are very frequently served over plain
+  http:// (e.g. BBC's open.live.bbc.co.uk), which Android blocks by default from API 28+ — so
+  cleartext stays permitted for arbitrary PUBLIC media hosts (their domains can't be enumerated).
+
+  But the SENSITIVE fetches are pinned to HTTPS below so a network attacker can't downgrade them:
+  model downloads (Hugging Face + its LFS CDN) and the update check (GitHub). No user audio is ever
+  uploaded anywhere, so the privacy promise is intact.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">huggingface.co</domain>
+        <domain includeSubdomains="true">hf.co</domain>
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
+    </domain-config>
 </network-security-config>

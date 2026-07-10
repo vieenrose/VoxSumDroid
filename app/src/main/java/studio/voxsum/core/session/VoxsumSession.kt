@@ -9,6 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioTranscoder
+import studio.voxsum.core.audio.WavIo
 import studio.voxsum.core.audio.Mp4Tags
 import studio.voxsum.core.audio.OggOpusTags
 import studio.voxsum.core.cover.CoverArt
@@ -76,18 +77,26 @@ object VoxsumSession {
      *  the value [buildSessionOgg] derives from the same audio, so an in-app live preview equals the
      *  cover that gets embedded on save. Decodes to a throwaway temp WAV; null if it can't be decoded. */
     suspend fun audioFingerprint(context: Context, audioUri: Uri): ByteArray? = withContext(Dispatchers.IO) {
-        val tmp = File(context.cacheDir, ".fp_${audioUri.hashCode()}.wav")
+        // Match buildSessionOgg exactly (same bytes hashed → identical cover): if the source is
+        // already a canonical 16 kHz mono WAV, hash it directly (no decode); otherwise decode to a
+        // throwaway temp. Both hash the whole WAV including its 44-byte header, and the decode is
+        // deterministic, so the live-preview cover equals the one embedded on save either way.
+        val srcFile = audioUri.takeIf { it.scheme == "file" }?.path?.let(::File)
+        val direct = srcFile != null && WavIo.isCanonical16kMono(srcFile)
+        val wav = if (direct) srcFile!! else File(context.cacheDir, ".fp_${audioUri.hashCode()}.wav")
         try {
-            val n = runCatching { AudioDecoder.decodeToWav16k(context, audioUri, tmp) { _, _ -> } }.getOrNull()
-            if (n == null || n <= 0L) return@withContext null
+            if (!direct) {
+                val n = runCatching { AudioDecoder.decodeToWav16k(context, audioUri, wav) { _, _ -> } }.getOrNull()
+                if (n == null || n <= 0L) return@withContext null
+            }
             MessageDigest.getInstance("SHA-256").run {
-                tmp.inputStream().use { ins ->
+                wav.inputStream().use { ins ->
                     val b = ByteArray(1 shl 16)
                     while (true) { val k = ins.read(b); if (k < 0) break; update(b, 0, k) }
                 }
                 digest()
             }
-        } finally { tmp.delete() }
+        } finally { if (!direct) wav.delete() }
     }
 
     /**
@@ -115,13 +124,22 @@ object VoxsumSession {
         if (audioUri == null) return@withContext null
         dir.mkdirs()
         // Stream-decode to a 16 kHz mono work WAV, then stream that to OGG/Opus — never the whole
-        // waveform in RAM, so multi-hour sessions encode without OOM. The cover's waveform is
-        // accumulated DURING this same decode (no second pass), then the card is rendered + embedded.
-        val workWav = File(dir, ".audio_tmp.wav")
-        val decoded = runCatching {
-            AudioDecoder.decodeToWav16k(context, audioUri, workWav) { _, _ -> }
-        }.getOrElse { android.util.Log.w("voxsum-ogg", "decode failed", it); null }
-        if (decoded == null || decoded <= 0L) { workWav.delete(); return@withContext null }
+        // waveform in RAM, so multi-hour sessions encode without OOM. BUT when the source is ALREADY
+        // a canonical 16 kHz mono WAV (a library capture / decode output — the common re-save case),
+        // skip the decode entirely and stream that file straight through: on a long meeting that is
+        // the single most expensive step, paid on every attach/edit-save for nothing.
+        val srcFile = audioUri.takeIf { it.scheme == "file" }?.path?.let(::File)
+        val reuseSource = srcFile != null && WavIo.isCanonical16kMono(srcFile)
+        val workWav: File
+        if (reuseSource) {
+            workWav = srcFile!!
+        } else {
+            workWav = File(dir, ".audio_tmp.wav")
+            val decoded = runCatching {
+                AudioDecoder.decodeToWav16k(context, audioUri, workWav) { _, _ -> }
+            }.getOrElse { android.util.Log.w("voxsum-ogg", "decode failed", it); null }
+            if (decoded == null || decoded <= 0L) { workWav.delete(); return@withContext null }
+        }
         // A SHA-256 of the decoded audio — a stable fingerprint that makes the cover an ID for THIS
         // track (unchanged by transcript edits). Hashed here, before the work WAV is consumed below.
         val audioId = MessageDigest.getInstance("SHA-256").run {
@@ -135,7 +153,7 @@ object VoxsumSession {
             Format.OGG -> AudioTranscoder.wavToOggOpus(workWav, plain)
             Format.M4A -> AudioTranscoder.wavToM4aAac(workWav, plain)
         }
-        workWav.delete()
+        if (!reuseSource) workWav.delete()   // never delete the reused SOURCE (the library capture)
         if (!transcoded) {
             android.util.Log.w("voxsum-session", "wav->${format.ext} transcode returned false")
             return@withContext null
@@ -167,7 +185,23 @@ object VoxsumSession {
             }
         }.ifBlank { null }
         val tagged = File(dir, fileName)
-        val embedded: Boolean = when (format) {
+        // A null blob (too large to round-trip) → embed a playable file with just player metadata,
+        // no VOXSUM session; transcriptEmbedded=false so the caller reports PARTIAL, not FULL.
+        val embedded: Boolean = if (blob == null) {
+            when (format) {
+                Format.OGG -> {
+                    val lite = LinkedHashMap<String, String>()
+                    cleanTitle?.let { lite["TITLE"] = it }
+                    cleanSummary?.let { lite["DESCRIPTION"] = it }
+                    coverJpeg?.let { lite[CoverArt.FIELD] = CoverArt.encode(it, coverW, coverH) }
+                    if (lite.isEmpty() || !OggOpusTags.write(plain, tagged, lite)) plain.copyTo(tagged, overwrite = true)
+                }
+                Format.M4A -> {
+                    if (!Mp4Tags.write(plain, tagged, voxsum = null, title = cleanTitle, description = cleanSummary, coverJpeg = coverJpeg, lyrics = null)) plain.copyTo(tagged, overwrite = true)
+                }
+            }
+            false
+        } else when (format) {
             Format.OGG -> {
                 val comments = LinkedHashMap<String, String>()
                 comments[FIELD] = blob
@@ -230,9 +264,17 @@ object VoxsumSession {
             // No embedded session (or an implausibly large blob) — load as plain audio.
             return@withContext Loaded(audio, emptyList(), emptyMap(), null, null, null, null, recovered = false, coverJpeg = coverJpeg)
         }
-        val json = runCatching { JSONObject(gunzip(Base64.decode(blob, Base64.NO_WRAP)).toString(Charsets.UTF_8)) }
-            .getOrElse { error("Session metadata is corrupt") }
-        parseManifest(json, audio, coverJpeg)
+        // Parse under one guard: 'Open session'/share-in accept arbitrary files, so a blob that is
+        // valid gzip+JSON but semantically off (a future schema, a hand-edited or truncated file —
+        // a non-object utterance, a non-integer speaker key) must degrade to plain audio, not crash
+        // the open flow. parseManifest's strict getInt/getJSONObject calls are inside this guard.
+        return@withContext runCatching {
+            val json = JSONObject(gunzip(Base64.decode(blob, Base64.NO_WRAP)).toString(Charsets.UTF_8))
+            parseManifest(json, audio, coverJpeg)
+        }.getOrElse {
+            android.util.Log.w("voxsum-session", "unreadable embedded session, opening as plain audio", it)
+            Loaded(audio, emptyList(), emptyMap(), null, null, null, null, recovered = false, coverJpeg = coverJpeg)
+        }
     }
 
     /** Cheap probe (tag read only, no decode/extract): does [file] embed a recoverable VoxSum session,
@@ -268,10 +310,34 @@ object VoxsumSession {
 
     // --- session (de)serialization: lossless JSON, gzip+base64 into one comment ---
 
+    /** One utterance → JSON — shared by the session blob and the queue's pending-transcript
+     *  sidecar ([studio.voxsum.core.library.SessionLibrary.savePendingTranscript]), so both
+     *  round-trip bit-exact (including per-token tokens/tokenTimes used by the diarization split). */
+    fun utteranceToJson(u: TranscriptEvent.Utterance): JSONObject = JSONObject().apply {
+        put("index", u.index); put("start", u.startSec); put("end", u.endSec); put("text", u.text)
+        u.speaker?.let { put("speaker", it) }
+        u.tokens?.let { put("tokens", JSONArray(it)) }
+        u.tokenTimes?.let { put("token_times", JSONArray(it)) }
+    }
+
+    /** JSON → utterance (inverse of [utteranceToJson]); [fallbackIndex] when "index" is absent. */
+    fun utteranceFromJson(o: JSONObject, fallbackIndex: Int = 0): TranscriptEvent.Utterance =
+        TranscriptEvent.Utterance(
+            index = o.optInt("index", fallbackIndex),
+            text = o.optString("text", ""),
+            startSec = o.optDouble("start", 0.0),
+            endSec = o.optDouble("end", 0.0),
+            speaker = if (o.has("speaker")) o.getInt("speaker") else null,
+            tokens = o.optJSONArray("tokens")?.let { t -> List(t.length()) { t.getString(it) } },
+            tokenTimes = o.optJSONArray("token_times")?.let { t -> List(t.length()) { t.getDouble(it) } },
+        )
+
+    /** The gzip+base64 session blob, or null when it exceeds the read-side size ceiling (so the
+     *  caller embeds a session-less but playable file and reports PARTIAL instead of a false FULL). */
     private fun encodeSession(
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
         summary: String?, actionItems: String?, title: String?, asrModelId: String?, llmModelId: String?,
-    ): String {
+    ): String? {
         val root = JSONObject()
         root.put("voxsum_version", VERSION)
         title?.let { root.put("title", it) }
@@ -287,36 +353,25 @@ object VoxsumSession {
         }
         root.put("speaker_names", names)
         val arr = JSONArray()
-        utterances.forEach { u ->
-            // Multi-page OpusTags removes the size cap, so embed everything for a bit-exact round-trip
-            // (including per-token tokens/tokenTimes used by the within-utterance diarization split).
-            arr.put(JSONObject().apply {
-                put("index", u.index); put("start", u.startSec); put("end", u.endSec); put("text", u.text)
-                u.speaker?.let { put("speaker", it) }
-                u.tokens?.let { put("tokens", JSONArray(it)) }
-                u.tokenTimes?.let { put("token_times", JSONArray(it)) }
-            })
-        }
+        // Multi-page OpusTags removes the size cap, so embed everything for a bit-exact round-trip.
+        utterances.forEach { u -> arr.put(utteranceToJson(u)) }
         root.put("utterances", arr)
-        return Base64.encodeToString(gzip(root.toString().toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+        val json = root.toString().toByteArray(Charsets.UTF_8)
+        // A blob that the READ path would reject must not be embedded as if it round-trips. open()
+        // aborts gunzip past MAX_JSON_BYTES (decompressed) and rejects base64 over MAX_BLOB_CHARS —
+        // so bail here when the raw JSON already exceeds the decompressed ceiling, rather than
+        // writing a "FULL" file that throws 'metadata is corrupt' on reopen. Returns null → caller
+        // embeds a playable-but-session-less file and reports PARTIAL.
+        if (json.size > MAX_JSON_BYTES) return null
+        val blob = Base64.encodeToString(gzip(json), Base64.NO_WRAP)
+        return blob.takeIf { it.length <= MAX_BLOB_CHARS }
     }
 
     private fun parseManifest(m: JSONObject, audio: File, coverJpeg: ByteArray? = null): Loaded {
         val utts = ArrayList<TranscriptEvent.Utterance>()
         val arr = m.optJSONArray("utterances") ?: JSONArray()
         for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            utts.add(
-                TranscriptEvent.Utterance(
-                    index = o.optInt("index", i),
-                    text = o.optString("text", ""),
-                    startSec = o.optDouble("start", 0.0),
-                    endSec = o.optDouble("end", 0.0),
-                    speaker = if (o.has("speaker")) o.getInt("speaker") else null,
-                    tokens = o.optJSONArray("tokens")?.let { t -> List(t.length()) { t.getString(it) } },
-                    tokenTimes = o.optJSONArray("token_times")?.let { t -> List(t.length()) { t.getDouble(it) } },
-                )
-            )
+            utts.add(utteranceFromJson(arr.getJSONObject(i), fallbackIndex = i))
         }
         val names = HashMap<Int, SpeakerName>()
         m.optJSONObject("speaker_names")?.let { sn ->

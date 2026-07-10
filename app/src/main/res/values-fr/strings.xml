@@ -251,4 +251,83 @@
     <string name="recover_message">Un enregistrement d\'environ %d min a été interrompu avant la fin. Terminer sa transcription maintenant ?</string>
     <string name="recover_finish">Terminer la transcription</string>
     <string name="recover_discard">Supprimer</string>
+
+    <!-- Batch recording: "Next talk" + deferred processing queue -->
+    <string name="cd_next_talk">Session suivante (sauvegarder et enregistrer la suivante)</string>
+    <string name="status_saved_for_later">Enregistrement sauvegardé — à traiter plus tard depuis Ajouter de l\'audio</string>
+    <string name="source_process_all">Traiter en attente (%d)</string>
+    <string name="source_process_all_desc">Transcrire et résumer les enregistrements sauvegardés un par un</string>
+    <string name="svc_processing_queue">Traitement de %1$s (%2$d restants)</string>
+    <string name="svc_queue_item_failed">Impossible de traiter %s — conservé dans la bibliothèque</string>
+    <string name="svc_queue_item_failed_hint">Touchez pour ouvrir VoxSum et réessayer.</string>
+    <string name="svc_paused_time_limit">Traitement suspendu par la limite de temps du système — rouvrez VoxSum pour reprendre.</string>
+
+    <string name="library_title">Sessions enregistrées</string>
+    <string name="library_empty">Aucun enregistrement pour l\'instant — chaque enregistrement est sauvegardé ici automatiquement.</string>
+    <string name="lib_status_done">Terminé</string>
+    <string name="lib_status_queued">En attente</string>
+    <string name="lib_status_recorded">Non traité</string>
+    <string name="source_library">Sessions enregistrées (%d)</string>
+    <string name="source_library_desc">Tous les enregistrements auto-sauvegardés et leur statut de traitement</string>
+
+    <!-- Studio refonte -->
+    <string name="back">Retour</string>
+    <string name="capture_title">Enregistrer</string>
+    <string name="capture_session_name">Nom de la session (facultatif)</string>
+    <string name="capture_next_talk">Session suivante</string>
+    <string name="capture_stop">Arrêter et sauvegarder</string>
+    <string name="capture_live_transcript">Transcription en direct</string>
+    <string name="capture_live_waiting">Écoute en cours…</string>
+    <string name="studio_recording_banner">Enregistrement — %s (touchez pour revenir)</string>
+    <string name="studio_return_capture">Enregistrement… (revenir)</string>
+    <string name="lib_status_processing">Traitement</string>
+    <string name="action_process_now">Traiter maintenant</string>
+    <string name="action_open">Ouvrir</string>
+    <string name="action_rename">Renommer</string>
+    <string name="action_share_audio">Partager l\'audio</string>
+    <string name="action_delete">Supprimer</string>
+    <string name="delete_confirm">Supprimer « %s » définitivement ? L\'audio et sa transcription seront effacés.</string>
+
+    <string name="studio_processing_banner">Traitement — %s (touchez pour suivre en direct)</string>
+
+    <string name="studio_search_hint">Rechercher une session…</string>
+    <string name="studio_no_match">Aucune session ne correspond à votre recherche.</string>
+    <string name="chip_new">Nouveau</string>
+    <string name="day_today">AUJOURD’HUI</string>
+    <string name="day_yesterday">HIER</string>
+
+    <string name="tab_summary">Résumé</string>
+    <string name="tab_transcript">Transcription</string>
+    <string name="tab_actions">Actions</string>
+    <string name="summary_pending_hint">Pas encore de résumé — il apparaîtra ici à la fin du traitement.</string>
+    <string name="actions_pending_hint">Pas encore d’actions à mener.</string>
+
+    <string name="mic_capture_failed">Échec du microphone — rien n\'a été enregistré. Fermez les autres applis utilisant le micro et réessayez.</string>
+    <string name="rec_storage_failed">Enregistrement arrêté — stockage plein. Libérez de l’espace et réessayez.</string>
+
+    <string name="notif_session_ready">Session prête</string>
+
+    <string name="delete_confirm_many">Supprimer %d sessions définitivement ? Leur audio et leurs transcriptions seront effacés.</string>
+    <string name="selection_count">%d sélectionnée(s)</string>
+    <string name="select_all">Tout sélectionner</string>
+    <string name="cd_exit_selection">Quitter la sélection</string>
+    <string name="cd_manage">Gérer</string>
+    <string name="action_watch_live">Suivre en direct</string>
+    <string name="filter_all">Toutes (%d)</string>
+    <string name="filter_new">Nouvelles (%d)</string>
+    <string name="filter_done">Terminées (%d)</string>
+    <string name="import_confirm_title">Importer ce fichier ?</string>
+    <string name="import_confirm_recording">Un enregistrement est en cours. L’importation l’arrêtera et le sauvegardera, puis transcrira le fichier partagé.</string>
+    <string name="import_confirm_running">Un traitement est en cours. L’importation l’interrompra et transcrira le fichier partagé.</string>
+    <string name="import_confirm_ok">Importer</string>
+    <string name="svc_preparing">Préparation…</string>
+    <string name="svc_processing">Traitement…</string>
+    <string name="svc_no_audio_recorded">Aucun audio n’a été enregistré.</string>
+    <string name="opening_session">Ouverture…</string>
+    <string name="action_remove_from_queue">Retirer de la file</string>
+    <string name="action_stop_processing">Arrêter le traitement</string>
+    <string name="cd_status_new">Nouvelle</string>
+    <string name="cd_status_queued">En file</string>
+    <string name="cd_status_processing">En traitement</string>
+    <string name="cd_status_done">Terminée</string>
 </resources>

@@ -18,7 +18,8 @@ import java.nio.ByteOrder
  */
 object OggOpusTags {
 
-    private const val MAX_FILE = 512L * 1024 * 1024   // refuse to slurp absurd files into memory
+    private const val MAX_FILE = 512L * 1024 * 1024   // write() upper bound (our own files)
+    private const val READ_PREFIX = 64L * 1024 * 1024  // read() only needs the leading tag pages; heap-safe
     private val ZERO8 = ByteArray(8)                   // granule 0 (packet completes on this page)
     private val NEG1_8 = ByteArray(8) { 0xFF.toByte() } // granule -1 (no packet completes here)
 
@@ -85,8 +86,17 @@ object OggOpusTags {
 
     /** Read one comment value (e.g. "VOXSUM") from [src]'s OpusTags, or null if absent. */
     fun read(src: File, key: String): String? = runCatching {
-        if (src.length() > MAX_FILE) return null
-        val b = src.readBytes()
+        // The OpusTags packet (with our embedded session blob) sits at the START of the file, right
+        // after OpusHead — before any audio. So read only a heap-safe PREFIX, never the whole file:
+        // a shared/untrusted 300 MB media file would OOM on a full readBytes() even under the 512 MB
+        // cap (well above the app heap). parsePages stops cleanly at the last complete page in the
+        // prefix; a valid VOXSUM blob (bounded by MAX_BLOB, far under this) always fits.
+        val cap = minOf(src.length(), READ_PREFIX)
+        val b = ByteArray(cap.toInt())
+        src.inputStream().use { ins ->
+            var off = 0
+            while (off < b.size) { val n = ins.read(b, off, b.size - off); if (n < 0) break; off += n }
+        }
         val pages = parsePages(b)
         if (pages.size < 2) return null
         // Reassemble the (possibly multi-page) OpusTags packet.

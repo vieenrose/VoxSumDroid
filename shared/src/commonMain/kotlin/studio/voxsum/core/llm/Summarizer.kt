@@ -87,18 +87,12 @@ class Summarizer(
         // Reduce HIERARCHICALLY so the joined prompt never overflows the context window: fold the
         // partials in budget-sized groups, re-summarizing each round until a single prompt fits. (A long
         // meeting's ~16+ partials would otherwise join into one over-n_ctx reduce prompt -> empty summary.)
-        var level: List<String> = partials
-        while (level.size > 1 && level.joinToString("\n\n").length > reduceBudget) {
-            val next = ArrayList<String>()
-            for (group in SummaryText.groupPartials(level, reduceBudget)) {
-                if (group.size == 1) { next += group[0]; continue }
-                val sb = StringBuilder()
-                llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, reduceInstruction, group.joinToString("\n\n"))), reduceMax) { sb.append(it) }
-                next += sb.toString().trim()
-                llmCalls++
-                emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
-            }
-            level = next
+        val level = SummaryText.foldToFit(partials, reduceBudget, "\n\n") { group ->
+            val sb = StringBuilder()
+            llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, reduceInstruction, group.joinToString("\n\n"))), reduceMax) { sb.append(it) }
+            llmCalls++
+            emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
+            sb.toString().trim()
         }
 
         // One chunk (or a single folded summary) IS the final summary — skip a redundant pass.
