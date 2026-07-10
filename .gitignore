@@ -15,3 +15,7 @@ local.properties
 /models/*.onnx
 /models/*.tar.bz2
 .kotlin/
+
+# Linux desktop port build artifacts (live on the linux branch; keep off main)
+/desktop/
+/shared/
