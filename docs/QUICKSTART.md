@@ -12,7 +12,8 @@
 ---
 
 This is a 5-minute tour of everything VoxSum can do. Nothing here needs an account, and after the
-one-time model download nothing leaves your phone.
+one-time model download nothing leaves your phone. *(Screenshots show the French UI — the app is also
+available in English and 繁體中文.)*
 
 > **First run downloads models.** The first time you transcribe, VoxSum fetches the speech model; the
 > first time you summarize, it fetches the summary model (from Hugging Face, integrity-checked). A
@@ -48,9 +49,12 @@ Recording keeps running if you back out to the list — a red **Recording** bann
 ### Process on your schedule
 
 Deferred sessions wait as *Not processed*. Tap **Process pending (n)** (bottom of the home screen, or
-in the ➕ sheet) and VoxSum transcribes, identifies speakers, summarizes and titles them **one by one**
-— each row shows the live phase and progress. The queue survives app kills and resumes where it left
-off. Or handle a single session: tap its row → **Process now**.
+in the ➕ sheet) and VoxSum transcribes, identifies speakers, summarizes and titles every one of them
+— each row shows the live phase and progress. Batches run **efficiently**: all sessions are
+transcribed first, then the summarizer model loads **once** for the whole batch instead of once per
+session. The queue survives app kills and resumes where it left off — finished transcriptions are
+never redone. Or handle a single session: tap its row → **Process now**. Changed your mind? A queued
+session's sheet offers **Remove from queue**, and the one being processed offers **Stop processing**.
 
 ### Manage your sessions
 
@@ -106,8 +110,8 @@ player. Right: tap 🔍 to search — matches highlight and you step through the
 - **Search** — tap the 🔍 in the top bar to find any word in a long recording; matches highlight and
   you can step through them with the up/down arrows.
 - **Summary, your way** — a short title and a summary as **bullets, an executive brief, or a
-  narrative** (pick the style in **Settings**), in the language you choose. (Notice the screenshot: an
-  English summary over a Chinese transcript — summary language is independent of the audio.)
+  narrative** (pick the style in **Settings**), in the language you choose. (Notice the screenshot: a
+  French summary over a Chinese transcript — summary language is independent of the audio.)
 - **Action items** — top-bar ↻ menu → *Extract action items* pulls a draft checklist of who-does-what
   and the key decisions out of a meeting.
 

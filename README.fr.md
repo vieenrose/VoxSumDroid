@@ -31,6 +31,9 @@ pendant que vous suivez le statut de chaque session en direct.
 
 > Vous débutez ? Le **[guide de démarrage en 5 minutes →](docs/QUICKSTART.fr.md)** présente chaque fonction.
 
+<p align="center"><img src="docs/screenshots/demo.gif" width="300" alt="Démo VoxSum — ouvrir une session, lire le résumé, toucher une ligne pour lancer la lecture"></p>
+<p align="center"><i>Ouvrir une session terminée : le résumé, la transcription étiquetée par locuteur, et la lecture au toucher avec la ligne courante surlignée.</i></p>
+
 ## Pourquoi VoxSum
 
 - 🛡️ **Confidentiel par conception** — votre audio ne quitte jamais le téléphone, vos enregistrements sensibles ne fuiteront pas vers un cloud.
@@ -53,8 +56,8 @@ pendant que vous suivez le statut de chaque session en direct.
 - **L'accueil est votre liste de sessions** — chaque enregistrement, avec son statut en direct : *Non traité · En attente · Traitement (phase et %) · Terminé*.
 - **Enchaînez les interventions** — une cabine d'enregistrement plein écran avec un grand minuteur, des barres de niveau micro et deux boutons géants : **⏭ Session suivante** termine une session et démarre immédiatement la suivante (traitement différé) ; **⏹ Arrêter et sauvegarder** sauvegarde puis traite en arrière-plan pendant que vous êtes déjà libre de réenregistrer.
 - **Impossible de perdre un enregistrement** — l'audio est sauvegardé dès que le micro s'arrête, même en cas de plantage ou d'arrêt accidentel ; les sessions terminées embarquent automatiquement leur transcription + résumé dans un `.m4a` autonome.
-- **Traitez quand vous voulez** — *Traiter en attente (n)* transcrit, identifie les locuteurs, résume et titre chaque enregistrement sauvegardé, un par un, en arrière-plan (la file survit aux arrêts de l'appli et reprend où elle en était).
-- **Gérez vos fichiers** — touchez ou appuyez longuement sur une session : *Traiter maintenant · Renommer · Partager l'audio · Supprimer*. Nommez une session pendant l'enregistrement — votre nom prime toujours sur le titre généré par l'IA.
+- **Traitez quand vous voulez** — *Traiter en attente (n)* transcrit, identifie les locuteurs, résume et titre chaque enregistrement sauvegardé, en arrière-plan. Les lots sont traités **efficacement** : tout est d'abord transcrit, puis le modèle de résumé se charge **une seule fois** pour tout le lot — et la file survit aux arrêts de l'appli, en reprenant sans jamais refaire le travail terminé.
+- **Gérez vos fichiers** — touchez ou appuyez longuement sur une session : *Traiter maintenant · Renommer · Partager l'audio · Supprimer* — plus *Retirer de la file* sur une session en attente et *Arrêter le traitement* sur celle en cours. Nommez une session pendant l'enregistrement — votre nom prime toujours sur le titre généré par l'IA.
 
 **🎙️ Importez de l'audio depuis n'importe où**
 - **Un fichier** de votre appareil — la plupart des formats audio et vidéo courants fonctionnent.

@@ -11,18 +11,18 @@
 
 ---
 
-這是一段 5 分鐘導覽，帶你看過 VoxSum 的所有功能。全程無需帳號；模型只下載一次，之後便不再有任何資料離開你的手機。
+這是一段 5 分鐘導覽，帶你看過 VoxSum 的所有功能。全程無需帳號；模型只下載一次，之後便不再有任何資料離開你的手機。*（截圖為法文介面 —— App 亦提供英文與繁體中文。）*
 
 > **首次執行會下載模型。** 第一次轉錄時，VoxSum 會下載語音模型；第一次摘要時，下載摘要模型（來源為 Hugging Face，並驗證完整性）。下載過程會顯示進度條。完成後即可完全離線使用。若下載中斷或模型檔損毀，VoxSum 會自動清除並顯示一鍵**重試**。
 
-<p align="center"><img src="screenshots/qs-home-zhtw.png" width="260" alt="VoxSum 工作室首頁 — 場次清單"></p>
+<p align="center"><img src="screenshots/qs-home.png" width="260" alt="VoxSum 工作室首頁 — 場次清單"></p>
 <p align="center"><i>工作室首頁：每個場次都帶即時狀態 ——「<b>未處理</b>」、「<b>排隊中</b>」、「<b>處理中</b>」（含階段與進度）、「<b>已完成</b>」—— 加上大大的<b>錄音</b>按鈕與「<b>處理待辦（n）</b>」。</i></p>
 
 ## 1. 錄音 —— 一場，或一整天連著錄
 
 點大大的 **🎙 錄音** 按鈕，進入錄音室：大字計時器、麥克風音量條、選填的**場次名稱**欄位（你取的名字永遠優先於 AI 產生的標題），以及兩顆巨大按鈕：
 
-<p align="center"><img src="screenshots/qs-capture-zhtw.png" width="260" alt="錄音室"></p>
+<p align="center"><img src="screenshots/qs-capture.png" width="260" alt="錄音室"></p>
 <p align="center"><i>錄音室。底部可收合的「<b>即時逐字稿</b>」顯示最近辨識出的句子 —— 證明麥克風聽得到你。</i></p>
 
 - **⏭ 下一場** —— 結束本場並**立刻開始錄下一場**。剛結束的錄音自動儲存為「未處理」，重運算延後執行。這就是連場模式：一整天的會議，每場之間點一下即可。
@@ -34,13 +34,13 @@
 
 ### 想什麼時候處理，就什麼時候處理
 
-延後的場次以「未處理」等待。點 **處理待辦（n）**（首頁底部，或 ➕ 面板裡），VoxSum 會**逐一**轉錄、辨識語者、摘要並命名 —— 每列即時顯示階段與進度。佇列在 App 被殺後會自動接續。也可以只處理一場：點該列 → **立即處理**。
+延後的場次以「未處理」等待。點 **處理待辦（n）**（首頁底部，或 ➕ 面板裡），VoxSum 會轉錄、辨識語者、摘要並命名全部場次 —— 每列即時顯示階段與進度。批次處理**很有效率**：先把所有場次轉錄完，再**只載入一次**摘要模型處理整批，而不是每場載入一次。佇列在 App 被殺後會自動接續 —— 已完成的轉錄絕不重做。也可以只處理一場：點該列 → **立即處理**。改變主意了？排隊中場次的面板提供「**從佇列移除**」，處理中的場次則有「**停止處理**」。
 
 ### 管理你的場次
 
 點「未處理」的列（或長按任何一列）開啟管理面板：
 
-<p align="center"><img src="screenshots/qs-manage-zhtw.png" width="260" alt="場次管理面板"></p>
+<p align="center"><img src="screenshots/qs-manage.png" width="260" alt="場次管理面板"></p>
 <p align="center"><i>單場操作：<b>立即處理 · 重新命名 · 分享音訊 · 刪除</b>（附確認）。</i></p>
 
 點「**已完成**」的列即開啟完整場次 —— 逐字稿、語者、摘要、同步播放器。
@@ -59,7 +59,7 @@
 
 你也可以從其他 App（LINE、WhatsApp、錄音 App、瀏覽器）把語音訊息或音訊／影片檔**分享**給 VoxSum —— VoxSum 會出現在分享選單裡並開始轉錄。
 
-<p align="center"><img src="screenshots/qs-add-source-zhtw.png" width="260" alt="加入音訊面板"></p>
+<p align="center"><img src="screenshots/qs-add-source.png" width="260" alt="加入音訊面板"></p>
 <p align="center"><i>各種輸入來源，以及通往場次清單與處理佇列的捷徑。</i></p>
 
 ### 轉錄 Podcast
@@ -71,21 +71,21 @@
 ## 3. 閱讀與理解
 
 <p align="center">
-  <img src="screenshots/qs-transcript-zhtw.png" width="260" alt="帶摘要、語者與播放器的逐字稿">
+  <img src="screenshots/qs-transcript.png" width="260" alt="帶摘要、語者與播放器的逐字稿">
   &nbsp;
-  <img src="screenshots/qs-search-zhtw.png" width="260" alt="搜尋逐字稿">
+  <img src="screenshots/qs-search.png" width="260" alt="搜尋逐字稿">
 </p>
 <p align="center"><i>左：標題、條列摘要、依語者標註的逐字稿，以及同步播放器。右：點 🔍 搜尋 —— 符合處會高亮，可逐一切換。</i></p>
 
 - **誰在何時說話** —— 每一句都依語者標註並以顏色區分，語者數量自動偵測（神經網路分段器描出精確的語者邊界）。VoxSum 還能**從談話內容推測語者的真實姓名**（頂部列 ↻ 選單 →《偵測名稱》），《重新辨識語者》則只重跑語者分析、不必重新轉錄。
 - **同步播放器** —— 像音樂播放器一樣固定在底部：點任一句即可跳到該處，播放時當下那一句會自動高亮。
 - **搜尋** —— 點頂部列的 🔍，在長篇錄音中找出任何字詞；符合處會高亮，並可用上下箭頭逐一切換。
-- **以你想要的方式呈現摘要** —— 一個簡短標題，以及**條列、重點或敘述**式的摘要（在**設定**裡選風格），並可用你選的語言。（注意截圖：中文逐字稿配英文摘要 —— 摘要語言與音訊無關。）
+- **以你想要的方式呈現摘要** —— 一個簡短標題，以及**條列、重點或敘述**式的摘要（在**設定**裡選風格），並可用你選的語言。（注意截圖：中文逐字稿配法文摘要 —— 摘要語言與音訊無關。）
 - **行動項目** —— 頂部列 ↻ 選單 →《擷取行動項目》，從會議中整理出「誰該做什麼」的待辦清單草稿與關鍵決議。
 
 ## 4. 隨你編輯
 
-<p align="center"><img src="screenshots/qs-rerun-zhtw.png" width="260" alt="重新執行選單"></p>
+<p align="center"><img src="screenshots/qs-rerun.png" width="260" alt="重新執行選單"></p>
 <p align="center"><i>頂部列 ↻ 選單：重新轉錄、重新摘要、重新偵測名稱，或擷取行動項目。</i></p>
 
 - **任意修改** —— 改一個字、重新命名語者，或調整標題／摘要，都能直接在原處進行。
@@ -94,7 +94,7 @@
 
 ## 5. 儲存、分享、匯出
 
-<p align="center"><img src="screenshots/qs-export-menu-zhtw.png" width="260" alt="匯出選單"></p>
+<p align="center"><img src="screenshots/qs-export-menu.png" width="260" alt="匯出選單"></p>
 <p align="center"><i>匯出選單：把整個工作階段存成或分享為 <code>.ogg</code> 或 <code>.m4a</code>，或將逐字稿匯出為純文字、字幕、Markdown 或 PDF。</i></p>
 
 打開頂部列的 **⋮（匯出）** 選單。（轉錄進行中時，匯出與設定會暫時鎖定，避免存到只有一半的工作階段——完成後隨即解鎖。）
@@ -110,9 +110,9 @@
 ## 6. 值得認識的設定
 
 <p align="center">
-  <img src="screenshots/qs-settings-summary-zhtw.png" width="260" alt="摘要語言與風格設定">
+  <img src="screenshots/qs-settings-summary.png" width="260" alt="摘要語言與風格設定">
   &nbsp;
-  <img src="screenshots/qs-storage-zhtw.png" width="260" alt="儲存空間與關於設定">
+  <img src="screenshots/qs-storage.png" width="260" alt="儲存空間與關於設定">
 </p>
 <p align="center"><i>左：摘要語言＋風格。右：<b>儲存空間</b>（各模型的磁碟用量與刪除按鈕）與<b>關於</b>（版本、授權、開源元件）。</i></p>
 
