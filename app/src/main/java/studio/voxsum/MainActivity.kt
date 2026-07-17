@@ -56,6 +56,8 @@ import androidx.compose.material.icons.filled.Replay5
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -118,14 +120,20 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
@@ -2512,7 +2520,8 @@ private fun PlayerBar(
     val shownMs = dragMs ?: positionMs
     // Two slim rows: the seek bar IS the speaker timeline (one merged scrubber), then a centered
     // transport with the times at the edges and volume tucked behind a popup.
-    val stripH = if (compact) 16.dp else 22.dp
+    // 28dp strip: at 22dp the scrubber was precise enough for a stylus but fiddly for a thumb.
+    val stripH = if (compact) 16.dp else 28.dp
     val playSize = if (compact) 38.dp else 44.dp
     val btnSize = if (compact) 34.dp else 40.dp
     Column(Modifier.fillMaxWidth().padding(vertical = if (compact) 2.dp else 4.dp)) {
@@ -2722,6 +2731,13 @@ private fun UtteranceRow(
     onMergeSpeaker: (Int) -> Unit,
 ) {
     val pal = LocalVoxSumPalette.current
+    // Two shapes:
+    //  - READ rows are dense: timestamp + speaker chip rendered INLINE at the head of the text
+    //    (the text wraps around them), so a one-line utterance costs one line, not a meta row
+    //    plus a text row — ~30% more transcript per screen.
+    //  - Any EDITING state (text or speaker name) falls back to the roomy stacked layout, which
+    //    the editors were designed for.
+    val editingThisSpeaker = editingSpeakerId != null && editingSpeakerId == utt.speaker
     Column(
         Modifier
             .fillMaxWidth()
@@ -2733,25 +2749,75 @@ private fun UtteranceRow(
             }
             .padding(vertical = 4.dp, horizontal = 6.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("[${fmt(utt.startSec)}]", style = MaterialTheme.typography.labelMedium,
-                color = pal.Slate400)
-            Spacer(Modifier.width(6.dp))
-            utt.speaker?.let { sid ->
-                SpeakerTag(
-                    speakerId = sid,
-                    label = speakerNames[sid]?.name ?: stringResource(R.string.speaker_n, sid + 1),
-                    editing = editingSpeakerId == sid,
-                    onTap = { onBeginSpeakerEdit(sid) },
-                    onCommit = { onCommitSpeakerName(sid, it) },
-                    onCancel = onCancelSpeakerEdit,
+        if (isEditing || editingThisSpeaker) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("[${fmt(utt.startSec)}]", style = MaterialTheme.typography.labelMedium,
+                    color = pal.Slate400)
+                Spacer(Modifier.width(6.dp))
+                utt.speaker?.let { sid ->
+                    SpeakerTag(
+                        speakerId = sid,
+                        label = speakerNames[sid]?.name ?: stringResource(R.string.speaker_n, sid + 1),
+                        editing = editingSpeakerId == sid,
+                        onTap = { onBeginSpeakerEdit(sid) },
+                        onCommit = { onCommitSpeakerName(sid, it) },
+                        onCancel = onCancelSpeakerEdit,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+            }
+            if (isEditing) {
+                UtteranceTextEditor(initial = utt.text, onSave = onSaveText, onCancel = onCancelEdit)
+            } else {
+                Text(
+                    highlightedTranscript(utt.text, highlight, pal.Sky, pal.Slate200),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = pal.Slate200,
+                    modifier = Modifier.fillMaxWidth().clickable { onSeek(utt.startSec) }.padding(top = 2.dp),
                 )
             }
-            Spacer(Modifier.weight(1f))
-            if (!isEditing && utt.speaker != null && speakerIds.size > 1) {
-                SpeakerReassignMenu(utt.speaker, speakerIds, speakerNames, onReassignLine, onMergeSpeaker)
-            }
-            if (!isEditing) {
+        } else {
+            val label = utt.speaker?.let { speakerNames[it]?.name ?: stringResource(R.string.speaker_n, it + 1) }
+            Row(verticalAlignment = Alignment.Top) {
+                Text(
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(color = pal.Slate400, fontSize = 12.sp)) {
+                            append("[${fmt(utt.startSec)}] ")
+                        }
+                        if (label != null) {
+                            appendInlineContent(INLINE_CHIP, "[$label]")
+                            append(" ")
+                        }
+                        // Neutral high-contrast body text; the speaker colour lives on the chip
+                        // only (tinting whole paragraphs made the red speaker hard to read).
+                        append(highlightedTranscript(utt.text, highlight, pal.Sky, pal.Slate200))
+                    },
+                    inlineContent = if (label == null) emptyMap() else mapOf(
+                        INLINE_CHIP to InlineTextContent(
+                            // Estimated placeholder: CJK glyphs ~1em, latin ~0.55em, + chip padding.
+                            Placeholder(
+                                width = (label.sumOf { c -> (if (c.code > 0x2E7F) 12 else 7).toLong() } + 18).toInt().sp,
+                                height = 18.sp,
+                                placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                            ),
+                        ) {
+                            SpeakerTag(
+                                speakerId = utt.speaker!!,
+                                label = label,
+                                editing = false,
+                                onTap = { onBeginSpeakerEdit(utt.speaker) },
+                                onCommit = { onCommitSpeakerName(utt.speaker, it) },
+                                onCancel = onCancelSpeakerEdit,
+                            )
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = pal.Slate200,
+                    modifier = Modifier.weight(1f).clickable { onSeek(utt.startSec) },
+                )
+                if (utt.speaker != null && speakerIds.size > 1) {
+                    SpeakerReassignMenu(utt.speaker, speakerIds, speakerNames, onReassignLine, onMergeSpeaker)
+                }
                 IconButton(onClick = onBeginEdit, modifier = Modifier.size(28.dp)) {
                     Icon(
                         Icons.Filled.Edit,
@@ -2762,24 +2828,11 @@ private fun UtteranceRow(
                 }
             }
         }
-        if (isEditing) {
-            UtteranceTextEditor(initial = utt.text, onSave = onSaveText, onCancel = onCancelEdit)
-        } else {
-            Text(
-                highlightedTranscript(utt.text, highlight, pal.Sky, pal.Slate200),
-                style = MaterialTheme.typography.bodyMedium,
-                // Neutral high-contrast body text; the speaker colour lives on the chip only.
-                // (Tinting whole paragraphs to the speaker colour made the red speaker hard to
-                // read on the dark background.)
-                color = pal.Slate200,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSeek(utt.startSec) }
-                    .padding(top = 2.dp),
-            )
-        }
     }
 }
+
+/** Inline-content id for the speaker chip embedded at the head of a transcript line. */
+private const val INLINE_CHIP = "speakerChip"
 
 @Composable
 private fun UtteranceTextEditor(initial: String, onSave: (String) -> Unit, onCancel: () -> Unit, minLines: Int = 2) {
