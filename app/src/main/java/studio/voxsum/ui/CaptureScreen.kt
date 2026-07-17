@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -30,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,9 +52,9 @@ import studio.voxsum.ui.theme.VoxSumPalette
 /**
  * Full-screen capture — the studio's recording booth. Fixed layout with two GIANT buttons
  * (⏭ Next talk / ⏹ Stop & save) sized for a conference table and an e-ink screen: nothing
- * shifts position with state, unlike the old top-bar icon strip. A collapsible strip shows the
- * last recognized lines as proof the pipeline hears something; back leaves the recording running
- * (Studio shows a live banner to return here).
+ * shifts position with state, unlike the old top-bar icon strip. A collapsible live-transcript
+ * panel fills the space between the name field and the buttons, auto-following the newest line;
+ * back leaves the recording running (Studio shows a live banner to return here).
  */
 @Composable
 fun CaptureScreen(
@@ -86,19 +89,24 @@ fun CaptureScreen(
                 fontWeight = FontWeight.Bold,
             )
         }
-        Spacer(Modifier.weight(0.6f))
-        // The timer is the capture screen's centerpiece — readable from across a table.
-        Text(
-            "%d:%02d".format(recSeconds / 60, recSeconds % 60),
-            fontSize = 72.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,   // tabular: no layout shift per tick
-            color = pal.Slate200,
+        Spacer(Modifier.height(8.dp))
+        // Compact header: timer + mic bars on one line — still readable from across a table, but
+        // the vertical space goes to the live transcript below instead of empty padding.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.align(Alignment.CenterHorizontally),
-        )
-        Spacer(Modifier.height(12.dp))
-        Box(Modifier.align(Alignment.CenterHorizontally)) { MicLevelBars(micLevel, pal.Sky) }
-        Spacer(Modifier.height(24.dp))
+        ) {
+            Text(
+                "%d:%02d".format(recSeconds / 60, recSeconds % 60),
+                fontSize = 64.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,   // tabular: no layout shift per tick
+                color = pal.Slate200,
+            )
+            Spacer(Modifier.width(20.dp))
+            MicLevelBars(micLevel, pal.Sky)
+        }
+        Spacer(Modifier.height(16.dp))
         OutlinedTextField(
             value = sessionName,
             onValueChange = onSessionName,
@@ -110,7 +118,56 @@ fun CaptureScreen(
             ),
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
+        // Live transcript: a first-class panel filling everything between the name field and the
+        // buttons — the full running transcript, auto-following the newest line. Collapsible for
+        // anyone who finds the moving text distracting mid-meeting.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(pal.Slate800).padding(horizontal = 12.dp),
+        ) {
+            Text(
+                stringResource(R.string.capture_live_transcript),
+                style = MaterialTheme.typography.labelMedium,
+                color = pal.Slate400,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { showLive = !showLive }) {
+                Icon(
+                    if (showLive) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                    contentDescription = null,
+                    tint = pal.Slate400,
+                )
+            }
+        }
+        if (showLive) {
+            val listState = rememberLazyListState()
+            // Follow the newest line. Instant jump, not animate: e-ink hates animated scrolls.
+            LaunchedEffect(utterances.size) {
+                if (utterances.isNotEmpty()) listState.scrollToItem(utterances.lastIndex)
+            }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 4.dp, vertical = 8.dp),
+            ) {
+                if (utterances.isEmpty()) {
+                    item {
+                        Text(stringResource(R.string.capture_live_waiting), color = pal.Slate400, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                items(utterances.size) { i ->
+                    Text(
+                        utterances[i].text,
+                        color = pal.Slate200,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                }
+            }
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             // ⏭ Next talk — the batch-recording workhorse: auto-save this capture, defer its
             // processing, and roll straight into the next session.
@@ -141,43 +198,6 @@ fun CaptureScreen(
                 }
             }
         }
-        Spacer(Modifier.height(24.dp))
-        // Live strip: the last recognized lines, collapsible — proof of life, not a reading pane.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(pal.Slate800).padding(horizontal = 12.dp),
-        ) {
-            Text(
-                stringResource(R.string.capture_live_transcript),
-                style = MaterialTheme.typography.labelMedium,
-                color = pal.Slate400,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = { showLive = !showLive }) {
-                Icon(
-                    if (showLive) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
-                    contentDescription = null,
-                    tint = pal.Slate400,
-                )
-            }
-        }
-        if (showLive) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)) {
-                val tail = utterances.takeLast(3)
-                if (tail.isEmpty()) {
-                    Text(stringResource(R.string.capture_live_waiting), color = pal.Slate400, style = MaterialTheme.typography.bodyMedium)
-                }
-                tail.forEach { u ->
-                    Text(
-                        u.text,
-                        color = pal.Slate200,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
-                        modifier = Modifier.padding(vertical = 2.dp),
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(16.dp))
     }
 }
