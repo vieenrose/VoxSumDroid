@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -178,10 +179,12 @@ fun CaptureScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = pal.Sky),
                 // On a batch day ⏭ is tapped ten times for every ⏹ — it gets the primary width.
                 modifier = Modifier.weight(1.5f).height(96.dp),
+                // Minimal padding: on narrow phones the default 24dp sides forced CJK labels to wrap.
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Filled.SkipNext, contentDescription = null, modifier = Modifier.size(36.dp))
-                    Text(stringResource(R.string.capture_next_talk), fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.capture_next_talk), fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }
             // ⏹ Stop & save — always safe: the capture is in the library before processing starts.
@@ -191,10 +194,11 @@ fun CaptureScreen(
                 shape = RoundedCornerShape(20.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = VoxSumPalette.Red),
                 modifier = Modifier.weight(1f).height(96.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(36.dp))
-                    Text(stringResource(R.string.capture_stop), fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.capture_stop), fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }
         }

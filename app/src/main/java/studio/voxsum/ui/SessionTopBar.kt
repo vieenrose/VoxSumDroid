@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Badge
@@ -86,7 +86,10 @@ fun SessionTopBar(
     onSettings: () -> Unit,
 ) {
     val pal = LocalVoxSumPalette.current
-    Column(Modifier.fillMaxWidth().background(pal.Slate900Grad)) {
+    // statusBarsPadding: as a Scaffold topBar this composable owns its own inset — without it the
+    // bar draws under the clock on edge-to-edge phones (unnoticed on Boox, whose status bar keeps
+    // an opaque strip above the app).
+    Column(Modifier.fillMaxWidth().background(pal.Slate900Grad).statusBarsPadding()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
