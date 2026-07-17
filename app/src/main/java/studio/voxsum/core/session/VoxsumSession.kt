@@ -184,10 +184,14 @@ object VoxsumSession {
                 append(t).append('\n')
             }
         }.ifBlank { null }
-        val tagged = File(dir, fileName)
+        val finalOut = File(dir, fileName)
+        // Tag into a dot-prefixed temp, then rename into place at the end: attachResults rebuilds
+        // session.m4a IN PLACE (edits persist), so a process kill mid-write under the final name
+        // would destroy the only good copy. Rename is atomic on the same filesystem.
+        val tagged = File(dir, ".tagged_tmp.${format.ext}")
         // A null blob (too large to round-trip) → embed a playable file with just player metadata,
         // no VOXSUM session; transcriptEmbedded=false so the caller reports PARTIAL, not FULL.
-        val embedded: Boolean = if (blob == null) {
+        var embedded: Boolean = if (blob == null) {
             when (format) {
                 Format.OGG -> {
                     val lite = LinkedHashMap<String, String>()
@@ -222,8 +226,21 @@ object VoxsumSession {
                 else { plain.copyTo(tagged, overwrite = true); false }   // fallback: playable m4a, no session
             }
         }
+        // Belt-and-braces: whatever the tag writer reported, a session file must exist and be
+        // non-empty before the caller may mark the entry DONE — a phantom success here strands a
+        // library entry as DONE with no session file behind it.
+        if (!tagged.exists() || tagged.length() == 0L) {
+            if (plain != tagged && plain.exists()) { plain.copyTo(tagged, overwrite = true); embedded = false }
+            else { android.util.Log.w("voxsum-session", "session build produced no file"); return@withContext null }
+        }
         if (plain != tagged) plain.delete()
-        Built(tagged, embedded)
+        // POSIX rename overwrites the target atomically — never pre-delete finalOut (a failure
+        // after that would lose the previous good session file).
+        if (!tagged.renameTo(finalOut)) {
+            tagged.copyTo(finalOut, overwrite = true)
+            tagged.delete()
+        }
+        Built(finalOut, embedded)
     }
 
     /** Write a self-describing `.ogg` to [out]; the return distinguishes full vs partial vs failed. */

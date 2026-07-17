@@ -1135,10 +1135,16 @@ private fun TranscribeScreen(
             editingIndex = -1; editingSpeakerId = null
             // Fresh session → clear the dependency-tree flags so they don't leak from the previous one.
             summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
-            title = loaded.title; summary = loaded.summary; actionItems = loaded.actionItems
+            // A home-screen rename lives only in the entry's meta sidecar until the next persist —
+            // it must outrank the (stale) title embedded inside session.m4a, or the rename appears
+            // to vanish the moment the session is opened.
+            val metaTitle = SessionLibrary.entryDirOf(context, uri)?.let { dir ->
+                withContext(Dispatchers.IO) { SessionLibrary.byId(context, dir.name)?.title }
+            }
+            title = metaTitle ?: loaded.title; summary = loaded.summary; actionItems = loaded.actionItems
             // A saved title is intentional (the user finalized it) → treat it as a sticky edit so
             // re-summarize won't silently overwrite it (they can still ↻ Re-title for a fresh one).
-            titleEdited = !loaded.title.isNullOrBlank()
+            titleEdited = !title.isNullOrBlank()
             // Attribute the summary/title to the model that ACTUALLY produced them, not the current default.
             config = config.copy(
                 llmModelId = loaded.llmModelId ?: config.llmModelId,
@@ -1898,7 +1904,10 @@ private fun TranscribeScreen(
                 },
                 onRecord = { requestRecord() },
                 onResumeCapture = { screen = Screen.Capture },
-                onOpen = { e -> openSessionUri(Uri.fromFile(e.sessionFile)) },
+                // audioFile, not sessionFile: a DONE entry whose session.m4a is missing (a past
+                // build bug, or manual deletion) still has its raw capture — fall back to opening
+                // that (→ re-transcribe) instead of a dead "couldn't open session" toast.
+                onOpen = { e -> openSessionUri(Uri.fromFile(e.audioFile)) },
                 onWatchLive = { e -> watchQueueItem(e) },
                 onProcessNow = { e -> enqueueAndStart(listOf(e.id)) },
                 onRemoveFromQueue = { e ->

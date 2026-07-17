@@ -88,8 +88,12 @@ object Mp4Tags {
                 // AFTER mdat — MediaMuxer's layout varies by file), and the free pad (absorbed).
                 for (b in top) if (b.type !in REPLACED_BOXES) copyRange(raf, b.offset, b.size, out)
             }
+            // The `use` block's value IS the result: an early `return@use false` above (no moov/mdat,
+            // oversized moov) must surface as failure. A discarded block value with an unconditional
+            // `true` after the block silently reported success WITHOUT writing dest — the caller then
+            // skipped its fallback copy and a library entry went DONE with no session file at all.
+            true
         }
-        true
     }.getOrElse { android.util.Log.w("voxsum-m4a", "mp4 tag write failed", it); dest.delete(); false }
 
     /** Recurse the known container boxes and add [shift] to every stco (32-bit) / co64 (64-bit) entry. */

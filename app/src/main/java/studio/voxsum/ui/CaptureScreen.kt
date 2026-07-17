@@ -141,7 +141,7 @@ fun CaptureScreen(
                 }
             }
         }
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(24.dp))
         // Live strip: the last recognized lines, collapsible — proof of life, not a reading pane.
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -178,6 +178,6 @@ fun CaptureScreen(
                 }
             }
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.weight(1f))
     }
 }
