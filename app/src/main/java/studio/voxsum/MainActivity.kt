@@ -2667,6 +2667,11 @@ private fun TimelineStrip(
         if (durationMs <= 0) return@Canvas
         val w = size.width
         val h = size.height
+        // Inactive segments are a quiet, vertically-inset wash (a near-solid strip of full-height
+        // speaker blocks read as an error bar, not a scrubber); only the ACTIVE segment pops —
+        // full height, near-opaque, white outline.
+        val segTop = h * 0.22f
+        val segH = h * 0.56f
         utterances.forEachIndexed { i, u ->
             val startX = (u.startSec / durSec).toFloat().coerceIn(0f, 1f) * w
             val endX = (u.endSec / durSec).toFloat().coerceIn(0f, 1f) * w
@@ -2674,9 +2679,9 @@ private fun TimelineStrip(
             val active = i == activeIndex
             val base = Color(speakerColorOn(u.speaker, pal.isDark))
             drawRoundRect(
-                color = if (active) base else base.copy(alpha = 0.45f),
-                topLeft = Offset(startX, 0f),
-                size = Size(segW, h),
+                color = if (active) base.copy(alpha = 0.9f) else base.copy(alpha = 0.25f),
+                topLeft = Offset(startX, if (active) 0f else segTop),
+                size = Size(segW, if (active) h else segH),
                 cornerRadius = CornerRadius(2f, 2f),
             )
             if (active) {

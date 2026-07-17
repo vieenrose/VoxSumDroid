@@ -33,6 +33,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -139,11 +140,22 @@ fun SessionTopBar(
                 onExportTxt, onExportSrt, onExportVtt, onExportLrc, onExportMarkdown, onExportPdf, onSettings,
             )
         }
-        if (status.isNotBlank()) {
+        // A healthy idle status ("Loaded session — N lines") is two-second information, not
+        // permanent chrome: show it muted and let it disappear after a beat. Errors and live-run
+        // status keep their color and stay put.
+        var statusVisible by remember(status, running, statusIsError) { mutableStateOf(true) }
+        LaunchedEffect(status, running, statusIsError) {
+            if (status.isNotBlank() && !running && !statusIsError) {
+                kotlinx.coroutines.delay(5000)
+                statusVisible = false
+            }
+        }
+        if (status.isNotBlank() && statusVisible) {
+            val idle = !running && !statusIsError
             Text(
                 status,
-                style = MaterialTheme.typography.bodyMedium,
-                color = statusColor(running, transcriptAvailable, statusIsError),
+                style = if (idle) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
+                color = if (idle) pal.Slate400 else statusColor(running, transcriptAvailable, statusIsError),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
             )
         }

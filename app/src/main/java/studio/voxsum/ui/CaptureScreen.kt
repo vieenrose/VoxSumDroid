@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
@@ -105,7 +106,8 @@ fun CaptureScreen(
                 color = pal.Slate200,
             )
             Spacer(Modifier.width(20.dp))
-            MicLevelBars(micLevel, pal.Sky)
+            // 2x: at 1x the bars are a speck beside 64sp digits — scale to visually balance them.
+            MicLevelBars(micLevel, pal.Sky, scale = 2f)
         }
         Spacer(Modifier.height(16.dp))
         OutlinedTextField(
@@ -142,27 +144,37 @@ fun CaptureScreen(
             }
         }
         if (showLive) {
-            val listState = rememberLazyListState()
-            // Follow the newest line. Instant jump, not animate: e-ink hates animated scrolls.
-            LaunchedEffect(utterances.size) {
-                if (utterances.isNotEmpty()) listState.scrollToItem(utterances.lastIndex)
-            }
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 4.dp, vertical = 8.dp),
-            ) {
-                if (utterances.isEmpty()) {
-                    item {
-                        Text(stringResource(R.string.capture_live_waiting), color = pal.Slate400, style = MaterialTheme.typography.bodyMedium)
+            if (utterances.isEmpty()) {
+                // Centered waiting state: a corner-anchored one-liner made the big empty panel
+                // look unfinished — center it with a quiet mic glyph so the space reads intentional.
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Filled.Mic, contentDescription = null,
+                            tint = pal.Slate700, modifier = Modifier.size(44.dp),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(stringResource(R.string.capture_live_waiting), color = pal.Slate400, style = MaterialTheme.typography.titleMedium)
                     }
                 }
-                items(utterances.size) { i ->
-                    Text(
-                        utterances[i].text,
-                        color = pal.Slate200,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(vertical = 2.dp),
-                    )
+            } else {
+                val listState = rememberLazyListState()
+                // Follow the newest line. Instant jump, not animate: e-ink hates animated scrolls.
+                LaunchedEffect(utterances.size) {
+                    listState.scrollToItem(utterances.lastIndex)
+                }
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 4.dp, vertical = 8.dp),
+                ) {
+                    items(utterances.size) { i ->
+                        Text(
+                            utterances[i].text,
+                            color = pal.Slate200,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(vertical = 2.dp),
+                        )
+                    }
                 }
             }
         } else {
