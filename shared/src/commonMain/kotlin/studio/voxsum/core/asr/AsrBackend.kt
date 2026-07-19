@@ -11,7 +11,12 @@ enum class AsrBackend(
 ) {
     SENSEVOICE("sensevoice", "SenseVoice (multilingual)", "SenseVoice", "multilingual"),
     XASR("x-asr", "Zipformer zh-en", "Zipformer", "zh-en transducer"),
-    QWEN3("qwen3", "Qwen3-ASR (large, slow)", "Qwen3-ASR", "large, slow");
+    QWEN3("qwen3", "Qwen3-ASR (large, slow)", "Qwen3-ASR", "large, slow"),
+    MOSS("moss-td", "MOSS zh-TW meetings (diarizing)", "MOSS-TD", "zh-TW · diarizing · experimental");
+
+    /** Backends whose output already carries speaker tags — the separate
+     *  pyannote/eres2net diarization stage is skipped for these. */
+    val diarizesNatively: Boolean get() = this == MOSS
 
     companion object {
         fun fromId(id: String): AsrBackend = entries.firstOrNull { it.id == id } ?: SENSEVOICE
@@ -27,4 +32,6 @@ data class AsrModelFiles(
     val convFrontend: String = "",     // qwen3
     val tokenizerDir: String = "",     // qwen3 (a directory)
     val tokens: String = "",           // sensevoice / xasr (empty for qwen3)
+    val mossModel: String = "",        // moss-td (the ASR+diarization gguf)
+    val speakerEmbedModel: String = "",// moss-td (optional CAM++ gguf for cross-window linking)
 )

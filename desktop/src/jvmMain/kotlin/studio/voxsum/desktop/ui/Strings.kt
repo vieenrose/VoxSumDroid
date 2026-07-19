@@ -54,6 +54,8 @@ object Strings {
     val reTitle: String get() = t("Re-title", "Regénérer le titre", "重新產生標題")
     val detectSpeakerNames: String get() = t("Detect speaker names", "Détecter les noms des locuteurs", "偵測語者名稱")
     val reDiarize: String get() = t("Re-detect speakers", "Redétecter les locuteurs", "重新辨識語者")
+    // MOSS-TD transcribes and diarizes in one pass, so the two re-run actions collapse into one.
+    val reTranscribeDiarize: String get() = t("Re-transcribe & re-diarize", "Retranscrire et rediariser", "重新轉錄並辨識語者")
     // Pipeline status-bar messages (were hardcoded English in Pipeline.kt).
     val stDecoding: String get() = t("Decoding…", "Décodage…", "解碼中…")
     val stTranscribing: String get() = t("Transcribing…", "Transcription…", "轉錄中…")

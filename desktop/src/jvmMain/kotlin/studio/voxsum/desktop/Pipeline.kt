@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withContext
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
+import studio.voxsum.core.asr.moss.MOSS_SR
+import studio.voxsum.core.asr.moss.MossPipeline
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
@@ -18,6 +20,7 @@ import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.data.SpeakerName
 import studio.voxsum.data.speakerLabel
+import studio.voxsum.desktop.asr.MossSubprocessEngine
 import studio.voxsum.desktop.audio.AudioDecoder
 import studio.voxsum.desktop.audio.AudioRecorder
 import studio.voxsum.desktop.ui.Strings
@@ -54,7 +57,6 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
     try {
         val models = ModelManager(appDataDir)
         val backend = AsrBackend.fromId(config.asrBackend)
-        ensureAsrAndDiarizationModels(models, backend, config.diarizationEnabled, update)
 
         update { it.copy(status = Strings.stDecoding, progress = null) }
         // normalize: imported far-field/room-mic audio gets an automatic constant gain so the
@@ -62,42 +64,49 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
         // the same (normalized) audio. Playback/session decodes stay faithful to the source.
         val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(file, normalize = true) }
 
-        update { it.copy(status = Strings.stTranscribing, progress = 0f) }
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         // Convert each utterance to the target Chinese script at ASR-emit time, like Android's
         // outputConverter (TranscriptionService) — SenseVoice emits Simplified, so without this a
         // zh-Hant target shows a Simplified transcript. Same converter the summary/actions use.
         val script = TargetLanguage.scriptFor(config.targetLanguage)
         val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
-        // The ASR engine stays alive through diarization: its decodeSlice re-decodes the halves
-        // of a fused two-speaker segment when the backend has no token timestamps (Qwen3).
-        val (tagged, speakerCount) = withContext(Dispatchers.Default) {
-            AsrEngine(
-                backend = backend,
-                files = models.asrFiles(backend),
-                vadModel = models.vadModel.absolutePath,
-                numThreads = 2,
-                language = config.language,
-                useItn = config.useItn,
-                vadThreshold = config.vadThreshold,
-            ).use { asr ->
-                collectTranscribeEvents(asr.transcribe(pcm), utterances, update, convert)
-                if (config.diarizationEnabled) {
-                    // Diarization is an enhancement, not a prerequisite: a failure here (typically
-                    // a model download dying on flaky Wi-Fi) must NOT cost the session — continue
-                    // to the summary with the untagged transcript instead of failing the whole run.
-                    try {
-                        diarize(models, config, pcm, utterances, update) { s, e ->
-                            convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+
+        val (tagged, speakerCount) = if (backend == AsrBackend.MOSS) {
+            // MOSS-TD diarizes natively in one pass — no sherpa ASR, no separate diarization stage.
+            runMossTranscription(models, config, pcm, convert, update, utterances)
+        } else {
+            ensureAsrAndDiarizationModels(models, backend, config.diarizationEnabled, update)
+            update { it.copy(status = Strings.stTranscribing, progress = 0f) }
+            // The ASR engine stays alive through diarization: its decodeSlice re-decodes the halves
+            // of a fused two-speaker segment when the backend has no token timestamps (Qwen3).
+            withContext(Dispatchers.Default) {
+                AsrEngine(
+                    backend = backend,
+                    files = models.asrFiles(backend),
+                    vadModel = models.vadModel.absolutePath,
+                    numThreads = 2,
+                    language = config.language,
+                    useItn = config.useItn,
+                    vadThreshold = config.vadThreshold,
+                ).use { asr ->
+                    collectTranscribeEvents(asr.transcribe(pcm), utterances, update, convert)
+                    if (config.diarizationEnabled) {
+                        // Diarization is an enhancement, not a prerequisite: a failure here (typically
+                        // a model download dying on flaky Wi-Fi) must NOT cost the session — continue
+                        // to the summary with the untagged transcript instead of failing the whole run.
+                        try {
+                            diarize(models, config, pcm, utterances, update) { s, e ->
+                                convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+                            }
+                        } catch (ce: kotlinx.coroutines.CancellationException) {
+                            throw ce
+                        } catch (t: Throwable) {
+                            update { it.copy(status = Strings.stDiarizationSkipped) }
+                            utterances.toList() to 0
                         }
-                    } catch (ce: kotlinx.coroutines.CancellationException) {
-                        throw ce
-                    } catch (t: Throwable) {
-                        update { it.copy(status = Strings.stDiarizationSkipped) }
+                    } else {
                         utterances.toList() to 0
                     }
-                } else {
-                    utterances.toList() to 0
                 }
             }
         }
@@ -133,7 +142,6 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
     try {
         val models = ModelManager(appDataDir)
         val backend = AsrBackend.fromId(config.asrBackend)
-        ensureAsrAndDiarizationModels(models, backend, config.diarizationEnabled, update)
 
         val recordingsDir = File(appDataDir, "recordings").apply { mkdirs() }
         val dest = File(recordingsDir, "recording_${System.currentTimeMillis()}.wav")
@@ -141,45 +149,62 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         val script = TargetLanguage.scriptFor(config.targetLanguage)
         val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
-        // As in runPipeline: the ASR engine outlives transcription so diarization's split rescue
-        // can re-decode fused segments on timestamp-less backends (Qwen3).
-        val (tagged, speakerCount) = withContext(Dispatchers.Default) {
-            AsrEngine(
-                backend = backend, files = models.asrFiles(backend), vadModel = models.vadModel.absolutePath,
-                numThreads = 2, language = config.language, useItn = config.useItn, vadThreshold = config.vadThreshold,
-            ).use { asr ->
-                // Mic level indicator: peak per ~128 ms chunk, quantized to 5 buckets and pushed
-                // to the UI only on bucket change — the user can SEE the mic hears something.
+
+        val (tagged, speakerCount) = if (backend == AsrBackend.MOSS) {
+            // MOSS-TD is a batch backend (no live per-sentence path — see the doc): capture the
+            // recording with mic-level feedback only, then run the windowed diarizing pipeline once.
+            withContext(Dispatchers.Default) {
                 var lastBucket = -1
-                val mic = recorder.record(dest, shouldStop).onEach { chunk ->
+                recorder.record(dest, shouldStop).onEach { chunk ->
                     var pk = 0f
                     for (v in chunk) { val a = if (v < 0f) -v else v; if (a > pk) pk = a }
                     val bucket = micLevelBucket(pk)
                     if (bucket != lastBucket) { lastBucket = bucket; update { it.copy(micLevel = bucket / 5f) } }
-                }
-                collectTranscribeEvents(asr.transcribeLive(mic), utterances, update, convert)
-                update { it.copy(audioFile = dest, fileName = dest.name, progress = null, micLevel = 0f) }
-                // Playback-volume normalization for the capture: a too-quiet recording is fixed
-                // in the WAV itself (players can only attenuate, never amplify), so the player
-                // AND the diarization pass below hear a comfortable level.
-                withContext(Dispatchers.IO) { studio.voxsum.core.audio.WavNormalizer.normalizeInPlace(dest) }
-                val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(dest) }
-                if (config.diarizationEnabled) {
-                    // Diarization is an enhancement, not a prerequisite: a failure here (typically
-                    // a model download dying on flaky Wi-Fi) must NOT cost the session — continue
-                    // to the summary with the untagged transcript instead of failing the whole run.
-                    try {
-                        diarize(models, config, pcm, utterances, update) { s, e ->
-                            convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+                }.collect { }
+            }
+            update { it.copy(audioFile = dest, fileName = dest.name, micLevel = 0f) }
+            withContext(Dispatchers.IO) { studio.voxsum.core.audio.WavNormalizer.normalizeInPlace(dest) }
+            val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(dest) }
+            runMossTranscription(models, config, pcm, convert, update, utterances)
+        } else {
+            ensureAsrAndDiarizationModels(models, backend, config.diarizationEnabled, update)
+            // As in runPipeline: the ASR engine outlives transcription so diarization's split rescue
+            // can re-decode fused segments on timestamp-less backends (Qwen3).
+            withContext(Dispatchers.Default) {
+                AsrEngine(
+                    backend = backend, files = models.asrFiles(backend), vadModel = models.vadModel.absolutePath,
+                    numThreads = 2, language = config.language, useItn = config.useItn, vadThreshold = config.vadThreshold,
+                ).use { asr ->
+                    // Mic level indicator: peak per ~128 ms chunk, quantized to 5 buckets and pushed
+                    // to the UI only on bucket change — the user can SEE the mic hears something.
+                    var lastBucket = -1
+                    val mic = recorder.record(dest, shouldStop).onEach { chunk ->
+                        var pk = 0f
+                        for (v in chunk) { val a = if (v < 0f) -v else v; if (a > pk) pk = a }
+                        val bucket = micLevelBucket(pk)
+                        if (bucket != lastBucket) { lastBucket = bucket; update { it.copy(micLevel = bucket / 5f) } }
+                    }
+                    collectTranscribeEvents(asr.transcribeLive(mic), utterances, update, convert)
+                    update { it.copy(audioFile = dest, fileName = dest.name, progress = null, micLevel = 0f) }
+                    // Playback-volume normalization for the capture: a too-quiet recording is fixed
+                    // in the WAV itself (players can only attenuate, never amplify), so the player
+                    // AND the diarization pass below hear a comfortable level.
+                    withContext(Dispatchers.IO) { studio.voxsum.core.audio.WavNormalizer.normalizeInPlace(dest) }
+                    val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(dest) }
+                    if (config.diarizationEnabled) {
+                        try {
+                            diarize(models, config, pcm, utterances, update) { s, e ->
+                                convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+                            }
+                        } catch (ce: kotlinx.coroutines.CancellationException) {
+                            throw ce
+                        } catch (t: Throwable) {
+                            update { it.copy(status = Strings.stDiarizationSkipped) }
+                            utterances.toList() to 0
                         }
-                    } catch (ce: kotlinx.coroutines.CancellationException) {
-                        throw ce
-                    } catch (t: Throwable) {
-                        update { it.copy(status = Strings.stDiarizationSkipped) }
+                    } else {
                         utterances.toList() to 0
                     }
-                } else {
-                    utterances.toList() to 0
                 }
             }
         }
@@ -325,6 +350,59 @@ private suspend fun ensureAsrAndDiarizationModels(
     }
 }
 
+/**
+ * MOSS-TD transcription: one model does ASR + speaker diarization + timestamps per window. Runs
+ * the shared [MossPipeline] (windowing / loop-collapse / cross-window speaker-linking) over the
+ * subprocess engine — no sherpa ASR, no separate diarization pass. [pcm] is the already-decoded,
+ * normalized 16 kHz buffer.
+ */
+private suspend fun runMossTranscription(
+    models: ModelManager, config: TranscriptionConfig, pcm: FloatArray,
+    convert: (String) -> String, update: Update, utterances: MutableList<TranscriptEvent.Utterance>,
+): Pair<List<TranscriptEvent.Utterance>, Int> {
+    if (!models.mossReady()) {
+        update { it.copy(status = Strings.stDownloadingAsr, progress = 0f) }
+        models.ensureMossModels { p -> update { it.copy(progress = p) } }
+    }
+    val engine = MossSubprocessEngine.create(
+        model = models.mossModel,
+        speakerModel = models.mossSpeakerModel.takeIf { models.mossSpeakerReady() },
+        threads = maxOf(1, minOf(8, Runtime.getRuntime().availableProcessors())),
+    ) ?: throw IllegalStateException(
+        "MOSS-TD engine binaries not found — build them with desktop/scripts/build-moss.sh",
+    )
+
+    update { it.copy(status = Strings.stTranscribing, progress = 0f) }
+    val durS = pcm.size.toDouble() / MOSS_SR
+    fun toUtterances(segs: List<studio.voxsum.core.asr.moss.MossLinkedSeg>) =
+        segs.mapIndexed { i, s ->
+            TranscriptEvent.Utterance(index = i, text = s.text, startSec = s.start, endSec = s.end, speaker = s.speaker)
+        }
+    val embed: (suspend (FloatArray, List<IntRange>) -> List<FloatArray?>)? =
+        if (engine.hasSpeakerEmbedding) { p, ranges -> engine.embed(p, ranges) } else null
+
+    val linked = withContext(Dispatchers.Default) {
+        MossPipeline.run(
+            durS = durS,
+            getWindow = { off, len ->
+                if (off >= pcm.size) FloatArray(0) else pcm.copyOfRange(off, minOf(pcm.size, off + len))
+            },
+            decodeWindow = { p -> engine.transcribeWindow(p) },
+            embedRanges = embed,
+            postProcess = convert,
+            windowS = 240,   // desktop: 180–300 s window (peak RSS is not phone-constrained)
+            onProgress = { prog ->
+                val ut = toUtterances(prog.segments)
+                utterances.clear(); utterances.addAll(ut)
+                update { it.copy(utterances = ut, progress = (prog.processedS / durS).toFloat().coerceIn(0f, 1f)) }
+            },
+        )
+    }
+    val out = toUtterances(linked)
+    utterances.clear(); utterances.addAll(out)
+    return out to out.mapNotNull { it.speaker }.distinct().size
+}
+
 private suspend fun ensureLlm(models: ModelManager, llmSpec: studio.voxsum.core.models.LlmSpec, update: Update) {
     if (!models.llmReady(llmSpec)) {
         update { it.copy(status = Strings.stDownloadingLlm, progress = 0f) }
@@ -371,7 +449,6 @@ suspend fun reDiarize(state: AppState, update: Update) {
     try {
         val models = ModelManager(appDataDir)
         val backend = AsrBackend.fromId(config.asrBackend)
-        ensureAsrAndDiarizationModels(models, backend, diarizationEnabled = true, update)
 
         update { it.copy(status = Strings.stDecoding, progress = null) }
         // Same normalize=true as runPipeline: diarization must hear the same audio ASR heard.
@@ -379,13 +456,20 @@ suspend fun reDiarize(state: AppState, update: Update) {
 
         val script = TargetLanguage.scriptFor(config.targetLanguage)
         val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
-        val (tagged, speakerCount) = withContext(Dispatchers.Default) {
-            AsrEngine(
-                backend = backend, files = models.asrFiles(backend), vadModel = models.vadModel.absolutePath,
-                numThreads = 2, language = config.language, useItn = config.useItn, vadThreshold = config.vadThreshold,
-            ).use { asr ->
-                diarize(models, config, pcm, state.utterances, update) { s, e ->
-                    convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+        val (tagged, speakerCount) = if (backend == AsrBackend.MOSS) {
+            // MOSS has no separate diarization stage — "re-detect speakers" re-runs the one-pass
+            // pipeline (re-transcribe + re-link), the only meaningful re-diarize for this backend.
+            runMossTranscription(models, config, pcm, convert, update, ArrayList())
+        } else {
+            ensureAsrAndDiarizationModels(models, backend, diarizationEnabled = true, update)
+            withContext(Dispatchers.Default) {
+                AsrEngine(
+                    backend = backend, files = models.asrFiles(backend), vadModel = models.vadModel.absolutePath,
+                    numThreads = 2, language = config.language, useItn = config.useItn, vadThreshold = config.vadThreshold,
+                ).use { asr ->
+                    diarize(models, config, pcm, state.utterances, update) { s, e ->
+                        convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+                    }
                 }
             }
         }

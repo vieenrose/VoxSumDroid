@@ -31,6 +31,11 @@ object NativeLibs {
         loaded = true
     }
 
+    /** The staged native-resources dir (appResources/linux-x64), where flatten-native-libs.sh puts
+     *  the .so's AND build-moss.sh stages the moss-td-test / rs-speaker-embed executables. Public so
+     *  the MOSS subprocess backend can locate its binaries the same way. */
+    fun libDir(): File? = resolveLibDir()
+
     /** Dev override, then the packaged/dev-run resources dir Compose Desktop always sets -- the
      *  appResources/linux-x64 source files land flat at its root, not in a linux-x64 subdir. */
     private fun resolveLibDir(): File? {

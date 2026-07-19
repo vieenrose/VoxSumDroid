@@ -8,6 +8,13 @@
       "sha256": "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e",
       "license": "Apache-2.0",
       "default": true
+    },
+    {
+      "id": "moss-td-zhtw-v61-q4_k_m",
+      "kind": "ASR",
+      "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/moss-td-zhtw-v61-q4_k_m.gguf",
+      "sha256": "8e658dbf2ccac00fc70d136e9afb60742fbcf1a8236b3695bb4df46f7e8a6889",
+      "license": "Apache-2.0"
     }
   ],
   "vad": [
@@ -32,6 +39,13 @@
       "kind": "DIARIZATION_EMB",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
       "sha256": "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b",
+      "license": "Apache-2.0"
+    },
+    {
+      "id": "campplus-cn-common",
+      "kind": "DIARIZATION_EMB",
+      "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/campplus-cn-common.gguf",
+      "sha256": "c49e5e80128c8e04ca6febc1f0ac86d477a28413a4f10297608c68bd799ad564",
       "license": "Apache-2.0"
     }
   ],

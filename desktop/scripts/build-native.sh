@@ -21,6 +21,14 @@ cmake --build "$BUILD_DIR" -- -j "$(nproc)"
 
 "$SCRIPT_DIR/flatten-native-libs.sh"
 
+# MOSS-TD subprocess binaries (moss-td-test + rs-speaker-embed) — staged into the same
+# appResources dir AFTER flatten (which wipes it). Skipped if the submodule isn't present.
+if [ -f "$DESKTOP_DIR/../native/RapidSpeech.cpp/CMakeLists.txt" ]; then
+  "$SCRIPT_DIR/build-moss.sh"
+else
+  echo "note: native/RapidSpeech.cpp not initialized — skipping MOSS-TD binaries." >&2
+fi
+
 echo ""
 echo "Native libs built and staged for packaging at desktop/appResources/linux-x64."
 echo "Run/package normally: ./gradlew :desktop:run   or   ./gradlew :desktop:packageDeb"

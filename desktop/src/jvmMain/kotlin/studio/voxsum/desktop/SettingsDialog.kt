@@ -138,7 +138,9 @@ fun SettingsDialog(
                 }
             }
 
-            SettingsSection(Strings.speakers) {
+            // MOSS-TD diarizes natively in the same pass as transcription — the separate speaker
+            // controls (enable / precise / count) don't apply, so hide the whole section for it.
+            if (asrBackend != AsrBackend.MOSS) SettingsSection(Strings.speakers) {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Switch(checked = diarizationEnabled, onCheckedChange = { diarizationEnabled = it })
                     Text(Strings.identifySpeakers, color = pal.Slate200)

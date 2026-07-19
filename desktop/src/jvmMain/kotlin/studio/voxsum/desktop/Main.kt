@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import kotlinx.coroutines.launch
+import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.FontScaleStore
@@ -387,9 +388,13 @@ private fun mainApplication() = application {
                         Box {
                             ToolButton(Icons.Filled.Refresh, Strings.reRun, enabled = state.transcriptReady && !state.running) { showRerunMenu = true }
                             DropdownMenu(expanded = showRerunMenu, onDismissRequest = { showRerunMenu = false }) {
+                                // MOSS-TD transcribes + diarizes in one pass, so its re-run is a
+                                // single combined action (reTranscribe re-does both); the separate
+                                // "Re-detect speakers" item is hidden for this backend.
+                                val isMoss = state.config.asrBackend == AsrBackend.MOSS.id
                                 DropdownMenuItem(
                                     enabled = state.audioFile != null,
-                                    text = { Text(Strings.reTranscribe) },
+                                    text = { Text(if (isMoss) Strings.reTranscribeDiarize else Strings.reTranscribe) },
                                     onClick = { showRerunMenu = false; reTranscribe() },
                                 )
                                 DropdownMenuItem(text = { Text(Strings.reSummarize) }, onClick = {
@@ -400,11 +405,13 @@ private fun mainApplication() = application {
                                     text = { Text(Strings.reTitle) },
                                     onClick = { showRerunMenu = false; scope.launch { reTitle(state, update) } },
                                 )
-                                DropdownMenuItem(
-                                    enabled = state.audioFile != null,
-                                    text = { Text(Strings.reDiarize) },
-                                    onClick = { showRerunMenu = false; pipelineJob = scope.launch { reDiarize(state, update) } },
-                                )
+                                if (!isMoss) {
+                                    DropdownMenuItem(
+                                        enabled = state.audioFile != null,
+                                        text = { Text(Strings.reDiarize) },
+                                        onClick = { showRerunMenu = false; pipelineJob = scope.launch { reDiarize(state, update) } },
+                                    )
+                                }
                                 DropdownMenuItem(text = { Text(Strings.detectSpeakerNames) }, onClick = {
                                     showRerunMenu = false; scope.launch { detectSpeakerNames(state, update) }
                                 })
