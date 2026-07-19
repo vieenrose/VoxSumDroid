@@ -12,7 +12,7 @@ enum class AsrBackend(
     SENSEVOICE("sensevoice", "SenseVoice (multilingual)", "SenseVoice", "multilingual"),
     XASR("x-asr", "Zipformer zh-en", "Zipformer", "zh-en transducer"),
     QWEN3("qwen3", "Qwen3-ASR (large, slow)", "Qwen3-ASR", "large, slow"),
-    MOSS("moss-td", "MOSS zh-TW meetings (diarizing)", "MOSS-TD", "zh-TW · diarizing · experimental");
+    MOSS("moss-td", "MOSS zh-TW meetings (diarizing)", "MOSS-TD", "zh-TW · diarizing · heavy model");
 
     /** Backends whose output already carries speaker tags — the separate
      *  pyannote/eres2net diarization stage is skipped for these. */
