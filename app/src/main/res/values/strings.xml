@@ -62,7 +62,7 @@
     <string name="asr_tagline_moonshine">English, fast</string>
     <string name="asr_tagline_xasr">x-asr · zh-en, punctuated</string>
     <string name="asr_tagline_qwen3">large, slow</string>
-    <string name="asr_tagline_moss">zh-TW meetings · diarizing · experimental</string>
+    <string name="asr_tagline_moss">zh-TW meetings · diarizing · heavy model</string>
     <string name="settings_recognition">Recognition</string>
     <string name="settings_language">Language</string>
     <string name="settings_itn">Inverse text normalization</string>
