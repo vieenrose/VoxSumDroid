@@ -56,7 +56,7 @@ class ModelManager(appFilesDir: File) {
     // MOSS-TD: one GGUF does ASR + diarization + timestamps (RapidSpeech.cpp runtime). The 14 MB
     // CAM++ GGUF is OPTIONAL — without it per-window [Sxx] tags still work, only cross-window
     // speaker-identity linking is lost. See docs/INTEGRATION-MOSS-TD.md.
-    val mossModel: File get() = File(modelsDir, "moss-td-zhtw-v61-q4_k_m.gguf")
+    val mossModel: File get() = File(modelsDir, "moss-td-zhtw-v7-q4_k_m.gguf")
     val mossSpeakerModel: File get() = File(modelsDir, "campplus-cn-common.gguf")
     // Older embeddings to reclaim on upgrade: eres2net_base and the interim CAM++ fp32.
     private val legacyEmbeddings: List<File> get() =
@@ -586,8 +586,8 @@ class ModelManager(appFilesDir: File) {
         // MOSS-TD (RapidSpeech.cpp GGUFs) — see models/manifest.json. Exact artifact sizes so the
         // GGUF magic+size check is a tight lower bound; the SHA pins are verified on download.
         private const val MOSS_URL =
-            "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/moss-td-zhtw-v61-q4_k_m.gguf"
-        private const val MOSS_SHA = "8e658dbf2ccac00fc70d136e9afb60742fbcf1a8236b3695bb4df46f7e8a6889"
+            "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/moss-td-zhtw-v7-q4_k_m.gguf"
+        private const val MOSS_SHA = "8d5135a4a898f932a5c40ca023b4efc53c12db72386c0c5637657d98d6c240f4"
         private const val MOSS_BYTES = 706_631_744L
         private const val MOSS_SPK_URL =
             "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/campplus-cn-common.gguf"
