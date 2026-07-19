@@ -1973,6 +1973,7 @@ private fun TranscribeScreen(
                 showNextTalk = running && recordingRun && !isRecording,
                 onNextTalk = { nextTalk() },
                 canExport = utterances.isNotEmpty() && !running,
+                isMossBackend = config.asrBackend == AsrBackend.MOSS.id,
                 // All re-run actions are disabled while a run is in flight (each fun also guards `running`);
                 // this also blocks Re-transcribe/Detect-names from starting a second run whose buffered
                 // events would otherwise land on the freshly-reset session.

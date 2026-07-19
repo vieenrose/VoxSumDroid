@@ -7,3 +7,7 @@
 [submodule "native/onnxruntime"]
 	path = native/onnxruntime
 	url = https://github.com/microsoft/onnxruntime.git
+[submodule "native/RapidSpeech.cpp"]
+	path = native/RapidSpeech.cpp
+	url = https://github.com/vieenrose/RapidSpeech.cpp.git
+	branch = integrate-upstream

@@ -50,6 +50,12 @@ class ModelManager(context: Context) {
      *  DiarizationEngine's segmentation-first path (boundaries where the VOICE changes, not
      *  where silence falls). */
     val segmentationModel: File get() = File(modelsDir, "pyannote_segmentation_3_0.onnx")
+
+    // MOSS-TD: one GGUF does ASR + diarization + timestamps (RapidSpeech.cpp runtime). The 14 MB
+    // CAM++ GGUF is OPTIONAL — without it per-window [Sxx] tags still work, only cross-window
+    // speaker-identity linking is lost. See docs/INTEGRATION-MOSS-TD.md.
+    val mossModel: File get() = File(modelsDir, "moss-td-zhtw-v61-q4_k_m.gguf")
+    val mossSpeakerModel: File get() = File(modelsDir, "campplus-cn-common.gguf")
     // Older embeddings to reclaim on upgrade: eres2net_base and the interim CAM++ fp32.
     private val legacyEmbeddings: List<File> get() =
         listOf(File(modelsDir, "speaker_embedding.onnx"), File(modelsDir, "campplus_zh_en.onnx"))
@@ -58,6 +64,11 @@ class ModelManager(context: Context) {
     // Diarization is per-utterance embedding + clustering, so only the speaker-embedding
     // model is needed (no pyannote segmentation model).
     fun diarizationReady(): Boolean = embeddingModel.exists() && segmentationModel.exists()
+
+    /** The MOSS-TD model is ready once its (mandatory) ASR+diarization GGUF is present and valid.
+     *  The CAM++ speaker GGUF is optional — [mossSpeakerReady] reports it separately. */
+    fun mossReady(): Boolean = mossModel.exists() && isValidGguf(mossModel, MOSS_BYTES)
+    fun mossSpeakerReady(): Boolean = mossSpeakerModel.exists() && isValidGguf(mossSpeakerModel, MOSS_SPK_BYTES)
 
     // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
     private data class AsrModelSpec(
@@ -125,13 +136,20 @@ class ModelManager(context: Context) {
     private fun specDir(spec: AsrModelSpec) = File(modelsDir, spec.dir)
 
     fun asrReady(backend: AsrBackend): Boolean {
+        // MOSS-TD isn't a sherpa/tar.bz2 spec — its readiness is the GGUF check. No VAD needed
+        // (the model windows internally), so keep it out of the sentinel/VAD path.
+        if (backend == AsrBackend.MOSS) return mossReady()
         val spec = asrSpecs.getValue(backend)
         val d = specDir(spec)
         return vadModel.exists() && spec.sentinels.all { File(d, it).exists() }
     }
 
     fun asrFiles(backend: AsrBackend): AsrModelFiles =
-        asrSpecs.getValue(backend).let { it.buildFiles(specDir(it)) }
+        if (backend == AsrBackend.MOSS) AsrModelFiles(
+            mossModel = mossModel.absolutePath,
+            speakerEmbedModel = mossSpeakerModel.takeIf { mossSpeakerReady() }?.absolutePath ?: "",
+        )
+        else asrSpecs.getValue(backend).let { it.buildFiles(specDir(it)) }
 
     /**
      * Remove the on-disk model directory for [backend] so the next run re-downloads a clean copy.
@@ -139,11 +157,13 @@ class ModelManager(context: Context) {
      * true and [ensureAsrModels] would otherwise skip the download) but incomplete/corrupt.
      */
     fun deleteAsr(backend: AsrBackend) {
+        if (backend == AsrBackend.MOSS) { mossModel.takeIf(File::exists)?.delete(); return }
         specDir(asrSpecs.getValue(backend)).takeIf(File::exists)?.deleteRecursively()
     }
 
     /** Download + extract the model for [backend] if missing (VAD shared across backends). */
     suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
+        if (backend == AsrBackend.MOSS) ensureMossModels(onProgress) else
         withContext(Dispatchers.IO) {
             ensureVad { onProgress(it * 0.1f) }
             val spec = asrSpecs.getValue(backend)
@@ -291,6 +311,36 @@ class ModelManager(context: Context) {
     /** No-arg convenience over the default model. */
     suspend fun ensureLlmModel(onProgress: (Float) -> Unit) =
         ensureLlmModel(LlmRegistry.byId(LlmRegistry.DEFAULT_ID), onProgress)
+
+    /**
+     * Ensure the MOSS-TD GGUFs: the mandatory ASR+diarization model (SHA-pinned) and the optional
+     * CAM++ speaker-embedding GGUF used for cross-window linking. The speaker model is best-effort
+     * — a failure there still leaves a working (per-window-tagged) MOSS backend, so it never fails
+     * the call. Same magic+size integrity guard as [ensureLlmModel] (a truncated GGUF would abort
+     * the native runtime uncatchably).
+     */
+    suspend fun ensureMossModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
+        if (!(mossModel.exists() && isValidGguf(mossModel, MOSS_BYTES))) {
+            if (mossModel.exists()) mossModel.delete()
+            var attempt = 0
+            while (true) {
+                attempt++
+                download(MOSS_URL, mossModel, MOSS_SHA) { onProgress(it * 0.97f) }
+                if (isValidGguf(mossModel, MOSS_BYTES)) break
+                mossModel.delete()
+                check(attempt < 2) { "MOSS-TD model download is corrupt after $attempt attempts. Please try again." }
+                onProgress(0f)
+            }
+        }
+        // Optional speaker model — never fail the run if it can't be fetched.
+        if (!(mossSpeakerModel.exists() && isValidGguf(mossSpeakerModel, MOSS_SPK_BYTES))) {
+            runCatching {
+                if (mossSpeakerModel.exists()) mossSpeakerModel.delete()
+                download(MOSS_SPK_URL, mossSpeakerModel, MOSS_SPK_SHA) { onProgress(0.97f + it * 0.03f) }
+            }
+        }
+        check(mossReady()) { "MOSS-TD model missing after provisioning" }
+    }
 
     /** Ensure the diarization model (3D-Speaker CAM++ zh+en fp16 embedding) — Phase 3. */
     suspend fun ensureDiarizationModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
@@ -530,5 +580,16 @@ class ModelManager(context: Context) {
         private const val SEG_URL =
             "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx"
         private const val SEG_SHA = "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079"
+
+        // MOSS-TD (RapidSpeech.cpp GGUFs) — see models/manifest.json. Exact artifact sizes so the
+        // GGUF magic+size check is a tight lower bound; the SHA pins are verified on download.
+        private const val MOSS_URL =
+            "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/moss-td-zhtw-v61-q4_k_m.gguf"
+        private const val MOSS_SHA = "8e658dbf2ccac00fc70d136e9afb60742fbcf1a8236b3695bb4df46f7e8a6889"
+        private const val MOSS_BYTES = 706_631_744L
+        private const val MOSS_SPK_URL =
+            "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/campplus-cn-common.gguf"
+        private const val MOSS_SPK_SHA = "c49e5e80128c8e04ca6febc1f0ac86d477a28413a4f10297608c68bd799ad564"
+        private const val MOSS_SPK_BYTES = 14_255_904L
     }
 }

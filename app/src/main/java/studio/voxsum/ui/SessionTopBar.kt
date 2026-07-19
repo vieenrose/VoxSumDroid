@@ -80,6 +80,9 @@ fun SessionTopBar(
     canReDetect: Boolean, isDetecting: Boolean, onReDetect: () -> Unit,
     canExtractActions: Boolean, onExtractActions: () -> Unit,
     canExport: Boolean,
+    // MOSS-TD transcribes + diarizes in one pass — its Re-transcribe becomes a combined
+    // "Re-transcribe & re-diarize" and the separate Re-detect-speakers item is hidden.
+    isMossBackend: Boolean = false,
     onSaveSessionM4a: () -> Unit, onShareSessionM4a: () -> Unit,
     onCopyTranscript: () -> Unit, onShareTranscript: () -> Unit,
     onExportTxt: () -> Unit, onExportSrt: () -> Unit, onExportVtt: () -> Unit,
@@ -136,7 +139,7 @@ fun SessionTopBar(
             OverflowMenu(
                 canReTranscribe, onReTranscribe, canReSummarize, onReSummarize, canReTitle, onReTitle,
                 canReDiarize, onReDiarize, canReDetect, isDetecting, onReDetect, canExtractActions, onExtractActions,
-                canExport, onSaveSessionM4a, onShareSessionM4a, onCopyTranscript, onShareTranscript,
+                canExport, isMossBackend, onSaveSessionM4a, onShareSessionM4a, onCopyTranscript, onShareTranscript,
                 onExportTxt, onExportSrt, onExportVtt, onExportLrc, onExportMarkdown, onExportPdf, onSettings,
             )
         }
@@ -178,6 +181,7 @@ private fun OverflowMenu(
     canReDetect: Boolean, isDetecting: Boolean, onReDetect: () -> Unit,
     canExtractActions: Boolean, onExtractActions: () -> Unit,
     canExport: Boolean,
+    isMossBackend: Boolean,
     onSaveSessionM4a: () -> Unit, onShareSessionM4a: () -> Unit,
     onCopyTranscript: () -> Unit, onShareTranscript: () -> Unit,
     onExportTxt: () -> Unit, onExportSrt: () -> Unit, onExportVtt: () -> Unit,
@@ -194,12 +198,14 @@ private fun OverflowMenu(
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             // --- re-run ---
             if (canReTranscribe) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.Refresh, null, Modifier.size(18.dp)) },
-                text = { Text(stringResource(R.string.re_transcribe)) }, onClick = pick(onReTranscribe))
+                text = { Text(stringResource(if (isMossBackend) R.string.re_transcribe_diarize else R.string.re_transcribe)) },
+                onClick = pick(onReTranscribe))
             if (canReSummarize) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.Summarize, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_summarize)) }, onClick = pick(onReSummarize))
             if (canReTitle) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.Title, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_title)) }, onClick = pick(onReTitle))
-            if (canReDiarize) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null, Modifier.size(18.dp)) },
+            // MOSS diarizes in the same pass, so the standalone Re-detect-speakers item is hidden.
+            if (canReDiarize && !isMossBackend) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_diarize)) }, onClick = pick(onReDiarize))
             if (canReDetect) DropdownMenuItem(enabled = !isDetecting, leadingIcon = { Icon(Icons.Filled.Badge, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_detect_names)) }, onClick = pick(onReDetect))

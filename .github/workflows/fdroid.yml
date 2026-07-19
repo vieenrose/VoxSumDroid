@@ -44,8 +44,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: false
-      - name: Init required submodules (sherpa + llama only)
-        run: git submodule update --init --depth 1 native/sherpa-onnx native/llama.cpp
+      - name: Init required submodules (sherpa + llama + RapidSpeech/MOSS)
+        # RapidSpeech.cpp (MOSS-TD backend) is recursive — it vendors ggml + cppjieba as nested
+        # submodules the ExternalProject build needs. Without it the app's CMake silently skips
+        # libvoxsum-moss.so (guarded on the submodule's presence) and MOSS crashes at load.
+        run: |
+          git submodule update --init --depth 1 native/sherpa-onnx native/llama.cpp native/RapidSpeech.cpp
+          git -C native/RapidSpeech.cpp submodule update --init --recursive --depth 1
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@main

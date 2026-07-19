@@ -93,6 +93,7 @@ fun SettingsContent(
                     AsrBackend.SENSEVOICE -> R.string.asr_tagline_sensevoice
                     AsrBackend.XASR -> R.string.asr_tagline_xasr
                     AsrBackend.QWEN3 -> R.string.asr_tagline_qwen3
+                    AsrBackend.MOSS -> R.string.asr_tagline_moss
                 }
                 ModelOptionCard(
                     title = b.shortName,
@@ -150,34 +151,41 @@ fun SettingsContent(
                 onChange(config.copy(useItn = it))
             }
         }
-        SliderRow(stringResource(R.string.settings_vad_threshold), config.vadThreshold, 0.1f, 0.9f, enabled) {
-            onChange(config.copy(vadThreshold = it))
+        // MOSS-TD windows internally (no VAD) and diarizes natively (no separate speaker stage),
+        // so the VAD slider and the whole Diarization section don't apply to it.
+        val isMoss = config.asrBackend == AsrBackend.MOSS.id
+        if (!isMoss) {
+            SliderRow(stringResource(R.string.settings_vad_threshold), config.vadThreshold, 0.1f, 0.9f, enabled) {
+                onChange(config.copy(vadThreshold = it))
+            }
         }
 
-        // (4) Diarization.
-        Section(stringResource(R.string.settings_diarization))
-        SwitchRow(stringResource(R.string.settings_identify_speakers), config.diarizationEnabled, enabled) {
-            onChange(config.copy(diarizationEnabled = it))
-        }
-        if (config.diarizationEnabled) {
-            SwitchRow(stringResource(R.string.settings_precise_diarization), config.preciseDiarization, enabled) {
-                onChange(config.copy(preciseDiarization = it))
+        // (4) Diarization — not shown for MOSS (it diarizes in the same pass as transcription).
+        if (!isMoss) {
+            Section(stringResource(R.string.settings_diarization))
+            SwitchRow(stringResource(R.string.settings_identify_speakers), config.diarizationEnabled, enabled) {
+                onChange(config.copy(diarizationEnabled = it))
             }
-        }
-        if (config.diarizationEnabled) {
-            val speakersVal = if (config.numSpeakers < 0) stringResource(R.string.settings_auto) else config.numSpeakers.toString()
-            LabeledRow(stringResource(R.string.settings_speakers, speakersVal)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AssistChip(enabled = enabled, onClick = {
-                        onChange(config.copy(numSpeakers = (config.numSpeakers - 1).coerceAtLeast(-1)))
-                    }, label = { Text("–") })
-                    AssistChip(enabled = enabled, onClick = {
-                        onChange(config.copy(numSpeakers = (config.numSpeakers + 1).coerceAtMost(10)))
-                    }, label = { Text("+") })
+            if (config.diarizationEnabled) {
+                SwitchRow(stringResource(R.string.settings_precise_diarization), config.preciseDiarization, enabled) {
+                    onChange(config.copy(preciseDiarization = it))
                 }
             }
-            // (The cluster-threshold slider is gone: spectral clustering picks the speaker count
-            // from the eigengap, so there is no distance threshold left to hand-tune.)
+            if (config.diarizationEnabled) {
+                val speakersVal = if (config.numSpeakers < 0) stringResource(R.string.settings_auto) else config.numSpeakers.toString()
+                LabeledRow(stringResource(R.string.settings_speakers, speakersVal)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        AssistChip(enabled = enabled, onClick = {
+                            onChange(config.copy(numSpeakers = (config.numSpeakers - 1).coerceAtLeast(-1)))
+                        }, label = { Text("–") })
+                        AssistChip(enabled = enabled, onClick = {
+                            onChange(config.copy(numSpeakers = (config.numSpeakers + 1).coerceAtMost(10)))
+                        }, label = { Text("+") })
+                    }
+                }
+                // (The cluster-threshold slider is gone: spectral clustering picks the speaker count
+                // from the eigengap, so there is no distance threshold left to hand-tune.)
+            }
         }
 
         // (5) Summary options.

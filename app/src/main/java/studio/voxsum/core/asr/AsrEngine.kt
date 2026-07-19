@@ -309,6 +309,9 @@ class AsrEngine(
                 ),
                 tokens = "", numThreads = numThreads, provider = "cpu",
             )
+            AsrBackend.MOSS -> throw IllegalArgumentException(
+                "MOSS-TD is not a sherpa backend — it runs through MossPipeline, not AsrEngine",
+            )
         }
     }
 }
