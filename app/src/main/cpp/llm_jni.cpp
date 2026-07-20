@@ -12,6 +12,13 @@
 #include <jni.h>
 #include <android/log.h>
 #include <cstdint>
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <sched.h>
+#include <unistd.h>
+#include <vector>
+#include <chrono>
 #include <string>
 #include <vector>
 #include <atomic>
@@ -121,6 +128,50 @@ extern "C" {
 
 // Load a GGUF model. nThreads should come from Kotlin (cf. num_vcpus in src/utils.py;
 // on a phone pass the big-core count, not all cores). CPU-only: n_gpu_layers = 0.
+// Android's EAS scheduler parks a top-app process's compute threads on the big cluster whatever
+// thread count we ask for (see moss_jni.cpp for the measurement), which starves the batch prefill.
+// llama.cpp already splits the two phases — n_threads_batch for prompt prefill, n_threads for
+// single-token generation — so give prefill every core and leave generation on the fast ones:
+// generation has a barrier per token, so a thread on a slow core stalls the rest.
+struct CpuTopology { int online = 1; int big = 1; unsigned long long topFreq = 0; };
+
+static const CpuTopology& cpu_topology() {
+    static const CpuTopology t = [] {
+        CpuTopology r;
+        r.online = std::max(1, (int) sysconf(_SC_NPROCESSORS_ONLN));
+        std::vector<unsigned long long> freqs(r.online, 0);
+        for (int c = 0; c < r.online; ++c) {
+            char p[128];
+            snprintf(p, sizeof(p), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", c);
+            if (FILE* f = fopen(p, "r")) {
+                if (fscanf(f, "%llu", &freqs[c]) != 1) freqs[c] = 0;
+                fclose(f);
+            }
+        }
+        r.topFreq = *std::max_element(freqs.begin(), freqs.end());
+        r.big = r.topFreq ? (int) std::count(freqs.begin(), freqs.end(), r.topFreq) : r.online;
+        r.big = std::max(1, r.big);
+        return r;
+    }();
+    return t;
+}
+
+/** Pin the calling thread (llama's workers inherit it) to all cores, or only the big ones. */
+static void llm_set_affinity(bool wide) {
+    const CpuTopology& t = cpu_topology();
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    for (int c = 0; c < t.online && c < CPU_SETSIZE; ++c) {
+        if (wide) { CPU_SET(c, &set); continue; }
+        char p[128];
+        snprintf(p, sizeof(p), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", c);
+        unsigned long long f = 0;
+        if (FILE* fp = fopen(p, "r")) { if (fscanf(fp, "%llu", &f) != 1) f = 0; fclose(fp); }
+        if (f == t.topFreq || t.topFreq == 0) CPU_SET(c, &set);
+    }
+    if (sched_setaffinity(0, sizeof(set), &set) != 0) LOGE("sched_setaffinity failed");
+}
+
 JNIEXPORT jlong JNICALL
 Java_studio_voxsum_core_llm_LlmEngine_nativeLoad(
         JNIEnv* env, jobject /*thiz*/, jstring jPath, jint nThreads, jint nCtx,
@@ -149,15 +200,18 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeLoad(
     // unchanged (llama splits the logical batch into 512-token physical sub-batches internally); prompts
     // beyond n_ctx are still caught by the n_ctx guard in the decode loop below and degrade gracefully.
     cp.n_batch         = (uint32_t) nCtx;
+    // Generation stays on the caller's budget (big cores); prefill gets every core — it is a dense
+    // compute-bound batch that scales with raw core count, slow cores included.
     cp.n_threads       = nThreads;
-    cp.n_threads_batch = nThreads;
+    cp.n_threads_batch = cpu_topology().online;
     h->ctx  = llama_init_from_model(h->model, cp);
     h->nCtx = nCtx;
     if (!h->ctx) { LOGE("ctx init failed"); llama_model_free(h->model); delete h; return 0; }
 
-    LOGI("loaded model, n_ctx=%d threads=%d", nCtx, nThreads);
+    LOGI("loaded model, n_ctx=%d threads=%d batch_threads=%d", nCtx, nThreads, cpu_topology().online);
     return reinterpret_cast<jlong>(h);
 }
+
 
 // Generate a completion for `prompt`, invoking onToken(String) per decoded piece, and
 // returning the full text. Greedy-ish chain (top_k/top_p/temp) for stable summaries.
@@ -208,12 +262,26 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
     int nPos = 0;
     llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t) tokens.size());
 
+    // Perf trace: the first llama_decode consumes the whole prompt (prefill); every later one
+    // decodes a single token (generation). Timed separately so the two rates are comparable with
+    // other runtimes' published prefill/decode figures.
+    const int promptTokens = (int) tokens.size();
+    const auto tStart = std::chrono::steady_clock::now();
+    auto tPrefillEnd = tStart;
+    int nGenerated = 0;
+
+    llm_set_affinity(/*wide=*/true);            // prefill: every core
     for (int generated = 0; generated < maxTokens; ++generated) {
         if (h->cancel.load()) break;
         if (nPos + batch.n_tokens > h->nCtx) { LOGI("hit n_ctx, stopping"); break; }
 
         if (llama_decode(h->ctx, batch) != 0) { LOGE("llama_decode failed"); break; }
+        if (generated == 0) {
+            tPrefillEnd = std::chrono::steady_clock::now();
+            llm_set_affinity(/*wide=*/false);   // generation: big cores only
+        }
         nPos += batch.n_tokens;
+        nGenerated = generated;
 
         llama_token id = llama_sampler_sample(smpl, h->ctx, -1);
         if (llama_vocab_is_eog(vocab, id)) break;
@@ -238,6 +306,14 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
         batch = llama_batch_get_one(&one, 1);
     }
 
+    {
+        const auto tEnd = std::chrono::steady_clock::now();
+        const double preS = std::chrono::duration<double>(tPrefillEnd - tStart).count();
+        const double genS = std::chrono::duration<double>(tEnd - tPrefillEnd).count();
+        LOGI("perf: prefill %d tok in %.2fs (%.1f tok/s) | decode %d tok in %.2fs (%.1f tok/s)",
+             promptTokens, preS, promptTokens / (preS > 0 ? preS : 1e-9),
+             nGenerated, genS, nGenerated / (genS > 0 ? genS : 1e-9));
+    }
     llama_sampler_free(smpl);
     // Return the full text, dropping any trailing half-codepoint (e.g. stopped at maxTokens
     // mid-char) so the returned String is always valid — same content the callbacks streamed.
