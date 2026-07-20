@@ -28,6 +28,7 @@
     <string name="re_title">重新產生標題</string>
     <string name="re_detect_names">重新偵測名稱</string>
     <string name="re_diarize">重新辨識語者</string>
+    <string name="re_transcribe_diarize">重新轉錄並辨識語者</string>
     <string name="pick_audio">選擇音訊…</string>
     <string name="stop">停止</string>
     <string name="cd_stop_recording">停止錄音</string>
@@ -60,6 +61,7 @@
     <string name="asr_tagline_moonshine">英語、快速</string>
     <string name="asr_tagline_xasr">x-asr · 中英、含標點</string>
     <string name="asr_tagline_qwen3">大型、較慢</string>
+    <string name="asr_tagline_moss">臺灣中文會議 · 內建語者辨識 · 重量級模型</string>
     <string name="settings_recognition">辨識</string>
     <string name="settings_language">語言</string>
     <string name="settings_itn">反向文字正規化</string>

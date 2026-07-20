@@ -269,6 +269,9 @@ class ModelManager(context: Context) {
         return when {
             n.startsWith("silero_vad") || n.contains("vad") -> ModelKind.VAD
             n.contains("campplus") || n.contains("speaker_embedding") -> ModelKind.SPEAKER
+            // MOSS-TD is an ASR model that happens to ship as a .gguf — classify it before the
+            // generic gguf→LLM rule below, or Settings lists it as a summary model.
+            n.startsWith("moss-td") -> ModelKind.ASR
             n.endsWith(".gguf") || n.contains("gemma") -> ModelKind.LLM
             n.contains("asr") || n.contains("sense-voice") || n.contains("sensevoice") || n.contains("qwen") || n.startsWith("sherpa") -> ModelKind.ASR
             else -> ModelKind.OTHER

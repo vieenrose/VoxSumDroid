@@ -28,6 +28,7 @@
     <string name="re_title">Regénérer le titre</string>
     <string name="re_detect_names">Redétecter les noms</string>
     <string name="re_diarize">Redétecter les locuteurs</string>
+    <string name="re_transcribe_diarize">Retranscrire et redétecter les locuteurs</string>
     <string name="pick_audio">Choisir un audio…</string>
     <string name="stop">Arrêter</string>
     <string name="cd_stop_recording">Arrêter l\'enregistrement</string>
@@ -60,6 +61,7 @@
     <string name="asr_tagline_moonshine">anglais, rapide</string>
     <string name="asr_tagline_xasr">x-asr · zh-en, ponctué</string>
     <string name="asr_tagline_qwen3">grand, lent</string>
+    <string name="asr_tagline_moss">réunions en chinois (Taïwan) · locuteurs intégrés · modèle lourd</string>
     <string name="settings_recognition">Reconnaissance</string>
     <string name="settings_language">Langue</string>
     <string name="settings_itn">Normalisation inverse du texte</string>
