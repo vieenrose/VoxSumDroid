@@ -55,6 +55,13 @@ class SummarizerTextTest {
         assertEquals("• point one\n• point two", SummaryText.cleanSummary(raw))
     }
 
+    @Test fun cleanSummaryDropsCjkFullwidthColonPreamble() {
+        // Gemma 4 opens a zh-TW summary with a fullwidth-colon header; the ASCII-only
+        // endsWith(":") check used to leak it into the rendered summary.
+        val raw = "繁體中文摘要：\n\n• 重點一\n• 重點二"
+        assertEquals("• 重點一\n• 重點二", SummaryText.cleanSummary(raw))
+    }
+
     @Test fun cleanSummaryKeepsAColonLineWhenItIsTheOnlyLine() {
         // The size > 1 guard: a single line ending in ":" is content, not a preamble to drop.
         assertEquals("Summary:", SummaryText.cleanSummary("Summary:"))

@@ -9,12 +9,12 @@ import studio.voxsum.core.config.SummaryStyle
  *  feature: bullets vs executive vs narrative must produce different prompts). */
 class SummaryStyleTest {
 
-    @Test fun fromIdResolvesOrDefaultsToBullet() {
+    @Test fun fromIdResolvesOrDefaultsToExecutive() {
         assertEquals(SummaryStyle.EXECUTIVE, SummaryStyle.fromId("executive"))
         assertEquals(SummaryStyle.NARRATIVE, SummaryStyle.fromId("narrative"))
         assertEquals(SummaryStyle.BULLET, SummaryStyle.fromId("bullet"))
-        assertEquals(SummaryStyle.BULLET, SummaryStyle.fromId("nonsense"))
-        assertEquals(SummaryStyle.BULLET, SummaryStyle.fromId(null))
+        assertEquals(SummaryStyle.EXECUTIVE, SummaryStyle.fromId("nonsense"))
+        assertEquals(SummaryStyle.EXECUTIVE, SummaryStyle.fromId(null))
     }
 
     @Test fun everyStyleHasADistinctDirectiveAndSaneBudget() {

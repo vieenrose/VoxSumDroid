@@ -49,6 +49,6 @@ enum class SummaryStyle(
     );
 
     companion object {
-        fun fromId(id: String?): SummaryStyle = entries.firstOrNull { it.id == id } ?: BULLET
+        fun fromId(id: String?): SummaryStyle = entries.firstOrNull { it.id == id } ?: EXECUTIVE
     }
 }

@@ -61,8 +61,11 @@ internal object SummaryText {
         val lines = stripThink(raw).lines().toMutableList()
         // Drop a leading conversational lead-in / header (e.g. "Here's a summary…:",
         // "Key points:"). Any first line ending in a colon is a preamble, not content —
-        // robust to curly vs straight apostrophes. Then drop a now-leading blank line.
-        if (lines.size > 1 && lines.first().trim().endsWith(":")) {
+        // robust to curly vs straight apostrophes. Both the ASCII ":" and the CJK fullwidth
+        // "：" (U+FF1A) count: a CJK-target summary leads with the fullwidth form (Gemma 4
+        // emits "繁體中文摘要："), which the ASCII-only check let through into the summary.
+        // Then drop a now-leading blank line.
+        if (lines.size > 1 && lines.first().trim().let { it.endsWith(":") || it.endsWith("：") }) {
             lines.removeAt(0)
             while (lines.size > 1 && lines.first().isBlank()) lines.removeAt(0)
         }
