@@ -34,7 +34,9 @@ class SummarizerQualityTest {
         val transcript = File(txt).readText()
         assertTrue("push the gguf first → $gguf", File(gguf).exists())
 
-        val spec = studio.voxsum.core.models.LlmRegistry.byId(args.getString("model") ?: "qwen3.5-0.8b")
+        val spec = studio.voxsum.core.models.LlmRegistry.byId(
+            args.getString("model") ?: studio.voxsum.core.models.LlmRegistry.DEFAULT_ID,
+        )
         val cc = OpenCcConverter.get(ctx, ChineseScript.TRADITIONAL)   // app converts output to zh-TW
         val llm = LlmEngine.load(gguf, nThreads = 4, nCtx = 4096, sampler = spec.sampler)
         val summary = StringBuilder(); val title = StringBuilder(); var mapChunks = 0

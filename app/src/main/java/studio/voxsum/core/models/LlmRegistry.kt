@@ -49,28 +49,17 @@ data class SamplerProfile(
  * rather than via the GGUF's embedded template.
  */
 object LlmRegistry {
-    const val DEFAULT_ID = "qwen3.5-0.8b"
+    const val DEFAULT_ID = "gemma-4-e2b-it-qat"
 
     private const val HF = "https://huggingface.co"
 
     val ALL: List<LlmSpec> = listOf(
-        // Qwen3.5 0.8B (unsloth Q8) is the default after an on-device summarization eval (Pixel 6):
-        // it summarizes far more coherently than the older Qwen3 0.6B on BOTH short and long sources.
-        // It needs its OWN sampler (SamplerProfile.QWEN35) — the legacy heavy repeat penalty makes
-        // Qwen3.5 collapse long output into a run-on wall-of-text. Use unsloth's GGUF (the universal
-        // chat-template fix + imatrix quant). Gemma 4 E2B/E4B stay as heavier, higher-fidelity options.
-        // (See the SummarizerQualityTest harness for the evaluation.)
-        LlmSpec(
-            id = "qwen3.5-0.8b",
-            displayName = "Qwen3.5 0.8B (recommended)",
-            url = "$HF/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q8_0.gguf",
-            sha256 = "0ad885ffd4bb022fc4f0d33a3308fa108ef8613159d3b3a67e23abca056b7a6c", sizeBytes = 811_843_840L,
-            fileName = "qwen3.5-0.8b.gguf", chatTemplate = ChatTemplate.QWEN3, shortName = "Qwen3.5 0.8B",
-            sampler = SamplerProfile.QWEN35,
-        ),
+        // Gemma 4 E2B is the default: Qwen3.5 0.8B was dropped because its summaries were not good
+        // enough in practice, and the sub-1B tier has no adequate replacement — so the floor is now
+        // a ~2.2 GB model needing ~4 GB RAM. E4B is the heavier, higher-fidelity option.
         LlmSpec(
             id = "gemma-4-e2b-it-qat",
-            displayName = "Gemma 4 E2B",
+            displayName = "Gemma 4 E2B (recommended)",
             url = "$HF/unsloth/gemma-4-E2B-it-qat-mobile-GGUF/resolve/main/gemma-4-E2B-it-qat-UD-Q2_K_XL.gguf",
             sha256 = "", sizeBytes = 2_186_000_000L,
             fileName = "gemma-4-e2b-it-qat.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E2B",
