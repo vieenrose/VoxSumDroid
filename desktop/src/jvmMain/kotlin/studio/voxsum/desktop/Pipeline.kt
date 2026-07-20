@@ -14,7 +14,6 @@ import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.llm.ActionItemExtractor
 import studio.voxsum.core.llm.LlmEngine
-import studio.voxsum.core.llm.SpeakerNamer
 import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
@@ -279,34 +278,6 @@ suspend fun reTitle(state: AppState, update: Update) {
     }
 }
 
-/** LLM-based speaker-name detection over the current transcript. */
-suspend fun detectSpeakerNames(state: AppState, update: Update) {
-    if (state.utterances.isEmpty()) return
-    update { it.copy(running = true, error = null, status = Strings.stDetectingNames) }
-    try {
-        val models = ModelManager(appDataDir)
-        val llmSpec = LlmRegistry.byId(state.config.llmModelId)
-        ensureLlm(models, llmSpec, update)
-        val names = withContext(Dispatchers.Default) {
-            val llm = LlmEngine.load(models.llmFile(llmSpec).absolutePath, nThreads = 4, sampler = llmSpec.sampler)
-            try {
-                SpeakerNamer(llm, llmSpec.chatTemplate).detect(state.utterances)
-            } finally {
-                llm.close()
-            }
-        }
-        // Preserve hand-set names (confidence "user") — a detect run must not clobber a rename,
-        // matching Android's `if (speakerNames[id]?.confidence != "user")` merge guard.
-        update { s ->
-            val merged = s.speakerNames.toMutableMap()
-            names.forEach { (id, n) -> if (merged[id]?.confidence != "user") merged[id] = n }
-            s.copy(speakerNames = merged, running = false, status = Strings.stDone)
-        }
-    } catch (t: Throwable) {
-        if (t is kotlinx.coroutines.CancellationException) throw t
-        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = Strings.stFailed) }
-    }
-}
 
 /** LLM-based action-item + decision extraction over the current transcript. */
 suspend fun extractActionItems(state: AppState, update: Update) {

@@ -52,7 +52,6 @@ object Strings {
     val reTranscribe: String get() = t("Re-transcribe", "Retranscrire", "重新轉錄")
     val reSummarize: String get() = t("Re-summarize", "Refaire le résumé", "重新摘要")
     val reTitle: String get() = t("Re-title", "Regénérer le titre", "重新產生標題")
-    val detectSpeakerNames: String get() = t("Detect speaker names", "Détecter les noms des locuteurs", "偵測語者名稱")
     val reDiarize: String get() = t("Re-detect speakers", "Redétecter les locuteurs", "重新辨識語者")
     // MOSS-TD transcribes and diarizes in one pass, so the two re-run actions collapse into one.
     val reTranscribeDiarize: String get() = t("Re-transcribe & re-diarize", "Retranscrire et rediariser", "重新轉錄並辨識語者")
@@ -61,7 +60,6 @@ object Strings {
     val stTranscribing: String get() = t("Transcribing…", "Transcription…", "轉錄中…")
     val stSummarizing: String get() = t("Summarizing…", "Résumé en cours…", "摘要中…")
     val stIdentifyingSpeakers: String get() = t("Identifying speakers…", "Identification des locuteurs…", "辨識語者中…")
-    val stDetectingNames: String get() = t("Identifying speakers by name…", "Détection des noms des locuteurs…", "偵測語者名稱中…")
     val stGeneratingTitle: String get() = t("Generating title…", "Génération du titre…", "產生標題中…")
     val stExtractingActions: String get() = t("Extracting action items…", "Extraction des actions…", "擷取行動項目中…")
     val stRecording: String get() = t("Recording…", "Enregistrement…", "錄音中…")

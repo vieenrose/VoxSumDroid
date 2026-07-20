@@ -412,9 +412,6 @@ private fun mainApplication() = application {
                                         onClick = { showRerunMenu = false; pipelineJob = scope.launch { reDiarize(state, update) } },
                                     )
                                 }
-                                DropdownMenuItem(text = { Text(Strings.detectSpeakerNames) }, onClick = {
-                                    showRerunMenu = false; scope.launch { detectSpeakerNames(state, update) }
-                                })
                                 DropdownMenuItem(text = { Text(Strings.extractActionItems) }, onClick = {
                                     showRerunMenu = false; scope.launch { extractActionItems(state, update) }
                                 })
@@ -869,7 +866,7 @@ private fun UtteranceRow(
                         if (sid != null) {
                             update { s ->
                                 // Blank clears the override (falls back to "Speaker N"); a real name
-                                // is stamped confidence="user" so detectSpeakerNames won't clobber it.
+                                // is stamped confidence="user" (kept for session-file compatibility).
                                 val names = if (editSpeakerName.isBlank()) s.speakerNames - sid
                                     else s.speakerNames + (sid to SpeakerName(editSpeakerName, confidence = "user"))
                                 s.copy(speakerNames = names, editingSpeakerId = null)
