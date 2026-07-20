@@ -26,7 +26,6 @@
     <string name="re_transcribe">Re-transcribe</string>
     <string name="re_summarize">Re-summarize</string>
     <string name="re_title">Re-generate title</string>
-    <string name="re_detect_names">Re-detect names</string>
     <string name="re_diarize">Re-detect speakers</string>
     <!-- MOSS-TD transcribes + diarizes in one pass, so its two re-run actions collapse into one. -->
     <string name="re_transcribe_diarize">Re-transcribe &amp; re-diarize</string>
@@ -142,9 +141,6 @@
     <string name="status_transcribing">Transcribing %d%%</string>
     <string name="status_transcript_lines">Transcript: %d lines</string>
     <string name="status_transcript_lines_speakers">Transcript: %1$d lines, %2$d speakers</string>
-    <string name="status_detecting_names">Detecting speaker names…</string>
-    <string name="status_detected_names">Detected %d speaker name(s)</string>
-    <string name="status_name_detection_failed">Name detection failed: %1$s</string>
     <string name="status_error">Error: %1$s</string>
     <string name="retry">Retry</string>
     <string name="summary_settings_changed">Summary settings changed — tap Re-summarize to apply.</string>

@@ -26,7 +26,6 @@
     <string name="re_transcribe">Retranscrire</string>
     <string name="re_summarize">Refaire le résumé</string>
     <string name="re_title">Regénérer le titre</string>
-    <string name="re_detect_names">Redétecter les noms</string>
     <string name="re_diarize">Redétecter les locuteurs</string>
     <string name="re_transcribe_diarize">Retranscrire et redétecter les locuteurs</string>
     <string name="pick_audio">Choisir un audio…</string>
@@ -141,9 +140,6 @@
     <string name="status_transcribing">Transcription %d%%</string>
     <string name="status_transcript_lines">Transcription : %d lignes</string>
     <string name="status_transcript_lines_speakers">Transcription : %1$d lignes, %2$d locuteurs</string>
-    <string name="status_detecting_names">Détection des noms des locuteurs…</string>
-    <string name="status_detected_names">%d nom(s) de locuteur détecté(s)</string>
-    <string name="status_name_detection_failed">Échec de la détection des noms : %1$s</string>
     <string name="status_error">Erreur : %1$s</string>
     <string name="retry">Réessayer</string>
     <string name="summary_settings_changed">Réglages du résumé modifiés — appuyez sur Refaire le résumé pour appliquer.</string>

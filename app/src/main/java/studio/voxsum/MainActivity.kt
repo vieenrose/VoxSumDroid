@@ -167,7 +167,6 @@ import studio.voxsum.core.text.OpenCcConverter
 import studio.voxsum.core.cover.CoverGenerator
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.llm.LlmEngine
-import studio.voxsum.core.llm.SpeakerNamer
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.core.session.RecentSession
@@ -532,7 +531,6 @@ private fun TranscribeScreen(
     var editingTitle by remember { mutableStateOf(false) }
     var editingSummary by remember { mutableStateOf(false) }
     var editingActions by remember { mutableStateOf(false) }
-    var isDetecting by remember { mutableStateOf(false) }
     // True while a standalone re-diarize run is in flight: its terminal event is Complete (no
     // summary phase follows), so the Complete handler must clear `running` for this run only.
     var diarizeOnlyRun by remember { mutableStateOf(false) }
@@ -907,9 +905,9 @@ private fun TranscribeScreen(
         // deferStopped must reset here: a ⏹ Stop&save sets it true and its terminal event goes to
         // the QUEUE collector (never the main Complete that clears it), so without this a later
         // recording's Complete would see a stale true and tear its run down BEFORE the summary
-        // phase. isDetecting/exporting/buffering closed too (a delete mid-action could otherwise
+        // phase. exporting/buffering closed too (a delete mid-action could otherwise
         // leave their overlays/indicators painted over the next session).
-        deferStopped = false; isDetecting = false; exporting = false; buffering = false
+        deferStopped = false; exporting = false; buffering = false
     }
 
     // Start a run from any audio Uri (SAF pick or podcast download): reset session + go.
@@ -1064,7 +1062,6 @@ private fun TranscribeScreen(
         isPlaying = false; searchActive = false; searchQuery = ""
         coverEnabled = true; coverBitmap = null; coverFromSession = false; lastSaveUri = null
         summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false
-        isDetecting = false   // hand-rolled reset path: don't inherit a prior session's in-flight detection
         sessionDirty = false
         sessionGen++   // stale events from any prior session run are dropped
         // NOT a recording run: recordingRun gates the ⏭ Next-talk affordance (showNextTalk), and a
@@ -1169,7 +1166,7 @@ private fun TranscribeScreen(
             // cross-session flags too: a slow Detect-names from the PREVIOUS session must not keep
             // this one's action disabled, and a pending next-talk/auto-process from a capture whose
             // terminal event this sessionGen++ just orphaned must not fire much later.
-            isDetecting = false; pendingNextTalk = false; pendingAutoProcess = false; sessionDirty = false
+            pendingNextTalk = false; pendingAutoProcess = false; sessionDirty = false
             audioUri = Uri.fromFile(loaded.audio)
             // A reopened library session keeps its entry binding (the extracted audio is a cache
             // file, so derive it from the SOURCE uri) — renames still reach the library row.
@@ -1519,43 +1516,6 @@ private fun TranscribeScreen(
             .putExtra(TranscriptionService.EXTRA_AUDIO_URI, src.toString())
             .putExtra(TranscriptionService.EXTRA_RUN_GEN, sessionGen)
         ContextCompat.startForegroundService(context, intent)
-    }
-
-    // LLM-based speaker-name detection (loads the LLM off the main thread; preserves user edits).
-    // Gated on `running` like the sibling re-run actions (it loads its OWN LLM in-process, so it must
-    // not overlap a service run), and guarded by [sessionGen] so a slow detection that finishes after
-    // the user opened/started another session doesn't write stale names into it.
-    fun detectNames() {
-        // Also blocked while a queue drain runs (queueItemId set): drains never set `running`, and
-        // detection loads its OWN in-process LLM — two resident multi-GB models invite an LMK kill.
-        if (running || isDetecting || queueItemId != null) return
-        val gen = sessionGen
-        val snapshot = utterances.toList()
-        scope.launch {
-            isDetecting = true
-            status = context.getString(R.string.status_detecting_names)
-            val result = runCatching {
-                withContext(Dispatchers.Default) {
-                    val models = ModelManager(context)
-                    val spec = LlmRegistry.byId(config.llmModelId)
-                    if (!models.llmReady(spec)) models.ensureLlmModel(spec) { }
-                    val raw = LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = 4, sampler = spec.sampler).use { llm ->
-                        SpeakerNamer(llm, spec.chatTemplate).detect(snapshot)
-                    }
-                    // Keep detected names in the same script as the rest of the output (Target language × locale).
-                    val cc = TargetLanguage.scriptFor(config.targetLanguage, context)?.let { OpenCcConverter.get(context, it) }
-                    if (cc != null) raw.mapValues { (_, n) -> n.copy(name = cc.convert(n.name)) } else raw
-                }
-            }
-            if (gen != sessionGen) { isDetecting = false; return@launch }   // session changed → drop stale result
-            result
-                .onSuccess { names ->
-                    names.forEach { (id, n) -> if (speakerNames[id]?.confidence != "user") speakerNames[id] = n }
-                    if (names.isNotEmpty()) { status = context.getString(R.string.status_detected_names, names.size); sessionDirty = true }
-                }
-                .onFailure { status = context.getString(R.string.status_name_detection_failed, it.message) }
-            isDetecting = false
-        }
     }
 
     // Re-render every Chinese text node into [newScript] via OpenCC — the cheap path for a pure
@@ -1988,9 +1948,6 @@ private fun TranscribeScreen(
                 onReTitle = { reTitle() },
                 canReDiarize = transcriptReady && !running && audioUri != null,
                 onReDiarize = { reDiarize() },
-                canReDetect = transcriptReady && !running && stats.perSpeaker.isNotEmpty(),
-                isDetecting = isDetecting,
-                onReDetect = { detectNames() },
                 canExtractActions = transcriptReady && !running,
                 onExtractActions = { extractActions() },
                 onSearch = { sessTab = 1; searchActive = !searchActive; if (!searchActive) searchQuery = "" },

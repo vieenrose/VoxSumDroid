@@ -26,7 +26,6 @@
     <string name="re_transcribe">重新轉錄</string>
     <string name="re_summarize">重新摘要</string>
     <string name="re_title">重新產生標題</string>
-    <string name="re_detect_names">重新偵測名稱</string>
     <string name="re_diarize">重新辨識語者</string>
     <string name="re_transcribe_diarize">重新轉錄並辨識語者</string>
     <string name="pick_audio">選擇音訊…</string>
@@ -140,9 +139,6 @@
     <string name="status_transcribing">轉錄中 %d%%</string>
     <string name="status_transcript_lines">逐字稿：%d 行</string>
     <string name="status_transcript_lines_speakers">逐字稿：%1$d 行，%2$d 位語者</string>
-    <string name="status_detecting_names">偵測語者名稱中…</string>
-    <string name="status_detected_names">已偵測 %d 個語者名稱</string>
-    <string name="status_name_detection_failed">名稱偵測失敗：%1$s</string>
     <string name="status_error">錯誤：%1$s</string>
     <string name="retry">重試</string>
     <string name="summary_settings_changed">摘要設定已變更，請點「重新摘要」以套用。</string>

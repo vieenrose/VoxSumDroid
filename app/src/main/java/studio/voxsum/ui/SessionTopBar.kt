@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.RecordVoiceOver
@@ -77,7 +76,6 @@ fun SessionTopBar(
     canReSummarize: Boolean, onReSummarize: () -> Unit,
     canReTitle: Boolean, onReTitle: () -> Unit,
     canReDiarize: Boolean, onReDiarize: () -> Unit,
-    canReDetect: Boolean, isDetecting: Boolean, onReDetect: () -> Unit,
     canExtractActions: Boolean, onExtractActions: () -> Unit,
     canExport: Boolean,
     // MOSS-TD transcribes + diarizes in one pass — its Re-transcribe becomes a combined
@@ -138,7 +136,7 @@ fun SessionTopBar(
             }
             OverflowMenu(
                 canReTranscribe, onReTranscribe, canReSummarize, onReSummarize, canReTitle, onReTitle,
-                canReDiarize, onReDiarize, canReDetect, isDetecting, onReDetect, canExtractActions, onExtractActions,
+                canReDiarize, onReDiarize, canExtractActions, onExtractActions,
                 canExport, isMossBackend, onSaveSessionM4a, onShareSessionM4a, onCopyTranscript, onShareTranscript,
                 onExportTxt, onExportSrt, onExportVtt, onExportLrc, onExportMarkdown, onExportPdf, onSettings,
             )
@@ -178,7 +176,6 @@ private fun OverflowMenu(
     canReSummarize: Boolean, onReSummarize: () -> Unit,
     canReTitle: Boolean, onReTitle: () -> Unit,
     canReDiarize: Boolean, onReDiarize: () -> Unit,
-    canReDetect: Boolean, isDetecting: Boolean, onReDetect: () -> Unit,
     canExtractActions: Boolean, onExtractActions: () -> Unit,
     canExport: Boolean,
     isMossBackend: Boolean,
@@ -207,11 +204,9 @@ private fun OverflowMenu(
             // MOSS diarizes in the same pass, so the standalone Re-detect-speakers item is hidden.
             if (canReDiarize && !isMossBackend) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_diarize)) }, onClick = pick(onReDiarize))
-            if (canReDetect) DropdownMenuItem(enabled = !isDetecting, leadingIcon = { Icon(Icons.Filled.Badge, null, Modifier.size(18.dp)) },
-                text = { Text(stringResource(R.string.re_detect_names)) }, onClick = pick(onReDetect))
             if (canExtractActions) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.Checklist, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_extract_actions)) }, onClick = pick(onExtractActions))
-            if (canReTranscribe || canReSummarize || canReTitle || canReDiarize || canReDetect || canExtractActions) HorizontalDivider()
+            if (canReTranscribe || canReSummarize || canReTitle || canReDiarize || canExtractActions) HorizontalDivider()
             // --- session archive + text exports (disabled while running, like before) ---
             if (canExport) {
                 DropdownMenuItem(text = { Text(stringResource(R.string.session_save_m4a)) }, onClick = pick(onSaveSessionM4a))
