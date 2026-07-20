@@ -41,7 +41,7 @@ data class TranscriptionConfig(
     // (t2s) / none — keeping every text consistent. See [TargetLanguage.scriptFor].
     val targetLanguage: String = "auto",
     // Format of the summary (a [SummaryStyle] id): bullet (default) | executive | narrative.
-    val summaryStyle: String = "bullet",
+    val summaryStyle: String = "executive",
 ) {
     object Holder {
         @Volatile var config: TranscriptionConfig = TranscriptionConfig()
