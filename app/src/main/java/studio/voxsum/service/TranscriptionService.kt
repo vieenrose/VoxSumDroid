@@ -1276,7 +1276,6 @@ class TranscriptionService : LifecycleService() {
         val engine = MossAsrEngine.create(
             model = models.mossModel,
             speakerModel = models.mossSpeakerModel.takeIf { models.mossSpeakerReady() },
-            threads = asrThreads(),
         )
         if (engine == null) {
             runCatching { models.deleteAsr(AsrBackend.MOSS) }
@@ -1286,10 +1285,15 @@ class TranscriptionService : LifecycleService() {
         // Capture the run gen now — the onProgress callback runs inside withContext(Default) where
         // reading coroutineContext for it isn't available (it's a plain non-suspend lambda).
         val gen = kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED
-        val pcm = withContext(Dispatchers.IO) { readWav16ToFloat(wav) }
-        val durS = pcm.size.toDouble() / MOSS_SR
-        val embed: (suspend (FloatArray, List<IntRange>) -> List<FloatArray?>)? =
-            if (engine.hasSpeakerEmbedding) { p, r -> engine.embed(p, r) } else null
+        // The base MOSS weights emit Simplified regardless of the speech being Taiwanese; use the
+        // CONSERVATIVE s2t converter (no phrase-level TW localisation — it corrupts proper nouns).
+        val mossConvert: (String) -> String =
+            when (TargetLanguage.scriptFor(cfg.targetLanguage, this)) {
+                studio.voxsum.core.text.ChineseScript.TRADITIONAL ->
+                    OpenCcConverter.getMossTraditional(this).let { c -> { t: String -> c.convert(t) } }
+                else -> converter?.let { c -> { t: String -> c.convert(t) } } ?: { t -> t }
+            }
+        val durS = withContext(Dispatchers.IO) { wavDurationS(wav) }
         fun toUtterances(segs: List<studio.voxsum.core.asr.moss.MossLinkedSeg>) =
             segs.mapIndexed { i, s ->
                 TranscriptEvent.Utterance(index = i, text = s.text, startSec = s.start, endSec = s.end, speaker = s.speaker)
@@ -1298,13 +1302,12 @@ class TranscriptionService : LifecycleService() {
             withContext(Dispatchers.Default) {
                 MossPipeline.run(
                     durS = durS,
-                    getWindow = { off, len ->
-                        if (off >= pcm.size) FloatArray(0) else pcm.copyOfRange(off, minOf(pcm.size, off + len))
-                    },
-                    decodeWindow = { p -> engine.transcribeWindow(p) },
-                    embedRanges = embed,
-                    postProcess = { t -> converter?.convert(t) ?: t },
-                    windowS = 150,   // phone: 90–180 s window (bounded KV, peak RSS ≤ ~1.5 GB)
+                    // Stream windows straight from the on-disk WAV — never the whole take in RAM
+                    // (a 16 kHz float buffer grows ~3.8 MB per audio-minute; 2 h ≈ 460 MB).
+                    getWindow = { off, len -> withContext(Dispatchers.IO) { readWav16Window(wav, off, len) } },
+                    decodeWindow = { p, maxNew -> engine.transcribeWindow(p, maxNew) },
+                    embedUnit = if (engine.hasSpeakerEmbedding) { p -> engine.embedUnit(p) } else null,
+                    postProcess = mossConvert,
                     onProgress = { prog ->
                         // onProgress is a plain (non-suspend) callback — use the non-suspending
                         // tryEmit (as the other in-loop progress emitters do), not emitEvent.
@@ -1322,20 +1325,30 @@ class TranscriptionService : LifecycleService() {
         return out to out.mapNotNull { it.speaker }.distinct().size
     }
 
-    /** Read a 16 kHz mono PCM-16 WAV fully into a float buffer (MOSS windows over the whole take). */
-    private fun readWav16ToFloat(wav: File): FloatArray {
-        val bytes = wav.readBytes()
-        val start = WavIo.HEADER
-        val n = (bytes.size - start) / 2
-        val out = FloatArray(maxOf(0, n))
-        var i = 0
-        while (i < n) {
-            val lo = bytes[start + 2 * i].toInt() and 0xFF
-            val hi = bytes[start + 2 * i + 1].toInt()
-            out[i] = ((hi shl 8) or lo).toShort() / 32768f
-            i++
+    /** Duration in seconds of a 16 kHz mono PCM-16 work WAV. */
+    private fun wavDurationS(wav: File): Double =
+        maxOf(0L, wav.length() - WavIo.HEADER) / 2.0 / MOSS_SR
+
+    /** Read one window of a 16 kHz mono PCM-16 WAV ([offSamples], [lenSamples]) into floats —
+     *  seek + read, so MOSS peak memory stays one window regardless of total duration. */
+    private fun readWav16Window(wav: File, offSamples: Int, lenSamples: Int): FloatArray {
+        java.io.RandomAccessFile(wav, "r").use { f ->
+            val total = maxOf(0L, f.length() - WavIo.HEADER) / 2
+            if (offSamples >= total) return FloatArray(0)
+            val n = minOf(lenSamples.toLong(), total - offSamples).toInt()
+            f.seek(WavIo.HEADER + 2L * offSamples)
+            val bytes = ByteArray(2 * n)
+            f.readFully(bytes)
+            val out = FloatArray(n)
+            var i = 0
+            while (i < n) {
+                val lo = bytes[2 * i].toInt() and 0xFF
+                val hi = bytes[2 * i + 1].toInt()
+                out[i] = ((hi shl 8) or lo).toShort() / 32768f
+                i++
+            }
+            return out
         }
-        return out
     }
 
     /**

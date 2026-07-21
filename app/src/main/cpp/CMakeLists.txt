@@ -68,6 +68,7 @@ if(VOXSUM_ENABLE_MOSS AND EXISTS "${NATIVE_DIR}/RapidSpeech.cpp/CMakeLists.txt")
     set(RS_SRC "${NATIVE_DIR}/RapidSpeech.cpp")
     set(RS_BIN "${CMAKE_BINARY_DIR}/rapidspeech-build")
 
+    set(RS_MOSS_TD_A  "${RS_BIN}/libmoss-td.a")
     set(RS_CORE_A     "${RS_BIN}/librapidspeech-core.a")
     set(RS_WETEXT_A   "${RS_BIN}/libwetext_processor.a")
     set(RS_FST_A      "${RS_BIN}/_deps/openfst-build/libfst.a")
@@ -89,13 +90,16 @@ if(VOXSUM_ENABLE_MOSS AND EXISTS "${NATIVE_DIR}/RapidSpeech.cpp/CMakeLists.txt")
             # BUILD_SHARED_LIBS) — required so we can fold it into libvoxsum-moss.so. RS_BUILD_CLI=OFF
             # means no executables are built, so the "-static exe" side of this flag is inert.
             -DRS_STATIC_EXE=ON
+            # The vendored MIT MOSS-TD port (rapidspeech/src/arch/moss_td) — ASR lives here now.
+            # rapidspeech-core is kept ONLY for the CAM++ speaker embedder (rs_speaker_*).
+            -DRS_BUILD_MOSS_TD=ON
             -DRS_BUILD_CLI=OFF
             -DRS_BUILD_TESTS=OFF
             -DRS_CUDA=OFF
             -DGGML_OPENMP=OFF
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON
         BUILD_BYPRODUCTS
-            ${RS_CORE_A} ${RS_WETEXT_A} ${RS_FST_A}
+            ${RS_MOSS_TD_A} ${RS_CORE_A} ${RS_WETEXT_A} ${RS_FST_A}
             ${RS_GGML_A} ${RS_GGML_CPU_A} ${RS_GGML_BASE_A}
         INSTALL_COMMAND ""
         USES_TERMINAL_BUILD ON
@@ -106,12 +110,15 @@ if(VOXSUM_ENABLE_MOSS AND EXISTS "${NATIVE_DIR}/RapidSpeech.cpp/CMakeLists.txt")
     target_include_directories(voxsum-moss PRIVATE
         "${RS_SRC}/include"
         "${RS_SRC}/rapidspeech/src"
+        "${RS_SRC}/rapidspeech/src/arch/moss_td"
+        "${RS_SRC}/rapidspeech/src/arch/moss_td/include"
         "${RS_SRC}/ggml/include")
     # --start-group/--end-group lets the archives resolve each other regardless of link order.
     target_link_libraries(voxsum-moss
         -Wl,--exclude-libs,ALL
         -Wl,--start-group
         -Wl,--whole-archive ${RS_CORE_A} -Wl,--no-whole-archive
+        ${RS_MOSS_TD_A}
         ${RS_WETEXT_A} ${RS_FST_A}
         ${RS_GGML_CPU_A} ${RS_GGML_A} ${RS_GGML_BASE_A}
         -Wl,--end-group

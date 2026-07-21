@@ -54,11 +54,16 @@ class ModelManager(context: Context) {
     // MOSS-TD: one GGUF does ASR + diarization + timestamps (RapidSpeech.cpp runtime). The 14 MB
     // CAM++ GGUF is OPTIONAL — without it per-window [Sxx] tags still work, only cross-window
     // speaker-identity linking is lost. See docs/INTEGRATION-MOSS-TD.md.
-    val mossModel: File get() = File(modelsDir, "moss-td-zhtw-v7-q4_k_m.gguf")
+    val mossModel: File get() = File(modelsDir, "moss-transcribe-base-q4mix.gguf")
     val mossSpeakerModel: File get() = File(modelsDir, "campplus-cn-common.gguf")
-    // Older embeddings to reclaim on upgrade: eres2net_base and the interim CAM++ fp32.
+    // Older embeddings to reclaim on upgrade: eres2net_base, the interim CAM++ fp32, and the
+    // abandoned fine-tuned MOSS-TD lineage (replaced by the base q4mix weights — the fine-tunes
+    // had speaker-diarization and timestamp-accuracy regressions).
     private val legacyEmbeddings: List<File> get() =
-        listOf(File(modelsDir, "speaker_embedding.onnx"), File(modelsDir, "campplus_zh_en.onnx"))
+        listOf(
+            File(modelsDir, "speaker_embedding.onnx"), File(modelsDir, "campplus_zh_en.onnx"),
+            File(modelsDir, "moss-td-zhtw-v7-q4_k_m.gguf"), File(modelsDir, "moss-td-zhtw-v61-q4_k_m.gguf"),
+        )
 
     fun asrReady(): Boolean = senseVoiceModel.exists() && tokens.exists() && vadModel.exists()
     // Diarization is per-utterance embedding + clustering, so only the speaker-embedding
@@ -271,7 +276,7 @@ class ModelManager(context: Context) {
             n.contains("campplus") || n.contains("speaker_embedding") -> ModelKind.SPEAKER
             // MOSS-TD is an ASR model that happens to ship as a .gguf — classify it before the
             // generic gguf→LLM rule below, or Settings lists it as a summary model.
-            n.startsWith("moss-td") -> ModelKind.ASR
+            n.startsWith("moss-td") || n.startsWith("moss-transcribe") -> ModelKind.ASR
             n.endsWith(".gguf") || n.contains("gemma") -> ModelKind.LLM
             n.contains("asr") || n.contains("sense-voice") || n.contains("sensevoice") || n.contains("qwen") || n.startsWith("sherpa") -> ModelKind.ASR
             else -> ModelKind.OTHER
@@ -586,12 +591,15 @@ class ModelManager(context: Context) {
 
         // MOSS-TD (RapidSpeech.cpp GGUFs) — see models/manifest.json. Exact artifact sizes so the
         // GGUF magic+size check is a tight lower bound; the SHA pins are verified on download.
+        // Base (not fine-tuned) MOSS-Transcribe-Diarize, uniform q4_K with token_embd held at f16
+        // ("q4mix" — uniform quantization collapses utterance segmentation). Pinned to a commit so
+        // the download is reproducible and the sha256 stays verifiable.
         private const val MOSS_URL =
-            "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/moss-td-zhtw-v7-q4_k_m.gguf"
-        private const val MOSS_SHA = "8d5135a4a898f932a5c40ca023b4efc53c12db72386c0c5637657d98d6c240f4"
-        private const val MOSS_BYTES = 706_631_744L
+            "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/59391ef6e1657af9fa2d1f30d3db8027e037dd4f/moss-transcribe-base-q4mix.gguf"
+        private const val MOSS_SHA = "06b21a4c16302175936a2876266d3d90fba2d746b4dce50678dadc11ec6ad6bf"
+        private const val MOSS_BYTES = 758_922_240L
         private const val MOSS_SPK_URL =
-            "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/campplus-cn-common.gguf"
+            "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/59391ef6e1657af9fa2d1f30d3db8027e037dd4f/campplus.gguf"
         private const val MOSS_SPK_SHA = "c49e5e80128c8e04ca6febc1f0ac86d477a28413a4f10297608c68bd799ad564"
         private const val MOSS_SPK_BYTES = 14_255_904L
     }

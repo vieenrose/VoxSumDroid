@@ -57,6 +57,30 @@ class OpenCcConverter private constructor(
     companion object {
         @Volatile private var traditional: OpenCcConverter? = null
         @Volatile private var simplified: OpenCcConverter? = null
+        @Volatile private var traditionalConservative: OpenCcConverter? = null
+
+        /**
+         * Conservative Simplified→Traditional for MOSS-TD transcripts: `s2t` plus the
+         * character-level TWVariants only — NO phrase-level Taiwan localisation. Measured on
+         * real 立法院 audio, `s2twp`'s phrase pass corrupted domain proper nouns (高端疫苗 →
+         * 高階疫苗, 程序委員會 → 程式委員會) with every observed difference being a corruption;
+         * single-character variants can't do that. Vocabulary localisation (信息→資訊 …) is
+         * deliberately given up for transcripts.
+         */
+        fun getMossTraditional(context: Context): OpenCcConverter =
+            traditionalConservative ?: synchronized(this) {
+                traditionalConservative ?: buildTraditionalConservative(context)
+                    .also { traditionalConservative = it }
+            }
+
+        private fun buildTraditionalConservative(context: Context): OpenCcConverter {
+            val s2t = HashMap<String, String>(60_000)
+            loadInto(context, "opencc/STPhrases.txt", s2t)
+            loadInto(context, "opencc/STCharacters.txt", s2t)
+            val twChars = HashMap<String, String>(2048)
+            loadInto(context, "opencc/TWVariants.txt", twChars)
+            return build(listOf(s2t, twChars))
+        }
 
         /** Build once per script (call off the main thread); later calls return the cached instance. */
         fun get(context: Context, script: ChineseScript): OpenCcConverter = when (script) {
