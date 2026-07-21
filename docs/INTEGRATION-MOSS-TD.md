@@ -1,195 +1,220 @@
-# Integration note — MOSS-TD zh-TW (v6.1 GGUF) as a VoxSum ASR backend
+# Integration note — MOSS-TD as a VoxSum ASR backend
 
-*Status: proposal / integration guide · 2026-07-18*
+*Status: integration guide · rewritten 2026-07-21 for the purified engine*
 
-## What this model buys VoxSum
+> **This supersedes the 2026-07-18 version**, which described a fine-tuned
+> model (`moss-td-zhtw-v61-q4_k_m`) running through a `MossTD` arch inside
+> `rapidspeech-core`. That whole path is **gone**: the fine-tuned lineage was
+> abandoned (over-specialised and structurally fragile vs the base model), and
+> the in-tree implementation was replaced with a byte-validated vendored port.
+> If you started integrating against the old note, the API, the CLI, the model
+> file and the pipeline have all changed.
 
-[`Luigi/moss-transcribe-diarize-zhtw-gguf`](https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf)
-(`moss-td-zhtw-v61-q4_k_m.gguf`, 707 MB, Apache-2.0) is a 0.9B
-Whisper-medium-encoder + Qwen3-0.6B-decoder model that produces, **in one
-pass**, exactly what VoxSum assembles today from three models (ASR +
-pyannote segmentation + speaker embedding):
+## What the model does
+
+Base [OpenMOSS-Team/MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize)
+(0.9B, Whisper-medium encoder + Qwen3-0.6B decoder, Apache-2.0), **not
+fine-tuned**, produces in one pass what VoxSum otherwise assembles from three
+models:
 
 ```
-[12.40][S01]今天的 agenda 是主管職的 offer[15.80][16.20][S02]好，跟大家 update 一下[19.00]
+[12.40][S01]今天的 agenda 是主管職的 offer[16.20][S02]好，跟大家 update 一下
 ```
 
-i.e. **speaker-tagged, timestamped, Traditional-Chinese/English code-switched
-segments** — the native shape of a VoxSum transcript line.
+Speaker-tagged, timestamped segments — the native shape of a VoxSum transcript
+line, so the pyannote segmentation + embedding stages are **skipped** for this
+backend.
 
-Where it stands (measured, 2026-07):
+## Engine: what to build
 
-| Metric | Value |
-|---|---|
-| ASCEND code-switch MER (zh / en / mixed / all) | 0.200 / 0.438 / 0.163 / **0.267** |
-| Held-out zh-TW meeting MER | ~0.18 |
-| 123-min real meeting DER / consistency | 0.195 / 0.905 (with cross-window linking) |
-| 2 h council meeting, end-to-end | full coverage, 0 loop artifacts, ~10 speakers resolved (linking v2) |
-| Decode memory | flat — bounded 45 s audio-KV window (eviction-sized buffer; 180 s window ≈ 365 MB KV at f16) |
-| Speed (native CPU, 8 threads, x86 laptop) | ~6–7 tok/s ≈ 1.4–1.8× realtime on real meetings |
+Repo: [`vieenrose/RapidSpeech.cpp`](https://github.com/vieenrose/RapidSpeech.cpp),
+branch **`main`** (as of 2026-07-21 it carries the new implementation; the old
+one is only in history).
 
-Positioning vs the current backends: **best-in-class for the zh-TW meeting
-use-case** (diarization built in, Taiwan register, code-switch), heavier than
-SenseVoice/Zipformer (0.9B q4; comparable ballpark to the Qwen3-ASR backend
-VoxSum already ships). It is a *fourth backend*, not a replacement.
+The port lives at `rapidspeech/src/arch/moss_td/` — it is
+[`localai-org/moss-transcribe.cpp`](https://github.com/localai-org/moss-transcribe.cpp)
+**vendored unmodified** (MIT, `LICENSE` + `ATTRIBUTION.md` alongside), built as
+self-contained targets. It is deliberately **not** registered into
+`rapidspeech-core`'s model registry.
 
-## The runtime question (read this first)
+| target | output | use |
+|---|---|---|
+| `moss-td-shared` | `libmoss_td.so` | **this is what you link/dlopen** |
+| `rs-moss-td` | CLI | `rs-moss-td transcribe model.gguf audio.wav` |
+| `rs-moss-td-profile` | CLI | per-stage latency tree, for tuning on device |
 
-The GGUF runs on **[RapidSpeech.cpp](https://github.com/vieenrose/RapidSpeech.cpp)**
-(ggml, arch `MossTD`) — *not* on llama.cpp (no audio encoder / splicing) and
-*not* on stock sherpa-onnx. Two viable paths:
-
-### Option A — embed `librapidspeech-core` (recommended for quality)
-
-Add RapidSpeech.cpp as a third native tree next to `native/llama.cpp` and
-`native/sherpa-onnx`. It is CMake, C++17, depends only on its bundled ggml,
-and already cross-compiles for WASM and Jetson (aarch64), so an NDK build is
-routine:
-
-- Build only what's needed: `rapidspeech-core` + the `MossTD` arch +
-  `WhisperMelExtractor` frontend + (optional) `campplus` speaker arch. No
-  Python, no ONNX Runtime.
-- Android ABI: `arm64-v8a` with `-march=armv8.2-a+dotprod+fp16` where
-  available (q4_K matmul kernels benefit heavily; that's the difference
-  between ~2 and ~4 tok/s on phone cores).
-- **Two ggml copies caveat**: llama.cpp already embeds ggml. Keep the two
-  static and namespaced per library (both projects support static builds;
-  do NOT try to share one ggml — the pins differ).
-- JNI surface (mirror of the existing `AsrEngine` shape; the C API entry
-  points exist in `rapidspeech/c_api/`):
-  - `init(modelPath, threads)` / `free`
-  - `transcribeWindow(float[] pcm16k, promptOpt) → String` (the raw
-    `[ts][Sxx]text` stream) with a token callback for VoxSum's live
-    transcript strip
-  - `speakerEmbed(float[] pcm16k) → float[192]` (CAM++, for linking)
-- **⚠ Licensing (F-Droid)**: upstream RapidAI/RapidSpeech.cpp currently
-  declares **no license**, and the fork cannot relicense it. Before shipping
-  in the F-Droid repo, get an explicit license grant from upstream (issue
-  filed?) or vendor only the fork's original files + ggml (MIT). This is the
-  one real blocker of Option A; everything else is engineering.
-
-### Option B — sherpa-onnx port (zero new native code, v5-era model)
-
-[`vieenrose/sherpa-onnx@feature/moss-transcribe-diarize`](https://github.com/vieenrose/sherpa-onnx/tree/feature/moss-transcribe-diarize)
-already runs MOSS-TD through the sherpa-onnx runtime VoxSum embeds, using the
-**v5 ONNX q4** graphs ([`…-zhtw-onnx`](https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-onnx)).
-Cheapest path to *a* MOSS backend, but you give up everything v6/v6.1 added:
-bounded-KV streaming (memory grows with window), sentence-cadence time
-markers on dense speech, and the tuned engine guard suite. Fine as a
-stop-gap; not the target state.
-
-**Recommendation**: Option A for Linux immediately (no store constraints);
-Option A for Android gated on the upstream license grant, with Option B as
-the interim if a MOSS backend is wanted in a release sooner.
-
-## Models to register in `models/manifest.json`
-
-```json
-{
-  "id": "moss-td-zhtw-v61-q4_k_m",
-  "kind": "ASR",
-  "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/moss-td-zhtw-v61-q4_k_m.gguf",
-  "sha256": "8e658dbf2ccac00fc70d136e9afb60742fbcf1a8236b3695bb4df46f7e8a6889",
-  "license": "Apache-2.0"
-},
-{
-  "id": "campplus-cn-common",
-  "kind": "DIARIZATION_EMB",
-  "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/campplus-cn-common.gguf",
-  "sha256": "c49e5e80128c8e04ca6febc1f0ac86d477a28413a4f10297608c68bd799ad564",
-  "license": "Apache-2.0"
-}
+```bash
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target moss-td-shared -j
 ```
 
-(The CAM++ gguf is 14 MB and optional — without it, per-window `[Sxx]` tags
-still work, only cross-window identity linking is lost.)
+### The licensing picture materially improved
 
-New enum entry: `MOSS("moss-td", "MOSS zh-TW meetings (diarizing)", "MOSS-TD",
-"zh-TW + diarization")`. Since the model diarizes natively, the pyannote
-segmentation + eres2net embedding stages should be **skipped** for this
-backend — its output already carries speaker tags (see pipeline below).
+The old note called upstream's missing licence "the one real blocker of Option
+A". That blocker now applies to **much less**:
 
-## The pipeline that must come with the model
+- **ASR alone is licence-clean.** `moss-td-shared` links only ggml (MIT) and
+  the vendored MIT port — verified with `ldd`: no `librapidspeech-core`
+  dependency at all. For F-Droid you can build ASR without touching the
+  unlicensed upstream tree.
+- **Only cross-window speaker linking is affected.** CAM++ lives in
+  `rapidspeech-core`, which pulls in the surrounding upstream code that still
+  declares no licence. If that blocks you, ship without cross-window linking
+  (per-window `[Sxx]` tags still work) or source a CAM++ implementation
+  elsewhere.
 
-The model alone is not the product — the deployed web/native demos wrap it in
-a windowed pipeline whose logic lives in
-[`wasm-examples/moss/app-wasm.js`](https://github.com/vieenrose/RapidSpeech.cpp/blob/integrate-upstream/wasm-examples/moss/app-wasm.js)
-(reference implementation, ~battle-tested on 10-min → 2 h real meetings).
-Port these pieces to Kotlin/desktop; none are heavy:
+## C API (replaces the old JNI sketch)
 
-1. **Windowing**: pause-snapped windows (silence-energy cut), **90–180 s** on
-   Android (peak RSS ≈ weights 707 MB + KV ~200–365 MB + scratch → target
-   ≤1.5 GB), 180–300 s on desktop. Skip windows with RMS < −54 dBFS
-   (recess/dead air — decoding silence costs minutes and invites
-   hallucination).
-2. **Boundary re-advance**: if a window's last complete segment ends well
-   before the window's cut, restart the next window at that segment end
-   (MIN_ADV 20 s) — windows that start mid-sentence degrade.
-3. **Marker-less fallback**: if a window returns text but its time markers
-   cover < min(20 s, half the window), split the text at sentence
-   punctuation and distribute timestamps proportionally to char count
-   (v6.1 makes this rare, but dense no-pause speech can still under-mark).
-4. **Transcript-level loop collapse**: drop a ≥10-char text identical to one
-   ≤2 segments back within 30 s, and any ≥20-char text seen ≥2× in 180 s.
-   (The engine has its own in-decode guards — tick-stall breaker, cycle
-   detector, EOS suppression — these page-level ones catch the residue.)
-5. **Speaker linking v2** (the important one): treat each *(window, [Sxx]
-   tag)* as one unit, pool its segments' CAM++ embeddings
-   (duration-weighted), then average-linkage AHC over units at cosine
-   distance 0.65 with a **cannot-link veto** — units co-occurring in one
-   window may never merge (the model already said they're different
-   people). This is what turns "24 speakers" into "10" on a 2 h meeting.
-   Maps cleanly onto VoxSum's existing speaker-merge/rename UI.
-6. **Post-processing**: OpenCC s2tw + conservative number ITN — VoxSum
-   already has both (the 繁↔简 instant-switch machinery); just run the
-   model output through the same path.
+`rapidspeech/src/arch/moss_td/include/moss_transcribe_capi.h` — flat C,
+designed for dlopen/JNI, no C++ exceptions cross the boundary:
 
-Engine knobs (env / init options): `RS_AUDIO_KV_WINDOW` defaults to **45**
-(the v6.x models are trained for it — leave it); `=0` only for v5-era
-models. Repetition penalty 1.10/64 is default-on and should stay on for q4.
-f16 KV is the default (q8 KV snaps timestamps to whole seconds — don't).
+```c
+moss_transcribe_ctx* moss_transcribe_capi_load(const char* gguf_path);
+void  moss_transcribe_capi_free(moss_transcribe_ctx*);
+char* moss_transcribe_capi_transcribe_pcm(moss_transcribe_ctx*,
+          const float* samples, int n_samples, int sample_rate, int max_new);
+char* moss_transcribe_capi_transcribe_path(moss_transcribe_ctx*,
+          const char* wav_path, int max_new);
+void  moss_transcribe_capi_free_string(char*);
+const char* moss_transcribe_capi_last_error(moss_transcribe_ctx*);
+```
 
-## Linux (VoxSum Studio / desktop)
+Load the model **once** and keep the context resident — it is ~0.8 GB of
+weights; per-call loading would dominate everything. `transcribe_pcm` takes
+float PCM straight from memory (no temp WAV).
 
-No store constraints, so Option A directly:
+Env knobs: `MTD_THREADS` (default = all cores, which is usually **wrong** —
+see below), `MTD_DEVICE=cpu`, `MTD_FLASH_ATTN`.
 
-- `rapidspeech-core` builds on any Linux with CMake + a C++17 toolchain
-  (`cmake -B build -G Ninja -DRS_CUDA=OFF && cmake --build build`); the
-  `moss-td-test` CLI is a ready reference harness
-  (`moss-td-test model.gguf meeting.wav` → tagged stream on stdout, token
-  streaming callback available in the C API).
-- For the Python-side VoxSum Studio, the pragmatic first integration is a
-  subprocess wrapper around `moss-td-test` per window (it's how the ZeroGPU
-  demo Space runs today: windowed PCM in, `[ts][Sxx]` stream out, ~1.7×
-  realtime on 8 shared vCPUs) — then graduate to ctypes over the C API.
+> There is **no token-streaming callback** in this API. The old note promised
+> one; the vendored engine has no such hook and we do not patch it (that is
+> what keeps it verifiable against the reference). Live per-token output would
+> need a wrapper that re-implements the decode loop over the public
+> primitives.
 
-## Expected performance (set UX expectations)
+## Model files
 
-| Platform | Expectation |
-|---|---|
-| x86 laptop, 8 threads | ~6–7 tok/s → 1.4–1.8× realtime; a 10-min meeting ≈ 6 min |
-| ZeroGPU Space (8 shared vCPU, CPU-only) | 1.7–2.1× realtime measured |
-| Android flagship (8 big cores, dotprod) | est. 2–4 tok/s → slower than realtime; lean on VoxSum's deferred batch queue, not live transcription |
-| Jetson Nano gen1 (reference) | 0.4 tok/s — treat as floor, not target |
+Register from [`Luigi/moss-transcribe-diarize-zhtw-gguf`](https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf):
 
-Live per-sentence transcription (VoxSum's recording-booth strip) should stay
-on SenseVoice/Zipformer; MOSS-TD is the **batch/session-processing** backend
-where its one-pass diarized quality shines and VoxSum's queue absorbs the
-latency.
+| file | size | notes |
+|---|---|---|
+| `moss-transcribe-base-q4mix.gguf` | **0.76 GB** | **recommended for mobile** |
+| `moss-transcribe-base-q8mix.gguf` | 1.55 GB | 2× larger, no measured accuracy gain under windowing |
+| `moss-transcribe-base-f32.gguf` | 3.64 GB | the byte-parity reference; not for deployment |
+| `campplus.gguf` | 14 MB | optional, cross-window speaker linking |
+
+**Do not use uniform q4/q8 GGUFs.** `q4mix` is uniform q4_K with
+`token_embd.weight` held at f16 — that one tensor is disproportionately
+quantization-sensitive, and uniform quantization collapses utterance
+segmentation (69 segments where the reference emits 312). The old note's
+`moss-td-zhtw-v61-q4_k_m` is from the abandoned fine-tuned lineage; do not
+ship it.
+
+## The pipeline you must implement around the model
+
+Reference implementation:
+[`scripts/85_window_sweep.py`](https://github.com/vieenrose/distil-vibevoice-asr/blob/master/scripts/85_window_sweep.py)
+(the old note pointed at `wasm-examples/moss/app-wasm.js`, which no longer
+exists). Far smaller than the old pipeline — most of it was compensating for
+harnesses that are now gone.
+
+**1. Token budget (mandatory, or long audio truncates).** The GGUF's
+`generation_config` caps generation at a fixed 5120 tokens. On a 16-minute
+meeting that runs out 701 s in and the transcript simply stops — WER against
+ground truth degraded 0.161 → 0.552, almost entirely deletions. Pass
+`max_new = max(5120, 12 * window_seconds)`.
+
+**2. Windowing at 90 s.** Cut at the quietest 0.4 s frame within the last 12 s
+of the window (a real pause, not a fixed boundary). Measured vs single-pass on
+16-min meetings: **3.3× faster, ~half the peak memory**, at equal or better
+accuracy. 90 s was chosen by sweeping 60/90/180/300/450 s in both languages.
+
+**3. Stream the audio; never load the whole file.** Read each window from disk
+(seek + read) and discard it. Peak RSS then stays **flat at ~0.76 GB from 16
+minutes to 2 h 3 min** of real audio; loading whole files grew memory ~3.8 MB
+per audio-minute.
+
+**4. Cross-window speaker linking** (needs CAM++). Each window's `[Sxx]` tags
+are *local* — the model resets numbering every call, so without linking
+speaker accuracy collapses ~99% → ~50%. Working recipe:
+
+- Embed at the **(window, local-tag) unit** level, pooling up to 30 s of that
+  unit's audio into one embedding. Per-utterance embedding fragments badly —
+  39% of real utterances are under 2 s, too little for a stable embedding
+  (it produced up to 117 "speakers" on a 4-speaker meeting).
+- Cluster with **constrained agglomerative** clustering (merge globally-best
+  pair first), *not* greedy streaming — greedy lets one bad merge contaminate
+  a centroid and cascade (measured 68% → 99%+ speaker accuracy from this fix
+  alone).
+- **Cannot-link prior**: two units in the same window are different speakers.
+  Apply as a similarity **penalty (~0.35), not a hard veto** — the model
+  occasionally over-splits one speaker within a window, and a hard veto makes
+  the per-window tag count a floor on the global speaker count.
+- Absorb clusters under ~8 s of pooled audio into their nearest large cluster;
+  their embeddings are noise.
+
+**5. Traditional Chinese conversion.** The base weights emit **Simplified**
+regardless of the speech being Taiwanese (verified: the genuine PyTorch
+reference output is equally Simplified). Use OpenCC **`s2t`**.
+
+> **Do not use `s2twp`.** It corrupts domain proper nouns: measured on a real
+> 立法院 clip, *every* difference vs `s2t` was a corruption — 高端疫苗 →
+> 高階疫苗 (a vaccine name), 程序委員會 → 程式委員會. `s2twp` does give real
+> vocabulary wins (軟件→軟體, 網絡→網路, 信息→資訊), so if you want them, pair
+> it with a protected-term list.
+
+**6. Harnesses that are GONE — do not port them.** The old note documented
+`RS_AUDIO_KV_WINDOW=45` eviction, repetition penalty 1.10/64, marker-less
+fallback, boundary re-advance, transcript-level loop collapse, and in-decode
+loop guards. **None exist in the current engine and none are needed.**
+Windowing bounds context far more aggressively than eviction did, and the base
+model does not exhibit the degenerate loops the fine-tuned models did.
+
+## Measured performance
+
+**Raspberry Pi 4 (Cortex-A72, 4 cores, no `asimddp`/`i8mm`)** — a deliberately
+pessimistic ARM proxy; any phone SoC since ~2019 has dotprod:
+
+| | q4mix | q8mix |
+|---|---|---|
+| peak RSS | **1.06 GB** | 1.83 GB |
+| decode | **1.90–2.11 tok/s** | 1.04–1.25 tok/s |
+
+Latency split on an 11 s clip (q4mix): **audio encoder 68.2%**, decode 19.0%,
+prefill 12.6%. The encoder dominates and is *not* helped by quantization (its
+convolutions and attention run in F32 regardless) — plan UX around that.
+
+**Threading**: `MTD_THREADS` defaults to all cores and that is usually wrong.
+On a container reporting 192 cores, the default oversubscribed a few real
+vCPUs and an 11 s clip took **over 10 minutes**; capping to 16 brought it to
+6 s. Set it explicitly to the real core budget.
+
+**Accuracy** (English, AMI ground truth, 90 s windows, q4mix): WER **0.1639**,
+speaker accuracy **99.0%**, timestamp drift ≤0.09 s vs the f32 reference.
+
+> **Set expectations honestly**: that 0.164 is one meeting. Across **6
+> diverse unseen meetings the mean WER is 0.262** (range 0.185–0.371) — the
+> single-meeting number is not representative, and the variation is the base
+> model's sensitivity to recording conditions, not the pipeline's.
+
+Positioning is unchanged: MOSS-TD is the **batch/session-processing** backend.
+Live per-sentence transcription should stay on SenseVoice/Zipformer.
 
 ## Suggested landing order
 
-1. Linux/Studio: subprocess backend behind a `moss-td` engine id (fast,
-   validates the pipeline port).
-2. Kotlin pipeline pieces (windowing, linking v2) with unit tests against
-   the fixtures in the RapidSpeech.cpp repo.
-3. Android NDK build of `rapidspeech-core` + JNI backend — **after** the
-   upstream license question is settled (file the issue now).
-4. Manifest + Settings entry ("MOSS zh-TW meetings — best for Taiwanese
-   meeting recordings, slower"), default off.
+1. **Linux/Studio**: dlopen `libmoss_td.so` via ctypes (the HF Space does
+   exactly this — see its `windowing.py`), or shell out to `rs-moss-td` per
+   window to validate the pipeline port first.
+2. **Kotlin pipeline pieces** — token budget, 90 s windowing, streaming reader,
+   linking. Unit-test linking against a multi-speaker fixture.
+3. **Android NDK** build of `moss-td-shared` (`arm64-v8a`, enable
+   `+dotprod+fp16`). ASR-only is licence-clean; add CAM++ linking only if the
+   `rapidspeech-core` licence question is resolved.
+4. Manifest + Settings entry, default off.
 
 ---
-*Model lineage & training recipes:
+*Model lineage, validation methodology and staged plan:
 [vieenrose/distil-vibevoice-asr](https://github.com/vieenrose/distil-vibevoice-asr).
-Live references: [WASM demo](https://huggingface.co/spaces/Luigi/moss-transcribe-diarize-wasm) ·
-[native C++ demo](https://huggingface.co/spaces/Luigi/moss-transcribe-diarize-cpp).*
+Live reference:
+[native C++ demo](https://huggingface.co/spaces/Luigi/moss-transcribe-diarize-cpp)
+(the WASM demo referenced by the previous version of this note is retired).*
