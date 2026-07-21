@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Build the MOSS-TD subprocess binaries (moss-td-test + rs-speaker-embed) from the
+# Build the MOSS-TD subprocess binaries (rs-moss-td + rs-speaker-embed) from the
 # native/RapidSpeech.cpp submodule and stage them into desktop/appResources/linux-x64/moss/.
+#
+# rs-moss-td is the vendored MIT port's CLI (rapidspeech/src/arch/moss_td, links only ggml);
+# rs-speaker-embed still needs librapidspeech-core.so for the CAM++ rs_speaker_* API.
 #
 # These are standalone CLI executables the desktop app spawns per audio window (see
 # MossSubprocessEngine.kt) — NOT libraries the JVM System.load()s — so they live outside
@@ -45,14 +48,14 @@ cmake -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DRS_STATIC_EXE=OFF -DRS_BUILD_TESTS=OFF -DRS_CUDA=OFF \
   -S "$RS_SRC" -B "$BUILD_DIR"
 
-echo ">> building moss-td-test + rs-speaker-embed"
-cmake --build "$BUILD_DIR" --target moss-td-test rs-speaker-embed -- -j "$(nproc)"
+echo ">> building rs-moss-td + rs-speaker-embed"
+cmake --build "$BUILD_DIR" --target rs-moss-td rs-speaker-embed -- -j "$(nproc)"
 
 rm -rf "$OUT_DIR"; mkdir -p "$OUT_DIR"
 
 # Stage the two executables.
 declare -a BINS=()
-for bin in moss-td-test rs-speaker-embed; do
+for bin in rs-moss-td rs-speaker-embed; do
   path="$(find "$BUILD_DIR" -maxdepth 2 -name "$bin" -type f -perm -u+x | head -1)"
   [ -n "$path" ] || { echo "error: built binary '$bin' not found under $BUILD_DIR" >&2; exit 1; }
   cp "$path" "$OUT_DIR/$bin"; chmod +x "$OUT_DIR/$bin"

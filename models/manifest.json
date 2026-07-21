@@ -10,10 +10,10 @@
       "default": true
     },
     {
-      "id": "moss-td-zhtw-v7-q4_k_m",
+      "id": "moss-transcribe-base-q4mix",
       "kind": "ASR",
-      "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/moss-td-zhtw-v7-q4_k_m.gguf",
-      "sha256": "8d5135a4a898f932a5c40ca023b4efc53c12db72386c0c5637657d98d6c240f4",
+      "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/59391ef6e1657af9fa2d1f30d3db8027e037dd4f/moss-transcribe-base-q4mix.gguf",
+      "sha256": "06b21a4c16302175936a2876266d3d90fba2d746b4dce50678dadc11ec6ad6bf",
       "license": "Apache-2.0"
     }
   ],

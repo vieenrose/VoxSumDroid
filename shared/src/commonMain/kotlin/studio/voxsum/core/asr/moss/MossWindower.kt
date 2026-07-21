@@ -5,20 +5,17 @@ import kotlin.math.round
 import kotlin.math.sqrt
 
 /**
- * Pure windowing helpers for the MOSS-TD pipeline (pause-snapping + silence
- * gating). Mirror of the `pauseCut` / RMS-gate logic in the JS reference's
- * `transcribe()` loop. Kept side-effect free so it is unit-testable without any
- * model or audio decoder.
+ * Pure windowing helpers for the MOSS-TD pipeline. Mirror of `pause_cut` in the
+ * reference `windowing.py`, plus a silence gate (a VoxSum addition — a dead-air
+ * window costs minutes of decode on a phone; the reference always decodes).
+ * Kept side-effect free so it is unit-testable without any model or audio decoder.
  */
 object MossWindower {
 
     /** −54 dBFS RMS: far below any real speech, incl. quiet off-mic chatter. */
     const val SILENCE_RMS = 0.002
 
-    /** Never re-advance on less than this many seconds of clean coverage. */
-    const val MIN_ADV = 20.0
-
-    /** Pause-snap search span at the tail of a window: 12 s for long windows, else 5 s. */
+    /** Pause-snap search span at the tail of a window: 12 s for ≥90 s windows, else 5 s. */
     fun snapS(windowS: Int): Double = if (windowS >= 90) 12.0 else 5.0
 
     /** RMS of a PCM window (0..1 float samples). */
@@ -33,8 +30,9 @@ object MossWindower {
 
     /**
      * Seconds from the piece start at which to cut this window: the centre of the
-     * quietest 400 ms in the final [snapS] seconds (RMS scan at 100 ms hops).
-     * A piece shorter than a full window is the final one — keep all of it.
+     * quietest 400 ms in the final [snapS] seconds (RMS scan at 100 ms hops) — so a
+     * cut lands in silence, not mid-utterance. A piece shorter than a full window
+     * is the final one — keep all of it.
      */
     fun pauseCut(piece: FloatArray, windowS: Int, sr: Int = MOSS_SR): Double {
         val n = piece.size

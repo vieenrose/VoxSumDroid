@@ -323,9 +323,9 @@ private suspend fun ensureAsrAndDiarizationModels(
 
 /**
  * MOSS-TD transcription: one model does ASR + speaker diarization + timestamps per window. Runs
- * the shared [MossPipeline] (windowing / loop-collapse / cross-window speaker-linking) over the
- * subprocess engine — no sherpa ASR, no separate diarization pass. [pcm] is the already-decoded,
- * normalized 16 kHz buffer.
+ * the shared [MossPipeline] (90 s pause-snapped windowing / token budget / cross-window
+ * speaker-linking) over the subprocess engine — no sherpa ASR, no separate diarization pass.
+ * [pcm] is the already-decoded, normalized 16 kHz buffer.
  */
 private suspend fun runMossTranscription(
     models: ModelManager, config: TranscriptionConfig, pcm: FloatArray,
@@ -349,8 +349,15 @@ private suspend fun runMossTranscription(
         segs.mapIndexed { i, s ->
             TranscriptEvent.Utterance(index = i, text = s.text, startSec = s.start, endSec = s.end, speaker = s.speaker)
         }
-    val embed: (suspend (FloatArray, List<IntRange>) -> List<FloatArray?>)? =
-        if (engine.hasSpeakerEmbedding) { p, ranges -> engine.embed(p, ranges) } else null
+    // The base MOSS weights emit Simplified; MOSS transcripts use the CONSERVATIVE s2t
+    // converter (no phrase-level TW localisation — it corrupts proper nouns). Non-Traditional
+    // targets keep the caller's converter.
+    val mossConvert: (String) -> String =
+        when (studio.voxsum.core.config.TargetLanguage.scriptFor(config.targetLanguage)) {
+            studio.voxsum.core.text.ChineseScript.TRADITIONAL ->
+                OpenCcConverter.getMossTraditional().let { c -> { t: String -> c.convert(t) } }
+            else -> convert
+        }
 
     val linked = withContext(Dispatchers.Default) {
         MossPipeline.run(
@@ -358,10 +365,9 @@ private suspend fun runMossTranscription(
             getWindow = { off, len ->
                 if (off >= pcm.size) FloatArray(0) else pcm.copyOfRange(off, minOf(pcm.size, off + len))
             },
-            decodeWindow = { p -> engine.transcribeWindow(p) },
-            embedRanges = embed,
-            postProcess = convert,
-            windowS = 240,   // desktop: 180–300 s window (peak RSS is not phone-constrained)
+            decodeWindow = { p, maxNew -> engine.transcribeWindow(p, maxNew) },
+            embedUnit = if (engine.hasSpeakerEmbedding) { p -> engine.embedUnit(p) } else null,
+            postProcess = mossConvert,
             onProgress = { prog ->
                 val ut = toUtterances(prog.segments)
                 utterances.clear(); utterances.addAll(ut)

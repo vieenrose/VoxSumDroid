@@ -1,53 +1,38 @@
 package studio.voxsum.core.asr.moss
 
 /**
- * Parse a single window's raw decode output (`[start][Sxx]text[end]` stream)
- * into segments with computed ends and sample ranges. Mirror of
- * `moss-worker.js::worker_parse` / the Python `worker_parse` in the reference
- * demo Space.
+ * Parse a single window's raw decode output (`[start][Sxx]text` stream, the
+ * `[Sxx]` tag optional and carried forward) into window-local segments. Mirror
+ * of `parse_window` in the reference `windowing.py`.
  */
 object MossParse {
-
-    // Wall-clock markers the model sometimes interleaves: [HH:MM:SS] / [HH:MM:SS.mmm].
-    private val WALL_CLOCK = Regex("""\[\d{1,2}:\d{2}:\d{2}(?:\.\d+)?]""")
-    private val DOUBLE_OPEN = Regex("""\[+\[""")
 
     // [start](-rawEnd)?[Sxx]?text  — text runs until the next '['.
     private val SEG = Regex("""\[(\d+(?:\.\d+)?)(?:-(\d+(?:\.\d+)?))?](?:\[(S\d+)])?([^\[]*)""")
 
-    /**
-     * @param raw   one window's decode output (the TRANSCRIPTION block, window-local seconds)
-     * @param durS  the window's audio duration in seconds
-     * @param sr    sample rate (default [MOSS_SR])
-     */
-    fun parseWindow(raw: String, durS: Double, sr: Int = MOSS_SR): MossParsedWindow {
-        var text = WALL_CLOCK.replace(raw, "")
-        text = DOUBLE_OPEN.replace(text, "[")
-
+    /** @param raw one window's decode output (window-local seconds) */
+    fun parseWindow(raw: String): List<MossRawSeg> {
         val segs = ArrayList<MossRawSeg>()
-        for (m in SEG.findAll(text)) {
+        var prevSpk = "S01"
+        for (m in SEG.findAll(raw)) {
             val start = m.groupValues[1].toDouble()
+            if (m.groupValues[3].isNotEmpty()) prevSpk = m.groupValues[3]
             val body = m.groupValues[4].trim()
-            if (body.isEmpty() || start > durS + 0.5) continue
+            if (body.isEmpty()) continue
             val rawEnd = m.groupValues[2].takeIf { it.isNotEmpty() }?.toDouble()
-            val spk = m.groupValues[3]  // "" when the tag was omitted
-            segs.add(MossRawSeg(start = start, rawEnd = rawEnd, spk = spk, text = body))
+            segs.add(MossRawSeg(start = start, rawEnd = rawEnd, spk = prevSpk, text = body))
         }
+        return segs
+    }
 
-        val ends = ArrayList<Double>(segs.size)
-        val ranges = ArrayList<IntRange>(segs.size)
-        for (i in segs.indices) {
-            val s = segs[i]
-            val end = when {
+    /** End time per segment: rawEnd if it's ahead of start, else next segment's start,
+     *  else start+3 clamped to the window duration. */
+    fun endsFor(segs: List<MossRawSeg>, durS: Double): List<Double> =
+        segs.mapIndexed { i, s ->
+            when {
                 s.rawEnd != null && s.rawEnd > s.start -> s.rawEnd
                 i + 1 < segs.size -> segs[i + 1].start
                 else -> minOf(durS, s.start + 3.0)
             }
-            ends.add(end)
-            ranges.add((s.start * sr).toInt() until (end * sr).toInt())
         }
-
-        val failed = text.trim().isEmpty() && durS > 2.0
-        return MossParsedWindow(segs = segs, ends = ends, ranges = ranges, failed = failed)
-    }
 }

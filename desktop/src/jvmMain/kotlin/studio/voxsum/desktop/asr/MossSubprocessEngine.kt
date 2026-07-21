@@ -9,14 +9,15 @@ import java.nio.ByteOrder
 import java.util.concurrent.TimeUnit
 
 /**
- * Desktop MOSS-TD backend: spawns the RapidSpeech.cpp `moss-td-test` CLI once per audio window
- * and the `rs-speaker-embed` CLI for CAM++ speaker vectors — the exact invocation the reference
- * demo Space (`Luigi/moss-transcribe-diarize-cpp`) uses. This is the "decode this PCM" +
- * "embed these ranges" pair that [studio.voxsum.core.asr.moss.MossPipeline] injects; all windowing
- * and speaker-linking logic is the shared pure-Kotlin pipeline, not here.
+ * Desktop MOSS-TD backend: spawns the vendored port's `rs-moss-td` CLI once per audio window
+ * (`rs-moss-td transcribe <model> <wav> --max-new N` → raw `[start][Sxx]text` on stdout) and the
+ * `rs-speaker-embed` CLI for CAM++ speaker vectors. This is the "decode this PCM" + "embed this
+ * pooled audio" pair that [studio.voxsum.core.asr.moss.MossPipeline] injects; all windowing and
+ * speaker-linking logic is the shared pure-Kotlin pipeline, not here.
  *
- * The binaries + models are located, not bundled per-call: [mossBin]/[speakerBin] are staged into
- * appResources/linux-x64 by desktop/scripts/build-moss.sh.
+ * Per-window model reload is a deliberate simplicity trade: a desktop loads the 0.76 GB q4mix in
+ * a couple of seconds against a multi-minute decode. (The HF Space dlopens `libmoss_td.so` via
+ * ctypes instead; the JVM equivalent would need JNA/JNI plumbing for no measured win.)
  */
 class MossSubprocessEngine(
     private val mossBin: File,
@@ -27,53 +28,46 @@ class MossSubprocessEngine(
 ) {
     val hasSpeakerEmbedding: Boolean get() = speakerBin != null && speakerModel != null
 
-    /** Decode one window → the raw `[start][Sxx]text[end]` TRANSCRIPTION block (window-local seconds). */
-    fun transcribeWindow(pcm: FloatArray): String {
+    /** Decode one window → the raw `[start][Sxx]text` transcript (window-local seconds). */
+    fun transcribeWindow(pcm: FloatArray, maxNewTokens: Int): String {
         val wav = File.createTempFile("moss-win", ".wav")
         try {
             writeWav16(wav, pcm)
-            val out = run(
-                listOf(mossBin.absolutePath, model.absolutePath, wav.absolutePath),
+            return run(
+                listOf(
+                    mossBin.absolutePath, "transcribe", model.absolutePath, wav.absolutePath,
+                    "--max-new", maxNewTokens.toString(),
+                ),
                 timeoutSec = maxOf(1800L, (pcm.size / MOSS_SR) * 6L),
-            )
-            return TRANSCRIPTION.find(out)?.groupValues?.get(1)?.trim() ?: ""
+            ).trim()
         } finally {
             wav.delete()
         }
     }
 
-    /** CAM++ embeddings for [ranges] (sample [a,b) spans into [pcm]); null per range that was too
-     *  short / failed. Returns all-null when the speaker model isn't provisioned. */
-    fun embed(pcm: FloatArray, ranges: List<IntRange>): List<FloatArray?> {
-        if (ranges.isEmpty()) return emptyList()
+    /** CAM++ embedding of one speaker unit's pooled audio; null if too short / failed /
+     *  the speaker model isn't provisioned. */
+    fun embedUnit(pcm: FloatArray): FloatArray? {
         val bin = speakerBin; val spk = speakerModel
-        if (bin == null || spk == null) return List(ranges.size) { null }
+        if (bin == null || spk == null || pcm.isEmpty()) return null
         val f32 = File.createTempFile("moss-emb", ".f32")
         try {
             writeF32(f32, pcm)
-            val args = ArrayList<String>()
-            args += bin.absolutePath; args += spk.absolutePath; args += f32.absolutePath
-            for (r in ranges) args += "${r.first}:${r.last + 1}"   // half-open [a,b)
-            val out = run(args, timeoutSec = 600L)
-            // One line per range: "nil" or >=64 space-separated floats. Keep the last N lines.
-            val lines = out.lineSequence()
-                .map { it.trim() }
-                .filter { it == "nil" || it.split(Regex("\\s+")).size >= 64 }
-                .toList()
-                .takeLast(ranges.size)
-            val res = ArrayList<FloatArray?>(ranges.size)
-            for (l in lines) {
-                if (l == "nil") { res += null; continue }
-                val v = l.split(Regex("\\s+")).map { it.toFloat() }.toFloatArray()
-                var n = 0.0
-                for (x in v) n += x.toDouble() * x
-                val norm = (kotlin.math.sqrt(n) + 1e-9).toFloat()
-                res += FloatArray(v.size) { v[it] / norm }
-            }
-            while (res.size < ranges.size) res += null
-            return res
+            val out = run(
+                listOf(bin.absolutePath, spk.absolutePath, f32.absolutePath, "0:${pcm.size}"),
+                timeoutSec = 600L,
+            )
+            // One line for the single range: "nil" or >=64 space-separated floats.
+            val line = out.lineSequence().map { it.trim() }
+                .lastOrNull { it == "nil" || it.split(Regex("\\s+")).size >= 64 } ?: return null
+            if (line == "nil") return null
+            val v = line.split(Regex("\\s+")).map { it.toFloat() }.toFloatArray()
+            var n = 0.0
+            for (x in v) n += x.toDouble() * x
+            val norm = (kotlin.math.sqrt(n) + 1e-9).toFloat()
+            return FloatArray(v.size) { v[it] / norm }
         } catch (t: Throwable) {
-            return List(ranges.size) { null }
+            return null
         } finally {
             f32.delete()
         }
@@ -81,8 +75,8 @@ class MossSubprocessEngine(
 
     private fun run(command: List<String>, timeoutSec: Long): String {
         val pb = ProcessBuilder(command)
-        pb.environment()["RS_THREADS"] = threads.toString()
-        pb.environment()["RS_AUDIO_KV_WINDOW"] = "45"   // v6.x models are trained for this
+        pb.environment()["MTD_THREADS"] = threads.toString()   // vendored port
+        pb.environment()["RS_THREADS"] = threads.toString()    // rs-speaker-embed
         pb.redirectErrorStream(false)
         val proc = pb.start()
         proc.errorStream.close()
@@ -95,14 +89,12 @@ class MossSubprocessEngine(
     }
 
     companion object {
-        private val TRANSCRIPTION = Regex("""(?s)===== TRANSCRIPTION =====\n(.*?)\n=====""")
-
         /** Resolve the staged binaries + models. Returns null when the moss binary or model is absent.
          *  The binaries live in a `moss/` subdir of the native-resources dir (isolated from
          *  llama.cpp's libggml.so — see build-moss.sh). */
         fun create(model: File, speakerModel: File?, threads: Int): MossSubprocessEngine? {
             val dir = NativeLibs.libDir()?.let { File(it, "moss") } ?: return null
-            val mossBin = File(dir, "moss-td-test").takeIf { it.canExecute() } ?: return null
+            val mossBin = File(dir, "rs-moss-td").takeIf { it.canExecute() } ?: return null
             val spkBin = File(dir, "rs-speaker-embed").takeIf { it.canExecute() }
             val spk = speakerModel?.takeIf { it.exists() }
             return MossSubprocessEngine(
