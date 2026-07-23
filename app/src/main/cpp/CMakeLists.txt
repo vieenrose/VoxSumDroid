@@ -62,6 +62,23 @@ target_link_libraries(voxsum-llm llama android log)
 #   * -Wl,--exclude-libs,ALL hides RapidSpeech's ggml_* symbols from libvoxsum-moss.so's dynamic
 #     table, so they never collide with llama.cpp's separate libggml.so in the same jniLibs dir
 #     (Android has one jniLibs dir per ABI — the desktop's subdir-isolation trick isn't available).
+# --- MOSS-TD on LiteRT (CPU/XNNPACK) ----------------------------------------
+# The primary MOSS backend on Android: the vendored-headers + Maven-AAR-runtime
+# LiteRT engine (see mosslite/PROVENANCE.md). libLiteRt.so is a PREBUILT from
+# the official com.google.ai.edge.litert:litert:2.1.6 AAR staged in
+# app/src/main/jniLibs/<abi>/ — F-Droid source-purity builds can turn this off.
+option(VOXSUM_ENABLE_MOSSLITE "Build the MOSS-TD LiteRT backend" ON)
+if(VOXSUM_ENABLE_MOSSLITE)
+    add_library(voxsum-mosslite SHARED
+        mosslite/moss_lite_jni.cpp
+        mosslite/moss_lite_engine.cc
+        mosslite/whisper_mel.cc)
+    target_include_directories(voxsum-mosslite PRIVATE mosslite)
+    target_link_libraries(voxsum-mosslite
+        "${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libLiteRt.so"
+        android log)
+endif()
+
 option(VOXSUM_ENABLE_MOSS "Build the MOSS-TD (RapidSpeech.cpp) native backend" ON)
 if(VOXSUM_ENABLE_MOSS AND EXISTS "${NATIVE_DIR}/RapidSpeech.cpp/CMakeLists.txt")
     include(ExternalProject)

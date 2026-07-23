@@ -58,6 +58,15 @@ class MossAsrEngine private constructor(
             return MossAsrEngine(c, s)
         }
 
+        /** CAM++-only handle for the LiteRT ASR path: cross-window speaker embeddings still come
+         *  from rapidspeech-core's rs_speaker_*; ASR ([transcribeWindow]) must not be called. */
+        fun createSpeakerOnly(speakerModel: File): MossAsrEngine? {
+            ensureLib()
+            val s = nativeInitSpeaker(speakerModel.absolutePath, 2)
+            if (s == 0L) return null
+            return MossAsrEngine(0L, s)
+        }
+
         @JvmStatic private external fun nativeInit(modelPath: String, threads: Int): Long
         @JvmStatic private external fun nativeFree(ctx: Long)
         @JvmStatic private external fun nativeTranscribe(ctx: Long, pcm: FloatArray, maxNew: Int): String

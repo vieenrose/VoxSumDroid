@@ -51,11 +51,17 @@ class ModelManager(context: Context) {
      *  where silence falls). */
     val segmentationModel: File get() = File(modelsDir, "pyannote_segmentation_3_0.onnx")
 
-    // MOSS-TD: one GGUF does ASR + diarization + timestamps (RapidSpeech.cpp runtime). The 14 MB
+    // MOSS-TD: one model does ASR + diarization + timestamps. The Android engine is the LiteRT
+    // three-component split (encoder/embedder/decoder .tflite + vocab.json for detokenization);
+    // the RapidSpeech.cpp GGUF path remains only as the F-Droid source-purity fallback. The 14 MB
     // CAM++ GGUF is OPTIONAL — without it per-window [Sxx] tags still work, only cross-window
     // speaker-identity linking is lost. See docs/INTEGRATION-MOSS-TD.md.
     val mossModel: File get() = File(modelsDir, "moss-transcribe-base-q4mix.gguf")
     val mossSpeakerModel: File get() = File(modelsDir, "campplus-cn-common.gguf")
+    val mossLiteEncoder: File get() = File(modelsDir, "moss_td_encoder_q8.tflite")
+    val mossLiteEmbedder: File get() = File(modelsDir, "moss_td_embedder_q8.tflite")
+    val mossLiteDecoder: File get() = File(modelsDir, "moss_td_decoder_q4b32_ekv2560.tflite")
+    val mossLiteVocab: File get() = File(modelsDir, "moss_td_vocab.json")
     // Older embeddings to reclaim on upgrade: eres2net_base, the interim CAM++ fp32, and the
     // abandoned fine-tuned MOSS-TD lineage (replaced by the base q4mix weights — the fine-tunes
     // had speaker-diarization and timestamp-accuracy regressions).
@@ -70,9 +76,14 @@ class ModelManager(context: Context) {
     // model is needed (no pyannote segmentation model).
     fun diarizationReady(): Boolean = embeddingModel.exists() && segmentationModel.exists()
 
-    /** The MOSS-TD model is ready once its (mandatory) ASR+diarization GGUF is present and valid.
+    /** MOSS-TD readiness = all three LiteRT components + the detok vocab, size-checked (the
+     *  .tflite flatbuffers have no cheap magic check like GGUF; sha256 is verified on download).
      *  The CAM++ speaker GGUF is optional — [mossSpeakerReady] reports it separately. */
-    fun mossReady(): Boolean = mossModel.exists() && isValidGguf(mossModel, MOSS_BYTES)
+    fun mossReady(): Boolean =
+        mossLiteEncoder.length() == MOSSLITE_ENC_BYTES &&
+        mossLiteEmbedder.length() == MOSSLITE_EMB_BYTES &&
+        mossLiteDecoder.length() == MOSSLITE_DEC_BYTES &&
+        mossLiteVocab.length() == MOSSLITE_VOCAB_BYTES
     fun mossSpeakerReady(): Boolean = mossSpeakerModel.exists() && isValidGguf(mossSpeakerModel, MOSS_SPK_BYTES)
 
     // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
@@ -162,7 +173,11 @@ class ModelManager(context: Context) {
      * true and [ensureAsrModels] would otherwise skip the download) but incomplete/corrupt.
      */
     fun deleteAsr(backend: AsrBackend) {
-        if (backend == AsrBackend.MOSS) { mossModel.takeIf(File::exists)?.delete(); return }
+        if (backend == AsrBackend.MOSS) {
+            listOf(mossModel, mossLiteEncoder, mossLiteEmbedder, mossLiteDecoder, mossLiteVocab)
+                .forEach { it.takeIf(File::exists)?.delete() }
+            return
+        }
         specDir(asrSpecs.getValue(backend)).takeIf(File::exists)?.deleteRecursively()
     }
 
@@ -276,7 +291,7 @@ class ModelManager(context: Context) {
             n.contains("campplus") || n.contains("speaker_embedding") -> ModelKind.SPEAKER
             // MOSS-TD is an ASR model that happens to ship as a .gguf — classify it before the
             // generic gguf→LLM rule below, or Settings lists it as a summary model.
-            n.startsWith("moss-td") || n.startsWith("moss-transcribe") -> ModelKind.ASR
+            n.startsWith("moss-td") || n.startsWith("moss-transcribe") || n.startsWith("moss_td") -> ModelKind.ASR
             n.endsWith(".gguf") || n.contains("gemma") -> ModelKind.LLM
             n.contains("asr") || n.contains("sense-voice") || n.contains("sensevoice") || n.contains("qwen") || n.startsWith("sherpa") -> ModelKind.ASR
             else -> ModelKind.OTHER
@@ -321,24 +336,37 @@ class ModelManager(context: Context) {
         ensureLlmModel(LlmRegistry.byId(LlmRegistry.DEFAULT_ID), onProgress)
 
     /**
-     * Ensure the MOSS-TD GGUFs: the mandatory ASR+diarization model (SHA-pinned) and the optional
-     * CAM++ speaker-embedding GGUF used for cross-window linking. The speaker model is best-effort
-     * — a failure there still leaves a working (per-window-tagged) MOSS backend, so it never fails
-     * the call. Same magic+size integrity guard as [ensureLlmModel] (a truncated GGUF would abort
-     * the native runtime uncatchably).
+     * Ensure the MOSS-TD LiteRT artifacts: encoder + embedder + decoder .tflite and the
+     * detokenizer vocab (all SHA-pinned, sizes exact), plus the optional CAM++
+     * speaker-embedding GGUF used for cross-window linking. The speaker model is best-effort
+     * — a failure there still leaves a working (per-window-tagged) MOSS backend, so it never
+     * fails the call. The superseded RapidSpeech GGUF is reclaimed once LiteRT is provisioned.
      */
     suspend fun ensureMossModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        if (!(mossModel.exists() && isValidGguf(mossModel, MOSS_BYTES))) {
-            if (mossModel.exists()) mossModel.delete()
-            var attempt = 0
-            while (true) {
-                attempt++
-                download(MOSS_URL, mossModel, MOSS_SHA) { onProgress(it * 0.97f) }
-                if (isValidGguf(mossModel, MOSS_BYTES)) break
-                mossModel.delete()
-                check(attempt < 2) { "MOSS-TD model download is corrupt after $attempt attempts. Please try again." }
-                onProgress(0f)
+        // (file, url, sha, bytes, progress weight ~ proportional to size)
+        val parts = listOf(
+            Quad(mossLiteEncoder, MOSSLITE_ENC_URL, MOSSLITE_ENC_SHA, MOSSLITE_ENC_BYTES),
+            Quad(mossLiteEmbedder, MOSSLITE_EMB_URL, MOSSLITE_EMB_SHA, MOSSLITE_EMB_BYTES),
+            Quad(mossLiteDecoder, MOSSLITE_DEC_URL, MOSSLITE_DEC_SHA, MOSSLITE_DEC_BYTES),
+            Quad(mossLiteVocab, MOSSLITE_VOCAB_URL, MOSSLITE_VOCAB_SHA, MOSSLITE_VOCAB_BYTES),
+        )
+        val total = parts.sumOf { it.bytes }.toFloat()
+        var doneBytes = 0L
+        for (p in parts) {
+            if (p.file.length() != p.bytes) {
+                if (p.file.exists()) p.file.delete()
+                var attempt = 0
+                while (true) {
+                    attempt++
+                    download(p.url, p.file, p.sha) {
+                        onProgress(((doneBytes + (it * p.bytes)).toFloat() / total) * 0.97f)
+                    }
+                    if (p.file.length() == p.bytes) break
+                    p.file.delete()
+                    check(attempt < 2) { "MOSS-TD model download is corrupt after $attempt attempts. Please try again." }
+                }
             }
+            doneBytes += p.bytes
         }
         // Optional speaker model — never fail the run if it can't be fetched.
         if (!(mossSpeakerModel.exists() && isValidGguf(mossSpeakerModel, MOSS_SPK_BYTES))) {
@@ -347,8 +375,12 @@ class ModelManager(context: Context) {
                 download(MOSS_SPK_URL, mossSpeakerModel, MOSS_SPK_SHA) { onProgress(0.97f + it * 0.03f) }
             }
         }
+        // Reclaim the superseded 0.76 GB RapidSpeech GGUF (the LiteRT split replaces it).
+        mossModel.takeIf(File::exists)?.delete()
         check(mossReady()) { "MOSS-TD model missing after provisioning" }
     }
+
+    private data class Quad(val file: File, val url: String, val sha: String, val bytes: Long)
 
     /** Ensure the diarization model (3D-Speaker CAM++ zh+en fp16 embedding) — Phase 3. */
     suspend fun ensureDiarizationModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
@@ -602,5 +634,24 @@ class ModelManager(context: Context) {
             "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/59391ef6e1657af9fa2d1f30d3db8027e037dd4f/campplus.gguf"
         private const val MOSS_SPK_SHA = "c49e5e80128c8e04ca6febc1f0ac86d477a28413a4f10297608c68bd799ad564"
         private const val MOSS_SPK_BYTES = 14_255_904L
+
+        // MOSS-TD on LiteRT: the three-component split (q8 encoder + q8 embedder + int4-b32
+        // decoder, ekv2560) + tokenizer vocab, from Luigi/moss-transcribe-diarize-litert,
+        // commit-pinned. The int4-b32 decoder is the deployed HF Space combo (best speed/RSS;
+        // text fidelity 99-100% vs the f32 reference on the golden clips).
+        private const val MOSSLITE_REV =
+            "https://huggingface.co/Luigi/moss-transcribe-diarize-litert/resolve/93f6f7fab0430a2f0ebfe94d0f6b6c867529f15a"
+        private const val MOSSLITE_ENC_URL = "$MOSSLITE_REV/moss_td_encoder_q8.tflite"
+        private const val MOSSLITE_ENC_SHA = "8880bd69c25a1c156bcd641c06541fffdd580ba4477796578584cba7d0a75915"
+        private const val MOSSLITE_ENC_BYTES = 321_145_488L
+        private const val MOSSLITE_EMB_URL = "$MOSSLITE_REV/moss_td_embedder_q8.tflite"
+        private const val MOSSLITE_EMB_SHA = "08b68e2301b078c6c13da7d2dc0b261d4162c2ddaa18078946fad446c3fcf292"
+        private const val MOSSLITE_EMB_BYTES = 161_054_896L
+        private const val MOSSLITE_DEC_URL = "$MOSSLITE_REV/moss_td_decoder_q4b32_ekv2560.tflite"
+        private const val MOSSLITE_DEC_SHA = "7a82579602c7223ca5e4b0a02aec04dbdb7162cb02776e107d039c4ea66cad47"
+        private const val MOSSLITE_DEC_BYTES = 251_507_952L
+        private const val MOSSLITE_VOCAB_URL = "$MOSSLITE_REV/tokenizer/vocab.json"
+        private const val MOSSLITE_VOCAB_SHA = "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+        private const val MOSSLITE_VOCAB_BYTES = 2_776_833L
     }
 }

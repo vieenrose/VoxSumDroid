@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.asr.MossAsrEngine
+import studio.voxsum.core.asr.MossLiteEngine
 import studio.voxsum.core.asr.moss.MOSS_SR
 import studio.voxsum.core.asr.moss.MossPipeline
 import studio.voxsum.core.audio.AudioDecoder
@@ -1273,15 +1274,22 @@ class TranscriptionService : LifecycleService() {
         converter: OpenCcConverter?,
         utterances: MutableList<TranscriptEvent.Utterance>,
     ): Pair<List<TranscriptEvent.Utterance>, Int>? {
-        val engine = MossAsrEngine.create(
-            model = models.mossModel,
-            speakerModel = models.mossSpeakerModel.takeIf { models.mossSpeakerReady() },
+        // ASR runs on the LiteRT engine (encoder/embedder/decoder .tflite); the CAM++ speaker
+        // embedder for cross-window linking stays on rapidspeech-core (a 14 MB model — no LiteRT
+        // artifact yet), loaded through a speaker-only handle.
+        val engine = MossLiteEngine.create(
+            encoder = models.mossLiteEncoder,
+            embedder = models.mossLiteEmbedder,
+            decoder = models.mossLiteDecoder,
+            vocabJson = models.mossLiteVocab,
         )
         if (engine == null) {
             runCatching { models.deleteAsr(AsrBackend.MOSS) }
             emitEvent(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))
             return null
         }
+        val speaker = models.mossSpeakerModel.takeIf { models.mossSpeakerReady() }
+            ?.let { MossAsrEngine.createSpeakerOnly(it) }
         // Capture the run gen now — the onProgress callback runs inside withContext(Default) where
         // reading coroutineContext for it isn't available (it's a plain non-suspend lambda).
         val gen = kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED
@@ -1298,7 +1306,7 @@ class TranscriptionService : LifecycleService() {
             segs.mapIndexed { i, s ->
                 TranscriptEvent.Utterance(index = i, text = s.text, startSec = s.start, endSec = s.end, speaker = s.speaker)
             }
-        val linked = engine.use {
+        val linked = try {
             withContext(Dispatchers.Default) {
                 MossPipeline.run(
                     durS = durS,
@@ -1306,7 +1314,10 @@ class TranscriptionService : LifecycleService() {
                     // (a 16 kHz float buffer grows ~3.8 MB per audio-minute; 2 h ≈ 460 MB).
                     getWindow = { off, len -> withContext(Dispatchers.IO) { readWav16Window(wav, off, len) } },
                     decodeWindow = { p, maxNew -> engine.transcribeWindow(p, maxNew) },
-                    embedUnit = if (engine.hasSpeakerEmbedding) { p -> engine.embedUnit(p) } else null,
+                    embedUnit = speaker?.let { s ->
+                        val f: suspend (FloatArray) -> FloatArray? = { p -> s.embedUnit(p) }
+                        f
+                    },
                     postProcess = mossConvert,
                     onProgress = { prog ->
                         // onProgress is a plain (non-suspend) callback — use the non-suspending
@@ -1319,6 +1330,9 @@ class TranscriptionService : LifecycleService() {
                     },
                 )
             }
+        } finally {
+            engine.close()
+            speaker?.close()
         }
         val out = toUtterances(linked)
         utterances.clear(); utterances.addAll(out)
