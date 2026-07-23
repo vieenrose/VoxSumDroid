@@ -75,7 +75,7 @@ android {
         // that don't exist below API 33 — desugar them for older devices (minSdk 26).
         isCoreLibraryDesugaringEnabled = true
     }
-    kotlinOptions { jvmTarget = "17" }
+    kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
     buildFeatures { compose = true; buildConfig = true }
 
     // sherpa-onnx ships its Kotlin API under com.k2fsa.sherpa.onnx. For the F-Droid
@@ -88,14 +88,12 @@ android {
     packaging {
         // c++_shared is provided once; avoid duplicate libc++_shared.so clashes.
         jniLibs.pickFirsts += "**/libc++_shared.so"
-        // Extract native libs to nativeLibraryDir: the LiteRT-LM summarizer runs as a
-        // BUNDLED EXECUTABLE (liblitertlm_cli.so) — W^X allows exec only from there,
-        // and exec needs a real file, not a zip entry.
-        jniLibs.useLegacyPackaging = true
     }
 }
 
 dependencies {
+    // LiteRT-LM in-process engine (official Kotlin API; loads .litertlm bundles).
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.14.0")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.service)

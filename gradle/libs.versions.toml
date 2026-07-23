@@ -3,12 +3,12 @@
 # re-test the native build — AGP/NDK changes can break the CMake integration.
 [versions]
 agp = "8.7.3"
-kotlin = "2.0.21"
+kotlin = "2.3.0"
 coreKtx = "1.15.0"
 lifecycle = "2.8.7"
 activityCompose = "1.9.3"
 composeBom = "2024.12.01"
-coroutines = "1.9.0"
+coroutines = "1.11.0"
 # NDK pinned by string in app/build.gradle.kts (ndkVersion).
 
 [libraries]
