@@ -39,9 +39,11 @@ class MossLiteEngine private constructor(
         /**
          * Load the three LiteRT components + vocab. Returns null when any component
          * fails to load. XNNPACK's default is a SINGLE thread (measured: 52 s vs 23 s
-         * for the 80 s clip's encode), so both thread counts default to all online
-         * cores; the decode loop is additionally pinned to big cores natively, where
-         * XNNPACK's work-stealing tolerates the oversubscription.
+         * for the 80 s clip's encode), so thread counts must be explicit. `0` = native
+         * auto: all online cores for the encoder, BIG-core count for the decoder
+         * (little-core contention doubles per-token cost — 2026-07-23 integration
+         * note, measured on Exynos 1280); the decode loop is additionally pinned to
+         * big cores.
          */
         fun create(
             encoder: File, embedder: File, decoder: File, vocabJson: File,
@@ -49,8 +51,8 @@ class MossLiteEngine private constructor(
              *  (evictable pages) and per-window recompiles become cache hits.
              *  null disables (costs ~0.7 GB of anonymous RAM + repack time). */
             cacheDir: File? = null,
-            encThreads: Int = Runtime.getRuntime().availableProcessors(),
-            decThreads: Int = Runtime.getRuntime().availableProcessors(),
+            encThreads: Int = 0,
+            decThreads: Int = 0,
         ): MossLiteEngine? {
             ensureLib()
             val detok = runCatching { MossLiteDetokenizer.load(vocabJson) }.getOrNull() ?: return null

@@ -60,7 +60,7 @@ class ModelManager(context: Context) {
     val mossSpeakerModel: File get() = File(modelsDir, "campplus-cn-common.gguf")
     val mossLiteEncoder: File get() = File(modelsDir, "moss_td_encoder_q8.tflite")
     val mossLiteEmbedder: File get() = File(modelsDir, "moss_td_embedder_q8.tflite")
-    val mossLiteDecoder: File get() = File(modelsDir, "moss_td_decoder_q4b32_ekv2560.tflite")
+    val mossLiteDecoder: File get() = File(modelsDir, "moss_td_decoder_v2_q4b32_ekv2560.tflite")
     val mossLiteVocab: File get() = File(modelsDir, "moss_td_vocab.json")
     // Older embeddings to reclaim on upgrade: eres2net_base, the interim CAM++ fp32, and the
     // abandoned fine-tuned MOSS-TD lineage (replaced by the base q4mix weights — the fine-tunes
@@ -69,6 +69,8 @@ class ModelManager(context: Context) {
         listOf(
             File(modelsDir, "speaker_embedding.onnx"), File(modelsDir, "campplus_zh_en.onnx"),
             File(modelsDir, "moss-td-zhtw-v7-q4_k_m.gguf"), File(modelsDir, "moss-td-zhtw-v61-q4_k_m.gguf"),
+            // v1 LiteRT decoder, superseded by v2 (near-silence hallucination fix).
+            File(modelsDir, "moss_td_decoder_q4b32_ekv2560.tflite"),
         )
 
     fun asrReady(): Boolean = senseVoiceModel.exists() && tokens.exists() && vadModel.exists()
@@ -635,21 +637,21 @@ class ModelManager(context: Context) {
         private const val MOSS_SPK_SHA = "c49e5e80128c8e04ca6febc1f0ac86d477a28413a4f10297608c68bd799ad564"
         private const val MOSS_SPK_BYTES = 14_255_904L
 
-        // MOSS-TD on LiteRT: the three-component split (q8 encoder + q8 embedder + int4-b32
+        // MOSS-TD on LiteRT: the three-component split (q8 encoder + q8 embedder + int4-b32 v2
         // decoder, ekv2560) + tokenizer vocab, from Luigi/moss-transcribe-diarize-litert,
-        // commit-pinned. The int4-b32 decoder is the deployed HF Space combo (best speed/RSS;
-        // text fidelity 99-100% vs the f32 reference on the golden clips).
+        // commit-pinned. The v2 int4-b32 decoder carries the near-silence hallucination fix;
+        // text fidelity 99-100% vs the f32 reference on the golden clips.
         private const val MOSSLITE_REV =
-            "https://huggingface.co/Luigi/moss-transcribe-diarize-litert/resolve/93f6f7fab0430a2f0ebfe94d0f6b6c867529f15a"
+            "https://huggingface.co/Luigi/moss-transcribe-diarize-litert/resolve/1de273ca3d46c109e248a58b6db485bdb11f691f"
         private const val MOSSLITE_ENC_URL = "$MOSSLITE_REV/moss_td_encoder_q8.tflite"
         private const val MOSSLITE_ENC_SHA = "8880bd69c25a1c156bcd641c06541fffdd580ba4477796578584cba7d0a75915"
         private const val MOSSLITE_ENC_BYTES = 321_145_488L
         private const val MOSSLITE_EMB_URL = "$MOSSLITE_REV/moss_td_embedder_q8.tflite"
         private const val MOSSLITE_EMB_SHA = "08b68e2301b078c6c13da7d2dc0b261d4162c2ddaa18078946fad446c3fcf292"
         private const val MOSSLITE_EMB_BYTES = 161_054_896L
-        private const val MOSSLITE_DEC_URL = "$MOSSLITE_REV/moss_td_decoder_q4b32_ekv2560.tflite"
-        private const val MOSSLITE_DEC_SHA = "7a82579602c7223ca5e4b0a02aec04dbdb7162cb02776e107d039c4ea66cad47"
-        private const val MOSSLITE_DEC_BYTES = 251_507_952L
+        private const val MOSSLITE_DEC_URL = "$MOSSLITE_REV/moss_td_decoder_v2_q4b32_ekv2560.tflite"
+        private const val MOSSLITE_DEC_SHA = "8ddfa1e2ee2e0899e948e812ddc2ea10fc4f74c4abd290efdbdb1d626e9bb94b"
+        private const val MOSSLITE_DEC_BYTES = 251_497_728L
         private const val MOSSLITE_VOCAB_URL = "$MOSSLITE_REV/tokenizer/vocab.json"
         private const val MOSSLITE_VOCAB_SHA = "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
         private const val MOSSLITE_VOCAB_BYTES = 2_776_833L

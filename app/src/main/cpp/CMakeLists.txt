@@ -72,6 +72,7 @@ if(VOXSUM_ENABLE_MOSSLITE)
     add_library(voxsum-mosslite SHARED
         mosslite/moss_lite_jni.cpp
         mosslite/moss_lite_engine.cc
+        mosslite/lite_pod_jni.cpp
         mosslite/whisper_mel.cc)
     target_include_directories(voxsum-mosslite PRIVATE mosslite)
     target_link_libraries(voxsum-mosslite
