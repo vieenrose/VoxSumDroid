@@ -1,7 +1,7 @@
 package studio.voxsum.core.diarization
 
-import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractor
-import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
+import studio.voxsum.core.asr.LiteSegmenter
+import studio.voxsum.core.asr.LiteSpeakerEmbedder
 import studio.voxsum.core.events.TranscriptEvent
 
 /**
@@ -10,7 +10,7 @@ import studio.voxsum.core.events.TranscriptEvent
  * greedy FastClustering and stays perfectly aligned with the transcript).
  *
  * Pipeline: each ASR utterance already bounds one speech region (from the VAD), so we extract
- * one speaker embedding per utterance (3D-Speaker CAM++ zh/en), then cluster the embeddings with
+ * one speaker embedding per utterance (3D-Speaker CAM++, LiteRT), then cluster the embeddings with
  * [SpectralClustering] — the speaker count comes from the affinity matrix's eigengap (unless
  * [numClusters] is fixed), not from an absolute distance threshold. The previous
  * threshold-cut agglomerative approach was measurably broken after the eres2net→CAM++ swap: the
@@ -37,16 +37,17 @@ class DiarizationEngine(
     private val numThreads: Int,
     private val numClusters: Int = -1,
     private val maxSpeakers: Int = 8,
-    // Path to the pyannote segmentation-3.0 ONNX model. When present, diarization runs
+    // Path to the pyannote segmentation-3.0 LiteRT model. When present, diarization runs
     // SEGMENTATION-FIRST (see [segmentFirst]): boundaries come from a speaker-aware neural
     // segmenter at frame resolution instead of from silence, which removes the "one VAD segment
     // = one speaker" assumption entirely. Null or missing file → the legacy per-utterance flow.
     private val segmentationModel: String? = null,
 ) : AutoCloseable {
 
-    private val extractor = SpeakerEmbeddingExtractor(
-        config = SpeakerEmbeddingExtractorConfig(model = embeddingModel, numThreads = numThreads),
-    )
+    // CAM++ cn-common on LiteRT (192-d) — see LiteSpeakerEmbedder for the parity-gated
+    // conversion + front end. `numThreads` is retained for API stability (pods run 1-thread;
+    // embedding is a tiny fraction of diarization wall time).
+    private val embedder = LiteSpeakerEmbedder.load(java.io.File(embeddingModel))
 
     /** Whether the last [assignSpeakers] call used the segmentation-first path (observability). */
     var usedSegmenter: Boolean = false
@@ -55,25 +56,9 @@ class DiarizationEngine(
     private val segmenterDelegate = lazy {
         val m = segmentationModel ?: return@lazy null
         if (!java.io.File(m).exists()) return@lazy null
-        runCatching {
-            com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization(
-                config = com.k2fsa.sherpa.onnx.OfflineSpeakerDiarizationConfig(
-                    segmentation = com.k2fsa.sherpa.onnx.OfflineSpeakerSegmentationModelConfig(
-                        pyannote = com.k2fsa.sherpa.onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model = m),
-                        numThreads = numThreads,
-                    ),
-                    embedding = SpeakerEmbeddingExtractorConfig(model = embeddingModel, numThreads = numThreads),
-                    // Deliberately over-clustered: sherpa's internal threshold clustering only has
-                    // to keep island BOUNDARIES pure — global identity is re-derived below by our
-                    // auto-k clustering, which needs no distance threshold.
-                    clustering = com.k2fsa.sherpa.onnx.FastClusteringConfig(numClusters = -1, threshold = SEG_THRESHOLD),
-                    minDurationOn = SEG_MIN_ON,
-                    minDurationOff = SEG_MIN_OFF,
-                ),
-            )
-        }.getOrNull()
+        LiteSegmenter.load(java.io.File(m))
     }
-    private val segmenter: com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization? get() = segmenterDelegate.value
+    private val segmenter: LiteSegmenter? get() = segmenterDelegate.value
 
     /**
      * Tag each utterance with a speaker id. Returns the tagged utterances and the detected
@@ -177,12 +162,8 @@ class DiarizationEngine(
             b = (mid + MIN_SAMPLES / 2).coerceIn(a, total)
         }
         if (b <= a) return FloatArray(0)
-        val stream = extractor.createStream()
-        stream.acceptWaveform(samples(a, b), SAMPLE_RATE)
-        stream.inputFinished()
-        val e = runCatching { extractor.compute(stream) }.getOrDefault(FloatArray(0))
-        stream.release()
-        return l2normalize(e)
+        val e = embedder?.let { runCatching { it.embed(samples(a, b)) }.getOrNull() }
+        return l2normalize(e ?: FloatArray(0))
     }
 
     // --- segmentation-first flow ----------------------------------------------------------
@@ -190,8 +171,8 @@ class DiarizationEngine(
     private class Island(val start: Double, val end: Double, var label: Int = -1)
 
     /**
-     * Segmentation-first diarization. Boundaries come from pyannote segmentation-3.0 (via
-     * sherpa's OfflineSpeakerDiarization) at frame resolution — where the VOICE changes, not
+     * Segmentation-first diarization. Boundaries come from pyannote segmentation-3.0 (LiteRT
+     * pod, powerset decoded in [litertIslands]) at frame resolution — where the VOICE changes, not
      * where silence falls — which removes every "one VAD segment = one speaker" failure mode
      * (fused turns, leading fragments, flush tails) by construction. Global identity is then
      * re-derived by this engine's own clustering:
@@ -210,7 +191,7 @@ class DiarizationEngine(
      * time-weighted attribution vs ground truth (see the segmentation-first release notes).
      */
     private fun segmentFirst(
-        sd: com.k2fsa.sherpa.onnx.OfflineSpeakerDiarization,
+        sd: LiteSegmenter,
         utterances: List<TranscriptEvent.Utterance>,
         onProgress: (Float) -> Unit,
         redecode: ((Double, Double) -> String)?,
@@ -230,16 +211,11 @@ class DiarizationEngine(
             // requires; if the callback path still fails, fall back to the silent call.
             val doneFrac = chunk / totalSec
             val spanFrac = ((chunk + SEG_CHUNK_SEC).coerceAtMost(totalSec) - chunk) / totalSec
-            val segs = try {
-                sd.processWithCallback(pcm, SegProgress { p, t ->
-                    if (t > 0) onProgress((SEG_PROGRESS_SHARE * (doneFrac + spanFrac * p / t)).toFloat())
-                })
-            } catch (e: Throwable) {
-                sd.process(pcm)
-            }
-            for (s in segs) {
-                val s0 = a + s.start
-                val s1 = a + s.end
+            for (s in litertIslands(sd, pcm) { p ->
+                onProgress((SEG_PROGRESS_SHARE * (doneFrac + spanFrac * p)).toFloat())
+            }) {
+                val s0 = a + s.first
+                val s1 = a + s.second
                 val mid = (s0 + s1) / 2
                 if (mid >= chunk && mid < chunk + SEG_CHUNK_SEC) islands.add(Island(s0, s1))
             }
@@ -973,8 +949,87 @@ class DiarizationEngine(
     }
 
     override fun close() {
-        if (segmenterDelegate.isInitialized()) runCatching { segmenterDelegate.value?.release() }
-        extractor.release()
+        if (segmenterDelegate.isInitialized()) runCatching { segmenterDelegate.value?.close() }
+        runCatching { embedder?.close() }
+    }
+
+    /**
+     * Single-speaker islands from the pyannote segmentation-3.0 LiteRT pod: 1-s chunks with
+     * carried LSTM state, state reset every 10 chunks (the export's window contract), per-frame
+     * argmax over the 7 powerset classes {∅, s1, s2, s3, s1s2, s1s3, s2s3}, then per LOCAL
+     * speaker: close gaps < [SEG_MIN_OFF], drop runs < [SEG_MIN_ON]. Local labels are window-
+     * scoped and deliberately discarded — the caller's clustering re-derives global identity
+     * from island embeddings (exactly how the sherpa segmenter's labels were used before).
+     */
+    private fun litertIslands(
+        seg: LiteSegmenter,
+        pcm: FloatArray,
+        onProgress: (Float) -> Unit,
+    ): List<Pair<Double, Double>> {
+        val nChunks = (pcm.size + SAMPLE_RATE - 1) / SAMPLE_RATE
+        if (nChunks == 0) return emptyList()
+        val framesPerChunk = LiteSegmenter.FRAMES_PER_CHUNK
+        val frameDur = 1.0 / framesPerChunk
+        // active[spk][frame] over the whole pcm span
+        val totalFrames = nChunks * framesPerChunk
+        val active = Array(3) { BooleanArray(totalFrames) }
+        seg.reset()
+        for (c in 0 until nChunks) {
+            if (c % 10 == 0) seg.reset()                       // 10-s window contract
+            val chunkPcm = FloatArray(SAMPLE_RATE)
+            val off = c * SAMPLE_RATE
+            val take = minOf(SAMPLE_RATE, pcm.size - off)
+            if (take > 0) System.arraycopy(pcm, off, chunkPcm, 0, take)
+            val post = seg.process(chunkPcm)                   // 56x7 (log-)posteriors
+            for (f in 0 until framesPerChunk) {
+                var best = 0
+                var bestV = Float.NEGATIVE_INFINITY
+                for (k in 0 until LiteSegmenter.NUM_CLASSES) {
+                    val v = post[f * LiteSegmenter.NUM_CLASSES + k]
+                    if (v > bestV) { bestV = v; best = k }
+                }
+                val fi = c * framesPerChunk + f
+                when (best) {
+                    1 -> active[0][fi] = true
+                    2 -> active[1][fi] = true
+                    3 -> active[2][fi] = true
+                    4 -> { active[0][fi] = true; active[1][fi] = true }
+                    5 -> { active[0][fi] = true; active[2][fi] = true }
+                    6 -> { active[1][fi] = true; active[2][fi] = true }
+                }
+            }
+            onProgress((c + 1f) / nChunks)
+        }
+        val out = ArrayList<Pair<Double, Double>>()
+        val minOnF = (SEG_MIN_ON / frameDur).toInt().coerceAtLeast(1)
+        val minOffF = (SEG_MIN_OFF / frameDur).toInt().coerceAtLeast(1)
+        for (spk in 0 until 3) {
+            val act = active[spk]
+            // close sub-minOff gaps
+            var i = 0
+            while (i < totalFrames) {
+                if (!act[i]) {
+                    var j = i
+                    while (j < totalFrames && !act[j]) j++
+                    if (i > 0 && j < totalFrames && j - i < minOffF) {
+                        for (k in i until j) act[k] = true
+                    }
+                    i = j
+                } else i++
+            }
+            // emit >= minOn runs
+            i = 0
+            while (i < totalFrames) {
+                if (act[i]) {
+                    var j = i
+                    while (j < totalFrames && act[j]) j++
+                    if (j - i >= minOnF) out.add(i * frameDur to j * frameDur)
+                    i = j
+                } else i++
+            }
+        }
+        out.sortBy { it.first }
+        return out
     }
 
     companion object {
@@ -1002,7 +1057,6 @@ class DiarizationEngine(
         const val STAMP_AMBIG_BEFORE = 0.05              // stamp ambiguity band around a cut dip:
         const val STAMP_AMBIG_AFTER = 0.35               // (dip-BEFORE, dip+AFTER) — see stampSafe
         // Segmentation-first (see segmentFirst):
-        const val SEG_THRESHOLD = 0.5f                   // sherpa-internal clustering: over-split is fine
         const val SEG_MIN_ON = 0.2f                      // min island duration
         const val SEG_MIN_OFF = 0.3f                     // min gap that separates islands
         const val SEG_CHUNK_SEC = 1200.0                 // process audio in 20-min chunks (RAM bound)

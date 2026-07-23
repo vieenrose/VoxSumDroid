@@ -44,12 +44,15 @@ class ModelManager(context: Context) {
     // eres2net), half the size of fp32, with accuracy indistinguishable from fp32 (int8 was both
     // slower and less accurate on this ARM CPU). Hosted on HF since it is a custom conversion.
     // New filename forces a fresh download on existing installs (the downloader skips if present).
-    val embeddingModel: File get() = File(modelsDir, "campplus_zh_en_fp16.onnx")
+    // One CAM++ LiteRT embedding serves BOTH the sherpa-backend diarization stage and MOSS
+    // cross-window linking (the zh_en ONNX variant retired with ONNX Runtime's removal path;
+    // an en-heavy quality A/B may motivate converting the zh_en checkpoint later).
+    val embeddingModel: File get() = mossSpeakerModel
 
     /** pyannote segmentation-3.0 (MIT, ~6 MB) — the speaker-aware local segmenter that drives
      *  DiarizationEngine's segmentation-first path (boundaries where the VOICE changes, not
      *  where silence falls). */
-    val segmentationModel: File get() = File(modelsDir, "pyannote_segmentation_3_0.onnx")
+    val segmentationModel: File get() = File(modelsDir, "pyannote-segmentation.tflite")
 
     // MOSS-TD: one model does ASR + diarization + timestamps. The Android engine is the LiteRT
     // three-component split (encoder/embedder/decoder .tflite + vocab.json for detokenization);
@@ -67,6 +70,8 @@ class ModelManager(context: Context) {
     private val legacyEmbeddings: List<File> get() =
         listOf(
             File(modelsDir, "speaker_embedding.onnx"), File(modelsDir, "campplus_zh_en.onnx"),
+            File(modelsDir, "campplus_zh_en_fp16.onnx"), File(modelsDir, "pyannote_segmentation_3_0.onnx"),
+            File(modelsDir, "wespeaker_emb_fp16.tflite"),
             File(modelsDir, "moss-td-zhtw-v7-q4_k_m.gguf"), File(modelsDir, "moss-td-zhtw-v61-q4_k_m.gguf"),
             // v1 LiteRT decoder, superseded by v2 (near-silence hallucination fix).
             File(modelsDir, "moss_td_decoder_q4b32_ekv2560.tflite"),
@@ -75,7 +80,8 @@ class ModelManager(context: Context) {
     fun asrReady(): Boolean = senseVoiceModel.exists() && tokens.exists() && vadModel.exists()
     // Diarization is per-utterance embedding + clustering, so only the speaker-embedding
     // model is needed (no pyannote segmentation model).
-    fun diarizationReady(): Boolean = embeddingModel.exists() && segmentationModel.exists()
+    fun diarizationReady(): Boolean =
+        embeddingModel.length() == MOSS_SPK_BYTES && segmentationModel.length() == SEG_BYTES
 
     /** MOSS-TD readiness = all three LiteRT components + the detok vocab, size-checked (the
      *  .tflite flatbuffers have no cheap magic check like GGUF; sha256 is verified on download).
@@ -384,15 +390,17 @@ class ModelManager(context: Context) {
 
     private data class Quad(val file: File, val url: String, val sha: String, val bytes: Long)
 
-    /** Ensure the diarization model (3D-Speaker CAM++ zh+en fp16 embedding) — Phase 3. */
+    /** Ensure the diarization models (CAM++ LiteRT embedding + pyannote seg-3.0 LiteRT). */
     suspend fun ensureDiarizationModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        if (!embeddingModel.exists()) {
-            download(EMB_URL, embeddingModel, EMB_SHA) { onProgress(it * 0.7f) }
+        if (embeddingModel.length() != MOSS_SPK_BYTES) {
+            if (embeddingModel.exists()) embeddingModel.delete()
+            download(MOSS_SPK_URL, embeddingModel, MOSS_SPK_SHA) { onProgress(it * 0.7f) }
         }
-        if (!segmentationModel.exists()) {
+        if (segmentationModel.length() != SEG_BYTES) {
+            if (segmentationModel.exists()) segmentationModel.delete()
             download(SEG_URL, segmentationModel, SEG_SHA) { onProgress(0.7f + it * 0.3f) }
         }
-        // Reclaim superseded embeddings (eres2net ~38 MB, CAM++ fp32 ~27 MB) once fp16 is in place.
+        // Reclaim superseded ONNX artifacts (eres2net, CAM++ fp32/fp16, pyannote onnx).
         legacyEmbeddings.forEach { if (it.exists()) it.delete() }
         check(diarizationReady()) { "Diarization model missing after provisioning" }
     }
@@ -623,18 +631,15 @@ class ModelManager(context: Context) {
             "https://huggingface.co/csukuangfj/vad/resolve/main/silero_vad.onnx"
         private const val VAD_HF_SHA = "a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28"
 
-        // CAM++ zh+en fp16 (custom conversion, benchmarked best on-device) hosted on HF.
-        private const val EMB_URL =
-            "https://huggingface.co/Luigi/campplus-zh-en-onnx/resolve/main/campplus_zh_en_fp16.onnx"
-
         // SHA-256 pins for the exact release artifacts above (verified after download).
         private const val VAD_SHA = "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
         private const val SENSE_VOICE_SHA = "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e"
-        private const val EMB_SHA = "62eb2d79d363c1fd5ee093a4b0dcb5470d5ad3b7452612b67cce9b89f36c8ef3"
-
+        // pyannote segmentation-3.0 LiteRT (soniqo streaming export: 1-s chunks, LSTM state
+        // I/O, 56x7 powerset frames — see LiteSegmenter).
         private const val SEG_URL =
-            "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx"
-        private const val SEG_SHA = "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079"
+            "https://huggingface.co/soniqo/Pyannote-Segmentation-LiteRT/resolve/8422f41c2d87cafe24be03d731b64c74eab2c126/pyannote-segmentation.tflite"
+        private const val SEG_SHA = "0232d4098c5069d012b92cb4b5d8cf148807777aa214203e4706a282e640f259"
+        private const val SEG_BYTES = 7_265_360L
 
         // CAM++ cn-common speaker embedding (LiteRT, converted from the 3D-Speaker PyTorch
         // checkpoint via litert-torch — the SAME weights family the validated ggml MOSS linking

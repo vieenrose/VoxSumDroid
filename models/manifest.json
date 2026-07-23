@@ -42,18 +42,11 @@
   ],
   "diarization": [
     {
-      "id": "sherpa-onnx-pyannote-segmentation-3-0",
+      "id": "pyannote-segmentation-litert",
       "kind": "DIARIZATION_SEG",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
-      "sha256": "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488",
+      "url": "https://huggingface.co/soniqo/Pyannote-Segmentation-LiteRT/resolve/8422f41c2d87cafe24be03d731b64c74eab2c126/pyannote-segmentation.tflite",
+      "sha256": "0232d4098c5069d012b92cb4b5d8cf148807777aa214203e4706a282e640f259",
       "license": "MIT"
-    },
-    {
-      "id": "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k",
-      "kind": "DIARIZATION_EMB",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
-      "sha256": "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b",
-      "license": "Apache-2.0"
     },
     {
       "id": "campplus_cn_common_500f",
