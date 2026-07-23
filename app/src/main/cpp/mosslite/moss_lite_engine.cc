@@ -47,6 +47,18 @@ double now_s() {
       .count();
 }
 
+long rss_hwm_mb() {
+  FILE* f = fopen("/proc/self/status", "r");
+  if (!f) return -1;
+  char line[256];
+  long val = -1;
+  while (fgets(line, sizeof(line), f)) {
+    if (!strncmp(line, "VmHWM:", 6)) { val = atol(line + 7) / 1024; break; }
+  }
+  fclose(f);
+  return val;
+}
+
 bool is_kv_name(const std::string& n, std::string* key) {
   size_t p = n.rfind("kv_");
   if (p == std::string::npos) return false;
@@ -54,12 +66,20 @@ bool is_kv_name(const std::string& n, std::string* key) {
   return true;
 }
 
-// XNNPACK thread count rides in an opaque-options TOML payload with the
-// "xnnpack" identifier (mirrors LrtCpuOptions' serialization; that helper
-// itself isn't exported by libLiteRt.so, but the payload format is trivial).
-LiteRtOpaqueOptions make_cpu_options(int num_threads) {
-  char toml[64];
-  snprintf(toml, sizeof(toml), "num_threads = %d\n", num_threads);
+// XNNPACK settings ride in an opaque-options TOML payload with the "xnnpack"
+// identifier (mirrors LrtCpuOptions' serialization; that helper itself isn't
+// exported by libLiteRt.so, but the payload format is a trivial TOML string).
+LiteRtOpaqueOptions make_cpu_options(int num_threads,
+                                     const std::string& weight_cache) {
+  char toml[512];
+  int off = 0;
+  if (num_threads > 0)
+    off += snprintf(toml + off, sizeof(toml) - off, "num_threads = %d\n",
+                    num_threads);
+  if (!weight_cache.empty())
+    off += snprintf(toml + off, sizeof(toml) - off,
+                    "weight_cache_file_path = \"%s\"\n", weight_cache.c_str());
+  if (off <= 0) return nullptr;
   char* payload = strdup(toml);
   LiteRtOpaqueOptions oo = nullptr;
   auto deleter = [](void* p) { free(p); };
@@ -119,21 +139,16 @@ void set_affinity(bool wide) {
 
 }  // namespace
 
-void KvStore::zero_all() {
-  for (auto& kvp : bufs) Component::zero_buf(kvp.second, sizes[kvp.first]);
-}
-
 Component::Component(LiteRtEnvironment env, const std::string& path,
-                     KvStore* kv, int num_threads)
+                     KvStore* kv, int num_threads,
+                     const std::string& weight_cache)
     : env_(env), kv_(kv) {
   ENSURE_OK(LiteRtCreateModelFromFile(env, path.c_str(), &model_));
   LiteRtOptions opts;
   ENSURE_OK(LiteRtCreateOptions(&opts));
   ENSURE_OK(LiteRtSetOptionsHardwareAccelerators(opts, kLiteRtHwAcceleratorCpu));
-  if (num_threads > 0) {
-    LiteRtOpaqueOptions oo = make_cpu_options(num_threads);
-    if (oo) ENSURE_OK(LiteRtAddOpaqueOptions(opts, oo));
-  }
+  LiteRtOpaqueOptions oo = make_cpu_options(num_threads, weight_cache);
+  if (oo) ENSURE_OK(LiteRtAddOpaqueOptions(opts, oo));
   ENSURE_OK(LiteRtCreateCompiledModel(env, model_, opts, &cm_));
   LiteRtParamIndex nsigs = 0;
   ENSURE_OK(LiteRtGetNumModelSignatures(model_, &nsigs));
@@ -256,64 +271,35 @@ LiteRtTensorBuffer Component::make_buffer(LiteRtSignature sig,
 
 MossLiteEngine::MossLiteEngine(std::string encoder_path,
                                std::string embedder_path,
-                               std::string decoder_path, int enc_threads,
-                               int dec_threads)
+                               std::string decoder_path, std::string cache_dir,
+                               int enc_threads, int dec_threads)
     : encoder_path_(std::move(encoder_path)),
+      embedder_path_(std::move(embedder_path)),
+      decoder_path_(std::move(decoder_path)),
+      cache_dir_(std::move(cache_dir)),
       enc_threads_(enc_threads),
       dec_threads_(dec_threads) {
   if (LiteRtCreateEnvironment(0, nullptr, &env_) != kLiteRtStatusOk) {
     LOGE("LiteRtCreateEnvironment failed");
     return;
   }
-  emb_ = std::make_unique<Component>(env_, embedder_path, nullptr, dec_threads_);
-  dec_ = std::make_unique<Component>(env_, decoder_path, &kv_, dec_threads_);
-  if (!emb_->ok() || !dec_->ok()) return;
-
-  for (auto& kvp : emb_->sigs())
-    if (kvp.first.rfind("embed_", 0) == 0)
-      embed_sizes_[atoi(kvp.first.c_str() + 6)] = kvp.first;
-  for (auto& kvp : dec_->sigs())
-    if (kvp.first.rfind("prefill_", 0) == 0)
-      prefills_[atoi(kvp.first.c_str() + 8)] = kvp.first;
-  if (embed_sizes_.empty() || prefills_.empty()) {
-    LOGE("missing embed_/prefill_ signatures");
-    return;
-  }
-
-  auto& dsig = dec_->sig("decode");
-  const int d_m = find_name(dsig.in_names, "mask");
-  if (d_m < 0) { LOGE("decode mask input not found"); return; }
-  kv_len_ = (int)(Component::buf_bytes(dsig.in[d_m]) / 4);
-
-  auto& lsig = emb_->sig("logits");
-  if (lsig.out.empty()) { LOGE("logits signature not found"); return; }
-  vocab_ = (int)(Component::buf_bytes(lsig.out[0]) / 4);
-
-  LOGI("engine ready: kv_len=%d vocab=%d kv_bytes=%.0f MB threads=%d/%d "
-       "cores online=%d big=%d",
-       kv_len_, vocab_, kv_.kv_bytes_total / 1e6, enc_threads_, dec_threads_,
+  LOGI("engine ready (phase-serialized): threads=%d/%d cache=%s cores "
+       "online=%d big=%d",
+       enc_threads_, dec_threads_, cache_dir_.empty() ? "off" : "on",
        cpu_topology().online, cpu_topology().big);
   ok_ = true;
 }
 
-void MossLiteEngine::embed_tokens(const int32_t* toks, int n, float* dst) {
-  int i = 0;
-  while (i < n) {
-    int pick = -1;
-    for (auto it = embed_sizes_.rbegin(); it != embed_sizes_.rend(); ++it)
-      if (it->first <= n - i) { pick = it->first; break; }
-    if (pick < 0) pick = embed_sizes_.begin()->first;
-    auto& sio = emb_->sig(embed_sizes_[pick]);
-    std::vector<int32_t> padbuf(pick, 0);
-    int real = std::min(n - i, pick);
-    memcpy(padbuf.data(), toks + i, (size_t)real * 4);
-    Component::write_buf(sio.in[0], padbuf.data(), (size_t)pick * 4);
-    emb_->run(sio);
-    std::vector<float> outv((size_t)pick * kHidden);
-    Component::read_buf(sio.out[0], outv.data(), outv.size() * 4);
-    memcpy(dst + (size_t)i * kHidden, outv.data(), (size_t)real * kHidden * 4);
-    i += real;
-  }
+MossLiteEngine::~MossLiteEngine() {
+  if (env_) LiteRtDestroyEnvironment(env_);
+}
+
+std::string MossLiteEngine::cache_path(const std::string& model_path) const {
+  if (cache_dir_.empty()) return "";
+  size_t slash = model_path.rfind('/');
+  std::string base =
+      slash == std::string::npos ? model_path : model_path.substr(slash + 1);
+  return cache_dir_ + "/" + base + ".xnncache";
 }
 
 std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
@@ -326,12 +312,13 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
   int n_audio = 0;
   for (int t : tok_lens) n_audio += t;
 
-  // ---- encoder (created per window, freed before decode) ----
+  // ---- phase 1: encoder alone (created, used, freed) ----
   std::vector<float> audio_embeds((size_t)n_audio * kHidden);
   double t0 = now_s();
   set_affinity(/*wide=*/true);
   {
-    Component enc(env_, encoder_path_, nullptr, enc_threads_);
+    Component enc(env_, encoder_path_, nullptr, enc_threads_,
+                  cache_path(encoder_path_));
     if (!enc.ok()) { LOGE("encoder load failed"); return out; }
     auto& io = const_cast<SigIO&>(enc.sigs().begin()->second);
     std::vector<float> mel((size_t)kMelBins * kMelFrames);
@@ -350,13 +337,63 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
   }
   last_encode_s = now_s() - t0;
 
-  // ---- fuse ----
-  kv_.zero_all();  // fresh KV per window
-  std::vector<float> fused((size_t)n_ids * kHidden);
-  embed_tokens(ids, n_ids, fused.data());
+  // ---- phase 2: embedder + decoder (fresh KV per window) ----
+  KvStore kv;
+  Component emb(env_, embedder_path_, nullptr, dec_threads_,
+                cache_path(embedder_path_));
+  Component dec(env_, decoder_path_, &kv, dec_threads_,
+                cache_path(decoder_path_));
+  if (!emb.ok() || !dec.ok()) { LOGE("embedder/decoder load failed"); return out; }
+
+  std::map<int, std::string> embed_sizes, prefills;
+  for (auto& kvp : emb.sigs())
+    if (kvp.first.rfind("embed_", 0) == 0)
+      embed_sizes[atoi(kvp.first.c_str() + 6)] = kvp.first;
+  for (auto& kvp : dec.sigs())
+    if (kvp.first.rfind("prefill_", 0) == 0)
+      prefills[atoi(kvp.first.c_str() + 8)] = kvp.first;
+  if (embed_sizes.empty() || prefills.empty()) {
+    LOGE("missing embed_/prefill_ signatures");
+    return out;
+  }
+  auto embed_tokens = [&](const int32_t* toks, int n, float* dst) {
+    int i = 0;
+    while (i < n) {
+      int pick = -1;
+      for (auto it = embed_sizes.rbegin(); it != embed_sizes.rend(); ++it)
+        if (it->first <= n - i) { pick = it->first; break; }
+      if (pick < 0) pick = embed_sizes.begin()->first;
+      auto& sio = emb.sig(embed_sizes[pick]);
+      std::vector<int32_t> padbuf(pick, 0);
+      int real = std::min(n - i, pick);
+      memcpy(padbuf.data(), toks + i, (size_t)real * 4);
+      Component::write_buf(sio.in[0], padbuf.data(), (size_t)pick * 4);
+      emb.run(sio);
+      std::vector<float> outv((size_t)pick * kHidden);
+      Component::read_buf(sio.out[0], outv.data(), outv.size() * 4);
+      memcpy(dst + (size_t)i * kHidden, outv.data(), (size_t)real * kHidden * 4);
+      i += real;
+    }
+  };
+
+  auto& dsig = dec.sig("decode");
+  const int d_e = find_name(dsig.in_names, "input_embeds");
+  const int d_p = find_name(dsig.in_names, "input_pos");
+  const int d_m = find_name(dsig.in_names, "mask");
+  const int d_h = find_name(dsig.out_names, "hidden");
+  if (d_e < 0 || d_p < 0 || d_m < 0 || d_h < 0) { LOGE("decode io"); return out; }
+  const int kv_len = (int)(Component::buf_bytes(dsig.in[d_m]) / 4);
+  auto& lsig = emb.sig("logits");
+  if (lsig.out.empty()) { LOGE("logits signature missing"); return out; }
+  const int vocab = (int)(Component::buf_bytes(lsig.out[0]) / 4);
+
+  // fuse
+  const int S = n_ids;
+  std::vector<float> fused((size_t)S * kHidden);
+  embed_tokens(ids, S, fused.data());
   {
     int k = 0;
-    for (int p = 0; p < n_ids; ++p)
+    for (int p = 0; p < S; ++p)
       if (ids[p] == kAudioTokenId)
         memcpy(fused.data() + (size_t)p * kHidden,
                audio_embeds.data() + (size_t)k++ * kHidden, kHidden * 4);
@@ -364,19 +401,18 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
   }
   std::vector<float>().swap(audio_embeds);
 
-  // ---- prefill ----
+  // prefill
   t0 = now_s();
-  const int S = n_ids;
   std::vector<float> last_hidden(kHidden);
   {
     int pos = 0;
     std::vector<float> mask;
     while (pos < S) {
       int pick = -1;
-      for (auto it = prefills_.rbegin(); it != prefills_.rend(); ++it)
+      for (auto it = prefills.rbegin(); it != prefills.rend(); ++it)
         if (it->first <= S - pos) { pick = it->first; break; }
-      if (pick < 0) pick = prefills_.begin()->first;
-      auto& sio = dec_->sig(prefills_[pick]);
+      if (pick < 0) pick = prefills.begin()->first;
+      auto& sio = dec.sig(prefills[pick]);
       const int e_i = find_name(sio.in_names, "input_embeds");
       const int p_i = find_name(sio.in_names, "input_pos");
       const int m_i = find_name(sio.in_names, "mask");
@@ -390,12 +426,12 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
       std::vector<int32_t> ipos(pick);
       for (int r = 0; r < pick; ++r) ipos[r] = pos + r;
       Component::write_buf(sio.in[p_i], ipos.data(), ipos.size() * 4);
-      mask.assign((size_t)pick * kv_len_, -INFINITY);
+      mask.assign((size_t)pick * kv_len, -INFINITY);
       for (int r = 0; r < pick; ++r)
-        for (int c2 = 0; c2 <= pos + r && c2 < kv_len_; ++c2)
-          mask[(size_t)r * kv_len_ + c2] = 0.f;
+        for (int c2 = 0; c2 <= pos + r && c2 < kv_len; ++c2)
+          mask[(size_t)r * kv_len + c2] = 0.f;
       Component::write_buf(sio.in[m_i], mask.data(), mask.size() * 4);
-      dec_->run(sio);
+      dec.run(sio);
       std::vector<float> hid((size_t)pick * kHidden);
       Component::read_buf(sio.out[h_o], hid.data(), hid.size() * 4);
       memcpy(last_hidden.data(), hid.data() + (size_t)(real - 1) * kHidden,
@@ -403,45 +439,40 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
       pos += real;
     }
   }
+  std::vector<float>().swap(fused);  // ~5 MB, dead weight through decode
   last_prefill_s = now_s() - t0;
 
   // ---- greedy decode (big cores only: one token at a time) ----
   set_affinity(/*wide=*/false);
-  auto& dsig = dec_->sig("decode");
-  const int d_e = find_name(dsig.in_names, "input_embeds");
-  const int d_p = find_name(dsig.in_names, "input_pos");
-  const int d_m = find_name(dsig.in_names, "mask");
-  const int d_h = find_name(dsig.out_names, "hidden");
-  auto& lsig = emb_->sig("logits");
-  std::vector<float> logits(vocab_);
+  std::vector<float> logits(vocab);
   Component::write_buf(lsig.in[0], last_hidden.data(), kHidden * 4);
-  emb_->run(lsig);
-  Component::read_buf(lsig.out[0], logits.data(), (size_t)vocab_ * 4);
+  emb.run(lsig);
+  Component::read_buf(lsig.out[0], logits.data(), (size_t)vocab * 4);
 
-  std::vector<float> mask1((size_t)kv_len_, -INFINITY);
+  std::vector<float> mask1((size_t)kv_len, -INFINITY);
   std::vector<float> e1(kHidden), h1(kHidden);
   t0 = now_s();
   int p = S;
   while ((int)out.size() < max_new) {
     int best = 0;
-    for (int i = 1; i < vocab_; ++i)
+    for (int i = 1; i < vocab; ++i)
       if (logits[i] > logits[best]) best = i;
     out.push_back(best);
     if (best == kEosTokenId) break;
-    if (p + 1 > kv_len_) break;
+    if (p + 1 > kv_len) break;
     int32_t tk = best;
     embed_tokens(&tk, 1, e1.data());
     Component::write_buf(dsig.in[d_e], e1.data(), kHidden * 4);
     int32_t pp = p;
     Component::write_buf(dsig.in[d_p], &pp, 4);
-    for (int c2 = 0; c2 < kv_len_; ++c2)
+    for (int c2 = 0; c2 < kv_len; ++c2)
       mask1[c2] = c2 <= p ? 0.f : -INFINITY;
     Component::write_buf(dsig.in[d_m], mask1.data(), mask1.size() * 4);
-    dec_->run(dsig);
+    dec.run(dsig);
     Component::read_buf(dsig.out[d_h], h1.data(), kHidden * 4);
     Component::write_buf(lsig.in[0], h1.data(), kHidden * 4);
-    emb_->run(lsig);
-    Component::read_buf(lsig.out[0], logits.data(), (size_t)vocab_ * 4);
+    emb.run(lsig);
+    Component::read_buf(lsig.out[0], logits.data(), (size_t)vocab * 4);
     ++p;
   }
   last_decode_s = now_s() - t0;
@@ -449,11 +480,12 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
 
   const double audio_s = n_samples / 16000.0;
   LOGI("perf: audio=%.1fs encode=%.2fs prefill=%.2fs (%d tok) decode=%.2fs "
-       "(%zu tok, %.2f tok/s) rtf=%.2f",
+       "(%zu tok, %.2f tok/s) rtf=%.2f rss_hwm=%ld MB",
        audio_s, last_encode_s, last_prefill_s, S, last_decode_s, out.size(),
        out.size() / (last_decode_s > 0 ? last_decode_s : 1e-9),
        (last_encode_s + last_prefill_s + last_decode_s) /
-           (audio_s > 0 ? audio_s : 1e-9));
+           (audio_s > 0 ? audio_s : 1e-9),
+       rss_hwm_mb());
   return out;
 }
 

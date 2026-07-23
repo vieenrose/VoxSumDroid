@@ -1282,6 +1282,7 @@ class TranscriptionService : LifecycleService() {
             embedder = models.mossLiteEmbedder,
             decoder = models.mossLiteDecoder,
             vocabJson = models.mossLiteVocab,
+            cacheDir = File(cacheDir, "xnnpack"),
         )
         if (engine == null) {
             runCatching { models.deleteAsr(AsrBackend.MOSS) }

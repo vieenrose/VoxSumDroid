@@ -45,21 +45,26 @@ class MossLiteEngine private constructor(
          */
         fun create(
             encoder: File, embedder: File, decoder: File, vocabJson: File,
+            /** XNNPACK weight-cache dir: repacked weights become file-backed mmap
+             *  (evictable pages) and per-window recompiles become cache hits.
+             *  null disables (costs ~0.7 GB of anonymous RAM + repack time). */
+            cacheDir: File? = null,
             encThreads: Int = Runtime.getRuntime().availableProcessors(),
             decThreads: Int = Runtime.getRuntime().availableProcessors(),
         ): MossLiteEngine? {
             ensureLib()
             val detok = runCatching { MossLiteDetokenizer.load(vocabJson) }.getOrNull() ?: return null
+            cacheDir?.mkdirs()
             val c = nativeInit(
                 encoder.absolutePath, embedder.absolutePath, decoder.absolutePath,
-                encThreads, decThreads,
+                cacheDir?.absolutePath ?: "", encThreads, decThreads,
             )
             if (c == 0L) return null
             return MossLiteEngine(c, detok)
         }
 
         @JvmStatic private external fun nativeInit(
-            encoder: String, embedder: String, decoder: String,
+            encoder: String, embedder: String, decoder: String, cacheDir: String,
             encThreads: Int, decThreads: Int,
         ): Long
         @JvmStatic private external fun nativeFree(ctx: Long)

@@ -1,12 +1,18 @@
 // Resident MOSS-TD LiteRT engine (CPU/XNNPACK) — adapted from the validated
 // engine_cpp/moss_td_engine.cc in vieenrose/LiteRT (moss-td-port).
 //
-// The decoder KV cache lives in TensorBuffers aliased as BOTH input and output
-// of every prefill/decode signature, so the cache never crosses the host
-// boundary and exists exactly once. The embedder + decoder stay resident
-// across windows (weights repacked once); the ENCODER is created and destroyed
-// per transcribe call — its XNNPACK arena is ~0.5 GB, and a per-window
-// compile costs seconds against a multi-minute window decode.
+// MEMORY DESIGN (the port must beat the ggml engine's ~1.3 GB, not just match
+// wall-clock):
+//  * The decoder KV cache lives in TensorBuffers aliased as BOTH input and
+//    output of every prefill/decode signature — the cache exists exactly once
+//    and never crosses the host boundary.
+//  * Components are PHASE-SERIALIZED per window: the encoder is created,
+//    used and destroyed before the embedder+decoder are created — nothing
+//    persists across windows, so peak RSS is max(encode phase, decode phase),
+//    not their sum.
+//  * Every component gets an XNNPACK weight-cache file: repacked weights are
+//    mmap'd file-backed pages (evictable, shared across recompiles) instead
+//    of anonymous RAM, and the per-window recompile becomes a cache hit.
 
 #ifndef VOXSUM_MOSSLITE_MOSS_LITE_ENGINE_H_
 #define VOXSUM_MOSSLITE_MOSS_LITE_ENGINE_H_
@@ -34,13 +40,13 @@ struct KvStore {
   std::map<std::string, LiteRtTensorBuffer> bufs;
   std::map<std::string, size_t> sizes;
   size_t kv_bytes_total = 0;
-  void zero_all();
 };
 
 class Component {
  public:
+  // `weight_cache`: XNNPACK weight-cache file path ("" = disabled).
   Component(LiteRtEnvironment env, const std::string& path, KvStore* kv,
-            int num_threads);
+            int num_threads, const std::string& weight_cache);
   ~Component();
   Component(const Component&) = delete;
 
@@ -70,11 +76,13 @@ class Component {
 
 class MossLiteEngine {
  public:
-  // Paths to the three .tflite components. `enc_threads`/`dec_threads` are the
-  // XNNPACK thread counts for the encoder vs embedder+decoder CompiledModels.
+  // Paths to the three .tflite components. `cache_dir` hosts the XNNPACK
+  // weight caches ("" disables them). `enc_threads`/`dec_threads` are the
+  // XNNPACK thread counts for the encoder vs embedder+decoder.
   MossLiteEngine(std::string encoder_path, std::string embedder_path,
-                 std::string decoder_path, int enc_threads, int dec_threads);
-  ~MossLiteEngine() = default;
+                 std::string decoder_path, std::string cache_dir,
+                 int enc_threads, int dec_threads);
+  ~MossLiteEngine();
 
   bool ok() const { return ok_; }
 
@@ -87,15 +95,11 @@ class MossLiteEngine {
   double last_encode_s = 0, last_prefill_s = 0, last_decode_s = 0;
 
  private:
-  void embed_tokens(const int32_t* toks, int n, float* dst);
+  std::string cache_path(const std::string& model_path) const;
 
-  std::string encoder_path_;
+  std::string encoder_path_, embedder_path_, decoder_path_, cache_dir_;
   int enc_threads_, dec_threads_;
   LiteRtEnvironment env_ = nullptr;
-  KvStore kv_;
-  std::unique_ptr<Component> emb_, dec_;
-  std::map<int, std::string> embed_sizes_, prefills_;
-  int kv_len_ = 0, vocab_ = 0;
   bool ok_ = false;
 };
 
