@@ -56,7 +56,7 @@ class ModelManager(context: Context) {
     // the RapidSpeech.cpp GGUF path remains only as the F-Droid source-purity fallback. The 14 MB
     // CAM++ GGUF is OPTIONAL — without it per-window [Sxx] tags still work, only cross-window
     // speaker-identity linking is lost. See docs/INTEGRATION-MOSS-TD.md.
-    val mossSpeakerModel: File get() = File(modelsDir, "wespeaker_emb_fp16.tflite")
+    val mossSpeakerModel: File get() = File(modelsDir, "campplus_cn_common_500f.tflite")
     val mossLiteEncoder: File get() = File(modelsDir, "moss_td_encoder_q8.tflite")
     val mossLiteEmbedder: File get() = File(modelsDir, "moss_td_embedder_q8.tflite")
     val mossLiteDecoder: File get() = File(modelsDir, "moss_td_decoder_v2_q4b32_ekv2560.tflite")
@@ -79,7 +79,7 @@ class ModelManager(context: Context) {
 
     /** MOSS-TD readiness = all three LiteRT components + the detok vocab, size-checked (the
      *  .tflite flatbuffers have no cheap magic check like GGUF; sha256 is verified on download).
-     *  The WeSpeaker embedding tflite is optional — [mossSpeakerReady] reports it separately. */
+     *  The CAM++ embedding tflite is optional — [mossSpeakerReady] reports it separately. */
     fun mossReady(): Boolean =
         mossLiteEncoder.length() == MOSSLITE_ENC_BYTES &&
         mossLiteEmbedder.length() == MOSSLITE_EMB_BYTES &&
@@ -636,12 +636,13 @@ class ModelManager(context: Context) {
             "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx"
         private const val SEG_SHA = "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079"
 
-        // WeSpeaker ResNet34 speaker embedding (LiteRT, litert-community) — MOSS cross-window
-        // linking. Commit-pinned + sha256; exact size doubles as the cheap integrity check.
+        // CAM++ cn-common speaker embedding (LiteRT, converted from the 3D-Speaker PyTorch
+        // checkpoint via litert-torch — the SAME weights family the validated ggml MOSS linking
+        // used, so the 0.50/0.35 linking thresholds carry over; parity gates in the model card).
         private const val MOSS_SPK_URL =
-            "https://huggingface.co/litert-community/Speaker-Diarization-LiteRT/resolve/89156277b5cbef7c416360c52ce8bcd6d53a2080/wespeaker_emb_fp16.tflite"
-        private const val MOSS_SPK_SHA = "4853c284fdb3e39bd41f692d0bc3fd5068bf78782792d8ef02a3283c9d97554d"
-        private const val MOSS_SPK_BYTES = 13_352_192L
+            "https://huggingface.co/Luigi/campplus-litert/resolve/985721e598976ac8f4433e25bf41f61bec1e16df/campplus_cn_common_500f.tflite"
+        private const val MOSS_SPK_SHA = "e7aeb9312b17a8c76af38cb772d0e291b30dd377f3dd5aeb6648383ae7da87d9"
+        private const val MOSS_SPK_BYTES = 28_730_020L
 
         // MOSS-TD on LiteRT: the three-component split (q8 encoder + q8 embedder + int4-b32 v2
         // decoder, ekv2560) + tokenizer vocab, from Luigi/moss-transcribe-diarize-litert,

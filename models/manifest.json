@@ -56,11 +56,11 @@
       "license": "Apache-2.0"
     },
     {
-      "id": "wespeaker_emb_fp16",
+      "id": "campplus_cn_common_500f",
       "kind": "DIARIZATION_EMB",
-      "url": "https://huggingface.co/litert-community/Speaker-Diarization-LiteRT/resolve/89156277b5cbef7c416360c52ce8bcd6d53a2080/wespeaker_emb_fp16.tflite",
-      "sha256": "4853c284fdb3e39bd41f692d0bc3fd5068bf78782792d8ef02a3283c9d97554d",
-      "license": "CC-BY-4.0"
+      "url": "https://huggingface.co/Luigi/campplus-litert/resolve/985721e598976ac8f4433e25bf41f61bec1e16df/campplus_cn_common_500f.tflite",
+      "sha256": "e7aeb9312b17a8c76af38cb772d0e291b30dd377f3dd5aeb6648383ae7da87d9",
+      "license": "Apache-2.0"
     }
   ]
 }
