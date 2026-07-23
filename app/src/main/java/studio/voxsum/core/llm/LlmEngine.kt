@@ -9,7 +9,7 @@ import studio.voxsum.core.models.SamplerProfile
  * Memory discipline (see SPIKE.md): never hold the ASR/diarization models and the LLM
  * loaded simultaneously. Load -> generate -> close around the summarization phase.
  */
-class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : AutoCloseable {
+class LlmEngine private constructor(private var handle: Long, override val nCtx: Int) : TextGen {
 
     fun interface TokenCallback {
         /** Invoked by native code per decoded piece; forward to a Flow for streaming. */
@@ -25,7 +25,7 @@ class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : A
     private var generating = false
     private var closeRequested = false
 
-    fun generate(prompt: String, maxTokens: Int, onToken: TokenCallback): String {
+    override fun generate(prompt: String, maxTokens: Int, onToken: TokenCallback): String {
         val h = synchronized(lock) {
             if (handle == 0L) return ""   // already closed — a superseded run's late call
             generating = true
@@ -42,7 +42,7 @@ class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : A
     }
 
     /** Stop an in-flight generation (foreground service stop / new request). */
-    fun cancel() {
+    override fun cancel() {
         synchronized(lock) { if (handle != 0L) nativeCancel(handle) }
     }
 

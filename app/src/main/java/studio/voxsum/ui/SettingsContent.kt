@@ -125,6 +125,29 @@ fun SettingsContent(
                     onClick = { onChange(config.copy(llmModelId = spec.id)) },
                 )
             }
+            // Inference hardware — LiteRT-LM models only (llama.cpp GGUFs and the ASR/MOSS
+            // engines are CPU-only). There is NO auto-"best": LiteRT compiles for the
+            // REQUESTED accelerator (internal CPU fallback per-op); NPU needs per-SoC model
+            // builds that don't exist for these models, so it isn't offered. CPU is default.
+            if (LlmRegistry.byId(config.llmModelId).fileName.endsWith(".litertlm")) {
+                LabeledRow(stringResource(R.string.settings_llm_backend)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("cpu" to R.string.settings_backend_cpu, "gpu" to R.string.settings_backend_gpu).forEach { (id, res) ->
+                            FilterChip(
+                                selected = (config.llmBackend == id) || (id == "cpu" && config.llmBackend != "gpu"),
+                                enabled = enabled,
+                                onClick = { onChange(config.copy(llmBackend = id)) },
+                                label = { Text(stringResource(res)) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
+                                    selectedLabelColor = pal.Sky,
+                                    labelColor = pal.Slate400,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // (3) Recognition detail — language + ITN (SenseVoice only) + VAD.

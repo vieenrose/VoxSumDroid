@@ -33,6 +33,9 @@ data class TranscriptionConfig(
     // pinned to gemma) silently kept new installs on the old default even after the registry's default
     // changed, so the "recommended" model in Settings and the model that actually ran disagreed.
     val llmModelId: String = LlmRegistry.DEFAULT_ID,
+    /** Summarizer inference hardware: "cpu" (default) or "gpu" (LiteRT-LM models only —
+     *  llama.cpp GGUFs and the MOSS/ASR engines always run on CPU). */
+    val llmBackend: String = "cpu",
     val summaryPrompt: String = "Summarize the key points of this transcript.",
     // Target language for ALL out-coming text — summary, title, transcript, and detected speaker names
     // (a [TargetLanguage] id; surfaced in Settings as "Target language"). "auto" = match the transcript.

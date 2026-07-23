@@ -32,6 +32,7 @@ object ConfigStore {
             numSpeakers = p.getInt("numSpeakers", d.numSpeakers),
             preciseDiarization = p.getBoolean("preciseDiarization", d.preciseDiarization),
             llmModelId = p.getString("llmModelId", d.llmModelId) ?: d.llmModelId,
+            llmBackend = p.getString("llmBackend", d.llmBackend) ?: d.llmBackend,
             summaryPrompt = p.getString("summaryPrompt", d.summaryPrompt) ?: d.summaryPrompt,
             targetLanguage = targetLanguage,
             summaryStyle = p.getString("summaryStyle", d.summaryStyle) ?: d.summaryStyle,
@@ -49,6 +50,7 @@ object ConfigStore {
             putInt("numSpeakers", c.numSpeakers)
             putBoolean("preciseDiarization", c.preciseDiarization)
             putString("llmModelId", c.llmModelId)
+            putString("llmBackend", c.llmBackend)
             putString("summaryPrompt", c.summaryPrompt)
             putString("summaryLanguage", c.targetLanguage)   // legacy key (see load())
             putString("summaryStyle", c.summaryStyle)

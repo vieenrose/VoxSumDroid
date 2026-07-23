@@ -313,7 +313,7 @@ class ModelManager(context: Context) {
     suspend fun ensureLlmModel(spec: LlmSpec, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         val dest = llmFile(spec)
         // Present AND valid → done. Cheap re-check every call (GGUF magic + plausible size).
-        if (dest.exists() && isValidGguf(dest, spec.sizeBytes)) return@withContext
+        if (dest.exists() && isValidLlmFile(dest, spec.sizeBytes)) return@withContext
         // A corrupt leftover (truncated prior download, an earlier crash) — drop it and re-fetch.
         if (dest.exists()) dest.delete()
         // Integrity guard for the (intentionally unpinned) GGUFs: a truncated/HTML-error body would be
@@ -324,7 +324,7 @@ class ModelManager(context: Context) {
         while (true) {
             attempt++
             download(spec.url, dest, spec.sha256.ifBlank { null }, onProgress)
-            if (isValidGguf(dest, spec.sizeBytes)) return@withContext
+            if (isValidLlmFile(dest, spec.sizeBytes)) return@withContext
             dest.delete()
             check(attempt < 2) {
                 "${spec.displayName} download is corrupt (failed integrity check) after $attempt attempts. Please try again."
@@ -583,6 +583,19 @@ class ModelManager(context: Context) {
                     ins.read(magic) == 4 &&
                         magic[0] == 'G'.code.toByte() && magic[1] == 'G'.code.toByte() &&
                         magic[2] == 'U'.code.toByte() && magic[3] == 'F'.code.toByte()
+                }
+            }.getOrDefault(false)
+        }
+
+        /** Integrity check dispatching on artifact type: `.litertlm` bundles start with the
+         *  ASCII magic "LITERTLM"; everything else is a GGUF. */
+        internal fun isValidLlmFile(f: File, expectedBytes: Long): Boolean {
+            if (!f.name.endsWith(".litertlm")) return isValidGguf(f, expectedBytes)
+            if (expectedBytes > 0 && f.length() < expectedBytes / 10 * 9) return false
+            return runCatching {
+                f.inputStream().use { ins ->
+                    val magic = ByteArray(8)
+                    ins.read(magic) == 8 && magic.toString(Charsets.US_ASCII) == "LITERTLM"
                 }
             }.getOrDefault(false)
         }

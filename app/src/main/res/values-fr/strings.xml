@@ -50,6 +50,9 @@
     <string name="theme_eink">E-ink</string>
     <string name="theme_eink_hint">E-ink est un thème plat à fort contraste pour les liseuses ; sélectionnez-le manuellement.</string>
     <string name="settings_asr_engine">Moteur de reconnaissance</string>
+    <string name="settings_llm_backend">Matériel d’inférence</string>
+    <string name="settings_backend_cpu">CPU</string>
+    <string name="settings_backend_gpu">GPU (expérimental)</string>
     <string name="settings_summary_model">Modèle de résumé</string>
     <string name="settings_low_ram">faible RAM</string>
     <string name="settings_needs_4gb">~4 Go de RAM requis</string>

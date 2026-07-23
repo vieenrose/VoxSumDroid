@@ -19,7 +19,7 @@ import studio.voxsum.core.models.ChatTemplate
  *   4. generate_title equivalent -> emit Title
  */
 class Summarizer(
-    private val llm: LlmEngine,
+    private val llm: TextGen,
     private val template: ChatTemplate = ChatTemplate.CHATML,
     /** Human-readable target language injected into the prompt; `null` = match the transcript. */
     private val targetLanguage: String? = null,

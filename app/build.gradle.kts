@@ -92,6 +92,8 @@ android {
 }
 
 dependencies {
+    // LiteRT-LM summarizer runtime (MediaPipe GenAI wrapper; loads .litertlm bundles).
+    implementation("com.google.mediapipe:tasks-genai:0.10.35")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.service)

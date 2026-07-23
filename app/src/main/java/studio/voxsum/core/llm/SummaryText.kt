@@ -90,6 +90,8 @@ internal object SummaryText {
         // non-thinking mode, so the model answers directly (a summary, not a reasoning trace).
         ChatTemplate.QWEN3 -> "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
             "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        // The runtime applies the bundle's own template (LiteRT-LM) — pass the prompt through.
+        ChatTemplate.NONE -> user
     }
 
     /**

@@ -13,7 +13,9 @@ data class LlmSpec(
     val sampler: SamplerProfile = SamplerProfile.LEGACY,  // per-model llama.cpp sampler chain
 )
 
-enum class ChatTemplate { CHATML, GEMMA, GEMMA4, QWEN3 }
+/** NONE = the runtime applies the model's own chat template (LiteRT-LM bundles
+ *  carry it in metadata — verified: raw prompts get properly templated answers). */
+enum class ChatTemplate { CHATML, GEMMA, GEMMA4, QWEN3, NONE }
 
 /**
  * llama.cpp sampler settings, chosen per model. The chain itself lives in native code
@@ -49,17 +51,27 @@ data class SamplerProfile(
  * rather than via the GGUF's embedded template.
  */
 object LlmRegistry {
-    const val DEFAULT_ID = "gemma-4-e2b-it-qat"
+    const val DEFAULT_ID = "gemma-4-e2b-litertlm"
 
     private const val HF = "https://huggingface.co"
 
     val ALL: List<LlmSpec> = listOf(
-        // Gemma 4 E2B is the default: Qwen3.5 0.8B was dropped because its summaries were not good
-        // enough in practice, and the sub-1B tier has no adequate replacement — so the floor is now
-        // a ~2.2 GB model needing ~4 GB RAM. E4B is the heavier, higher-fidelity option.
+        // Gemma 4 E2B on LiteRT-LM is the Android default: same weights class as the GGUF below
+        // but 3-4x faster on big.LITTLE phones (Samsung SM-A5360, cold CPU: prefill 19.4 / decode
+        // 7.0 tok/s vs llama.cpp 3.0/1.6). The .litertlm bundle applies its own chat template.
+        LlmSpec(
+            id = "gemma-4-e2b-litertlm",
+            displayName = "Gemma 4 E2B · LiteRT (recommended)",
+            url = "$HF/litert-community/gemma-4-E2B-it-litert-lm/resolve/9262660a1676eed6d0c477ab1a86344430854664/gemma-4-E2B-it.litertlm",
+            sha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+            sizeBytes = 2_588_147_712L,
+            fileName = "gemma-4-e2b-it.litertlm", chatTemplate = ChatTemplate.NONE, shortName = "Gemma 4 E2B",
+        ),
+        // llama.cpp fallback (same model family as GGUF) — kept for devices where the LiteRT-LM
+        // runtime misbehaves, and as the F-Droid-friendly source-built path.
         LlmSpec(
             id = "gemma-4-e2b-it-qat",
-            displayName = "Gemma 4 E2B (recommended)",
+            displayName = "Gemma 4 E2B (llama.cpp)",
             // Pinned to the 2026-07-17 revision ("Added Gemma official chat template update"),
             // which re-published the GGUF off Google's 2026-07-15 checkpoint refresh. Pinning the
             // commit (not main) keeps the download reproducible AND lets us verify a real sha256 —

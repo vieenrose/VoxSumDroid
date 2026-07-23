@@ -11,7 +11,7 @@ import studio.voxsum.core.models.ChatTemplate
  * UI presents this as a draft to correct — never an authoritative record / audit trail.
  */
 class ActionItemExtractor(
-    private val llm: LlmEngine,
+    private val llm: TextGen,
     private val template: ChatTemplate = ChatTemplate.CHATML,
     /** Human-readable target language; null = match the transcript. */
     private val targetLanguage: String? = null,

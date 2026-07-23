@@ -50,6 +50,9 @@
     <string name="theme_eink">電子紙</string>
     <string name="theme_eink_hint">電子紙為專為電子閱讀器設計的高對比扁平主題，請手動選用。</string>
     <string name="settings_asr_engine">語音辨識引擎</string>
+    <string name="settings_llm_backend">推理硬體</string>
+    <string name="settings_backend_cpu">CPU</string>
+    <string name="settings_backend_gpu">GPU（實驗性）</string>
     <string name="settings_summary_model">摘要模型</string>
     <string name="settings_low_ram">低記憶體</string>
     <string name="settings_needs_4gb">需要約 4 GB RAM</string>

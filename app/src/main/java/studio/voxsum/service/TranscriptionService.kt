@@ -235,7 +235,7 @@ class TranscriptionService : LifecycleService() {
 
     // Held so a stop request can break the native generate loop promptly (it ignores
     // coroutine cancellation while inside a blocking JNI call).
-    @Volatile private var activeLlm: LlmEngine? = null
+    @Volatile private var activeLlm: studio.voxsum.core.llm.TextGen? = null
     @Volatile private var stopRecordingRequested = false
     // "Next talk": when the graceful stop above was requested with DEFER semantics — skip
     // diarization + summary, auto-save the capture as RECORDED, and return immediately.
@@ -987,7 +987,7 @@ class TranscriptionService : LifecycleService() {
             val models = ModelManager(this)
             ensureLlm(spec, models)
             val llm = try {
-                LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler)
+                studio.voxsum.core.llm.TextGen.load(this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(), backend = cfgAll.llmBackend)
             } catch (ce: CancellationException) {
                 throw ce
             } catch (t: Throwable) {
@@ -1535,7 +1535,7 @@ class TranscriptionService : LifecycleService() {
     ): SummaryResult {
         val spec = LlmRegistry.byId(cfg.llmModelId)
         ensureLlm(spec, models)
-        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler).use { llm ->
+        studio.voxsum.core.llm.TextGen.load(this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(), backend = cfg.llmBackend).use { llm ->
             return summarizeWith(llm, spec, transcript, cfg, converter, withTitle)
         }
     }
@@ -1552,7 +1552,7 @@ class TranscriptionService : LifecycleService() {
     /** [summarize]'s generation body over an ALREADY-LOADED engine — the batch drain holds one
      *  [LlmEngine] across every queued item's summary (one model load per drain, not per item). */
     private suspend fun summarizeWith(
-        llm: LlmEngine,
+        llm: studio.voxsum.core.llm.TextGen,
         spec: LlmSpec,
         transcript: String,
         cfg: TranscriptionConfig,
@@ -1633,7 +1633,7 @@ class TranscriptionService : LifecycleService() {
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_summarizing)))
         emitEvent(TranscriptEvent.Progress(0f))
         val converter = outputConverter(cfg)
-        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler).use { llm ->
+        studio.voxsum.core.llm.TextGen.load(this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(), backend = cfg.llmBackend).use { llm ->
             activeLlm = llm
             try {
                 Summarizer(
@@ -1670,7 +1670,7 @@ class TranscriptionService : LifecycleService() {
         emitEvent(TranscriptEvent.Progress(0f))   // restart the bar for the action-items phase
         val converter = outputConverter(cfg)
         val gen = currentGen()   // tag the non-suspend progress callback below with this run's gen
-        LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = asrThreads(), sampler = spec.sampler).use { llm ->
+        studio.voxsum.core.llm.TextGen.load(this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(), backend = cfg.llmBackend).use { llm ->
             activeLlm = llm
             try {
                 val text = ActionItemExtractor(
