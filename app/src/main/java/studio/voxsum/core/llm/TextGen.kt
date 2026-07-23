@@ -23,10 +23,14 @@ interface TextGen : AutoCloseable {
     fun cancel()
 
     companion object {
-        /** Pick the runtime by artifact type: `.litertlm` → LiteRT-LM, else llama.cpp.
-         *  [backend]: "cpu" (default) or "gpu" — honored by LiteRT-LM only. */
+        /** Pick the runtime by artifact type: `.litertlm` → LiteRT-LM (subprocess), else
+         *  llama.cpp. [backend]: "cpu" (default) or "gpu" — honored by LiteRT-LM only.
+         *  A missing LiteRT-LM executable (non-arm64 ABI) throws — the registry keeps the
+         *  GGUF entry for those devices. */
         fun load(context: Context, modelPath: String, spec: LlmSpec, nThreads: Int, backend: String = "cpu"): TextGen =
-            if (modelPath.endsWith(".litertlm")) LiteLlmEngine.load(context, modelPath, spec.sampler, backend = backend)
-            else LlmEngine.load(modelPath, nThreads = nThreads, sampler = spec.sampler)
+            if (modelPath.endsWith(".litertlm")) {
+                LiteLlmEngine.load(context, modelPath, spec.sampler, backend = backend)
+                    ?: error("LiteRT-LM engine unavailable on this device — select the llama.cpp model in Settings")
+            } else LlmEngine.load(modelPath, nThreads = nThreads, sampler = spec.sampler)
     }
 }

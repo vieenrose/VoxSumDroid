@@ -88,12 +88,14 @@ android {
     packaging {
         // c++_shared is provided once; avoid duplicate libc++_shared.so clashes.
         jniLibs.pickFirsts += "**/libc++_shared.so"
+        // Extract native libs to nativeLibraryDir: the LiteRT-LM summarizer runs as a
+        // BUNDLED EXECUTABLE (liblitertlm_cli.so) — W^X allows exec only from there,
+        // and exec needs a real file, not a zip entry.
+        jniLibs.useLegacyPackaging = true
     }
 }
 
 dependencies {
-    // LiteRT-LM summarizer runtime (MediaPipe GenAI wrapper; loads .litertlm bundles).
-    implementation("com.google.mediapipe:tasks-genai:0.10.35")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.service)

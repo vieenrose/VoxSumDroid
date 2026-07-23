@@ -19,3 +19,16 @@ NOTE (F-Droid): the prebuilt `libLiteRt.so` disqualifies the MOSS-LiteRT backend
 from a pure source-build F-Droid recipe. Building LiteRT from source requires
 Bazel; until that is scripted, F-Droid builds can set `VOXSUM_ENABLE_MOSSLITE=OFF`
 to fall back to the RapidSpeech.cpp (ggml) MOSS backend.
+
+## LiteRT-LM summarizer binaries (jniLibs/arm64-v8a)
+
+- `liblitertlm_cli.so` = `litert_lm_main.android_arm64` from the official
+  google-ai-edge/LiteRT-LM **v0.11.0** release (the last release with Android
+  binaries), Apache-2.0. Executed as a subprocess from nativeLibraryDir
+  (jniLibs.useLegacyPackaging=true) — the MediaPipe tasks-genai engine
+  misexecutes the Gemma 4 mobile QAT scheme, this binary is the validated path.
+- `libGemmaModelConstraintProvider.so`, `libLiteRtGpuAccelerator.so`,
+  `libLiteRtOpenClAccelerator.so`, `libLiteRtTopKOpenClSampler.so`: the
+  release's `prebuilt/android_arm64/` LFS artifacts (GPU libs enable the
+  Settings "GPU (experimental)" backend).
+- Same F-Droid caveat as libLiteRt.so: prebuilts, arm64-only.

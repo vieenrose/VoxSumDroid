@@ -65,11 +65,13 @@ object LlmRegistry {
             url = "$HF/litert-community/gemma-4-E2B-it-litert-lm/resolve/9262660a1676eed6d0c477ab1a86344430854664/gemma-4-E2B-it.litertlm",
             sha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
             sizeBytes = 2_588_147_712L,
-            // NOT ChatTemplate.NONE: tasks-genai does not apply this bundle's template (verified
-            // on-device — raw prompts free-ran and leaked literal <turn|>/<eos> markers into the
-            // summary). The bundle's chat_template.jinja is exactly the GEMMA4 turn format, so we
-            // wrap prompts ourselves; LiteLlmEngine stops at the emitted turn/eos markers.
-            fileName = "gemma-4-e2b-it.litertlm", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E2B",
+            // ChatTemplate.NONE + runtime-injected template: tasks-genai does not auto-apply the
+            // bundle's chat template (raw prompts leaked literal <turn|>/<eos> and free-ran), and
+            // STRING-level wrapping is wrong too — the markers tokenize as plain text, and that
+            // off-distribution prompt sent the 2-bit decoder into token loops ("產品的產品的…").
+            // LiteLlmEngine instead sets the session's PromptTemplates (user/model turn markers),
+            // so the RUNTIME injects them exactly like the validated CLI does.
+            fileName = "gemma-4-e2b-it.litertlm", chatTemplate = ChatTemplate.NONE, shortName = "Gemma 4 E2B",
         ),
         // llama.cpp fallback (same model family as GGUF) — kept for devices where the LiteRT-LM
         // runtime misbehaves, and as the F-Droid-friendly source-built path.

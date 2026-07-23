@@ -1,121 +1,162 @@
 package studio.voxsum.core.llm
 
 import android.content.Context
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
-import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
+import android.os.SystemClock
+import android.util.Log
 import studio.voxsum.core.models.SamplerProfile
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
- * LiteRT-LM summarization engine — MediaPipe `tasks-genai` over a `.litertlm`
- * bundle (Gemma 4). Measured on the Samsung SM-A5360 (cold CPU): prefill 19.4 /
- * decode 7.0 tok/s vs llama.cpp's 3.0/1.6 on the same device — the reason this
- * runtime replaces llama.cpp as the Android default (see LlmRegistry).
+ * LiteRT-LM summarization engine — the official `litert_lm_main` v0.11.0 binary
+ * (shipped as `liblitertlm_cli.so` in jniLibs, executed from nativeLibraryDir)
+ * over a `.litertlm` bundle (Gemma 4).
  *
- * Differences from [LlmEngine] the callers can observe:
- *  - The bundle applies its OWN chat template (ChatTemplate.NONE upstream).
- *  - No per-call output-token cap in the sync API: the `maxTokens` argument only
- *    bounds the session context. The prompts' "output only the summary" style
- *    plus Gemma 4's instruction-following keep outputs short in practice.
- *  - [cancel] can't interrupt a sync call; it prevents FURTHER calls instead.
- *    The summarizer's map-reduce granularity bounds the latency to one chunk.
+ * WHY A SUBPROCESS and not MediaPipe tasks-genai: 0.10.35's bundled engine
+ * MISEXECUTES the Gemma 4 mobile QAT scheme (2-bit decode layers) — on-device
+ * it produced token-loop garbage under every sampler/template configuration
+ * (raw, string-wrapped, runtime PromptTemplates, greedy), while this binary
+ * produces reference-quality output from the same weights on the same phone
+ * (prefill 19.4 / decode 7.0 tok/s cold CPU vs llama.cpp's 3.0/1.6). Google's
+ * own AI Edge Gallery likewise runs Gemma 4 on the LiteRT-LM engine.
+ *
+ * Per-call costs the callers can observe:
+ *  - The CLI loads the model per invocation (~1.7 s warm / ~7 s cold init) and
+ *    applies the bundle's own chat template + stop tokens (ChatTemplate.NONE).
+ *  - No sampler/output-cap flags in v0.11.0: the bundle's defaults decode and
+ *    stop at end-of-turn natively (the validated reference behavior).
+ *  - [cancel] kills the in-flight process.
  */
 class LiteLlmEngine private constructor(
-    private var llm: LlmInference?,
-    private val sampler: SamplerProfile,
+    private val cliBin: File,
+    private val nativeLibDir: String,
+    private val cacheDir: File,
+    private val modelPath: String,
+    private val backend: String,
     override val nCtx: Int,
 ) : TextGen {
 
     @Volatile private var cancelled = false
+    @Volatile private var proc: Process? = null
 
     override fun generate(prompt: String, maxTokens: Int, onToken: LlmEngine.TokenCallback): String {
-        val engine = llm ?: return ""
         if (cancelled) return ""
-        val session = LlmInferenceSession.createFromOptions(
-            engine,
-            LlmInferenceSession.LlmInferenceSessionOptions.builder()
-                .setTopK(sampler.topK)
-                .setTopP(sampler.topP)
-                .setTemperature(sampler.temp)
-                .build(),
-        )
+        val promptFile = File.createTempFile("llm-prompt", ".txt", cacheDir)
         try {
-            session.addQueryChunk(prompt)
-            // Async generation so the OUTPUT budget can be enforced: the sync API has no
-            // per-call cap, and an uncapped map call can free-run for minutes (observed:
-            // a single chunk >8 min). Each partial is ~one token — cancel at maxTokens.
-            //
-            // STOP MARKERS: the runtime does not stop at Gemma 4's turn end — the model's
-            // <turn|>/<eos> come through as literal TEXT (observed leaking into summaries,
-            // followed by degenerate free-run). Detect them in the stream, cancel, and
-            // deliver only the text before the first marker. Because a marker can split
-            // across partials, accumulate internally and emit ONE clean onToken at the end.
-            val sb = StringBuilder()
-            val done = java.util.concurrent.CountDownLatch(1)
-            var pieces = 0
-            var stopped = false
-            session.generateResponseAsync { partial, isDone ->
-                if (partial.isNotEmpty()) sb.append(partial)
-                pieces++
-                val stopHit = STOP_MARKERS.any { sb.indexOf(it) >= 0 }
-                if (isDone) {
-                    done.countDown()
-                } else if (stopHit || (maxTokens in 1..pieces) || cancelled) {
-                    stopped = true
-                    runCatching { session.cancelGenerateResponseAsync() }
-                }
-            }
-            // The cancel path may not deliver a final done=true callback on all versions —
-            // bound the wait after a cancel/budget trip instead of hanging on the latch.
-            val t0 = android.os.SystemClock.elapsedRealtime()
-            while (!done.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-                if (cancelled || (maxTokens in 1..pieces)) {
-                    runCatching { session.cancelGenerateResponseAsync() }
-                    done.await(5, java.util.concurrent.TimeUnit.SECONDS)
-                    break
-                }
-            }
-            var text = sb.toString()
-            for (m in STOP_MARKERS) {
-                val i = text.indexOf(m)
-                if (i >= 0) text = text.substring(0, i)
-            }
-            text = text.trim()
+            promptFile.writeText(prompt)
+            val t0 = SystemClock.elapsedRealtime()
+            val pb = ProcessBuilder(
+                cliBin.absolutePath,
+                "--backend=$backend",
+                "--model_path=$modelPath",
+                "--input_prompt_file=${promptFile.absolutePath}",
+            )
+            pb.environment()["LD_LIBRARY_PATH"] = nativeLibDir
+            pb.redirectErrorStream(false)
+            val p = pb.start()
+            proc = p
+            p.errorStream.close()
+            val stdout = p.inputStream.readBytes().toString(Charsets.UTF_8)
+            if (!p.waitFor(20, TimeUnit.MINUTES)) p.destroyForcibly()
+            proc = null
+            var text = parseResponse(stdout, prompt)
+            text = dedupeAdjacentSentences(text)
             onToken.onToken(text)
-            val s = (android.os.SystemClock.elapsedRealtime() - t0) / 1000.0
-            android.util.Log.i(
+            val s = (SystemClock.elapsedRealtime() - t0) / 1000.0
+            Log.i(
                 "voxsum-litellm",
-                "perf: prompt=${prompt.length} ch, out=$pieces pieces/${text.length} ch in " +
-                    "%.1fs, cap=$maxTokens${if (stopped) " (stopped)" else ""}".format(s),
+                "perf: prompt=${prompt.length} ch, out=${text.length} ch in %.1fs (subprocess/%s)".format(s, backend),
             )
             return text
+        } catch (t: Throwable) {
+            Log.e("voxsum-litellm", "generate failed", t)
+            return ""
         } finally {
-            session.close()
+            promptFile.delete()
+            proc = null
         }
     }
 
-    override fun cancel() { cancelled = true }
+    override fun cancel() {
+        cancelled = true
+        proc?.destroyForcibly()
+    }
 
     override fun close() {
-        llm?.close()
-        llm = null
+        cancel()
     }
 
     companion object {
-        /** Gemma 4 end-of-turn / end-of-sequence markers, plus a new-turn open marker —
-         *  any of them in the stream means the answer is complete. */
-        private val STOP_MARKERS = listOf("<turn|>", "<eos>", "<|turn>")
+        /**
+         * CLI stdout framing (v0.11.0):
+         *   input_prompt: <echoed prompt — INCLUDING its own newlines/blank lines>
+         *   <blank>
+         *   <response…>
+         *   <blank>
+         *   BenchmarkInfo:
+         *
+         * The echo reproduces the whole prompt, so blank-line heuristics cut INSIDE
+         * multi-paragraph prompts (that bug returned the echoed transcript as "the
+         * summary"). The caller knows the exact prompt — cut right after its last
+         * occurrence-defining tail instead.
+         */
+        internal fun parseResponse(stdout: String, prompt: String): String {
+            var s = stdout
+            val bench = s.indexOf("\nBenchmarkInfo:")
+            if (bench >= 0) s = s.substring(0, bench)
+            if (s.startsWith("input_prompt:")) {
+                val tail = prompt.takeLast(120).trim()
+                val i = if (tail.isNotEmpty()) s.indexOf(tail) else -1
+                if (i >= 0) {
+                    s = s.substring(i + tail.length)
+                } else {
+                    // Fallback (prompt not found verbatim — e.g. re-encoded whitespace):
+                    // old first-blank-line heuristic.
+                    val cut = s.indexOf("\n\n")
+                    if (cut >= 0) s = s.substring(cut + 2)
+                }
+            }
+            return s.trim()
+        }
 
-        /** One resident engine; ~7 s init on a mid-range phone (weights load + plan build). */
-        fun load(context: Context, modelPath: String, sampler: SamplerProfile, nCtx: Int = 4096,
-                 backend: String = "cpu"): LiteLlmEngine {
-            val options = LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(modelPath)
-                .setMaxTokens(nCtx)
-                // GPU is opt-in from Settings; measured on the vivo: ~2x prefill, decode
-                // no better, +20 s executor init. "Preferred" = LiteRT still falls back.
-                .setPreferredBackend(if (backend == "gpu") LlmInference.Backend.GPU else LlmInference.Backend.CPU)
-                .build()
-            return LiteLlmEngine(LlmInference.createFromOptions(context, options), sampler, nCtx)
+        /** Collapse immediately repeated sentences/lines (loop backstop). */
+        internal fun dedupeAdjacentSentences(text: String): String {
+            val parts = Regex("(?<=[。！？.!?；;\\n])").split(text).filter { it.isNotBlank() }
+            if (parts.size < 2) return text
+            val out = StringBuilder()
+            var prevKey = ""
+            for (p in parts) {
+                val key = p.trim().lowercase()
+                if (key != prevKey) out.append(p)
+                prevKey = key
+            }
+            return out.toString().trim()
+        }
+
+        /**
+         * Locate the bundled CLI + model. Returns null when the executable isn't
+         * present for this ABI (arm64-only prebuilt) — callers fall back to the
+         * GGUF/llama.cpp path. `sampler`/`nCtx` are accepted for interface parity;
+         * the CLI uses the bundle's own decode settings.
+         */
+        fun load(
+            context: Context, modelPath: String, sampler: SamplerProfile,
+            nCtx: Int = 4096, backend: String = "cpu",
+        ): LiteLlmEngine? {
+            val libDir = context.applicationInfo.nativeLibraryDir
+            val cli = File(libDir, "liblitertlm_cli.so")
+            if (!cli.canExecute()) {
+                Log.e("voxsum-litellm", "liblitertlm_cli.so missing/not executable in $libDir")
+                return null
+            }
+            return LiteLlmEngine(
+                cliBin = cli,
+                nativeLibDir = libDir,
+                cacheDir = context.cacheDir,
+                modelPath = modelPath,
+                backend = if (backend == "gpu") "gpu" else "cpu",
+                nCtx = nCtx,
+            )
         }
     }
 }

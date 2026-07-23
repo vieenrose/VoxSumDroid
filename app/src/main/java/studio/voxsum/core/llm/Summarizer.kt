@@ -50,6 +50,12 @@ class Summarizer(
             " translate as you summarize. Do not use any language other than $targetLanguage."
     else " Write it in the same language as the transcript."
 
+    // Chinese targets get CHINESE instructions. On the LiteRT-LM Gemma 4 QAT engine, English
+    // meta-instructions around a zh transcript + the translate clause read as "re-emit the
+    // transcript in Chinese" — it echoed the input verbatim; the same engine follows a
+    // Chinese instruction-first prompt correctly (the benchmarked reference prompt).
+    private val zhTarget: Boolean = targetLanguage?.contains("中文") == true
+
     fun summarize(transcript: String, userPrompt: String, withTitle: Boolean = true): Flow<TranscriptEvent> = flow {
         val instr = userPrompt + langClause
         // Budget every prompt in CHARS so it fits n_ctx for ANY script. CJK is the densest (~1.55
@@ -77,7 +83,9 @@ class Summarizer(
         val partials = ArrayList<String>(chunks.size)
         for (c in chunks) {
             val sb = StringBuilder()
-            llm.generate(SummaryText.wrap(template, MAP_TEMPLATE.format(instr, mapInstruction, c)), maxTokens = mapMaxTokens) { sb.append(it) }
+            val mapPrompt = if (zhTarget) MAP_TEMPLATE_ZH.format(c)
+                            else MAP_TEMPLATE.format(instr, mapInstruction, c)
+            llm.generate(SummaryText.wrap(template, mapPrompt), maxTokens = mapMaxTokens) { sb.append(it) }
             partials += sb.toString().trim()
             emit(TranscriptEvent.Partial(sb.toString().trim()))   // partials stay raw (intermediate)
             llmCalls++
@@ -89,7 +97,9 @@ class Summarizer(
         // meeting's ~16+ partials would otherwise join into one over-n_ctx reduce prompt -> empty summary.)
         val level = SummaryText.foldToFit(partials, reduceBudget, "\n\n") { group ->
             val sb = StringBuilder()
-            llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, reduceInstruction, group.joinToString("\n\n"))), reduceMax) { sb.append(it) }
+            val gPrompt = if (zhTarget) REDUCE_TEMPLATE_ZH.format(group.joinToString("\n\n"))
+                          else REDUCE_TEMPLATE.format(instr, reduceInstruction, group.joinToString("\n\n"))
+            llm.generate(SummaryText.wrap(template, gPrompt), reduceMax) { sb.append(it) }
             llmCalls++
             emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
             sb.toString().trim()
@@ -100,8 +110,10 @@ class Summarizer(
         if (level.size == 1) {
             finalSb.append(level[0])
         } else {
+            val fPrompt = if (zhTarget) REDUCE_TEMPLATE_ZH.format(level.joinToString("\n\n"))
+                          else REDUCE_TEMPLATE.format(instr, reduceInstruction, level.joinToString("\n\n"))
             llm.generate(
-                SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, reduceInstruction, level.joinToString("\n\n"))),
+                SummaryText.wrap(template, fPrompt),
                 maxTokens = reduceMax,
             ) { finalSb.append(it) }
             llmCalls++
@@ -114,8 +126,10 @@ class Summarizer(
         // result is clearly too long — an hour-long meeting must not yield a 30-bullet wall.
         if (SummaryText.tooLong(finalText)) {
             val sb = StringBuilder()
+            val sPrompt = if (zhTarget) SHRINK_TEMPLATE_ZH.format(finalText)
+                          else SHRINK_TEMPLATE.format(instr, reduceInstruction, finalText)
             llm.generate(
-                SummaryText.wrap(template, SHRINK_TEMPLATE.format(instr, reduceInstruction, finalText)),
+                SummaryText.wrap(template, sPrompt),
                 maxTokens = reduceMax,
             ) { sb.append(it) }
             SummaryText.cleanSummary(sb.toString()).takeIf { it.isNotBlank() }?.let { finalText = it }
@@ -137,7 +151,9 @@ class Summarizer(
     /** One short title for [summary], in the target language and OpenCC-converted. Shared by both paths. */
     private fun titleEvent(summary: String): TranscriptEvent {
         val sb = StringBuilder()
-        llm.generate(SummaryText.wrap(template, TITLE_TEMPLATE.format(langClause, summary)), maxTokens = 24) { sb.append(it) }
+        val tPrompt = if (zhTarget) TITLE_TEMPLATE_ZH.format(summary)
+                      else TITLE_TEMPLATE.format(langClause, summary)
+        llm.generate(SummaryText.wrap(template, tPrompt), maxTokens = 24) { sb.append(it) }
         return TranscriptEvent.Title(convert(SummaryText.cleanTitle(sb.toString())))
     }
 
@@ -146,21 +162,39 @@ class Summarizer(
         // headers / preamble (verbose models like Gemma 4 otherwise emit "Short Summary:",
         // "Detailed Summary:", etc.). The format itself comes from the style directive, not hard-coded.
         // %s = user instruction, %s = the style's format directive, %s = the text.
+        // NOTE: no completion-style trailers ("…\n\nSummary:") — both engines wrap prompts in a
+        // chat template, and on the LiteRT-LM engine that trailer flipped Gemma 4 into ECHO mode
+        // (it returned the transcript verbatim instead of summarizing; instruction-first prompts
+        // with no trailer produce real summaries — the benchmarked reference behavior).
         const val MAP_TEMPLATE =
             "%s\nWrite the summary of the transcript section below %s. " +
                 "Output only the summary itself — no headings, no multiple versions, no preamble.\n\n" +
-                "Transcript:\n%s\n\nSummary:"
+                "Transcript:\n%s"
         const val REDUCE_TEMPLATE =
             "%s\nCombine the partial summaries below %s. " +
                 "Output only the summary itself — no headings, no multiple versions, no preamble.\n\n" +
-                "Partial summaries:\n%s\n\nSummary:"
+                "Partial summaries:\n%s"
         const val TITLE_TEMPLATE =
             "Write ONE short title (at most 8 words) for the summary below.%s " +
-                "Output only the title text — no quotes, no list, no preamble.\n\nSummary:\n%s\n\nTitle:"
+                "Output only the title text — no quotes, no list, no preamble.\n\nSummary:\n%s"
+        // Chinese-instruction variants (see zhTarget): instruction-first, no completion
+        // trailer — the phrasing class validated on the LiteRT-LM engine.
+        const val MAP_TEMPLATE_ZH =
+            "請將以下逐字稿整理成一份簡潔的摘要，條列重點（每點 20 字以內）。" +
+                "只輸出摘要本身——不要標題、不要多個版本、不要前言。\n\n逐字稿:\n%s"
+        const val REDUCE_TEMPLATE_ZH =
+            "請將以下多段部分摘要合併成一份簡潔的摘要，條列最重要的重點（最多 7 點，每點 20 字以內），" +
+                "合併重複內容、刪去次要細節。只輸出摘要本身——不要標題、不要多個版本、不要前言。\n\n部分摘要:\n%s"
+        const val TITLE_TEMPLATE_ZH =
+            "請為以下摘要取一個簡短標題（8 個字以內）。只輸出標題本身——不要引號、不要條列、不要前言。\n\n摘要:\n%s"
+        const val SHRINK_TEMPLATE_ZH =
+            "以下摘要太長了。請改寫成最多 7 點的條列摘要（每點 20 字以內），只保留最重要的重點、刪去次要細節。" +
+                "只輸出摘要本身——不要標題、不要多個版本、不要前言。\n\n摘要:\n%s"
+
         // %s = user instruction, %s = the style's reduce directive, %s = the over-long summary.
         const val SHRINK_TEMPLATE =
             "%s\nThe summary below is too long. Rewrite it %s. Keep ONLY the most important points" +
                 " and drop minor detail. Output only the summary itself — no headings, no multiple" +
-                " versions, no preamble.\n\nSummary:\n%s\n\nSummary:"
+                " versions, no preamble.\n\nSummary:\n%s"
     }
 }
