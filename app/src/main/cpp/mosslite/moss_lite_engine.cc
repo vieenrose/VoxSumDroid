@@ -279,11 +279,15 @@ MossLiteEngine::MossLiteEngine(std::string encoder_path,
       cache_dir_(std::move(cache_dir)),
       enc_threads_(enc_threads),
       dec_threads_(dec_threads) {
-  // Per the 2026-07-23 integration note (measured on Exynos 1280): the decoder
-  // wants the BIG-core thread count only — little-core contention doubles the
-  // per-token cost (398 ms/tok at big-count threads vs 849 ms at all-8).
-  // <=0 = auto: big cores for the decoder, all cores for the encoder.
-  if (dec_threads_ <= 0) dec_threads_ = cpu_topology().big;
+  // The 2026-07-23 integration note recommends big-core-count decoder threads
+  // (their Exynos 1280: 398 ms/tok at big-count vs 849 at 8). That does NOT
+  // hold for THIS engine, whose decode loop already pins thread affinity to
+  // the big cluster: measured cold on the same SoC, all-8 threads pinned-big
+  // decodes at 2.00 tok/s vs 1.67 tok/s with 2 big-count threads — the note's
+  // penalty comes from little-core CONTENTION, which the affinity pin already
+  // removes, and the extra pinned threads still win via work-stealing.
+  // <=0 = auto: all online cores for both, affinity handles the rest.
+  if (dec_threads_ <= 0) dec_threads_ = cpu_topology().online;
   if (enc_threads_ <= 0) enc_threads_ = cpu_topology().online;
   if (LiteRtCreateEnvironment(0, nullptr, &env_) != kLiteRtStatusOk) {
     LOGE("LiteRtCreateEnvironment failed");
