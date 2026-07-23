@@ -10,7 +10,7 @@ import studio.voxsum.core.models.ChatTemplate
  *
  * Python uses LangChain only for chunking + prompt templates and llama_cpp directly for
  * inference. On-device we drop LangChain entirely: chunking is a few lines of Kotlin and
- * prompts are string templates. Inference goes through [LlmEngine].
+ * prompts are string templates. Inference goes through [TextGen].
  *
  * Flow:
  *   1. split transcript into ~chunk-sized windows with overlap (RecursiveCharacterTextSplitter equiv)

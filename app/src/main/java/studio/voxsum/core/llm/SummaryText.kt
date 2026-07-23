@@ -4,7 +4,7 @@ import studio.voxsum.core.models.ChatTemplate
 
 /**
  * Pure text-shaping for summarization, split out of [Summarizer] (which is bound to the native
- * [LlmEngine], so touching its class loads the llama.cpp lib). These helpers run on raw model output
+ * the engine class). These helpers run on raw model output
  * and produce the user-facing title + summary, so their edge cases matter; keeping them here, free of
  * any native reference, lets them be unit-tested on the JVM (see SummarizerTextTest).
  */

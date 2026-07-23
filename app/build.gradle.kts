@@ -88,6 +88,9 @@ android {
     packaging {
         // c++_shared is provided once; avoid duplicate libc++_shared.so clashes.
         jniLibs.pickFirsts += "**/libc++_shared.so"
+        // litertlm-android's engine needs its native libs as REAL extracted files
+        // (verified on-device: without extraction, Engine init hangs at 0% CPU).
+        jniLibs.useLegacyPackaging = true
     }
 }
 

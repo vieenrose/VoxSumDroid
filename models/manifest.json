@@ -1,5 +1,5 @@
 {
-  "_comment": "On-device model registry — Android counterpart of the dicts in src/utils.py. FOSS-licensed only; SHA-256 pins are the real release-artifact hashes (verified after download in ModelManager). Non-free models (Llama, Gemma) intentionally excluded for F-Droid.",
+  "_comment": "On-device model registry — Android. ggml/llama.cpp was removed: ASR runs on sherpa-onnx (ONNX) and LiteRT (MOSS-TD), summarization on LiteRT-LM (.litertlm). SHA-256 pins are real artifact hashes (verified after download in ModelManager).",
   "asr": [
     {
       "id": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
@@ -10,10 +10,24 @@
       "default": true
     },
     {
-      "id": "moss-transcribe-base-q4mix",
+      "id": "moss_td_encoder_q8",
       "kind": "ASR",
-      "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/59391ef6e1657af9fa2d1f30d3db8027e037dd4f/moss-transcribe-base-q4mix.gguf",
-      "sha256": "06b21a4c16302175936a2876266d3d90fba2d746b4dce50678dadc11ec6ad6bf",
+      "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-litert/resolve/1de273ca3d46c109e248a58b6db485bdb11f691f/moss_td_encoder_q8.tflite",
+      "sha256": "8880bd69c25a1c156bcd641c06541fffdd580ba4477796578584cba7d0a75915",
+      "license": "Apache-2.0"
+    },
+    {
+      "id": "moss_td_embedder_q8",
+      "kind": "ASR",
+      "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-litert/resolve/1de273ca3d46c109e248a58b6db485bdb11f691f/moss_td_embedder_q8.tflite",
+      "sha256": "08b68e2301b078c6c13da7d2dc0b261d4162c2ddaa18078946fad446c3fcf292",
+      "license": "Apache-2.0"
+    },
+    {
+      "id": "moss_td_decoder_v2_q4b32_ekv2560",
+      "kind": "ASR",
+      "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-litert/resolve/1de273ca3d46c109e248a58b6db485bdb11f691f/moss_td_decoder_v2_q4b32_ekv2560.tflite",
+      "sha256": "8ddfa1e2ee2e0899e948e812ddc2ea10fc4f74c4abd290efdbdb1d626e9bb94b",
       "license": "Apache-2.0"
     }
   ],
@@ -42,21 +56,11 @@
       "license": "Apache-2.0"
     },
     {
-      "id": "campplus-cn-common",
+      "id": "wespeaker_emb_fp16",
       "kind": "DIARIZATION_EMB",
-      "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/main/campplus-cn-common.gguf",
-      "sha256": "c49e5e80128c8e04ca6febc1f0ac86d477a28413a4f10297608c68bd799ad564",
-      "license": "Apache-2.0"
-    }
-  ],
-  "llm": [
-    {
-      "id": "qwen2.5-0.5b-instruct-q4_k_m",
-      "kind": "LLM",
-      "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-      "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
-      "license": "Apache-2.0",
-      "default": true
+      "url": "https://huggingface.co/litert-community/Speaker-Diarization-LiteRT/resolve/89156277b5cbef7c416360c52ce8bcd6d53a2080/wespeaker_emb_fp16.tflite",
+      "sha256": "4853c284fdb3e39bd41f692d0bc3fd5068bf78782792d8ef02a3283c9d97554d",
+      "license": "CC-BY-4.0"
     }
   ]
 }

@@ -121,3 +121,123 @@ class LiteSegmenter(private val pod: LitePod) : AutoCloseable {
         fun load(model: File): LiteSegmenter? = LitePod.load(model)?.let { LiteSegmenter(it) }
     }
 }
+
+/**
+ * WeSpeaker ResNet34 speaker embedding on LiteRT (litert-community export) —
+ * replaces the ggml CAM++ for MOSS cross-window speaker linking.
+ *
+ * Front end per the model card: kaldi log-mel fbank (25 ms/10 ms hamming, 80
+ * bins, dither 0, waveform ×2¹⁵), CMN over each 500-frame window, tile-pad to
+ * 80 240 samples; output 256-d, L2-normalized. The Kotlin fbank below was
+ * validated against torchaudio's kaldi.fbank on real audio (max abs diff 7e-4,
+ * end-to-end embedding cosine 1.0). Pooled audio longer than one window embeds
+ * per-window and mean-pools (standard long-utterance practice).
+ *
+ * NOTE: this is a different embedding model than the CAM++ it replaced — the
+ * MossSpeakerLinker's constrained clustering is scale-tolerant, but a
+ * multi-speaker quality A/B against the CAM++ baseline is still pending.
+ */
+class LiteSpeakerEmbedder(private val pod: LitePod) : AutoCloseable {
+
+    /** Embed pooled unit audio (16 kHz mono floats). Null if too short (<0.35 s). */
+    fun embed(pcm: FloatArray): FloatArray? {
+        if (pcm.size < 5600) return null
+        val out = FloatArray(256)
+        var n = 0
+        var off = 0
+        while (off < pcm.size) {
+            val take = minOf(WINDOW_SAMPLES, pcm.size - off)
+            // Tile-pad the (final) short window from the window's own content.
+            val win = FloatArray(WINDOW_SAMPLES)
+            var i = 0
+            while (i < WINDOW_SAMPLES) { win[i] = pcm[off + (i % take)]; i++ }
+            val feat = fbankCmn(win)
+            val res = pod.run(arrayOf(feat))
+            val embIdx = pod.outSizes.indexOf(256)
+            val e = res[embIdx]
+            for (k in 0 until 256) out[k] += e[k]
+            n++
+            off += WINDOW_SAMPLES
+        }
+        var norm = 0.0
+        for (k in 0 until 256) { out[k] /= n; norm += out[k] * out[k] }
+        norm = kotlin.math.sqrt(norm)
+        if (norm < 1e-9) return null
+        for (k in 0 until 256) out[k] = (out[k] / norm).toFloat()
+        return out
+    }
+
+    override fun close() = pod.close()
+
+    companion object {
+        private const val WINDOW_SAMPLES = 80_240   // 500 frames @ 25/10 ms
+        private const val N_FRAMES = 500
+        private const val FRAME_LEN = 400
+        private const val HOP = 160
+        private const val N_FFT = 512
+        private const val N_BINS = N_FFT / 2 + 1
+
+        fun load(model: java.io.File): LiteSpeakerEmbedder? =
+            LitePod.load(model)?.let { LiteSpeakerEmbedder(it) }
+
+        // Kaldi mel scale (1127·ln(1+f/700)), 80 triangular bins over 20..8000 Hz.
+        private val MEL_FB: Array<FloatArray> by lazy {
+            fun mel(f: Double) = 1127.0 * Math.log(1.0 + f / 700.0)
+            val lo = mel(20.0); val hi = mel(8000.0)
+            val centers = DoubleArray(82) { lo + (hi - lo) * it / 81.0 }
+            val fftMel = DoubleArray(N_BINS) { mel(it * 16000.0 / N_FFT) }
+            Array(80) { m ->
+                val l = centers[m]; val c = centers[m + 1]; val r = centers[m + 2]
+                FloatArray(N_BINS) { k ->
+                    val up = (fftMel[k] - l) / (c - l)
+                    val dn = (r - fftMel[k]) / (r - c)
+                    maxOf(0.0, minOf(up, dn)).toFloat()
+                }
+            }
+        }
+        private val HAMMING = DoubleArray(FRAME_LEN) { 0.54 - 0.46 * Math.cos(2.0 * Math.PI * it / (FRAME_LEN - 1)) }
+        // rDFT twiddles for the 512-point transform (bins × samples).
+        private val COS_T: Array<DoubleArray> by lazy {
+            Array(N_BINS) { k -> DoubleArray(N_FFT) { i -> Math.cos(2.0 * Math.PI * k * i / N_FFT) } }
+        }
+        private val SIN_T: Array<DoubleArray> by lazy {
+            Array(N_BINS) { k -> DoubleArray(N_FFT) { i -> Math.sin(2.0 * Math.PI * k * i / N_FFT) } }
+        }
+
+        /** 500×80 kaldi fbank (row-major frames×bins) with per-bin CMN. */
+        internal fun fbankCmn(win: FloatArray): FloatArray {
+            val out = FloatArray(N_FRAMES * 80)
+            val frame = DoubleArray(FRAME_LEN)
+            val power = DoubleArray(N_BINS)
+            for (t in 0 until N_FRAMES) {
+                var mean = 0.0
+                for (i in 0 until FRAME_LEN) { frame[i] = win[t * HOP + i] * 32768.0; mean += frame[i] }
+                mean /= FRAME_LEN
+                for (i in 0 until FRAME_LEN) frame[i] -= mean            // remove_dc_offset
+                for (i in FRAME_LEN - 1 downTo 1) frame[i] -= 0.97 * frame[i - 1]
+                frame[0] -= 0.97 * frame[0]                              // kaldi preemphasis edge
+                for (i in 0 until FRAME_LEN) frame[i] *= HAMMING[i]
+                for (k in 0 until N_BINS) {
+                    var re = 0.0; var im = 0.0
+                    val ct = COS_T[k]; val st = SIN_T[k]
+                    for (i in 0 until FRAME_LEN) { re += frame[i] * ct[i]; im -= frame[i] * st[i] }
+                    power[k] = re * re + im * im
+                }
+                for (m in 0 until 80) {
+                    val w = MEL_FB[m]
+                    var acc = 0.0
+                    for (k in 0 until N_BINS) acc += w[k] * power[k]
+                    out[t * 80 + m] = Math.log(maxOf(acc, 1.1920929e-7)).toFloat()
+                }
+            }
+            // CMN: subtract the per-bin mean over the window's 500 frames.
+            for (m in 0 until 80) {
+                var mean = 0f
+                for (t in 0 until N_FRAMES) mean += out[t * 80 + m]
+                mean /= N_FRAMES
+                for (t in 0 until N_FRAMES) out[t * 80 + m] -= mean
+            }
+            return out
+        }
+    }
+}

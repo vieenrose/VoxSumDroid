@@ -38,7 +38,7 @@ class LiteLlmEngine private constructor(
     @Volatile private var cancelled = false
     @Volatile private var active: com.google.ai.edge.litertlm.Conversation? = null
 
-    override fun generate(prompt: String, maxTokens: Int, onToken: LlmEngine.TokenCallback): String {
+    override fun generate(prompt: String, maxTokens: Int, onToken: TextGen.TokenCallback): String {
         val eng = engine ?: return ""
         if (cancelled) return ""
         val t0 = SystemClock.elapsedRealtime()
@@ -127,16 +127,21 @@ class LiteLlmEngine private constructor(
             context: Context, modelPath: String, sampler: SamplerProfile,
             nCtx: Int = 4096, backend: String = "cpu",
         ): LiteLlmEngine? {
+            val config = EngineConfig(
+                modelPath = modelPath,
+                backend = if (backend == "gpu") Backend.GPU() else Backend.CPU(),
+                maxNumTokens = nCtx,
+                cacheDir = context.cacheDir.absolutePath,
+            )
+            // MTP/speculative decoding: NOT enabled. Measured on-device with this
+            // bundle: ExperimentalFlags.enableSpeculativeDecoding=true hangs Engine
+            // init silently (0% CPU, no exception), and even the Capabilities(path)
+            // probe hangs natively — both un-catchable. Revisit when upstream fixes
+            // the 0.14.x MTP surface for Gemma 4 bundles on-device.
             return try {
-                val engine = Engine(
-                    EngineConfig(
-                        modelPath = modelPath,
-                        backend = if (backend == "gpu") Backend.GPU() else Backend.CPU(),
-                        maxNumTokens = nCtx,
-                        cacheDir = context.cacheDir.absolutePath,
-                    ),
-                )
+                val engine = Engine(config)
                 engine.initialize()
+                Log.i("voxsum-litellm", "engine ready (backend=$backend)")
                 LiteLlmEngine(engine, sampler, nCtx)
             } catch (t: Throwable) {
                 Log.e("voxsum-litellm", "engine init failed", t)

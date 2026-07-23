@@ -32,7 +32,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
-import studio.voxsum.core.asr.MossAsrEngine
 import studio.voxsum.core.asr.MossLiteEngine
 import studio.voxsum.core.asr.moss.MOSS_SR
 import studio.voxsum.core.asr.moss.MossPipeline
@@ -50,7 +49,6 @@ import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.library.ProcessingQueue
 import studio.voxsum.core.library.SessionLibrary
 import studio.voxsum.core.llm.ActionItemExtractor
-import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.LlmSpec
@@ -709,7 +707,7 @@ class TranscriptionService : LifecycleService() {
     private suspend fun runPipeline(
         audioUri: String?,
         // false = the batch drain's pass 1: stop after ASR + diarization (Complete emitted, no LLM
-        // touched) — the drain summarizes every item later under ONE LlmEngine load.
+        // touched) — the drain summarizes every item later under ONE engine load.
         summarizeAfter: Boolean = true,
     ): Pair<List<TranscriptEvent.Utterance>, SummaryResult>? {
         val uri = audioUri?.let(Uri::parse)
@@ -1274,9 +1272,9 @@ class TranscriptionService : LifecycleService() {
         converter: OpenCcConverter?,
         utterances: MutableList<TranscriptEvent.Utterance>,
     ): Pair<List<TranscriptEvent.Utterance>, Int>? {
-        // ASR runs on the LiteRT engine (encoder/embedder/decoder .tflite); the CAM++ speaker
-        // embedder for cross-window linking stays on rapidspeech-core (a 14 MB model — no LiteRT
-        // artifact yet), loaded through a speaker-only handle.
+        // ASR runs on the LiteRT engine (encoder/embedder/decoder .tflite); cross-window
+        // speaker linking embeds with the WeSpeaker ResNet34 LiteRT pod (the ggml CAM++ was
+        // removed with the rest of ggml — embedding-model swap noted for a quality A/B).
         val engine = MossLiteEngine.create(
             encoder = models.mossLiteEncoder,
             embedder = models.mossLiteEmbedder,
@@ -1290,7 +1288,7 @@ class TranscriptionService : LifecycleService() {
             return null
         }
         val speaker = models.mossSpeakerModel.takeIf { models.mossSpeakerReady() }
-            ?.let { MossAsrEngine.createSpeakerOnly(it) }
+            ?.let { studio.voxsum.core.asr.LiteSpeakerEmbedder.load(it) }
         // Capture the run gen now — the onProgress callback runs inside withContext(Default) where
         // reading coroutineContext for it isn't available (it's a plain non-suspend lambda).
         val gen = kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED
@@ -1316,7 +1314,7 @@ class TranscriptionService : LifecycleService() {
                     getWindow = { off, len -> withContext(Dispatchers.IO) { readWav16Window(wav, off, len) } },
                     decodeWindow = { p, maxNew -> engine.transcribeWindow(p, maxNew) },
                     embedUnit = speaker?.let { s ->
-                        val f: suspend (FloatArray) -> FloatArray? = { p -> s.embedUnit(p) }
+                        val f: suspend (FloatArray) -> FloatArray? = { p -> s.embed(p) }
                         f
                     },
                     postProcess = mossConvert,
@@ -1550,7 +1548,7 @@ class TranscriptionService : LifecycleService() {
     }
 
     /** [summarize]'s generation body over an ALREADY-LOADED engine — the batch drain holds one
-     *  [LlmEngine] across every queued item's summary (one model load per drain, not per item). */
+     *  the engine across every queued item's summary (one model load per drain, not per item). */
     private suspend fun summarizeWith(
         llm: studio.voxsum.core.llm.TextGen,
         spec: LlmSpec,

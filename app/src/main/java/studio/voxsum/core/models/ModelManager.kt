@@ -56,8 +56,7 @@ class ModelManager(context: Context) {
     // the RapidSpeech.cpp GGUF path remains only as the F-Droid source-purity fallback. The 14 MB
     // CAM++ GGUF is OPTIONAL — without it per-window [Sxx] tags still work, only cross-window
     // speaker-identity linking is lost. See docs/INTEGRATION-MOSS-TD.md.
-    val mossModel: File get() = File(modelsDir, "moss-transcribe-base-q4mix.gguf")
-    val mossSpeakerModel: File get() = File(modelsDir, "campplus-cn-common.gguf")
+    val mossSpeakerModel: File get() = File(modelsDir, "wespeaker_emb_fp16.tflite")
     val mossLiteEncoder: File get() = File(modelsDir, "moss_td_encoder_q8.tflite")
     val mossLiteEmbedder: File get() = File(modelsDir, "moss_td_embedder_q8.tflite")
     val mossLiteDecoder: File get() = File(modelsDir, "moss_td_decoder_v2_q4b32_ekv2560.tflite")
@@ -80,13 +79,13 @@ class ModelManager(context: Context) {
 
     /** MOSS-TD readiness = all three LiteRT components + the detok vocab, size-checked (the
      *  .tflite flatbuffers have no cheap magic check like GGUF; sha256 is verified on download).
-     *  The CAM++ speaker GGUF is optional — [mossSpeakerReady] reports it separately. */
+     *  The WeSpeaker embedding tflite is optional — [mossSpeakerReady] reports it separately. */
     fun mossReady(): Boolean =
         mossLiteEncoder.length() == MOSSLITE_ENC_BYTES &&
         mossLiteEmbedder.length() == MOSSLITE_EMB_BYTES &&
         mossLiteDecoder.length() == MOSSLITE_DEC_BYTES &&
         mossLiteVocab.length() == MOSSLITE_VOCAB_BYTES
-    fun mossSpeakerReady(): Boolean = mossSpeakerModel.exists() && isValidGguf(mossSpeakerModel, MOSS_SPK_BYTES)
+    fun mossSpeakerReady(): Boolean = mossSpeakerModel.length() == MOSS_SPK_BYTES
 
     // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
     private data class AsrModelSpec(
@@ -164,7 +163,7 @@ class ModelManager(context: Context) {
 
     fun asrFiles(backend: AsrBackend): AsrModelFiles =
         if (backend == AsrBackend.MOSS) AsrModelFiles(
-            mossModel = mossModel.absolutePath,
+            mossModel = mossLiteDecoder.absolutePath,
             speakerEmbedModel = mossSpeakerModel.takeIf { mossSpeakerReady() }?.absolutePath ?: "",
         )
         else asrSpecs.getValue(backend).let { it.buildFiles(specDir(it)) }
@@ -176,7 +175,7 @@ class ModelManager(context: Context) {
      */
     fun deleteAsr(backend: AsrBackend) {
         if (backend == AsrBackend.MOSS) {
-            listOf(mossModel, mossLiteEncoder, mossLiteEmbedder, mossLiteDecoder, mossLiteVocab)
+            listOf(mossLiteEncoder, mossLiteEmbedder, mossLiteDecoder, mossLiteVocab)
                 .forEach { it.takeIf(File::exists)?.delete() }
             return
         }
@@ -290,7 +289,7 @@ class ModelManager(context: Context) {
         val n = name.lowercase()
         return when {
             n.startsWith("silero_vad") || n.contains("vad") -> ModelKind.VAD
-            n.contains("campplus") || n.contains("speaker_embedding") -> ModelKind.SPEAKER
+            n.contains("campplus") || n.contains("speaker_embedding") || n.contains("wespeaker") -> ModelKind.SPEAKER
             // MOSS-TD is an ASR model that happens to ship as a .gguf — classify it before the
             // generic gguf→LLM rule below, or Settings lists it as a summary model.
             n.startsWith("moss-td") || n.startsWith("moss-transcribe") || n.startsWith("moss_td") -> ModelKind.ASR
@@ -371,14 +370,15 @@ class ModelManager(context: Context) {
             doneBytes += p.bytes
         }
         // Optional speaker model — never fail the run if it can't be fetched.
-        if (!(mossSpeakerModel.exists() && isValidGguf(mossSpeakerModel, MOSS_SPK_BYTES))) {
+        if (mossSpeakerModel.length() != MOSS_SPK_BYTES) {
             runCatching {
                 if (mossSpeakerModel.exists()) mossSpeakerModel.delete()
                 download(MOSS_SPK_URL, mossSpeakerModel, MOSS_SPK_SHA) { onProgress(0.97f + it * 0.03f) }
             }
         }
-        // Reclaim the superseded 0.76 GB RapidSpeech GGUF (the LiteRT split replaces it).
-        mossModel.takeIf(File::exists)?.delete()
+        // Reclaim the superseded ggml artifacts (RapidSpeech GGUF + CAM++ — ggml is gone).
+        File(modelsDir, "moss-transcribe-base-q4mix.gguf").takeIf(File::exists)?.delete()
+        File(modelsDir, "campplus-cn-common.gguf").takeIf(File::exists)?.delete()
         check(mossReady()) { "MOSS-TD model missing after provisioning" }
     }
 
@@ -636,19 +636,12 @@ class ModelManager(context: Context) {
             "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx"
         private const val SEG_SHA = "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079"
 
-        // MOSS-TD (RapidSpeech.cpp GGUFs) — see models/manifest.json. Exact artifact sizes so the
-        // GGUF magic+size check is a tight lower bound; the SHA pins are verified on download.
-        // Base (not fine-tuned) MOSS-Transcribe-Diarize, uniform q4_K with token_embd held at f16
-        // ("q4mix" — uniform quantization collapses utterance segmentation). Pinned to a commit so
-        // the download is reproducible and the sha256 stays verifiable.
-        private const val MOSS_URL =
-            "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/59391ef6e1657af9fa2d1f30d3db8027e037dd4f/moss-transcribe-base-q4mix.gguf"
-        private const val MOSS_SHA = "06b21a4c16302175936a2876266d3d90fba2d746b4dce50678dadc11ec6ad6bf"
-        private const val MOSS_BYTES = 758_922_240L
+        // WeSpeaker ResNet34 speaker embedding (LiteRT, litert-community) — MOSS cross-window
+        // linking. Commit-pinned + sha256; exact size doubles as the cheap integrity check.
         private const val MOSS_SPK_URL =
-            "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/59391ef6e1657af9fa2d1f30d3db8027e037dd4f/campplus.gguf"
-        private const val MOSS_SPK_SHA = "c49e5e80128c8e04ca6febc1f0ac86d477a28413a4f10297608c68bd799ad564"
-        private const val MOSS_SPK_BYTES = 14_255_904L
+            "https://huggingface.co/litert-community/Speaker-Diarization-LiteRT/resolve/89156277b5cbef7c416360c52ce8bcd6d53a2080/wespeaker_emb_fp16.tflite"
+        private const val MOSS_SPK_SHA = "4853c284fdb3e39bd41f692d0bc3fd5068bf78782792d8ef02a3283c9d97554d"
+        private const val MOSS_SPK_BYTES = 13_352_192L
 
         // MOSS-TD on LiteRT: the three-component split (q8 encoder + q8 embedder + int4-b32 v2
         // decoder, ekv2560) + tokenizer vocab, from Luigi/moss-transcribe-diarize-litert,

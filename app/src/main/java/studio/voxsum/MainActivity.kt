@@ -166,7 +166,6 @@ import studio.voxsum.core.text.ChineseScript
 import studio.voxsum.core.text.OpenCcConverter
 import studio.voxsum.core.cover.CoverGenerator
 import studio.voxsum.core.events.TranscriptEvent
-import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.core.session.RecentSession

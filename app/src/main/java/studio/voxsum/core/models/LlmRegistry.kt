@@ -1,6 +1,6 @@
 package studio.voxsum.core.models
 
-/** A selectable on-device summarization model. SHA pinned to the exact GGUF artifact. */
+/** A selectable on-device summarization model. SHA pinned to the exact artifact. */
 data class LlmSpec(
     val id: String,
     val displayName: String,
@@ -10,17 +10,19 @@ data class LlmSpec(
     val fileName: String,       // distinct per id so models coexist on disk
     val chatTemplate: ChatTemplate,
     val shortName: String = "",  // compact name for the model picker
-    val sampler: SamplerProfile = SamplerProfile.LEGACY,  // per-model llama.cpp sampler chain
+    val sampler: SamplerProfile = SamplerProfile.LEGACY,  // sampler settings for the session
 )
 
 /** NONE = the runtime applies the model's own chat template (LiteRT-LM bundles
- *  carry it in metadata — verified: raw prompts get properly templated answers). */
+ *  carry it in metadata — verified: raw prompts get properly templated answers).
+ *  The other variants are retained for potential future runtimes that need
+ *  app-side templating. */
 enum class ChatTemplate { CHATML, GEMMA, GEMMA4, QWEN3, NONE }
 
 /**
- * llama.cpp sampler settings, chosen per model. The chain itself lives in native code
- * (llm_jni.cpp), but the values are picked here so each model gets what its family expects —
- * passed through [LlmEngine.load] into the native handle.
+ * Session sampler settings, chosen per model (passed into the LiteRT-LM
+ * SamplerConfig). The engine has no repeat-penalty knob — the summarizer's
+ * sentence-dedup backstop covers loop suppression instead.
  */
 data class SamplerProfile(
     val topK: Int,
@@ -30,25 +32,17 @@ data class SamplerProfile(
     val presencePenalty: Float,
 ) {
     companion object {
-        /** Legacy small-instruct chain (Gemma, older Qwen3): a heavy repeat penalty stops the
-         *  "say the same sentence forever" loops those models fall into on summarization. */
         val LEGACY = SamplerProfile(topK = 40, topP = 0.9f, temp = 0.7f, repeatPenalty = 1.3f, presencePenalty = 0.0f)
 
-        /** Qwen3.5 non-thinking spec (unsloth). A high repeat penalty makes Qwen3.5 drop punctuation
-         *  and structure into a run-on wall-of-text on long inputs, so repeat is OFF (1.0) and a flat
-         *  presence penalty guards repetition instead; top_k 20 / top_p 0.8 per the model card. */
+        /** Qwen3.5 non-thinking spec (unsloth) — kept for reference/tests. */
         val QWEN35 = SamplerProfile(topK = 20, topP = 0.8f, temp = 0.7f, repeatPenalty = 1.0f, presencePenalty = 1.0f)
     }
 }
 
 /**
- * On-device summarization models.
- *
- * Templates ([ChatTemplate]): GEMMA = `<start_of_turn>…<end_of_turn>`; GEMMA4 = the newer
- * `<|turn>…<turn|>` form; CHATML = `<|im_start|>…<|im_end|>`; QWEN3 = ChatML for the Qwen3/Qwen3.5
- * family, with the empty `<think>\n\n</think>` block their template emits for **non-thinking** mode
- * — so summaries come out directly, without a reasoning preamble. We apply the turn format here
- * rather than via the GGUF's embedded template.
+ * On-device summarization models — LiteRT-LM `.litertlm` bundles only (the
+ * ggml/llama.cpp GGUF path was removed from Android; the bundles embed their
+ * own chat template, tokenizer and stop tokens).
  */
 object LlmRegistry {
     const val DEFAULT_ID = "gemma-4-e2b-litertlm"
@@ -56,44 +50,21 @@ object LlmRegistry {
     private const val HF = "https://huggingface.co"
 
     val ALL: List<LlmSpec> = listOf(
-        // Gemma 4 E2B on LiteRT-LM is the Android default: same weights class as the GGUF below
-        // but 3-4x faster on big.LITTLE phones (Samsung SM-A5360, cold CPU: prefill 19.4 / decode
-        // 7.0 tok/s vs llama.cpp 3.0/1.6). The .litertlm bundle applies its own chat template.
         LlmSpec(
             id = "gemma-4-e2b-litertlm",
-            displayName = "Gemma 4 E2B · LiteRT (recommended)",
+            displayName = "Gemma 4 E2B (recommended)",
             url = "$HF/litert-community/gemma-4-E2B-it-litert-lm/resolve/9262660a1676eed6d0c477ab1a86344430854664/gemma-4-E2B-it.litertlm",
             sha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
             sizeBytes = 2_588_147_712L,
-            // ChatTemplate.NONE + runtime-injected template: tasks-genai does not auto-apply the
-            // bundle's chat template (raw prompts leaked literal <turn|>/<eos> and free-ran), and
-            // STRING-level wrapping is wrong too — the markers tokenize as plain text, and that
-            // off-distribution prompt sent the 2-bit decoder into token loops ("產品的產品的…").
-            // LiteLlmEngine instead sets the session's PromptTemplates (user/model turn markers),
-            // so the RUNTIME injects them exactly like the validated CLI does.
             fileName = "gemma-4-e2b-it.litertlm", chatTemplate = ChatTemplate.NONE, shortName = "Gemma 4 E2B",
         ),
-        // llama.cpp fallback (same model family as GGUF) — kept for devices where the LiteRT-LM
-        // runtime misbehaves, and as the F-Droid-friendly source-built path.
         LlmSpec(
-            id = "gemma-4-e2b-it-qat",
-            displayName = "Gemma 4 E2B (llama.cpp)",
-            // Pinned to the 2026-07-17 revision ("Added Gemma official chat template update"),
-            // which re-published the GGUF off Google's 2026-07-15 checkpoint refresh. Pinning the
-            // commit (not main) keeps the download reproducible AND lets us verify a real sha256 —
-            // on main the blob mutates under us and the checksum has to be left blank.
-            url = "$HF/unsloth/gemma-4-E2B-it-qat-mobile-GGUF/resolve/46af839dc23aceb4b965ab640dae7fc1bea39bba/gemma-4-E2B-it-qat-UD-Q2_K_XL.gguf",
-            sha256 = "0a5bbc20f91f92da96ab4870fa71b356c45b8500a7b8b9c3e0eb48359b72da28",
-            sizeBytes = 2_186_186_784L,
-            fileName = "gemma-4-e2b-it-qat.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E2B",
-        ),
-        LlmSpec(
-            id = "gemma-4-e4b-it-qat",
-            displayName = "Gemma 4 E4B (QAT)",
-            url = "$HF/unsloth/gemma-4-E4B-it-qat-mobile-GGUF/resolve/6a6e7121b977cefd85daa8fbc538fa485e7e8b1b/gemma-4-E4B-it-qat-UD-Q2_K_XL.gguf",
-            sha256 = "79dde517866cfbb5c00230b530de17910fc7fc78f8827554d0e14281ce5faf03",
-            sizeBytes = 3_219_532_192L,
-            fileName = "gemma-4-e4b-it-qat.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E4B",
+            id = "gemma-4-e4b-litertlm",
+            displayName = "Gemma 4 E4B (higher fidelity)",
+            url = "$HF/litert-community/gemma-4-E4B-it-litert-lm/resolve/f7ad3343bd6ebc9607f4dc3bc4f2398bd5749bc5/gemma-4-E4B-it.litertlm",
+            sha256 = "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
+            sizeBytes = 3_659_530_240L,
+            fileName = "gemma-4-e4b-it.litertlm", chatTemplate = ChatTemplate.NONE, shortName = "Gemma 4 E4B",
         ),
     )
 
