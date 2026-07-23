@@ -43,18 +43,24 @@ class LiteLlmEngine private constructor(
             // Async generation so the OUTPUT budget can be enforced: the sync API has no
             // per-call cap, and an uncapped map call can free-run for minutes (observed:
             // a single chunk >8 min). Each partial is ~one token — cancel at maxTokens.
+            //
+            // STOP MARKERS: the runtime does not stop at Gemma 4's turn end — the model's
+            // <turn|>/<eos> come through as literal TEXT (observed leaking into summaries,
+            // followed by degenerate free-run). Detect them in the stream, cancel, and
+            // deliver only the text before the first marker. Because a marker can split
+            // across partials, accumulate internally and emit ONE clean onToken at the end.
             val sb = StringBuilder()
             val done = java.util.concurrent.CountDownLatch(1)
             var pieces = 0
+            var stopped = false
             session.generateResponseAsync { partial, isDone ->
-                if (!isDone || partial.isNotEmpty()) {
-                    sb.append(partial)
-                    onToken.onToken(partial)
-                }
+                if (partial.isNotEmpty()) sb.append(partial)
                 pieces++
+                val stopHit = STOP_MARKERS.any { sb.indexOf(it) >= 0 }
                 if (isDone) {
                     done.countDown()
-                } else if ((maxTokens in 1..pieces) || cancelled) {
+                } else if (stopHit || (maxTokens in 1..pieces) || cancelled) {
+                    stopped = true
                     runCatching { session.cancelGenerateResponseAsync() }
                 }
             }
@@ -68,13 +74,20 @@ class LiteLlmEngine private constructor(
                     break
                 }
             }
+            var text = sb.toString()
+            for (m in STOP_MARKERS) {
+                val i = text.indexOf(m)
+                if (i >= 0) text = text.substring(0, i)
+            }
+            text = text.trim()
+            onToken.onToken(text)
             val s = (android.os.SystemClock.elapsedRealtime() - t0) / 1000.0
             android.util.Log.i(
                 "voxsum-litellm",
-                "perf: prompt=${prompt.length} ch, out=$pieces pieces/${sb.length} ch in " +
-                    "%.1fs, cap=$maxTokens${if (pieces >= maxTokens && maxTokens > 0) " (CAPPED)" else ""}".format(s),
+                "perf: prompt=${prompt.length} ch, out=$pieces pieces/${text.length} ch in " +
+                    "%.1fs, cap=$maxTokens${if (stopped) " (stopped)" else ""}".format(s),
             )
-            return sb.toString()
+            return text
         } finally {
             session.close()
         }
@@ -88,6 +101,10 @@ class LiteLlmEngine private constructor(
     }
 
     companion object {
+        /** Gemma 4 end-of-turn / end-of-sequence markers, plus a new-turn open marker —
+         *  any of them in the stream means the answer is complete. */
+        private val STOP_MARKERS = listOf("<turn|>", "<eos>", "<|turn>")
+
         /** One resident engine; ~7 s init on a mid-range phone (weights load + plan build). */
         fun load(context: Context, modelPath: String, sampler: SamplerProfile, nCtx: Int = 4096,
                  backend: String = "cpu"): LiteLlmEngine {
