@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.asr.SpeechEngine
+import studio.voxsum.core.asr.NemotronLiteAsr
 import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.MossLiteEngine
 import studio.voxsum.core.asr.moss.MOSS_SR
@@ -1408,13 +1409,30 @@ class TranscriptionService : LifecycleService() {
      * token timestamps (Qwen3); only the small CAM++ embedder is co-resident with the
      * recognizer, and the LLM still loads only after both are released.
      */
-    /** Build the [SpeechEngine] for [backend] — X-ASR on LiteRT (the only VAD-segmented backend). */
+    /** Build the [SpeechEngine] for [backend] — the VAD-segmented LiteRT backends
+     *  (X-ASR zh-en, Nemotron multilingual). MOSS windows internally and never
+     *  reaches here. */
     private fun createSpeechEngine(
         backend: AsrBackend,
         models: ModelManager,
         cfg: TranscriptionConfig,
     ): SpeechEngine {
         val f = models.asrFiles(backend)
+        if (backend == AsrBackend.NEMOTRON) {
+            return NemotronLiteAsr(
+                encoder = java.io.File(f.encoder),
+                promptFuse = java.io.File(f.promptFuse),
+                decoder = java.io.File(f.decoder),
+                joint = java.io.File(f.joiner),
+                tokenizerJson = java.io.File(f.tokens),
+                vadModelFile = models.vadLiteModel,
+                numThreads = asrThreads(),
+                languageId = cfg.language,
+                vadThreshold = cfg.vadThreshold,
+                cacheDir = cacheDir.absolutePath,
+                gpu = asrGpu(cfg, backend),
+            )
+        }
         return XasrLiteAsr(
                 modelFile = java.io.File(f.encoder),
                 tokensFile = java.io.File(f.tokens),

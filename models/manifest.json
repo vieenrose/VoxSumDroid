@@ -36,6 +36,41 @@
       "url": "https://huggingface.co/Luigi/xasr-litert/resolve/main/tokens.txt",
       "sha256": "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c",
       "license": "Apache-2.0"
+    },
+    {
+      "id": "nemotron-encoder-q4",
+      "kind": "ASR",
+      "url": "https://huggingface.co/Luigi/nemotron-asr-litert/resolve/75ec9fbbce099ef2630e14f6eceaf1576ec107dc/nemotron_encoder_q4.tflite",
+      "sha256": "9e817d29ab20013de9962a8c347e7f68f9a896eef1e29ffcf9b0e0a0f1ef691c",
+      "license": "nvidia-open-model-license"
+    },
+    {
+      "id": "nemotron-prompt-fuse",
+      "kind": "ASR",
+      "url": "https://huggingface.co/Luigi/nemotron-asr-litert/resolve/75ec9fbbce099ef2630e14f6eceaf1576ec107dc/nemotron_prompt_fuse_fp32.tflite",
+      "sha256": "b4dcdc802c4124b0b0b0ff5b56344705f9b15f10c9f4983aa3503176b2e9e9b9",
+      "license": "nvidia-open-model-license"
+    },
+    {
+      "id": "nemotron-decoder-fp16",
+      "kind": "ASR",
+      "url": "https://huggingface.co/Luigi/nemotron-asr-litert/resolve/75ec9fbbce099ef2630e14f6eceaf1576ec107dc/nemotron_decoder_fp16.tflite",
+      "sha256": "93a3b8d91ab604305cb5c3014c4fb389cfd7b6a7397dc2e6e22df459f3f8859f",
+      "license": "nvidia-open-model-license"
+    },
+    {
+      "id": "nemotron-joint-fp16",
+      "kind": "ASR",
+      "url": "https://huggingface.co/Luigi/nemotron-asr-litert/resolve/75ec9fbbce099ef2630e14f6eceaf1576ec107dc/nemotron_joint_fp16.tflite",
+      "sha256": "8e5f46279a288ff5c0ce11f581fcd3753308c2151559046c90ca62aa632d48f2",
+      "license": "nvidia-open-model-license"
+    },
+    {
+      "id": "nemotron-tokenizer",
+      "kind": "ASR",
+      "url": "https://huggingface.co/Luigi/nemotron-asr-litert/resolve/75ec9fbbce099ef2630e14f6eceaf1576ec107dc/tokenizer.json",
+      "sha256": "3f3d481deb073b64c2082e8c7860d487a3a62774bf4e9e4faac83007e181f246",
+      "license": "nvidia-open-model-license"
     }
   ],
   "diarization": [

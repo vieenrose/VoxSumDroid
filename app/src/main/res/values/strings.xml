@@ -65,6 +65,7 @@
     <string name="asr_tagline_xasr">x-asr · zh-en, punctuated</string>
     <string name="asr_tagline_qwen3">large, slow</string>
     <string name="asr_tagline_moss">zh · en · ja · ko · yue · diarizing · heavy model</string>
+    <string name="asr_tagline_nemotron">25 languages · multilingual</string>
     <string name="settings_recognition">Recognition</string>
     <string name="settings_language">Language</string>
     <string name="settings_itn">Inverse text normalization</string>

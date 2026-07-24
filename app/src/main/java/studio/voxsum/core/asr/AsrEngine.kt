@@ -18,8 +18,13 @@ object AsrEngine {
      * quietest 100 ms window inside the last third of each allowed span — a pause, not a
      * word. Single-element passthrough for anything already short enough.
      */
-    fun splitLongSegment(samples: FloatArray): List<Pair<Int, FloatArray>> {
-        val max = MAX_DECODE_SEC * SAMPLE_RATE
+    fun splitLongSegment(samples: FloatArray): List<Pair<Int, FloatArray>> =
+        splitLongSegment(samples, MAX_DECODE_SEC)
+
+    /** As [splitLongSegment] but with a caller-chosen ceiling (Nemotron's fixed
+     *  11 s encoder window needs a tighter cut than the 30 s X-ASR default). */
+    fun splitLongSegment(samples: FloatArray, maxSec: Int): List<Pair<Int, FloatArray>> {
+        val max = maxSec * SAMPLE_RATE
         if (samples.size <= max) return listOf(0 to samples)
         val out = ArrayList<Pair<Int, FloatArray>>()
         var pos = 0

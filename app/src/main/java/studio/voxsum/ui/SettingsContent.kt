@@ -53,6 +53,7 @@ import kotlinx.coroutines.launch
 import studio.voxsum.BuildConfig
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
+import studio.voxsum.core.asr.NemotronLang
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.SummaryStyle
 import studio.voxsum.core.config.ThemeMode
@@ -94,6 +95,7 @@ fun SettingsContent(
                 val taglineRes = when (b) {
                     AsrBackend.XASR -> R.string.asr_tagline_xasr
                     AsrBackend.MOSS -> R.string.asr_tagline_moss
+                    AsrBackend.NEMOTRON -> R.string.asr_tagline_nemotron
                 }
                 ModelOptionCard(
                     title = b.shortName,
@@ -103,6 +105,11 @@ fun SettingsContent(
                     enabled = enabled,
                     onClick = { onChange(config.copy(asrBackend = b.id)) },
                 )
+            }
+            // Nemotron picks its language via a one-hot prompt slot (not per-utterance
+            // detection) — offer the spoken-language selector only for it.
+            if (AsrBackend.fromId(config.asrBackend) == AsrBackend.NEMOTRON) {
+                NemotronLanguageRow(config.language, enabled) { onChange(config.copy(language = it)) }
             }
         }
 
@@ -512,6 +519,29 @@ private fun Section(title: String) {
         letterSpacing = 1.sp,
         modifier = Modifier.padding(top = 14.dp, bottom = 2.dp),
     )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun NemotronLanguageRow(selected: String, enabled: Boolean, onSelect: (String) -> Unit) {
+    val pal = LocalVoxSumPalette.current
+    LabeledRow(stringResource(R.string.settings_language)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            NemotronLang.OPTIONS.forEach { (id, label) ->
+                FilterChip(
+                    selected = selected == id,
+                    enabled = enabled,
+                    onClick = { onSelect(id) },
+                    label = { Text(label) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
+                        selectedLabelColor = pal.Sky,
+                        labelColor = pal.Slate400,
+                    ),
+                )
+            }
+        }
+    }
 }
 
 @Composable

@@ -140,6 +140,44 @@ class ModelManager(context: Context) {
                 "tokens.txt" to "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c",
             ),
         ),
+        // Nemotron-3.5-ASR 3.5 (q4-mix LiteRT port, vieenrose/LiteRT `nemotron`):
+        // multilingual (25 languages via a 128-slot prompt), four graphs
+        // (encoder INT4 596 MB + prompt-fuse fp32 + decoder/joint fp16). INT4 FC
+        // needs the CompiledModel path (same libLiteRt.so as MOSS). HF-only,
+        // revision-pinned to Luigi/nemotron-asr-litert@75ec9fbb (v1.1). Boox
+        // (4×A73) RTF 0.554 on 66 s zh — realtime-capable. Native mel is
+        // byte-parity with the HF NemotronAsrStreamingFeatureExtractor.
+        AsrBackend.NEMOTRON to AsrModelSpec(
+            dir = "nemotron-litert",
+            url = "", sha256 = "",
+            sentinels = listOf(
+                "nemotron_encoder_q4.tflite", "nemotron_prompt_fuse_fp32.tflite",
+                "nemotron_decoder_fp16.tflite", "nemotron_joint_fp16.tflite",
+                "tokenizer.json",
+            ),
+            buildFiles = { d ->
+                AsrModelFiles(
+                    encoder = File(d, "nemotron_encoder_q4.tflite").path,
+                    promptFuse = File(d, "nemotron_prompt_fuse_fp32.tflite").path,
+                    decoder = File(d, "nemotron_decoder_fp16.tflite").path,
+                    joiner = File(d, "nemotron_joint_fp16.tflite").path,
+                    tokens = File(d, "tokenizer.json").path,
+                )
+            },
+            hfBase = "https://huggingface.co/Luigi/nemotron-asr-litert/resolve/75ec9fbbce099ef2630e14f6eceaf1576ec107dc",
+            hfFiles = listOf(
+                "nemotron_encoder_q4.tflite", "nemotron_prompt_fuse_fp32.tflite",
+                "nemotron_decoder_fp16.tflite", "nemotron_joint_fp16.tflite",
+                "tokenizer.json",
+            ),
+            hfShas = mapOf(
+                "nemotron_encoder_q4.tflite" to "9e817d29ab20013de9962a8c347e7f68f9a896eef1e29ffcf9b0e0a0f1ef691c",
+                "nemotron_prompt_fuse_fp32.tflite" to "b4dcdc802c4124b0b0b0ff5b56344705f9b15f10c9f4983aa3503176b2e9e9b9",
+                "nemotron_decoder_fp16.tflite" to "93a3b8d91ab604305cb5c3014c4fb389cfd7b6a7397dc2e6e22df459f3f8859f",
+                "nemotron_joint_fp16.tflite" to "8e5f46279a288ff5c0ce11f581fcd3753308c2151559046c90ca62aa632d48f2",
+                "tokenizer.json" to "3f3d481deb073b64c2082e8c7860d487a3a62774bf4e9e4faac83007e181f246",
+            ),
+        ),
     )
 
     private fun specDir(spec: AsrModelSpec) = File(modelsDir, spec.dir)
