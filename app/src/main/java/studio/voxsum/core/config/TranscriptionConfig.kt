@@ -9,7 +9,7 @@ import studio.voxsum.core.models.LlmRegistry
  */
 data class TranscriptionConfig(
     // --- ASR ---
-    val asrBackend: String = "x-asr",         // x-asr (default, like the web app) | sensevoice | qwen3
+    val asrBackend: String = "x-asr"  // default: fastest engine (7x real-time); MOSS opt-in for native diarization,         // x-asr (default, like the web app) | sensevoice | qwen3
     val asrModelId: String = "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03",
     val language: String = "",                // SenseVoice: ""=auto, zh/en/ja/ko/yue
     val useItn: Boolean = true,               // inverse text normalization

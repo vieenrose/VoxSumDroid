@@ -120,7 +120,10 @@ fun SettingsContent(
                 ModelOptionCard(
                     title = spec.displayName,
                     subtitle = "$mb MB · $ram",
-                    selected = config.llmModelId == spec.id,
+                    // Normalize like the runtime does: a stored id from a removed model
+                    // (e.g. the old qwen default) resolves to DEFAULT_ID — the card must
+                    // show what will actually run, not match raw strings.
+                    selected = LlmRegistry.byId(config.llmModelId).id == spec.id,
                     downloaded = spec.id in readyLlm,
                     enabled = enabled,
                     onClick = { onChange(config.copy(llmModelId = spec.id)) },
@@ -508,7 +511,8 @@ private fun AboutContent(onUpdateFound: (UpdateInfo) -> Unit) {
 }
 
 private val COMPONENT_LICENSES = listOf(
-    "sherpa-onnx (ASR · VAD · diarization)" to "Apache-2.0",
+    "LiteRT (ASR · VAD · diarization runtimes)" to "Apache-2.0",
+    "LiteRT-LM (summarization runtime)" to "Apache-2.0",
     "ONNX Runtime" to "MIT",
     "llama.cpp (summarization)" to "MIT",
     "Qwen3-ASR models" to "Apache-2.0",

@@ -39,6 +39,7 @@ class ModelManager(context: Context) {
         // provisioning — an existing install that never re-provisions would otherwise
         // carry ~0.5 GB of dead SenseVoice/Qwen3 models forever.
         DROPPED_BACKEND_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
+        DROPPED_FILES.forEach { File(modelsDir, it).takeIf(File::exists)?.delete() }
     }
 
     // Silero VAD: the ONNX serves the sherpa X-ASR path; the tflite serves the
@@ -634,6 +635,19 @@ class ModelManager(context: Context) {
         private val DROPPED_BACKEND_DIRS = listOf(
             "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
             "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
+        )
+
+        /** Single files from removed engines, reclaimed at construction — the whole
+         *  ggml/GGUF-era stack plus retired ONNX models (old installs carry up to
+         *  ~1.5 GB of these; seen live on the Boox). The silero .onnx served sherpa
+         *  only; the .tflite VAD is NOT listed (X-ASR/SenseVoice use it). */
+        private val DROPPED_FILES = listOf(
+            "silero_vad.onnx",
+            "qwen3.5-0.8b.gguf", "qwen3-0.6b.gguf", "gemma-3-1b.gguf",
+            "moss-td-zhtw-v7-q4_k_m.gguf", "moss-td-zhtw-v61-q4_k_m.gguf",
+            "campplus-cn-common.gguf", "campplus_zh_en.onnx", "campplus_zh_en_fp16.onnx",
+            "pyannote_segmentation_3_0.onnx", "wespeaker_emb_fp16.tflite",
+            "speaker_embedding.onnx",
         )
 
         // Superseded ASR model dirs to reclaim on upgrade. The old x-asr zipformer (~160 MB)

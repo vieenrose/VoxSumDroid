@@ -18,7 +18,7 @@ enum class AsrBackend(
     val diarizesNatively: Boolean get() = this == MOSS
 
     companion object {
-        fun fromId(id: String): AsrBackend = entries.firstOrNull { it.id == id } ?: MOSS
+        fun fromId(id: String): AsrBackend = entries.firstOrNull { it.id == id } ?: XASR
     }
 }
 
