@@ -1676,8 +1676,12 @@ private fun TranscribeScreen(
     val transcriptItems: LazyListScope.() -> Unit = {
         items(count = utterances.size, key = { utterances[it].index }) { idx ->
             val u = utterances[idx]
+            // Consecutive utterances from the same speaker read as one turn: only the
+            // first line of a run carries the speaker chip (timestamps stay per line).
+            val speakerChanged = idx == 0 || utterances[idx - 1].speaker != u.speaker
             UtteranceRow(
                 utt = u,
+                showSpeaker = speakerChanged,
                 active = idx == activeIndex,
                 highlight = if (searchActive) searchQuery else "",
                 isEditing = editingIndex == idx,
@@ -2677,6 +2681,7 @@ private fun TimelineStrip(
 @Composable
 private fun UtteranceRow(
     utt: TranscriptEvent.Utterance,
+    showSpeaker: Boolean = true,
     active: Boolean,
     highlight: String,
     isEditing: Boolean,
@@ -2740,7 +2745,8 @@ private fun UtteranceRow(
                 )
             }
         } else {
-            val label = utt.speaker?.let { speakerNames[it]?.name ?: stringResource(R.string.speaker_n, it + 1) }
+            val label = if (!showSpeaker) null
+            else utt.speaker?.let { speakerNames[it]?.name ?: stringResource(R.string.speaker_n, it + 1) }
             Row(verticalAlignment = Alignment.Top) {
                 Text(
                     buildAnnotatedString {
@@ -2760,7 +2766,7 @@ private fun UtteranceRow(
                             // Estimated placeholder: CJK glyphs ~1em, latin ~0.55em, + chip padding.
                             Placeholder(
                                 width = (label.sumOf { c -> (if (c.code > 0x2E7F) 12 else 7).toLong() } + 18).toInt().sp,
-                                height = 18.sp,
+                                height = 20.sp,
                                 placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
                             ),
                         ) {
@@ -2841,12 +2847,20 @@ private fun SpeakerTag(
         ) {
             Text(
                 label,
-                style = MaterialTheme.typography.labelMedium,
+                // Tight line box: CJK glyphs at labelMedium's default 16 sp line height plus
+                // 3 dp paddings exceeded the 18 sp inline placeholder and the bottom of 語者
+                // was clipped. lineHeight == fontSize + no extra font padding keeps the chip
+                // inside the placeholder with the glyphs fully visible.
+                style = MaterialTheme.typography.labelMedium.copy(
+                    lineHeight = 12.sp,
+                    platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+                ),
                 color = color,
                 fontWeight = FontWeight.Medium,
+                maxLines = 1,
                 modifier = Modifier
                     .clickable(onClick = onTap)
-                    .padding(horizontal = 10.dp, vertical = 3.dp),
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
             )
         }
     } else {
