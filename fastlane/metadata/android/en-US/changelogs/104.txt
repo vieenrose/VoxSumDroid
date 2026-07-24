@@ -1,0 +1,3 @@
+• New ASR engine: Nemotron-3.5 (multilingual) — 25 languages in one model, realtime on-device via LiteRT. Joins X-ASR (default, zh-en, fastest) and MOSS-TD (one-pass transcription + speaker diarization). Pick the spoken language in Settings.
+• On a 5-min Chinese benchmark (Boox Tab Mini C): X-ASR 0.22× realtime, Nemotron 0.60×, MOSS-TD one-pass with diarization. Nemotron shines on its 19 top-tier locales (English, Japanese, Korean, Spanish, French, German, …).
+• Faster Nemotron mel front end (radix-2 FFT).
