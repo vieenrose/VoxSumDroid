@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.asr.SpeechEngine
+import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.MossLiteEngine
 import studio.voxsum.core.asr.moss.MOSS_SR
 import studio.voxsum.core.asr.moss.MossPipeline
@@ -1411,7 +1412,17 @@ class TranscriptionService : LifecycleService() {
         backend: AsrBackend,
         models: ModelManager,
         cfg: TranscriptionConfig,
-    ): SpeechEngine =
+    ): SpeechEngine = if (backend == AsrBackend.XASR) {
+        val f = models.asrFiles(backend)
+        XasrLiteAsr(
+            modelFile = java.io.File(f.encoder),
+            tokensFile = java.io.File(f.tokens),
+            vadModelFile = models.vadLiteModel,
+            numThreads = asrThreads(),
+            vadThreshold = cfg.vadThreshold,
+            cacheDir = cacheDir.absolutePath,
+        )
+    } else {
         AsrEngine(
             backend = backend,
             files = models.asrFiles(backend),
@@ -1421,6 +1432,7 @@ class TranscriptionService : LifecycleService() {
             useItn = cfg.useItn,
             vadThreshold = cfg.vadThreshold,
         )
+    }
 
     private suspend fun diarizePhase(
         wav: File,

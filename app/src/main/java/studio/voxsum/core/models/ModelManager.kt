@@ -119,23 +119,25 @@ class ModelManager(context: Context) {
         // The "punct" variant (matches the web app's xasr_models): mixed-case English +
         // punctuation baked into the BPE vocab. The older zh-en-2023-11-22 zipformer emitted
         // ALL-CAPS, unpunctuated English — wrong model for a readable transcript.
+        // X-ASR runs on LiteRT (Luigi/xasr-litert): OCTAV-q8 bucketed masked export,
+        // gated on host — encoder max|d| 3.1e-06 vs source ONNX; q8 CER identical to the
+        // fp32 tflite (quantization adds no measurable error). HF is the ONLY source.
         AsrBackend.XASR to AsrModelSpec(
-            dir = "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03",
-            url = "$REL/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03.tar.bz2",
-            sha256 = "1bd1687be051d4656d75462a28b919eecb914e8714e6eaa7e92a30112ace2a68",
-            sentinels = listOf("encoder-epoch-99-avg-1.int8.onnx", "decoder-epoch-99-avg-1.onnx",
-                "joiner-epoch-99-avg-1.int8.onnx", "tokens.txt"),
+            dir = "xasr-litert",
+            url = "", sha256 = "",
+            sentinels = listOf("xasr_q8_octav.tflite", "tokens.txt"),
             buildFiles = { d ->
                 AsrModelFiles(
-                    encoder = File(d, "encoder-epoch-99-avg-1.int8.onnx").path,
-                    decoder = File(d, "decoder-epoch-99-avg-1.onnx").path,
-                    joiner = File(d, "joiner-epoch-99-avg-1.int8.onnx").path,
+                    encoder = File(d, "xasr_q8_octav.tflite").path,
                     tokens = File(d, "tokens.txt").path,
                 )
             },
-            hfBase = "https://huggingface.co/csukuangfj2/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03/resolve/main",
-            hfFiles = listOf("encoder-epoch-99-avg-1.int8.onnx", "decoder-epoch-99-avg-1.onnx",
-                "joiner-epoch-99-avg-1.int8.onnx", "tokens.txt"),
+            hfBase = "https://huggingface.co/Luigi/xasr-litert/resolve/main",
+            hfFiles = listOf("xasr_q8_octav.tflite", "tokens.txt"),
+            hfShas = mapOf(
+                "xasr_q8_octav.tflite" to "33849c8eed0faf7f268a36d852c3557c72d10782473667f39d3483e282fe00ed",
+                "tokens.txt" to "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c",
+            ),
         ),
     )
 
@@ -147,7 +149,7 @@ class ModelManager(context: Context) {
         if (backend == AsrBackend.MOSS) return mossReady()
         val spec = asrSpecs.getValue(backend)
         val d = specDir(spec)
-        return vadModel.exists() && spec.sentinels.all { File(d, it).exists() }
+        return vadLiteModel.exists() && spec.sentinels.all { File(d, it).exists() }
     }
 
     fun asrFiles(backend: AsrBackend): AsrModelFiles =
@@ -175,7 +177,7 @@ class ModelManager(context: Context) {
     suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
         if (backend == AsrBackend.MOSS) ensureMossModels(onProgress) else
         withContext(Dispatchers.IO) {
-            ensureVad { onProgress(it * 0.1f) }
+            ensureVadLite { onProgress(it * 0.1f) }
             val spec = asrSpecs.getValue(backend)
             val d = specDir(spec)
             if (!spec.sentinels.all { File(d, it).exists() }) {
@@ -617,7 +619,10 @@ class ModelManager(context: Context) {
         // Superseded ASR model dirs to reclaim on upgrade. The old x-asr zipformer (~160 MB)
         // emitted ALL-CAPS, unpunctuated English and was replaced by the punct variant; since the
         // new dir name differs, the old folder would otherwise linger forever on existing installs.
-        private val LEGACY_ASR_DIRS = listOf("sherpa-onnx-zipformer-zh-en-2023-11-22")
+        private val LEGACY_ASR_DIRS = listOf(
+            "sherpa-onnx-zipformer-zh-en-2023-11-22",
+            "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03",
+        )
 
         private const val VAD_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
