@@ -39,9 +39,12 @@ class ModelManager(context: Context) {
         // provisioning — an existing install that never re-provisions would otherwise
         // carry ~0.5 GB of dead SenseVoice/Qwen3 models forever.
         DROPPED_BACKEND_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
-        DROPPED_FILES.forEach { File(modelsDir, it).takeIf(File::exists)?.delete() }
     }
 
+    // Silero VAD: the ONNX serves the sherpa X-ASR path; the tflite serves the
+    // LiteRT engines (X-ASR once its LiteRT port lands).
+    val vadModel: File get() = File(modelsDir, "silero_vad.onnx")
+    val vadLiteModel: File get() = File(modelsDir, "silero-vad.tflite")
 
     // CAM++ zh+en (3D-Speaker), fp16 — replaced eres2net_base after on-device benchmarking on a
     // Pixel 6: fp16 was the fastest (~70 ms/utt, ~1.5x faster than CAM++ fp32, ~3.5x faster than
@@ -96,24 +99,151 @@ class ModelManager(context: Context) {
         mossLiteVocab.length() == MOSSLITE_VOCAB_BYTES
     fun mossSpeakerReady(): Boolean = mossSpeakerModel.length() == MOSS_SPK_BYTES
 
-    // --- MOSS-only ASR facade (multi-backend registry removed 2026-07) ---
-    fun asrReady(backend: AsrBackend): Boolean = mossReady()
-
-    fun asrFiles(backend: AsrBackend): AsrModelFiles = AsrModelFiles(
-        mossModel = mossLiteDecoder.absolutePath,
-        speakerEmbedModel = mossSpeakerModel.takeIf { mossSpeakerReady() }?.absolutePath ?: "",
+    // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
+    private data class AsrModelSpec(
+        val dir: String,
+        val url: String,                              // GitHub release .tar.bz2 (fallback source; "" = HF only)
+        val sha256: String,                           // checksum of the GitHub archive
+        val sentinels: List<String>,                  // "already provisioned" check (relative to dir)
+        val buildFiles: (File) -> AsrModelFiles,
+        // HuggingFace mirror (PRIMARY source — its CDN is far more reliable than GitHub's release
+        // CDN in many regions, e.g. TW/CN). [hfBase] is a `/resolve/<rev>` base; [hfFiles] are the
+        // repo-relative paths fetched individually into the model dir. When null, only GitHub is used.
+        val hfBase: String? = null,
+        val hfFiles: List<String>? = null,
+        // Optional per-file sha256 pins for [hfFiles] (revision-pinned repos make this meaningful).
+        val hfShas: Map<String, String>? = null,
     )
 
-    /** Remove the on-disk MOSS models so the next run re-downloads a clean copy. */
-    fun deleteAsr(backend: AsrBackend) {
-        listOf(mossLiteEncoder, mossLiteEmbedder, mossLiteDecoder, mossLiteVocab)
-            .forEach { it.takeIf(File::exists)?.delete() }
+    private val asrSpecs: Map<AsrBackend, AsrModelSpec> = mapOf(
+        // The "punct" variant (matches the web app's xasr_models): mixed-case English +
+        // punctuation baked into the BPE vocab. The older zh-en-2023-11-22 zipformer emitted
+        // ALL-CAPS, unpunctuated English — wrong model for a readable transcript.
+        // X-ASR runs on LiteRT (Luigi/xasr-litert): OCTAV-q8 bucketed masked export,
+        // gated on host — encoder max|d| 3.1e-06 vs source ONNX; q8 CER identical to the
+        // fp32 tflite (quantization adds no measurable error). HF is the ONLY source.
+        AsrBackend.XASR to AsrModelSpec(
+            dir = "xasr-litert",
+            url = "", sha256 = "",
+            sentinels = listOf("xasr_q8_octav.tflite", "tokens.txt"),
+            buildFiles = { d ->
+                AsrModelFiles(
+                    encoder = File(d, "xasr_q8_octav.tflite").path,
+                    tokens = File(d, "tokens.txt").path,
+                )
+            },
+            hfBase = "https://huggingface.co/Luigi/xasr-litert/resolve/main",
+            hfFiles = listOf("xasr_q8_octav.tflite", "tokens.txt"),
+            hfShas = mapOf(
+                "xasr_q8_octav.tflite" to "33849c8eed0faf7f268a36d852c3557c72d10782473667f39d3483e282fe00ed",
+                "tokens.txt" to "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c",
+            ),
+        ),
+    )
+
+    private fun specDir(spec: AsrModelSpec) = File(modelsDir, spec.dir)
+
+    fun asrReady(backend: AsrBackend): Boolean {
+        // MOSS-TD isn't a sherpa/tar.bz2 spec — its readiness is the tflite trio check. No VAD
+        // needed (the model windows internally), so keep it out of the sentinel/VAD path.
+        if (backend == AsrBackend.MOSS) return mossReady()
+        val spec = asrSpecs.getValue(backend)
+        val d = specDir(spec)
+        return vadLiteModel.exists() && spec.sentinels.all { File(d, it).exists() }
     }
 
-    /** Download the MOSS models if missing. */
-    suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
-        ensureMossModels(onProgress)
+    fun asrFiles(backend: AsrBackend): AsrModelFiles =
+        if (backend == AsrBackend.MOSS) AsrModelFiles(
+            mossModel = mossLiteDecoder.absolutePath,
+            speakerEmbedModel = mossSpeakerModel.takeIf { mossSpeakerReady() }?.absolutePath ?: "",
+        )
+        else asrSpecs.getValue(backend).let { it.buildFiles(specDir(it)) }
 
+    /**
+     * Remove the on-disk model directory for [backend] so the next run re-downloads a clean copy.
+     * Used to recover when the recognizer fails to load — the files are present (so [asrReady] is
+     * true and [ensureAsrModels] would otherwise skip the download) but incomplete/corrupt.
+     */
+    fun deleteAsr(backend: AsrBackend) {
+        if (backend == AsrBackend.MOSS) {
+            listOf(mossLiteEncoder, mossLiteEmbedder, mossLiteDecoder, mossLiteVocab)
+                .forEach { it.takeIf(File::exists)?.delete() }
+            return
+        }
+        specDir(asrSpecs.getValue(backend)).takeIf(File::exists)?.deleteRecursively()
+    }
+
+    /** Download + extract the model for [backend] if missing (VAD shared across backends). */
+    suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
+        if (backend == AsrBackend.MOSS) ensureMossModels(onProgress) else
+        withContext(Dispatchers.IO) {
+            ensureVadLite { onProgress(it * 0.1f) }
+            val spec = asrSpecs.getValue(backend)
+            val d = specDir(spec)
+            if (!spec.sentinels.all { File(d, it).exists() }) {
+                provisionAsr(spec, d) { onProgress(0.1f + it * 0.9f) }
+                onProgress(1f)
+            }
+            check(asrReady(backend)) { "ASR model files missing after provisioning ($backend)" }
+            // Only after the new model verifies present (above): reclaim superseded dirs —
+            // mirrors ensureDiarizationModels' legacyEmbeddings reclaim. Gated on the check so a
+            // failed/partial download never deletes a still-working older model.
+            if (backend == AsrBackend.XASR) {
+                LEGACY_ASR_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
+            }
+            // Backends dropped 2026-07: SenseVoice (LiteRT + legacy sherpa) and Qwen3.
+            DROPPED_BACKEND_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
+        }
+
+    /** Fetch the shared VAD model. HuggingFace first (reliable CDN), GitHub release as fallback. */
+    private suspend fun ensureVad(onProgress: (Float) -> Unit) {
+        if (vadModel.exists()) { onProgress(1f); return }
+        try {
+            download(VAD_HF_URL, vadModel, VAD_HF_SHA, onProgress)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            vadModel.delete()
+            download(VAD_URL, vadModel, VAD_SHA, onProgress)
+        }
+    }
+
+    /** Silero v5 tflite (soniqo export, revision-pinned) for the LiteRT engines. */
+    private suspend fun ensureVadLite(onProgress: (Float) -> Unit) {
+        if (vadLiteModel.length() == VAD_LITE_BYTES) { onProgress(1f); return }
+        vadLiteModel.delete()
+        download(VAD_LITE_URL, vadLiteModel, VAD_LITE_SHA, onProgress)
+    }
+
+    /**
+     * Provision an ASR model into [d]. Tries the HuggingFace mirror first — fetching each file
+     * individually, which sidesteps GitHub's often-throttled release CDN and needs no extraction —
+     * and falls back to the GitHub .tar.bz2 (checksum-pinned) if the mirror is unreachable.
+     */
+    private suspend fun provisionAsr(spec: AsrModelSpec, d: File, onProgress: (Float) -> Unit) {
+        val hfBase = spec.hfBase
+        val hfFiles = spec.hfFiles
+        if (hfBase != null && hfFiles != null) {
+            try {
+                d.mkdirs()
+                hfFiles.forEachIndexed { i, rel ->
+                    val dest = File(d, rel).apply { parentFile?.mkdirs() }
+                    download("$hfBase/$rel", dest, spec.hfShas?.get(rel)) { frac ->
+                        onProgress((i + frac) / hfFiles.size)
+                    }
+                }
+                return
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                // Mirror failed mid-way — clear partial files so the GitHub fallback starts clean.
+                d.deleteRecursively()
+                if (spec.url.isEmpty()) throw e   // HF-only spec: no archive fallback exists
+            }
+        }
+        val archive = File(modelsDir, "${spec.dir}.tar.bz2")
+        download(spec.url, archive, spec.sha256, onProgress)
+        extractTarBz2(archive, modelsDir)
+        archive.delete()
+    }
 
     // --- LLM: selectable per LlmSpec; each model coexists on disk under its own filename. ---
     fun llmFile(spec: LlmSpec): File = File(modelsDir, spec.fileName)
@@ -484,15 +614,31 @@ class ModelManager(context: Context) {
             "sensevoice-litert",
             "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
             "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
-            "xasr-litert",
-            "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03",
-            "sherpa-onnx-zipformer-zh-en-2023-11-22",
         )
-        /** Single files from dropped backends (VAD served the sherpa/X-ASR paths only). */
-        private val DROPPED_FILES = listOf("silero_vad.onnx", "silero-vad.tflite")
 
+        // Superseded ASR model dirs to reclaim on upgrade. The old x-asr zipformer (~160 MB)
+        // emitted ALL-CAPS, unpunctuated English and was replaced by the punct variant; since the
+        // new dir name differs, the old folder would otherwise linger forever on existing installs.
+        private val LEGACY_ASR_DIRS = listOf(
+            "sherpa-onnx-zipformer-zh-en-2023-11-22",
+            "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03",
+        )
 
+        private const val VAD_URL =
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
+        // HuggingFace mirror of the VAD (primary) — csukuangfj's own VAD repo (sherpa-onnx author).
+        // A distinct but equivalent silero export, so it carries its own checksum pin.
+        private const val VAD_HF_URL =
+            "https://huggingface.co/csukuangfj/vad/resolve/main/silero_vad.onnx"
+        private const val VAD_HF_SHA = "a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28"
 
+        // SHA-256 pins for the exact release artifacts above (verified after download).
+        private const val VAD_SHA = "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+        // Silero VAD v5 tflite (soniqo, revision-pinned) for the LiteRT engines — see LiteVad.
+        private const val VAD_LITE_URL =
+            "https://huggingface.co/soniqo/Silero-VAD-v5-LiteRT/resolve/655bff6b9a748de98c17a10f6c5d7ee3c0b53cbc/silero-vad.tflite"
+        private const val VAD_LITE_SHA = "4559669e3423afaa11b3716d01d1421c0bf52add8b6891846ca73cc9bae875d2"
+        private const val VAD_LITE_BYTES = 1_261_248L
         // pyannote segmentation-3.0 LiteRT (soniqo streaming export: 1-s chunks, LSTM state
         // I/O, 56x7 powerset frames — see LiteSegmenter).
         private const val SEG_URL =

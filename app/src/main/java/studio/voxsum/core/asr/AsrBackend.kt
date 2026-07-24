@@ -1,8 +1,6 @@
 package studio.voxsum.core.asr
 
-/** The single ASR engine family. SenseVoice/Qwen3/X-ASR were dropped in 2026-07 —
- *  MOSS-TD does ASR + speaker diarization + timestamps in one LiteRT pass and is
- *  multilingual (zh/en/ja/ko/yue, arXiv:2601.01554). */
+/** ASR engine families (same ids as the Python SHERPA_BACKENDS / asr.py). */
 enum class AsrBackend(
     val id: String,
     val displayName: String,
@@ -11,18 +9,24 @@ enum class AsrBackend(
     /** One-word descriptor for the model-picker subtitle. */
     val tagline: String,
 ) {
+    XASR("x-asr", "Zipformer zh-en", "Zipformer", "zh-en transducer"),
     MOSS("moss-td", "MOSS meetings (diarizing)", "MOSS-TD", "zh/en/ja/ko/yue + diarization");
 
-    /** MOSS output already carries speaker tags — no separate diarization stage. */
-    val diarizesNatively: Boolean get() = true
+    /** Backends whose output already carries speaker tags — the separate
+     *  pyannote/eres2net diarization stage is skipped for these. */
+    val diarizesNatively: Boolean get() = this == MOSS
 
     companion object {
-        fun fromId(id: String): AsrBackend = MOSS
+        fun fromId(id: String): AsrBackend = entries.firstOrNull { it.id == id } ?: MOSS
     }
 }
 
-/** Resolved on-device file paths for the backend. */
+/** Resolved on-device file paths for the selected backend (only relevant fields are set). */
 data class AsrModelFiles(
-    val mossModel: String = "",        // moss-td decoder path (readiness sentinel)
-    val speakerEmbedModel: String = "",// optional CAM++ tflite for cross-window linking
+    val encoder: String = "",          // xasr
+    val decoder: String = "",          // xasr
+    val joiner: String = "",           // xasr
+    val tokens: String = "",           // xasr
+    val mossModel: String = "",        // moss-td (the ASR+diarization gguf)
+    val speakerEmbedModel: String = "",// moss-td (optional CAM++ gguf for cross-window linking)
 )

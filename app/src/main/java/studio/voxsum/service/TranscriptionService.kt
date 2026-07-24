@@ -34,6 +34,9 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
+import studio.voxsum.core.asr.AsrEngine
+import studio.voxsum.core.asr.SpeechEngine
+import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.MossLiteEngine
 import studio.voxsum.core.asr.moss.MOSS_SR
 import studio.voxsum.core.asr.moss.MossPipeline
@@ -46,6 +49,7 @@ import studio.voxsum.core.audio.WavNormalizer
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.SummaryStyle
 import studio.voxsum.core.config.TranscriptionConfig
+import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.library.ProcessingQueue
 import studio.voxsum.core.library.SessionLibrary
@@ -784,16 +788,66 @@ class TranscriptionService : LifecycleService() {
         // --- ASR phase: collect utterances while streaming them to the UI. ---
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         var diarized: Pair<List<TranscriptEvent.Utterance>, Int>? = null
-        // MOSS-TD (the only backend) does ASR + diarization + timestamps in one pass.
-        // MOSS-TD does ASR + speaker diarization + timestamps in one pass — no sherpa ASR, no
-        // separate diarization stage. Decode the whole source to the 16 kHz work WAV first, then
-        // run the shared windowed pipeline over it (the model can't stream live per-utterance).
-        if (!ownWav) {
-            withContext(Dispatchers.IO) {
-                AudioDecoder.decodeToWav16k(this@TranscriptionService, uri, wav, normalize = true) { _, _ -> }
+        if (backend == AsrBackend.MOSS) {
+            // MOSS-TD does ASR + speaker diarization + timestamps in one pass — no sherpa ASR, no
+            // separate diarization stage. Decode the whole source to the 16 kHz work WAV first, then
+            // run the shared windowed pipeline over it (the model can't stream live per-utterance).
+            if (!ownWav) {
+                withContext(Dispatchers.IO) {
+                    AudioDecoder.decodeToWav16k(this@TranscriptionService, uri, wav, normalize = true) { _, _ -> }
+                }
             }
+            diarized = runMossPhase(wav, cfg, models, converter, utterances) ?: return null
+        } else {
+            val asr = try {
+                createSpeechEngine(backend, models, cfg)
+            } catch (t: Throwable) {
+                // The model files are present but the recognizer couldn't load them — an incomplete or
+                // corrupt download/extraction. Remove them so a retry re-downloads a clean copy, and
+                // surface a clear, retryable message instead of a raw native error in the transcript.
+                runCatching { models.deleteAsr(backend) }
+                emitEvent(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))
+                return null
+            }
+            asr.use {
+                asr.transcribeLive(chunks)
+                    .flowOn(Dispatchers.Default)
+                    .collect { e ->
+                        when (e) {
+                            is TranscriptEvent.Utterance -> {
+                                // s2tw runs after cleanTranscript joined spaced CJK, so OpenCC sees
+                                // contiguous text for correct phrase matching (clean-then-convert is intentional).
+                                val u = converter?.let { e.copy(text = it.convert(e.text)) } ?: e
+                                utterances += u
+                                emitEvent(u)
+                                // Recognition progress: how far the latest utterance reaches through the audio.
+                                if (totalDurationSec > 0) {
+                                    emitEvent(TranscriptEvent.Progress((u.endSec / totalDurationSec).toFloat().coerceIn(0f, 1f)))
+                                }
+                            }
+                            else -> emitEvent(e)
+                        }
+                    }
+                // Diarize while the recognizer is still alive: the split rescue re-decodes a fused
+                // segment's halves on backends without token timestamps. Only the small
+                // CAM++ embedder is co-resident with the ASR models — the LLM still loads after
+                // both are released.
+                if (utterances.isNotEmpty() && cfg.diarizationEnabled) {
+                    // Diarization is an enhancement, not a prerequisite: a failure here (typically a
+                    // model download dying on flaky Wi-Fi — seen on-device) must NOT cost the session.
+                    // Continue to Complete/summary with the untagged transcript instead of Failed,
+                    // which left the user no retry and no way to save what was already transcribed.
+                    diarized = try {
+                        diarizePhase(wav, utterances, cfg, models, asr, converter)
+                    } catch (ce: CancellationException) {
+                        throw ce
+                    } catch (t: Throwable) {
+                        emitEvent(TranscriptEvent.Status(getString(R.string.svc_diarization_skipped)))
+                        null
+                    }
+                }
+            } // ASR native resources freed here, before the LLM is loaded.
         }
-        diarized = runMossPhase(wav, cfg, models, converter, utterances) ?: return null
 
         // The decoded 16 kHz WAV is the player source now (per the streaming design).
         emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
@@ -1084,45 +1138,90 @@ class TranscriptionService : LifecycleService() {
             }
         }
         try {
-        if (deferProcessing) {
-            // Deferred take: capture only — the queue re-processes the finished WAV.
-            mic.consumeAsFlow().flowOn(Dispatchers.Default).collect { /* WAV is the source */ }
-            deferred = true
-            withContext(Dispatchers.IO) { WavNormalizer.normalizeInPlace(wav) }
-        } else {
-            // LIVE MOSS streaming: recorder.record() writes each chunk to the WAV BEFORE
-            // emitting it here, so counting consumed chunks == samples durably on disk.
-            // The pipeline's getWindow gate suspends until the next window's samples exist
-            // (or capture ended), so windows decode WHILE recording continues and each
-            // decoded window streams a transcript snapshot to the UI. Audio is already
-            // gain-managed live (LiveAgc in the recorder); the persisted WAV still gets
-            // its playback normalization after the run.
-            emitEvent(TranscriptEvent.Status(getString(R.string.svc_transcribing)))
-            deferred = false
-            val written = MutableStateFlow(0L)
-            val capDone = MutableStateFlow(false)
-            val drain = lifecycleScope.launch(Dispatchers.Default) {
+        if (backend == AsrBackend.MOSS) {
+            if (deferProcessing) {
+                // Deferred take: capture only — the queue re-processes the finished WAV.
+                mic.consumeAsFlow().flowOn(Dispatchers.Default).collect { /* WAV is the source */ }
+                deferred = true
+                withContext(Dispatchers.IO) { WavNormalizer.normalizeInPlace(wav) }
+            } else {
+                // LIVE MOSS streaming: recorder.record() writes each chunk to the WAV BEFORE
+                // emitting it here, so counting consumed chunks == samples durably on disk.
+                // The pipeline's getWindow gate suspends until the next window's samples exist
+                // (or capture ended), so windows decode WHILE recording continues and each
+                // decoded window streams a transcript snapshot to the UI. Audio is already
+                // gain-managed live (LiveAgc in the recorder); the persisted WAV still gets
+                // its playback normalization after the run.
+                emitEvent(TranscriptEvent.Status(getString(R.string.svc_transcribing)))
+                deferred = false
+                val written = MutableStateFlow(0L)
+                val capDone = MutableStateFlow(false)
+                val drain = lifecycleScope.launch(Dispatchers.Default) {
+                    try {
+                        mic.consumeAsFlow().collect { c -> written.value += c.size }
+                    } finally {
+                        capDone.value = true
+                    }
+                }
                 try {
-                    mic.consumeAsFlow().collect { c -> written.value += c.size }
+                    diarized = runMossPhase(
+                        wav, cfg, models, converter, utterances,
+                        awaitSamples = { need ->
+                            combine(written, capDone) { w, d -> w >= need || d }
+                                .first { it }
+                        },
+                        // Shorter windows than the 90 s file default: first text ~1 min into the
+                        // take and steadier cadence — the accuracy sweep showed 60 s is fine.
+                        windowS = MOSS_LIVE_WINDOW_S,
+                    )
                 } finally {
-                    capDone.value = true
+                    drain.join()
+                }
+                withContext(Dispatchers.IO) { WavNormalizer.normalizeInPlace(wav) }
+            }
+        } else {
+        createSpeechEngine(backend, models, cfg).use { asr ->
+            asr.transcribeLive(mic.consumeAsFlow())
+                .flowOn(Dispatchers.Default)
+                .collect { e ->
+                    when (e) {
+                        is TranscriptEvent.Utterance -> {
+                            // s2tw runs after cleanTranscript joined spaced CJK, so OpenCC sees
+                            // contiguous text for correct phrase matching (clean-then-convert is intentional).
+                            val u = converter?.let { e.copy(text = it.convert(e.text)) } ?: e
+                            utterances += u
+                            emitEvent(u)
+                        }
+                        else -> emitEvent(e)
+                    }
+                }
+            deferred = deferProcessing   // capture just ended — freeze this run's defer decision
+            // Playback-volume normalization for the capture: a too-quiet recording is fixed in
+            // the WAV itself (players can only attenuate, never amplify), so the player AND the
+            // diarization pass below hear a comfortable level. Imported files don't need this —
+            // their work WAV was already normalized at decode.
+            withContext(Dispatchers.IO) { WavNormalizer.normalizeInPlace(wav) }
+            // Same as the file path: diarize inside the recognizer's lifetime so fused segments
+            // can be split by re-decode on timestamp-less backends. The capture WAV is already
+            // finalized (WavWriter.close() ran when the record flow completed, before
+            // transcribeLive returned).
+            // "Next talk" defers ALL heavy processing — skip diarization too (the queue drain
+            // re-runs the full pipeline over the saved WAV later).
+            if (!deferred && utterances.isNotEmpty() && cfg.diarizationEnabled) {
+                // Diarization is an enhancement, not a prerequisite: a failure here (typically a
+                // model download dying on flaky Wi-Fi — seen on-device) must NOT cost the session.
+                // Continue to Complete/summary with the untagged transcript instead of Failed,
+                // which left the user no retry and no way to save what was already transcribed.
+                diarized = try {
+                    diarizePhase(wav, utterances, cfg, models, asr, converter)
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (t: Throwable) {
+                    emitEvent(TranscriptEvent.Status(getString(R.string.svc_diarization_skipped)))
+                    null
                 }
             }
-            try {
-                diarized = runMossPhase(
-                    wav, cfg, models, converter, utterances,
-                    awaitSamples = { need ->
-                        combine(written, capDone) { w, d -> w >= need || d }
-                            .first { it }
-                    },
-                    // Shorter windows than the 90 s file default: first text ~1 min into the
-                    // take and steadier cadence — the accuracy sweep showed 60 s is fine.
-                    windowS = MOSS_LIVE_WINDOW_S,
-                )
-            } finally {
-                drain.join()
-            }
-            withContext(Dispatchers.IO) { WavNormalizer.normalizeInPlace(wav) }
+        } // ASR + mic released here, before the LLM loads.
         }
         } finally {
             // Capture finished (clean stop or user cancel) — the WAV header was finalized in
@@ -1142,7 +1241,7 @@ class TranscriptionService : LifecycleService() {
             // safe on a cancelled coroutine.
             if (wav.exists() && wav.length() > WavIo.HEADER + WavIo.SAMPLE_RATE * 2L) {
                 libEntry = SessionLibrary.promoteRecording(
-                    this, wav, (recorder.totalSamples / MOSS_SR).toInt(),
+                    this, wav, (recorder.totalSamples / AsrEngine.SAMPLE_RATE).toInt(),
                 )
             }
         }
@@ -1301,7 +1400,83 @@ class TranscriptionService : LifecycleService() {
         }
     }
 
+    /**
+     * Diarization phase — download models if needed, then tag speakers over the on-disk 16 kHz
+     * WAV (bounded memory via WavSlicer). Runs INSIDE the ASR engine's lifetime (see call sites)
+     * so the within-utterance split can re-decode a fused segment's halves on backends without
+     * token timestamps (Qwen3); only the small CAM++ embedder is co-resident with the
+     * recognizer, and the LLM still loads only after both are released.
+     */
+    /** Build the [SpeechEngine] for [backend] — X-ASR on LiteRT (the only VAD-segmented backend). */
+    private fun createSpeechEngine(
+        backend: AsrBackend,
+        models: ModelManager,
+        cfg: TranscriptionConfig,
+    ): SpeechEngine {
+        val f = models.asrFiles(backend)
+        return XasrLiteAsr(
+            modelFile = java.io.File(f.encoder),
+            tokensFile = java.io.File(f.tokens),
+            vadModelFile = models.vadLiteModel,
+            numThreads = asrThreads(),
+            vadThreshold = cfg.vadThreshold,
+            cacheDir = cacheDir.absolutePath,
+        )
+    }
 
+    private suspend fun diarizePhase(
+        wav: File,
+        utterances: List<TranscriptEvent.Utterance>,
+        cfg: TranscriptionConfig,
+        models: ModelManager,
+        asr: SpeechEngine,
+        converter: OpenCcConverter?,
+    ): Pair<List<TranscriptEvent.Utterance>, Int> {
+        // Captured for the non-suspend progress callbacks below: emitting UNTAGGED there froze the
+        // Studio row's bar at 0% for the whole diarization phase of a queue drain (the row only
+        // consumes QUEUE_GEN-tagged events), while the watched Session view happened to work.
+        val gen = currentGen()
+        if (!models.diarizationReady()) {
+            emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_diarization)))
+            models.ensureDiarizationModels { frac -> reportDownload(gen, R.string.svc_downloading_diarization_pct, frac) }
+        }
+        emitEvent(TranscriptEvent.Status(getString(R.string.svc_identifying_speakers)))
+        emitEvent(TranscriptEvent.Progress(0f))   // restart the bar for the diarization phase
+        return DiarizationEngine(
+            embeddingModel = models.embeddingModel.absolutePath,
+            numThreads = asrThreads(),
+            numClusters = cfg.numSpeakers,
+            segmentationModel = models.segmentationModel
+                .takeIf { cfg.preciseDiarization && it.exists() }?.absolutePath,
+        ).use { de ->
+            WavSlicer(wav).use { slicer ->
+                var lastPct = -1
+                var lastEta = ""
+                val t0 = System.nanoTime()
+                de.assignSpeakers(
+                    slicer::read, slicer.totalSamples, utterances,
+                    onProgress = { frac ->
+                        val pct = (frac * 100).toInt()
+                        if (pct != lastPct) { lastPct = pct; events.tryEmit(gen to TranscriptEvent.Progress(frac)) }
+                        // The precise (segmentation-first) pass can run ~0.5×RT on slow ARM
+                        // devices — show an estimated time to finish once it's extrapolatable.
+                        etaText(t0, frac)?.let { eta ->
+                            if (eta != lastEta) {
+                                lastEta = eta
+                                events.tryEmit(gen to TranscriptEvent.Status(getString(R.string.svc_identifying_speakers_eta, eta)))
+                            }
+                        }
+                    },
+                    redecode = { s, e ->
+                        val a = (s * AsrEngine.SAMPLE_RATE).toLong()
+                        val b = (e * AsrEngine.SAMPLE_RATE).toLong()
+                        val text = asr.decodeSlice(slicer.read(a, b))
+                        converter?.convert(text) ?: text
+                    },
+                )
+            }
+        } // diarization native resources freed before the LLM loads.
+    }
 
     /**
      * Standalone re-diarize: re-run ONLY speaker detection over the existing transcript. The audio
@@ -1334,7 +1509,18 @@ class TranscriptionService : LifecycleService() {
         val converter = outputConverter(cfg)
         // MOSS-TD has no separate diarization stage — "re-diarize" re-runs the one-pass pipeline
         // (re-transcribe + re-link), the only meaningful re-diarize for this backend.
-        val diarized = runMossPhase(wav, cfg, models, converter, ArrayList()) ?: return
+        val diarized = if (backend == AsrBackend.MOSS) {
+            runMossPhase(wav, cfg, models, converter, ArrayList()) ?: return
+        } else {
+            val asr = try {
+                createSpeechEngine(backend, models, cfg)
+            } catch (t: Throwable) {
+                runCatching { models.deleteAsr(backend) }
+                emitEvent(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))
+                return
+            }
+            asr.use { diarizePhase(wav, utterances, cfg, models, asr, converter) }
+        }
         if (wav !== src) emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
         emitEvent(TranscriptEvent.Complete(diarized.first, diarized.second))
     }

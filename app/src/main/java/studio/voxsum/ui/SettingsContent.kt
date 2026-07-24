@@ -92,6 +92,7 @@ fun SettingsContent(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             AsrBackend.entries.forEach { b ->
                 val taglineRes = when (b) {
+                    AsrBackend.XASR -> R.string.asr_tagline_xasr
                     AsrBackend.MOSS -> R.string.asr_tagline_moss
                 }
                 ModelOptionCard(
