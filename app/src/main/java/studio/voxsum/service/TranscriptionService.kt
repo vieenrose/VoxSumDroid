@@ -32,6 +32,8 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
+import studio.voxsum.core.asr.SenseVoiceLiteAsr
+import studio.voxsum.core.asr.SpeechEngine
 import studio.voxsum.core.asr.MossLiteEngine
 import studio.voxsum.core.asr.moss.MOSS_SR
 import studio.voxsum.core.asr.moss.MossPipeline
@@ -792,15 +794,7 @@ class TranscriptionService : LifecycleService() {
             diarized = runMossPhase(wav, cfg, models, converter, utterances) ?: return null
         } else {
             val asr = try {
-                AsrEngine(
-                    backend = backend,
-                    files = models.asrFiles(backend),
-                    vadModel = models.vadModel.absolutePath,
-                    numThreads = asrThreads(),
-                    language = cfg.language,
-                    useItn = cfg.useItn,
-                    vadThreshold = cfg.vadThreshold,
-                )
+                createSpeechEngine(backend, models, cfg)
             } catch (t: Throwable) {
                 // The model files are present but the recognizer couldn't load them — an incomplete or
                 // corrupt download/extraction. Remove them so a retry re-downloads a clean copy, and
@@ -1149,15 +1143,7 @@ class TranscriptionService : LifecycleService() {
                 diarized = runMossPhase(wav, cfg, models, converter, utterances)
             }
         } else {
-        AsrEngine(
-            backend = backend,
-            files = models.asrFiles(backend),
-            vadModel = models.vadModel.absolutePath,
-            numThreads = asrThreads(),
-            language = cfg.language,
-            useItn = cfg.useItn,
-            vadThreshold = cfg.vadThreshold,
-        ).use { asr ->
+        createSpeechEngine(backend, models, cfg).use { asr ->
             asr.transcribeLive(mic.consumeAsFlow())
                 .flowOn(Dispatchers.Default)
                 .collect { e ->
@@ -1371,12 +1357,46 @@ class TranscriptionService : LifecycleService() {
      * token timestamps (Qwen3); only the small CAM++ embedder is co-resident with the
      * recognizer, and the LLM still loads only after both are released.
      */
+    /**
+     * Build the [SpeechEngine] for [backend]: SenseVoice runs on LiteRT
+     * (SenseVoiceLiteAsr — q8 tflite + Kotlin front end + LiteVad); X-ASR and
+     * Qwen3 remain on sherpa-onnx until their LiteRT ports land.
+     */
+    private fun createSpeechEngine(
+        backend: AsrBackend,
+        models: ModelManager,
+        cfg: TranscriptionConfig,
+    ): SpeechEngine = if (backend == AsrBackend.SENSEVOICE) {
+        val f = models.asrFiles(backend)
+        SenseVoiceLiteAsr(
+            modelFile = java.io.File(f.model),
+            tokensFile = java.io.File(f.tokens),
+            cmvnFile = java.io.File(f.cmvn),
+            vadModelFile = models.vadLiteModel,
+            numThreads = asrThreads(),
+            language = cfg.language,
+            useItn = cfg.useItn,
+            vadThreshold = cfg.vadThreshold,
+            cacheDir = cacheDir.absolutePath,
+        )
+    } else {
+        AsrEngine(
+            backend = backend,
+            files = models.asrFiles(backend),
+            vadModel = models.vadModel.absolutePath,
+            numThreads = asrThreads(),
+            language = cfg.language,
+            useItn = cfg.useItn,
+            vadThreshold = cfg.vadThreshold,
+        )
+    }
+
     private suspend fun diarizePhase(
         wav: File,
         utterances: List<TranscriptEvent.Utterance>,
         cfg: TranscriptionConfig,
         models: ModelManager,
-        asr: AsrEngine,
+        asr: SpeechEngine,
         converter: OpenCcConverter?,
     ): Pair<List<TranscriptEvent.Utterance>, Int> {
         // Captured for the non-suspend progress callbacks below: emitting UNTAGGED there froze the
@@ -1460,15 +1480,7 @@ class TranscriptionService : LifecycleService() {
             runMossPhase(wav, cfg, models, converter, ArrayList()) ?: return
         } else {
             val asr = try {
-                AsrEngine(
-                    backend = backend,
-                    files = models.asrFiles(backend),
-                    vadModel = models.vadModel.absolutePath,
-                    numThreads = asrThreads(),
-                    language = cfg.language,
-                    useItn = cfg.useItn,
-                    vadThreshold = cfg.vadThreshold,
-                )
+                createSpeechEngine(backend, models, cfg)
             } catch (t: Throwable) {
                 runCatching { models.deleteAsr(backend) }
                 emitEvent(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))

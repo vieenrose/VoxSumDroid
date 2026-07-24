@@ -32,7 +32,7 @@ class AsrEngine(
     language: String = "",
     useItn: Boolean = true,
     vadThreshold: Float = 0.5f,
-) : AutoCloseable {
+) : SpeechEngine {
 
     private val recognizer = OfflineRecognizer(
         config = OfflineRecognizerConfig(
@@ -133,7 +133,7 @@ class AsrEngine(
      * timestamps (Qwen3 fills only the text), the two halves found by the acoustic scan are
      * re-decoded to divide the text. Returns "" on decode failure (callers keep the fused line).
      */
-    fun decodeSlice(samples: FloatArray): String {
+    override fun decodeSlice(samples: FloatArray): String {
         if (samples.isEmpty()) return ""
         val first = decodeSliceOnce(samples)
         if (first.isNotBlank() || samples.size < SAMPLE_RATE / 3) return first
@@ -165,7 +165,7 @@ class AsrEngine(
      * Cold flow of Status / Utterance / Progress / Complete. Heavy CPU work — collect with
      * `.flowOn(Dispatchers.Default)`.
      */
-    fun transcribe(pcm16k: FloatArray): Flow<TranscriptEvent> = flow {
+    override fun transcribe(pcm16k: FloatArray): Flow<TranscriptEvent> = flow {
         emit(TranscriptEvent.Status("Transcribing…"))
         val utterances = ArrayList<TranscriptEvent.Utterance>()
 
@@ -189,7 +189,7 @@ class AsrEngine(
      * no Progress/Complete is emitted — the caller runs diarization/summary after the source
      * ends. Chunk sizes are arbitrary; a sub-window remainder is carried to the next chunk.
      */
-    fun transcribeLive(chunks: Flow<FloatArray>): Flow<TranscriptEvent> = flow {
+    override fun transcribeLive(chunks: Flow<FloatArray>): Flow<TranscriptEvent> = flow {
         // No phase-label Status here — this path serves BOTH live mic capture and streamed file
         // decoding, so the caller (service) sets the correct, localized status ("Recording…" vs
         // "Transcribing…"). Emitting "Recording…" here mislabeled every file/podcast transcription.

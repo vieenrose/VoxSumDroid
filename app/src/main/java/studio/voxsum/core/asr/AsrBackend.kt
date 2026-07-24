@@ -32,6 +32,7 @@ data class AsrModelFiles(
     val convFrontend: String = "",     // qwen3
     val tokenizerDir: String = "",     // qwen3 (a directory)
     val tokens: String = "",           // sensevoice / xasr (empty for qwen3)
+    val cmvn: String = "",             // sensevoice (LiteRT: am.mvn shift/scale json)
     val mossModel: String = "",        // moss-td (the ASR+diarization gguf)
     val speakerEmbedModel: String = "",// moss-td (optional CAM++ gguf for cross-window linking)
 )
