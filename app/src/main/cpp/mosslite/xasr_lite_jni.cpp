@@ -10,7 +10,11 @@
 // <unk> treated as blank — no emission, no context update.
 
 #include <jni.h>
+#ifdef __ANDROID__
 #include <android/log.h>
+#else
+#include <cstdio>
+#endif
 #include <algorithm>
 #include <cstring>
 #include <string>
@@ -20,8 +24,13 @@
 #include "litert/c/litert_common.h"
 
 #define XA_LOG_TAG "voxsum-xasrlite"
+#ifdef __ANDROID__
 #define XALOGE(...) __android_log_print(ANDROID_LOG_ERROR, XA_LOG_TAG, __VA_ARGS__)
 #define XALOGI(...) __android_log_print(ANDROID_LOG_INFO, XA_LOG_TAG, __VA_ARGS__)
+#else
+#define XALOGE(...) do { std::fprintf(stderr, "E/" XA_LOG_TAG ": " __VA_ARGS__); std::fprintf(stderr, "\n"); } while (0)
+#define XALOGI(...) do { std::fprintf(stderr, "I/" XA_LOG_TAG ": " __VA_ARGS__); std::fprintf(stderr, "\n"); } while (0)
+#endif
 
 namespace {
 

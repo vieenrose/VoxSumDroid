@@ -6,7 +6,11 @@
 // keyed by tensor byte size — stable across converter naming schemes.
 
 #include <jni.h>
+#ifdef __ANDROID__
 #include <android/log.h>
+#else
+#include <cstdio>
+#endif
 #include <string>
 #include <vector>
 

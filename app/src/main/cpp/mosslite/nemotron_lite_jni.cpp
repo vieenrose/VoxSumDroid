@@ -14,7 +14,11 @@
 // CompiledModel path (classic Interpreter can't allocate dynamic-INT4 FC).
 
 #include <jni.h>
+#ifdef __ANDROID__
 #include <android/log.h>
+#else
+#include <cstdio>
+#endif
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -26,8 +30,13 @@
 #include "litert/c/litert_common.h"
 
 #define NM_TAG "voxsum-nemlite"
+#ifdef __ANDROID__
 #define NMLOGE(...) __android_log_print(ANDROID_LOG_ERROR, NM_TAG, __VA_ARGS__)
 #define NMLOGI(...) __android_log_print(ANDROID_LOG_INFO, NM_TAG, __VA_ARGS__)
+#else
+#define NMLOGE(...) do { std::fprintf(stderr, "E/" NM_TAG ": " __VA_ARGS__); std::fprintf(stderr, "\n"); } while (0)
+#define NMLOGI(...) do { std::fprintf(stderr, "I/" NM_TAG ": " __VA_ARGS__); std::fprintf(stderr, "\n"); } while (0)
+#endif
 
 namespace {
 

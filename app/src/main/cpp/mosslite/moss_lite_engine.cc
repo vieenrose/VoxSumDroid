@@ -1,6 +1,8 @@
 #include "moss_lite_engine.h"
 
+#ifdef __ANDROID__
 #include <android/log.h>
+#endif
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -19,9 +21,16 @@
 
 #include "whisper_mel.h"
 
+// The desktop (Compose Multiplatform / glibc) build shares these sources with
+// the Android app; only the log sink differs.
 #define LOG_TAG "voxsum-mosslite"
+#ifdef __ANDROID__
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#else
+#define LOGI(...) do { std::fprintf(stderr, "I/" LOG_TAG ": " __VA_ARGS__); std::fprintf(stderr, "\n"); } while (0)
+#define LOGE(...) do { std::fprintf(stderr, "E/" LOG_TAG ": " __VA_ARGS__); std::fprintf(stderr, "\n"); } while (0)
+#endif
 
 // Errors in this engine are recoverable app-side (fall back / re-download), so
 // unlike the reference CLI we return instead of exit() on failure.
