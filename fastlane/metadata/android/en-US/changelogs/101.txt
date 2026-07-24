@@ -1,0 +1,7 @@
+All AI inference now runs on LiteRT / LiteRT-LM — sherpa-onnx, ONNX Runtime and llama.cpp are fully removed.
+
+• Three ASR backends, all LiteRT: MOSS-TD (default; one-pass transcription + speaker diarization + timestamps, zh/en/ja/ko/yue), X-ASR zipformer (7× real-time, zh-en) and SenseVoice (multilingual, 6× real-time)
+• Live transcription for every input: MOSS now streams the transcript window-by-window WHILE you record; summaries stream token-by-token as they generate
+• Speaker turns read as blocks: one label per turn with a colored rail tying continuation lines to their speaker; label glyph clipping fixed
+• Hardware selection (Auto/CPU/GPU) for transcription and summarization — safe CPU fallbacks everywhere; MOSS tries the GPU first where available
+• Smaller, faster setup: no more 240 MB ONNX downloads; models are sha-pinned from Hugging Face; leftover models from removed engines are reclaimed automatically

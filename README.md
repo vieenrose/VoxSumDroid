@@ -153,26 +153,21 @@ timestamps visible.)
 
 ## For developers
 
-VoxSum is an on-device port of [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak). It runs
-speech recognition, speaker separation, and the summarization model locally via
-[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) and [llama.cpp](https://github.com/ggml-org/llama.cpp),
-all built from source. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the module map; build instructions
-are below.
+VoxSum is an on-device port of [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak). Every
+model runs locally on [LiteRT](https://ai.google.dev/edge/litert) (ASR backends, VAD, speaker
+diarization) and [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) (Gemma summarization) —
+sherpa-onnx, ONNX Runtime and llama.cpp were fully removed in 2026-07. The only native code built
+from source is the small in-repo LiteRT engine (`app/src/main/cpp/mosslite`); the LiteRT runtime
+itself ships as the official prebuilt from Google's Maven AAR (see `mosslite/PROVENANCE.md`).
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the module map.
 
 ### Build from source
 
-Requires Android Studio (Ladybug+), SDK 35, NDK 27.2.
+Requires Android Studio (Ladybug+), SDK 35, NDK 27.2. No submodules, no ONNX Runtime build:
 
 ```bash
-git clone --recurse-submodules https://github.com/vieenrose/VoxSumDroid.git
+git clone https://github.com/vieenrose/VoxSumDroid.git
 cd VoxSumDroid
-
-# 1. Build onnxruntime for Android (the slow step; pinned to v1.24.3).
-./scripts/build-onnxruntime-android.sh
-
-# 2. Point the app build at it, then build.
-export SHERPA_ONNXRUNTIME_LIB_DIR="$HOME/ort-build/Release"
-export SHERPA_ONNXRUNTIME_INCLUDE_DIR="$HOME/ort-headers"
 ./gradlew :app:assembleDebug          # arm64-v8a by default
 ```
 
