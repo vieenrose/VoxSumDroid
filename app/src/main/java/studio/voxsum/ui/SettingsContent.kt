@@ -150,9 +150,9 @@ fun SettingsContent(
                 }
                 LabeledRow(stringResource(R.string.settings_asr_hw)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("cpu" to R.string.settings_backend_cpu, "gpu" to R.string.settings_backend_gpu).forEach { (id, res) ->
+                        listOf("auto" to R.string.settings_auto, "cpu" to R.string.settings_backend_cpu, "gpu" to R.string.settings_backend_gpu).forEach { (id, res) ->
                             FilterChip(
-                                selected = (config.asrHardware == id) || (id == "cpu" && config.asrHardware != "gpu"),
+                                selected = (config.asrHardware == id) || (id == "auto" && config.asrHardware !in listOf("cpu", "gpu")),
                                 enabled = enabled,
                                 onClick = { onChange(config.copy(asrHardware = id)) },
                                 label = { Text(stringResource(res)) },

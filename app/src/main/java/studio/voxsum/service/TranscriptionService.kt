@@ -1309,7 +1309,7 @@ class TranscriptionService : LifecycleService() {
             decoder = models.mossLiteDecoder,
             vocabJson = models.mossLiteVocab,
             cacheDir = File(cacheDir, "xnnpack"),
-            gpu = cfg.asrHardware == "gpu",
+            gpu = asrGpu(cfg, AsrBackend.MOSS),
         )
         if (engine == null) {
             runCatching { models.deleteAsr(AsrBackend.MOSS) }
@@ -1427,7 +1427,7 @@ class TranscriptionService : LifecycleService() {
                 useItn = cfg.useItn,
                 vadThreshold = cfg.vadThreshold,
                 cacheDir = cacheDir.absolutePath,
-                gpu = cfg.asrHardware == "gpu",
+                gpu = asrGpu(cfg, backend),
             )
         } else {
             XasrLiteAsr(
@@ -1437,10 +1437,19 @@ class TranscriptionService : LifecycleService() {
                 numThreads = asrThreads(),
                 vadThreshold = cfg.vadThreshold,
                 cacheDir = cacheDir.absolutePath,
-                gpu = cfg.asrHardware == "gpu",
+                gpu = asrGpu(cfg, backend),
             )
         }
     }
+
+    /** Per-backend hardware policy: auto = GPU-first for MOSS (prefill/decode relief,
+     *  sticky CPU fallback), CPU for the faster-than-real-time VAD backends. */
+    private fun asrGpu(cfg: TranscriptionConfig, backend: AsrBackend): Boolean =
+        when (cfg.asrHardware) {
+            "gpu" -> true
+            "cpu" -> false
+            else -> backend == AsrBackend.MOSS
+        }
 
     private suspend fun diarizePhase(
         wav: File,

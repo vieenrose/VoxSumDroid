@@ -36,9 +36,11 @@ data class TranscriptionConfig(
     /** Summarizer inference hardware: "cpu" (default) or "gpu" (LiteRT-LM models only —
      *  llama.cpp GGUFs and the MOSS/ASR engines always run on CPU). */
     val llmBackend: String = "cpu",
-    // LiteRT ASR engines: "cpu" (default) or "gpu" (experimental ClGl accelerator;
-    // engines silently fall back to CPU if the GPU compile fails on this device).
-    val asrHardware: String = "cpu",
+    // LiteRT ASR hardware: "auto" (default) = per-backend policy — MOSS-TD tries the
+    // GPU first (its prefill/decode are the pain point; sticky CPU fallback if the
+    // compile fails), X-ASR/SenseVoice run CPU (already faster than real-time there).
+    // "cpu"/"gpu" force it for every backend.
+    val asrHardware: String = "auto",
     val summaryPrompt: String = "Summarize the key points of this transcript.",
     // Target language for ALL out-coming text — summary, title, transcript, and detected speaker names
     // (a [TargetLanguage] id; surfaced in Settings as "Target language"). "auto" = match the transcript.
