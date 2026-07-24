@@ -479,6 +479,9 @@ private fun TranscribeScreen(
     // auto-clobbered — only script-converted, which preserves wording).
     // [summaryStale]: a summary-input (LLM) setting changed → offer re-summarize when Settings closes.
     var summaryStale by remember { mutableStateOf(false) }
+    // [transcriptStale]: the spoken-language pick changed to a different prompt slot → offer
+    // re-transcribe when Settings closes (a zh-TW↔zh-CN switch converts in place instead).
+    var transcriptStale by remember { mutableStateOf(false) }
     // [transcriptDirty]: the transcript was hand-edited → offer to re-summarize (its child).
     var transcriptDirty by remember { mutableStateOf(false) }
     // [titleEdited]: the user renamed the title → don't regenerate it on re-summarize (script convert only).
@@ -899,7 +902,7 @@ private fun TranscribeScreen(
         showPodcastSheet = false; showConfigSheet = false
         showAddSourceSheet = false; showYouTubeSheet = false
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh session → reset Save target + identicon
-        summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
+        summaryStale = false; transcriptStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         watchingQueue = false; pendingNextTalk = false; pendingAutoProcess = false
         // deferStopped must reset here: a ⏹ Stop&save sets it true and its terminal event goes to
         // the QUEUE collector (never the main Complete that clears it), so without this a later
@@ -1060,7 +1063,7 @@ private fun TranscribeScreen(
         title = queueTitle; summary = queueSummary; actionItems = null
         isPlaying = false; searchActive = false; searchQuery = ""
         coverEnabled = true; coverBitmap = null; coverFromSession = false; lastSaveUri = null
-        summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false
+        summaryStale = false; transcriptStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false
         sessionDirty = false
         sessionGen++   // stale events from any prior session run are dropped
         // NOT a recording run: recordingRun gates the ⏭ Next-talk affordance (showNextTalk), and a
@@ -1138,7 +1141,7 @@ private fun TranscribeScreen(
             speakerNames.clear(); loaded.speakerNames.forEach { (k, v) -> speakerNames[k] = v }
             editingIndex = -1; editingSpeakerId = null
             // Fresh session → clear the dependency-tree flags so they don't leak from the previous one.
-            summaryStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
+            summaryStale = false; transcriptStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
             // A home-screen rename lives only in the entry's meta sidecar until the next persist —
             // it must outrank the (stale) title embedded inside session.m4a, or the rename appears
             // to vanish the moment the session is opened.
@@ -1537,7 +1540,13 @@ private fun TranscribeScreen(
         val names0 = speakerNames.toMap()
         scope.launch {
             val cc = withContext(Dispatchers.IO) { OpenCcConverter.get(context, newScript) }
-            val newUtts = withContext(Dispatchers.Default) { utts0.map { it.copy(text = cc.convert(it.text)) } }
+            // The transcript uses the CONSERVATIVE s2t (no phrase-level TW localisation) so an
+            // in-place re-render matches exactly what a fresh transcription would have produced —
+            // see TranscriptionService.transcriptConverter. Generated text (title / summary /
+            // actions / names) keeps the localising converter, where vocabulary mapping is wanted.
+            val ccTranscript = if (newScript == ChineseScript.TRADITIONAL)
+                withContext(Dispatchers.IO) { OpenCcConverter.getMossTraditional(context) } else cc
+            val newUtts = withContext(Dispatchers.Default) { utts0.map { it.copy(text = ccTranscript.convert(it.text)) } }
             val newTitle = title0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
             val newSummary = summary0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
             val newActions = actions0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
@@ -2128,6 +2137,15 @@ private fun TranscribeScreen(
         // Settings is reachable from Studio too, but the actionable+visible place for this
         // Re-summarize prompt is the Session screen; skip (keep summaryStale) otherwise so it
         // surfaces when the user next opens the session.
+        if (!showConfigSheet && transcriptStale && !running && screen == Screen.Session) {
+            transcriptStale = false
+            val res = snackbarHostState.showSnackbar(
+                message = context.getString(R.string.asr_language_changed),
+                actionLabel = context.getString(R.string.re_transcribe),
+                duration = SnackbarDuration.Long,
+            )
+            if (res == SnackbarResult.ActionPerformed) audioUri?.let { launchAudio(it) }
+        }
         if (!showConfigSheet && summaryStale && !summary.isNullOrBlank() && !running && screen == Screen.Session) {
             summaryStale = false
             val res = snackbarHostState.showSnackbar(
@@ -2167,6 +2185,22 @@ private fun TranscribeScreen(
                     // change needs an LLM re-run to rewrite them in the new language.
                     val pureScriptSwitch = old.targetLanguage in zh && newCfg.targetLanguage in zh
                     if (!pureScriptSwitch && (!summary.isNullOrBlank() || actionItems != null)) summaryStale = true
+                }
+                // Spoken-language change (Nemotron's picker). zh-TW↔zh-CN differ only in the OpenCC
+                // direction applied to the SAME decode, so that pair re-renders in place — instant,
+                // no re-decode, and it converts user-edited text too since conversion keeps wording.
+                // Any other change selects a different prompt slot, i.e. a genuinely different
+                // transcription → offer Re-transcribe instead.
+                if (newCfg.language != old.language && utterances.isNotEmpty()) {
+                    val zhVariants = setOf("zh-TW", "zh-CN")
+                    if (old.language in zhVariants && newCfg.language in zhVariants) {
+                        applyChineseScript(
+                            if (newCfg.language == "zh-TW") ChineseScript.TRADITIONAL
+                            else ChineseScript.SIMPLIFIED
+                        )
+                    } else {
+                        transcriptStale = true
+                    }
                 }
                 // Summary-shaping changes (model / style / prompt) need an LLM re-run of the summary
                 // (and, via regenerateStaleChildren, the action items).

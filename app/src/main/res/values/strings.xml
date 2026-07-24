@@ -148,6 +148,7 @@
     <string name="status_error">Error: %1$s</string>
     <string name="retry">Retry</string>
     <string name="summary_settings_changed">Summary settings changed — tap Re-summarize to apply.</string>
+    <string name="asr_language_changed">Spoken language changed — tap Re-transcribe to apply.</string>
     <string name="transcript_changed_resummarize">Transcript edited — tap Re-summarize to update the summary.</string>
     <string name="svc_asr_model_corrupt">The speech model couldn\'t be loaded — it may be incomplete. It has been cleared; tap Retry to download a fresh copy.</string>
     <string name="mic_permission_required">Microphone permission is required to record</string>

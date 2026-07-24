@@ -736,9 +736,10 @@ class TranscriptionService : LifecycleService() {
         // Total audio length (a cheap metadata read) so the recognition phase can report REAL progress
         // as each utterance's end time advances through the file. 0 when unknown → no ASR bar, still fine.
         val totalDurationSec = probeDurationSec(uri)
-        // One converter for ALL output (transcript here, summary/title/actions later) so everything
-        // ends up in one consistent script — Traditional / Simplified / none per Target language × locale.
+        // Generated text (summary/title/actions) follows Target language × locale; the transcript
+        // follows [transcriptConverter] (for Nemotron the zh-TW/zh-CN pick, conservative s2t).
         val converter = outputConverter(cfg)
+        val txtConverter = transcriptConverter(cfg, backend)
 
         // Our own 16 kHz work WAVs (library captures, prior decode outputs) are streamed directly —
         // same policy as runDiarizeOnly; routing them through the MediaCodec decode path is both
@@ -818,7 +819,7 @@ class TranscriptionService : LifecycleService() {
                             is TranscriptEvent.Utterance -> {
                                 // s2tw runs after cleanTranscript joined spaced CJK, so OpenCC sees
                                 // contiguous text for correct phrase matching (clean-then-convert is intentional).
-                                val u = converter?.let { e.copy(text = it.convert(e.text)) } ?: e
+                                val u = txtConverter?.let { e.copy(text = it.convert(e.text)) } ?: e
                                 utterances += u
                                 emitEvent(u)
                                 // Recognition progress: how far the latest utterance reaches through the audio.
@@ -839,7 +840,7 @@ class TranscriptionService : LifecycleService() {
                     // Continue to Complete/summary with the untagged transcript instead of Failed,
                     // which left the user no retry and no way to save what was already transcribed.
                     diarized = try {
-                        diarizePhase(wav, utterances, cfg, models, asr, converter)
+                        diarizePhase(wav, utterances, cfg, models, asr, txtConverter)
                     } catch (ce: CancellationException) {
                         throw ce
                     } catch (t: Throwable) {
@@ -1069,6 +1070,7 @@ class TranscriptionService : LifecycleService() {
             models.ensureAsrModels(backend) { frac -> reportDownload(gen, R.string.svc_downloading_models_pct, frac) }
         }
         val converter = outputConverter(cfg)
+        val txtConverter = transcriptConverter(cfg, backend)
         val recorder = AudioRecorder()
         val wav = File(File(filesDir, "audio").apply { mkdirs() }, "recording_${System.currentTimeMillis()}.wav")
         val utterances = ArrayList<TranscriptEvent.Utterance>()
@@ -1189,7 +1191,7 @@ class TranscriptionService : LifecycleService() {
                         is TranscriptEvent.Utterance -> {
                             // s2tw runs after cleanTranscript joined spaced CJK, so OpenCC sees
                             // contiguous text for correct phrase matching (clean-then-convert is intentional).
-                            val u = converter?.let { e.copy(text = it.convert(e.text)) } ?: e
+                            val u = txtConverter?.let { e.copy(text = it.convert(e.text)) } ?: e
                             utterances += u
                             emitEvent(u)
                         }
@@ -1214,7 +1216,7 @@ class TranscriptionService : LifecycleService() {
                 // Continue to Complete/summary with the untagged transcript instead of Failed,
                 // which left the user no retry and no way to save what was already transcribed.
                 diarized = try {
-                    diarizePhase(wav, utterances, cfg, models, asr, converter)
+                    diarizePhase(wav, utterances, cfg, models, asr, txtConverter)
                 } catch (ce: CancellationException) {
                     throw ce
                 } catch (t: Throwable) {
@@ -1548,7 +1550,7 @@ class TranscriptionService : LifecycleService() {
                 emitEvent(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))
                 return
             }
-            asr.use { diarizePhase(wav, utterances, cfg, models, asr, converter) }
+            asr.use { diarizePhase(wav, utterances, cfg, models, asr, transcriptConverter(cfg, backend)) }
         }
         if (wav !== src) emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
         emitEvent(TranscriptEvent.Complete(diarized.first, diarized.second))
@@ -1766,6 +1768,26 @@ class TranscriptionService : LifecycleService() {
      */
     private fun outputConverter(cfg: TranscriptionConfig): OpenCcConverter? =
         TargetLanguage.scriptFor(cfg.targetLanguage, this)?.let { OpenCcConverter.get(this, it) }
+
+    /**
+     * OpenCC for the TRANSCRIPT (generated text — summary, title, speaker names — keeps using
+     * [outputConverter], where vocabulary localisation is wanted).
+     *
+     * Nemotron is the one backend with a spoken-language picker, and for it the Chinese variant
+     * IS the script choice: `zh-TW` → s2t, `zh-CN` → t2s, every other language → no conversion
+     * at all (running OpenCC over ja/ko/en output can only corrupt it). The s2t direction uses
+     * the same CONSERVATIVE converter MOSS-TD uses, so a Traditional transcript reads identically
+     * whichever backend produced it — s2twp's phrase pass rewrites proper nouns (高端疫苗 →
+     * 高階疫苗) and has no place in a transcript.
+     *
+     * The other backends have no language picker, so they stay on the Target-language routing.
+     */
+    private fun transcriptConverter(cfg: TranscriptionConfig, backend: AsrBackend): OpenCcConverter? =
+        if (backend == AsrBackend.NEMOTRON) when (cfg.language) {
+            "zh-TW" -> OpenCcConverter.getMossTraditional(this)
+            "zh-CN" -> OpenCcConverter.get(this, studio.voxsum.core.text.ChineseScript.SIMPLIFIED)
+            else -> null
+        } else outputConverter(cfg)
 
     /** Small thread budget — phone big-core count, not all cores (cf. num_vcpus). */
     // Thread budget for the native ASR/diarization/LLM ops. Prefer the count of highest-frequency
