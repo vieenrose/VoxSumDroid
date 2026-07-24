@@ -1,0 +1,4 @@
+• X-ASR (zipformer, 7× real-time) is the new default engine; MOSS-TD and SenseVoice remain one tap away — all three on LiteRT
+• GPU acceleration option (Auto/CPU/GPU) for transcription and summarization, with automatic CPU fallback where the device GPU can't compile the models
+• Old models from removed engines (GGUF/ONNX era) are cleaned up automatically — frees up to 1.5 GB on long-standing installs
+• Fixes: summary-model card now shows the active model; SenseVoice language & ITN settings restored; speaker labels no longer clip; leaner release pipeline

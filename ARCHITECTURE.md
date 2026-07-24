@@ -16,8 +16,8 @@ as a `Flow` from a **foreground service** and collected by Compose. Incremental 
 |---|---|---|
 | `server/routers/api.py` (HTTP) | `service/TranscriptionService.kt` | foreground service, not a router |
 | NDJSON events | `core/events/TranscriptEvent.kt` | sealed Flow events |
-| `asr.py::transcribe_file` | `core/asr/AsrEngine.kt` | sherpa-onnx VAD + OfflineRecognizer |
-| `diarization.py` (+ improved) | `core/diarization/DiarizationEngine.kt` | sherpa-onnx OfflineSpeakerDiarization |
+| `asr.py::transcribe_file` | `core/asr/XasrLiteAsr.kt` / `SenseVoiceLiteAsr.kt` | LiteRT engines + `VadSegmenter` over Silero-LiteRT |
+| `diarization.py` (+ improved) | `core/diarization/DiarizationEngine.kt` | LiteRT pods (pyannote seg + CAM++ embedder) |
 | `summarization.py::summarize_transcript` | `core/llm/Summarizer.kt` | map-reduce, LangChain dropped |
 | `get_llm` (lru_cache) | `core/llm/LlmEngine.kt` + `llm_jni.cpp` | one model resident |
 | `utils.py` registry + lazy download | `core/models/ModelManager.kt` | SHA-256-pinned, FOSS-only |
@@ -28,7 +28,7 @@ as a `Flow` from a **foreground service** and collected by Compose. Incremental 
 ## What changes and why
 
 - **LangChain is dropped.** It was used only for chunking + prompt templates; both are a
-  few lines of Kotlin. `llama_cpp`-direct inference becomes the JNI bridge.
+  few lines of Kotlin. LLM inference runs on LiteRT-LM (`LiteLlmEngine`).
 - **ffmpeg is dropped.** `ffmpeg-kit` was archived in 2025; MediaCodec covers decode and
   removes a native dep + license question for F-Droid.
 - **Podcast/YouTube are optional.** Network ingestion can't be offline anyway; gating it
@@ -43,7 +43,7 @@ A phone can't hold the ASR/diarization ONNX graphs and a multi-GB LLM resident a
 The service runs the pipeline in two phases with a hard release between them:
 
 ```
-decode → ASR → diarization → [emit Complete] → release sherpa models
+decode → ASR → diarization → [emit Complete] → release ASR/diarization models
         → load GGUF (mmap) → summarize (stream) → release LLM
 ```
 

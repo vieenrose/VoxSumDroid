@@ -1,12 +1,13 @@
 # Releasing — self-hosted F-Droid repo (Route B)
 
-On every `v*` tag, `.github/workflows/fdroid.yml` builds onnxruntime from source, builds a
-signed release APK, generates an F-Droid repo, and publishes it to GitHub Pages. Users add
+On every `v*` tag, `.github/workflows/fdroid.yml` builds a signed release APK (all-LiteRT
+native build — the onnxruntime-from-source step was removed in 2026-07), generates an
+F-Droid repo, and publishes it to GitHub Pages. Users add
 the repo URL in the F-Droid / Droid-ify client — no Play Store, no review gate.
 
 This is the fast delivery path while the app is in development. The official f-droid.org
-repository (Route A) is a later step and additionally requires vendoring onnxruntime's
-build-time dependencies for offline builds — see [`SPIKE.md`](SPIKE.md).
+repository (Route A) is a later step; with ONNX Runtime gone the offline-build blocker is
+reduced to the committed LiteRT AAR prebuilts (see `mosslite/PROVENANCE.md`).
 
 ## One-time setup
 
@@ -36,15 +37,13 @@ Answer the prompts; remember the store + key passwords.
 
 ## Step 0 — DRY RUN first (do this before anything else)
 
-The first build compiles onnxruntime from source on a GitHub runner — heavy, and unproven on
-their hardware. Validate it cheaply, with **no keystore needed**:
+Validate the pipeline cheaply, with **no keystore needed**:
 
 1. Actions tab → **Build & publish F-Droid repo** → **Run workflow**.
 2. It builds the app and uploads a **`voxsum-apk`** artifact. If that artifact appears, the
    native build fits a runner and you're clear to set up signing. If it fails (usually disk or
    time), that's the thing to fix before tagging — not after.
 
-(The ORT build is cached after the first success, so later runs are much faster.)
 
 ## Cut a release
 
@@ -54,7 +53,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow runs (first run is slow — it builds onnxruntime; later runs hit the cache).
+The workflow runs (~7 min end to end since the LiteRT-only switch).
 When it finishes, the repo is live at:
 
 ```
@@ -73,7 +72,6 @@ auto-updates like any F-Droid app.
 ## Local dry-run
 
 ```bash
-./scripts/build-onnxruntime-android.sh
 export SHERPA_ONNXRUNTIME_LIB_DIR="$HOME/ort-build/Release"
 export SHERPA_ONNXRUNTIME_INCLUDE_DIR="$HOME/ort-headers"
 export VOXSUM_KEYSTORE=$PWD/voxsum-release.keystore

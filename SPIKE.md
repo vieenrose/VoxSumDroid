@@ -1,3 +1,7 @@
+> **HISTORICAL (2026-07):** this document describes the sherpa-onnx / ONNX Runtime era.
+> Everything below is obsolete — the app is now all-LiteRT with no ORT build. Kept for
+> archaeology only; see README.md and RELEASING.md for the current story.
+
 # Phase 0 — De-risking spike
 
 Goal: prove the two native runtimes work on a real device **and** can be built from source,
