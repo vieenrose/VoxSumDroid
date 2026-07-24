@@ -31,9 +31,22 @@ interface TextGen : AutoCloseable {
         /** LiteRT-LM is the only Android text-generation runtime (ggml/llama.cpp was
          *  removed). [backend]: "cpu" (default) or "gpu". `nThreads` retained for
          *  interface stability (the engine manages its own threading). */
-        fun load(context: Context, modelPath: String, spec: LlmSpec, nThreads: Int, backend: String = "cpu"): TextGen {
+        fun load(context: Context, modelPath: String, spec: LlmSpec, nThreads: Int, backend: String = "auto"): TextGen {
             android.util.Log.i("voxsum-textgen", "load spec=${spec.id} path=$modelPath backend=$backend")
-            return LiteLlmEngine.load(context, modelPath, spec.sampler, backend = backend)
+            // "auto" (default): GPU-first — Gemma prefill on long meeting reduces is the
+            // slow phase and the mobile GPU helps batch matmuls; fall back to CPU if the
+            // GPU engine fails to initialize on this device.
+            if (backend != "cpu") {
+                val gpuTry = runCatching {
+                    LiteLlmEngine.load(context, modelPath, spec.sampler, backend = "gpu")
+                }.getOrNull()
+                if (gpuTry != null) return gpuTry
+                if (backend == "gpu")
+                    android.util.Log.w("voxsum-textgen", "GPU engine init failed; using CPU")
+                else
+                    android.util.Log.i("voxsum-textgen", "auto: GPU unavailable, using CPU")
+            }
+            return LiteLlmEngine.load(context, modelPath, spec.sampler, backend = "cpu")
                 ?: error("LiteRT-LM engine failed to initialize for $modelPath")
         }
     }

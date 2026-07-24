@@ -35,7 +35,7 @@ data class TranscriptionConfig(
     val llmModelId: String = LlmRegistry.DEFAULT_ID,
     /** Summarizer inference hardware: "cpu" (default) or "gpu" (LiteRT-LM models only —
      *  llama.cpp GGUFs and the MOSS/ASR engines always run on CPU). */
-    val llmBackend: String = "cpu",
+    val llmBackend: String = "auto",  // auto = GPU-first with CPU fallback
     // LiteRT ASR hardware: "auto" (default) = per-backend policy — MOSS-TD tries the
     // GPU first (its prefill/decode are the pain point; sticky CPU fallback if the
     // compile fails), X-ASR/SenseVoice run CPU (already faster than real-time there).

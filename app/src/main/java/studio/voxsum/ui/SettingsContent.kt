@@ -133,9 +133,9 @@ fun SettingsContent(
             if (LlmRegistry.byId(config.llmModelId).fileName.endsWith(".litertlm")) {
                 LabeledRow(stringResource(R.string.settings_llm_backend)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("cpu" to R.string.settings_backend_cpu, "gpu" to R.string.settings_backend_gpu).forEach { (id, res) ->
+                        listOf("auto" to R.string.settings_auto, "cpu" to R.string.settings_backend_cpu, "gpu" to R.string.settings_backend_gpu).forEach { (id, res) ->
                             FilterChip(
-                                selected = (config.llmBackend == id) || (id == "cpu" && config.llmBackend != "gpu"),
+                                selected = (config.llmBackend == id) || (id == "auto" && config.llmBackend !in listOf("cpu", "gpu")),
                                 enabled = enabled,
                                 onClick = { onChange(config.copy(llmBackend = id)) },
                                 label = { Text(stringResource(res)) },
