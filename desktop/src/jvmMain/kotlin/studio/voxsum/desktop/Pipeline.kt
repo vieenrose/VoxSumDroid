@@ -9,6 +9,7 @@ import studio.voxsum.desktop.asr.SpeechEngineFactory
 import studio.voxsum.core.asr.moss.MOSS_SR
 import studio.voxsum.core.asr.moss.MossPipeline
 import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.text.ChineseScript
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
@@ -68,7 +69,7 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
         // outputConverter (TranscriptionService) — SenseVoice emits Simplified, so without this a
         // zh-Hant target shows a Simplified transcript. Same converter the summary/actions use.
         val script = TargetLanguage.scriptFor(config.targetLanguage)
-        val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
+        val convert: (String) -> String = transcriptConvert(config, backend)
 
         val (tagged, speakerCount) = if (backend == AsrBackend.MOSS) {
             // MOSS-TD diarizes natively in one pass — no sherpa ASR, no separate diarization stage.
@@ -139,7 +140,7 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
         val recorder = AudioRecorder()
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         val script = TargetLanguage.scriptFor(config.targetLanguage)
-        val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
+        val convert: (String) -> String = transcriptConvert(config, backend)
 
         val (tagged, speakerCount) = if (backend == AsrBackend.MOSS) {
             // MOSS-TD is a batch backend (no live per-sentence path — see the doc): capture the
@@ -245,7 +246,7 @@ suspend fun reTitle(state: AppState, update: Update) {
         ensureLlm(models, llmSpec, update)
         val targetName = TargetLanguage.fromId(state.config.targetLanguage).promptName
         val script = TargetLanguage.scriptFor(state.config.targetLanguage)
-        val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
+        val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
         val style = state.summaryStyle
         withContext(Dispatchers.Default) {
             val llm = LlmEngine.load(models.llmFile(llmSpec).absolutePath, nThreads = 4, sampler = llmSpec.sampler)
@@ -338,15 +339,9 @@ private suspend fun runMossTranscription(
         segs.mapIndexed { i, s ->
             TranscriptEvent.Utterance(index = i, text = s.text, startSec = s.start, endSec = s.end, speaker = s.speaker)
         }
-    // The base MOSS weights emit Simplified; MOSS transcripts use the CONSERVATIVE s2t
-    // converter (no phrase-level TW localisation — it corrupts proper nouns). Non-Traditional
-    // targets keep the caller's converter.
-    val mossConvert: (String) -> String =
-        when (studio.voxsum.core.config.TargetLanguage.scriptFor(config.targetLanguage)) {
-            studio.voxsum.core.text.ChineseScript.TRADITIONAL ->
-                OpenCcConverter.getMossTraditional().let { c -> { t: String -> c.convert(t) } }
-            else -> convert
-        }
+    // The base MOSS weights emit Simplified; this is a transcript conversion like any other,
+    // so it goes through the one shared routing — no MOSS special case.
+    val mossConvert: (String) -> String = transcriptConvert(config, AsrBackend.MOSS)
 
     val linked = withContext(Dispatchers.Default) {
         MossPipeline.run(
@@ -421,7 +416,7 @@ suspend fun reDiarize(state: AppState, update: Update) {
         val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(file, normalize = true) }
 
         val script = TargetLanguage.scriptFor(config.targetLanguage)
-        val convert: (String) -> String = script?.let { s -> { t: String -> OpenCcConverter.get(s).convert(t) } } ?: { it }
+        val convert: (String) -> String = transcriptConvert(config, backend)
         val (tagged, speakerCount) = if (backend == AsrBackend.MOSS) {
             // MOSS has no separate diarization stage — "re-detect speakers" re-runs the one-pass
             // pipeline (re-transcribe + re-link), the only meaningful re-diarize for this backend.
@@ -532,5 +527,28 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
         } finally {
             llm.close()
         }
+    }
+}
+
+/**
+ * OpenCC for the TRANSCRIPT — phonetic, not semantic. A transcript records what was SAID, so
+ * Simplified→Traditional may only re-spell the same word (conservative `s2t`); `s2twp` also
+ * substitutes vocabulary (信息→資訊), which belongs to generated text (summary/title/actions).
+ * Mirrors TranscriptionService.transcriptConverter on Android.
+ *
+ * Direction: Nemotron is the one backend with a spoken-language picker, and for it the Chinese
+ * variant IS the choice (zh-TW → s2t, zh-CN → t2s, any other language → no conversion). The
+ * others follow Target language.
+ */
+private fun transcriptConvert(config: TranscriptionConfig, backend: AsrBackend): (String) -> String {
+    val script = if (backend == AsrBackend.NEMOTRON) when (config.language) {
+        "zh-TW" -> ChineseScript.TRADITIONAL
+        "zh-CN" -> ChineseScript.SIMPLIFIED
+        else -> null
+    } else TargetLanguage.scriptFor(config.targetLanguage)
+    return when (script) {
+        ChineseScript.TRADITIONAL -> OpenCcConverter.getTranscriptTraditional().let { c -> { t: String -> c.convert(t) } }
+        ChineseScript.SIMPLIFIED -> OpenCcConverter.get(ChineseScript.SIMPLIFIED).let { c -> { t: String -> c.convert(t) } }
+        null -> { t -> t }
     }
 }
