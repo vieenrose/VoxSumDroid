@@ -2067,7 +2067,6 @@ private fun TranscribeScreen(
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.weight(1f).fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
                             content = transcriptItems,
                         )
                     }
@@ -2093,7 +2092,6 @@ private fun TranscribeScreen(
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             transcriptItems(this)
                         }
@@ -2709,13 +2707,27 @@ private fun UtteranceRow(
     Column(
         Modifier
             .fillMaxWidth()
+            // A turn = one visual block: the first line opens it with clear space above
+            // (OUTSIDE drawBehind, so the separator stays rail-free); continuation lines
+            // are flush, making the speaker rail one unbroken bar over the whole turn.
+            .padding(top = if (showSpeaker) 10.dp else 0.dp)
             .drawBehind {
+                // Speaker rail: a thin bar in the speaker's colour on EVERY line of a
+                // same-speaker run. The chip is only shown on the run's first line, so
+                // the rail is what visually attaches the continuation lines to their
+                // speaker — without it, chip-less lines looked unattributed.
+                utt.speaker?.let { sid ->
+                    drawRect(
+                        Color(speakerColorOn(sid, pal.isDark)).copy(alpha = 0.55f),
+                        size = Size(2.5.dp.toPx(), size.height),
+                    )
+                }
                 if (active) {
                     drawRect(pal.ActiveTint)
                     drawRect(pal.ActiveBar, size = Size(3.dp.toPx(), size.height))
                 }
             }
-            .padding(vertical = 4.dp, horizontal = 6.dp),
+            .padding(vertical = 3.dp, horizontal = 6.dp),
     ) {
         if (isEditing || editingThisSpeaker) {
             Row(verticalAlignment = Alignment.CenterVertically) {

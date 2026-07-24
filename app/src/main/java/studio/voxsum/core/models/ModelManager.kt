@@ -116,6 +116,27 @@ class ModelManager(context: Context) {
     )
 
     private val asrSpecs: Map<AsrBackend, AsrModelSpec> = mapOf(
+        // SenseVoice on LiteRT (Luigi/sensevoice-litert, rev-pinned): bucketed q8 export —
+        // long-audio CER vs fp32 beats the retired sherpa int8 ONNX ~2x (see model card).
+        AsrBackend.SENSEVOICE to AsrModelSpec(
+            dir = "sensevoice-litert",
+            url = "", sha256 = "",
+            sentinels = listOf("sensevoice_small_q8.tflite", "tokens.txt", "cmvn.json"),
+            buildFiles = { d ->
+                AsrModelFiles(
+                    model = File(d, "sensevoice_small_q8.tflite").path,
+                    tokens = File(d, "tokens.txt").path,
+                    cmvn = File(d, "cmvn.json").path,
+                )
+            },
+            hfBase = "https://huggingface.co/Luigi/sensevoice-litert/resolve/8d1dfd033bafc5d40e03cb1dc714134386eb6895",
+            hfFiles = listOf("sensevoice_small_q8.tflite", "tokens.txt", "cmvn.json"),
+            hfShas = mapOf(
+                "sensevoice_small_q8.tflite" to "555d53c6948d4c3ef22e45760690bc479d1402e2c4e23e4db54cc69160726a60",
+                "tokens.txt" to "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc",
+                "cmvn.json" to "44e455d337799ff516dfb05137dc55ba020c0c3300c4e098856cf03b46c74f47",
+            ),
+        ),
         // The "punct" variant (matches the web app's xasr_models): mixed-case English +
         // punctuation baked into the BPE vocab. The older zh-en-2023-11-22 zipformer emitted
         // ALL-CAPS, unpunctuated English — wrong model for a readable transcript.
@@ -611,7 +632,6 @@ class ModelManager(context: Context) {
         private const val REL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
         /** Dirs of backends dropped in 2026-07 (SenseVoice LiteRT + sherpa, Qwen3), reclaimed on upgrade. */
         private val DROPPED_BACKEND_DIRS = listOf(
-            "sensevoice-litert",
             "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
             "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
         )
