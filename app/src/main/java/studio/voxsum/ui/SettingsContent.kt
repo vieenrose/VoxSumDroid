@@ -2,6 +2,8 @@ package studio.voxsum.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -96,7 +98,7 @@ fun SettingsContent(
                 ModelOptionCard(
                     title = b.shortName,
                     subtitle = stringResource(taglineRes),
-                    selected = config.asrBackend == b.id,
+                    selected = AsrBackend.fromId(config.asrBackend) == b,
                     downloaded = b.id in readyAsr,
                     enabled = enabled,
                     onClick = { onChange(config.copy(asrBackend = b.id)) },
@@ -152,7 +154,7 @@ fun SettingsContent(
         Section(stringResource(R.string.settings_recognition))
         // MOSS-TD windows internally (no VAD) and diarizes natively (no separate speaker stage),
         // so the VAD slider and the whole Diarization section don't apply to it.
-        val isMoss = config.asrBackend == AsrBackend.MOSS.id
+        val isMoss = AsrBackend.fromId(config.asrBackend) == AsrBackend.MOSS
         if (!isMoss) {
             SliderRow(stringResource(R.string.settings_vad_threshold), config.vadThreshold, 0.1f, 0.9f, enabled) {
                 onChange(config.copy(vadThreshold = it))
@@ -173,13 +175,21 @@ fun SettingsContent(
             if (config.diarizationEnabled) {
                 val speakersVal = if (config.numSpeakers < 0) stringResource(R.string.settings_auto) else config.numSpeakers.toString()
                 LabeledRow(stringResource(R.string.settings_speakers, speakersVal)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        AssistChip(enabled = enabled, onClick = {
-                            onChange(config.copy(numSpeakers = (config.numSpeakers - 1).coerceAtLeast(-1)))
-                        }, label = { Text("–") })
-                        AssistChip(enabled = enabled, onClick = {
-                            onChange(config.copy(numSpeakers = (config.numSpeakers + 1).coerceAtMost(10)))
-                        }, label = { Text("+") })
+                    // 48 dp buttons, not 32 dp chips — a stepper is tapped repeatedly and
+                    // must meet the Android touch-target minimum.
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            enabled = enabled,
+                            onClick = { onChange(config.copy(numSpeakers = (config.numSpeakers - 1).coerceAtLeast(-1))) },
+                            modifier = Modifier.size(48.dp),
+                            contentPadding = PaddingValues(0.dp),
+                        ) { Text("–", style = MaterialTheme.typography.titleMedium) }
+                        OutlinedButton(
+                            enabled = enabled,
+                            onClick = { onChange(config.copy(numSpeakers = (config.numSpeakers + 1).coerceAtMost(10))) },
+                            modifier = Modifier.size(48.dp),
+                            contentPadding = PaddingValues(0.dp),
+                        ) { Text("+", style = MaterialTheme.typography.titleMedium) }
                     }
                 }
                 // (The cluster-threshold slider is gone: spectral clustering picks the speaker count
@@ -308,7 +318,7 @@ private fun StoragePanel(enabled: Boolean) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(kindLabel(m.kind), style = MaterialTheme.typography.bodyMedium, color = pal.Slate200)
-                Text("${m.name} · ${fmt(m.bytes)}", style = MaterialTheme.typography.labelSmall, color = pal.Slate400)
+                Text("${prettyModelName(m.name)} · ${fmt(m.bytes)}", style = MaterialTheme.typography.labelSmall, color = pal.Slate400)
             }
             IconButton(
                 enabled = enabled,
@@ -318,6 +328,17 @@ private fun StoragePanel(enabled: Boolean) {
             }
         }
     }
+}
+
+/** Human-readable storage row: the raw XNNPACK compile-cache filename
+ *  (`model.litertlm.xnnpack_cache_<epoch>_<bytes>`) wraps over two lines and reads
+ *  as noise — show it as "<model> (compile cache)" instead. Other files keep their
+ *  real names (they double as side-loading documentation). */
+@Composable
+private fun prettyModelName(name: String): String {
+    val i = name.indexOf(".xnnpack_cache")
+    if (i > 0) return stringResource(R.string.storage_compile_cache, name.substring(0, i))
+    return name
 }
 
 @Composable

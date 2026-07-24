@@ -34,6 +34,13 @@ class ModelManager(context: Context) {
 
     val modelsDir: File = File(context.filesDir, "models").apply { mkdirs() }
 
+    init {
+        // Reclaim dropped backends' models on construction, not only on the next ASR
+        // provisioning — an existing install that never re-provisions would otherwise
+        // carry ~0.5 GB of dead SenseVoice/Qwen3 models forever.
+        DROPPED_BACKEND_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
+    }
+
     // Silero VAD: the ONNX serves the sherpa X-ASR path; the tflite serves the
     // LiteRT engines (X-ASR once its LiteRT port lands).
     val vadModel: File get() = File(modelsDir, "silero_vad.onnx")

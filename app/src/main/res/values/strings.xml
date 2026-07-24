@@ -332,4 +332,5 @@
     <string name="cd_status_queued">Queued</string>
     <string name="cd_status_processing">Processing</string>
     <string name="cd_status_done">Done</string>
+    <string name="storage_compile_cache">%1$s (compile cache)</string>
 </resources>

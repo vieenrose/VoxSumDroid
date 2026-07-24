@@ -331,4 +331,5 @@
     <string name="cd_status_queued">En file</string>
     <string name="cd_status_processing">En traitement</string>
     <string name="cd_status_done">Terminée</string>
+    <string name="storage_compile_cache">%1$s (cache de compilation)</string>
 </resources>
