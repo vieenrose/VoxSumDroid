@@ -35,7 +35,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
-import studio.voxsum.core.asr.SenseVoiceLiteAsr
 import studio.voxsum.core.asr.SpeechEngine
 import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.MossLiteEngine
@@ -1416,30 +1415,15 @@ class TranscriptionService : LifecycleService() {
         cfg: TranscriptionConfig,
     ): SpeechEngine {
         val f = models.asrFiles(backend)
-        return if (backend == AsrBackend.SENSEVOICE) {
-            SenseVoiceLiteAsr(
-                modelFile = java.io.File(f.model),
-                tokensFile = java.io.File(f.tokens),
-                cmvnFile = java.io.File(f.cmvn),
-                vadModelFile = models.vadLiteModel,
-                numThreads = asrThreads(),
-                language = cfg.language,
-                useItn = cfg.useItn,
-                vadThreshold = cfg.vadThreshold,
-                cacheDir = cacheDir.absolutePath,
-                gpu = asrGpu(cfg, backend),
-            )
-        } else {
-            XasrLiteAsr(
+        return XasrLiteAsr(
                 modelFile = java.io.File(f.encoder),
                 tokensFile = java.io.File(f.tokens),
                 vadModelFile = models.vadLiteModel,
                 numThreads = asrThreads(),
                 vadThreshold = cfg.vadThreshold,
-                cacheDir = cacheDir.absolutePath,
-                gpu = asrGpu(cfg, backend),
-            )
-        }
+            cacheDir = cacheDir.absolutePath,
+            gpu = asrGpu(cfg, backend),
+        )
     }
 
     /** Per-backend hardware policy: auto = GPU-first for MOSS (prefill/decode relief,

@@ -92,7 +92,6 @@ fun SettingsContent(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             AsrBackend.entries.forEach { b ->
                 val taglineRes = when (b) {
-                    AsrBackend.SENSEVOICE -> R.string.asr_tagline_sensevoice
                     AsrBackend.XASR -> R.string.asr_tagline_xasr
                     AsrBackend.MOSS -> R.string.asr_tagline_moss
                 }
@@ -177,30 +176,6 @@ fun SettingsContent(
         val isMoss = AsrBackend.fromId(config.asrBackend) == AsrBackend.MOSS
         if (!isMoss) {
             Section(stringResource(R.string.settings_recognition))
-            // Language pinning + ITN apply to SenseVoice only (its prompt embeds them);
-            // this block was accidentally lost when the backend was dropped/restored.
-            if (AsrBackend.fromId(config.asrBackend) == AsrBackend.SENSEVOICE) {
-                LabeledRow(stringResource(R.string.settings_language)) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        TranscriptionConfig.LANGUAGES.forEach { (code, label) ->
-                            FilterChip(
-                                selected = config.language == code,
-                                enabled = enabled,
-                                onClick = { onChange(config.copy(language = code)) },
-                                label = { Text(label) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
-                                    selectedLabelColor = pal.Sky,
-                                    labelColor = pal.Slate400,
-                                ),
-                            )
-                        }
-                    }
-                }
-                SwitchRow(stringResource(R.string.settings_itn), config.useItn, enabled) {
-                    onChange(config.copy(useItn = it))
-                }
-            }
             SliderRow(stringResource(R.string.settings_vad_threshold), config.vadThreshold, 0.1f, 0.9f, enabled) {
                 onChange(config.copy(vadThreshold = it))
             }

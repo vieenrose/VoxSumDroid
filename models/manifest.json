@@ -1,5 +1,5 @@
 {
-  "_comment": "On-device model registry — Android. Backends (all LiteRT): X-ASR zipformer (default — 7x real-time, zh-en), MOSS-TD (one-pass ASR + diarization + timestamps, zh/en/ja/ko/yue) and SenseVoice (multilingual). Summarization: LiteRT-LM. sherpa-onnx/ONNX Runtime/llama.cpp removed 2026-07. SHA-256 pins verified after download.",
+  "_comment": "On-device model registry — Android. Backends (all LiteRT): X-ASR zipformer (default — 7x real-time, zh-en), MOSS-TD (one-pass ASR + diarization + timestamps, zh/en/ja/ko/yue). Summarization: LiteRT-LM. sherpa-onnx/ONNX Runtime/llama.cpp removed 2026-07. SHA-256 pins verified after download.",
   "asr": [
     {
       "id": "moss_td_encoder_q8",
@@ -35,27 +35,6 @@
       "kind": "ASR",
       "url": "https://huggingface.co/Luigi/xasr-litert/resolve/main/tokens.txt",
       "sha256": "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c",
-      "license": "Apache-2.0"
-    },
-    {
-      "id": "sensevoice-small-q8-litert",
-      "kind": "ASR",
-      "url": "https://huggingface.co/Luigi/sensevoice-litert/resolve/main/sensevoice_small_q8.tflite",
-      "sha256": "555d53c6948d4c3ef22e45760690bc479d1402e2c4e23e4db54cc69160726a60",
-      "license": "Apache-2.0"
-    },
-    {
-      "id": "sensevoice-tokens",
-      "kind": "ASR",
-      "url": "https://huggingface.co/Luigi/sensevoice-litert/resolve/main/tokens.txt",
-      "sha256": "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc",
-      "license": "Apache-2.0"
-    },
-    {
-      "id": "sensevoice-cmvn",
-      "kind": "ASR",
-      "url": "https://huggingface.co/Luigi/sensevoice-litert/resolve/main/cmvn.json",
-      "sha256": "44e455d337799ff516dfb05137dc55ba020c0c3300c4e098856cf03b46c74f47",
       "license": "Apache-2.0"
     }
   ],

@@ -9,7 +9,6 @@ enum class AsrBackend(
     /** One-word descriptor for the model-picker subtitle. */
     val tagline: String,
 ) {
-    SENSEVOICE("sensevoice", "SenseVoice (multilingual)", "SenseVoice", "multilingual"),
     XASR("x-asr", "Zipformer zh-en", "Zipformer", "zh-en transducer"),
     MOSS("moss-td", "MOSS meetings (diarizing)", "MOSS-TD", "zh/en/ja/ko/yue + diarization");
 
@@ -24,8 +23,6 @@ enum class AsrBackend(
 
 /** Resolved on-device file paths for the selected backend (only relevant fields are set). */
 data class AsrModelFiles(
-    val model: String = "",            // sensevoice (q8 tflite)
-    val cmvn: String = "",             // sensevoice (am.mvn shift/scale json)
     val encoder: String = "",          // xasr
     val decoder: String = "",          // xasr
     val joiner: String = "",           // xasr
