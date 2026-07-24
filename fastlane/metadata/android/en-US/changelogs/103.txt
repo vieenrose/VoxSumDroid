@@ -1,0 +1,2 @@
+• SenseVoice engine removed after quality review (Chinese speech was intermittently recognized as Japanese) — the app now offers two engines, both on LiteRT: X-ASR (default, 7× real-time, zh-en) and MOSS-TD (one-pass transcription + speaker diarization, zh/en/ja/ko/yue)
+• Smaller app (−12 MB) and automatic cleanup of the removed engine's models
