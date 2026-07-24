@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <chrono>
+#include <memory>
 #include <sched.h>
 #include <unistd.h>
 #include <algorithm>
@@ -141,12 +142,16 @@ void set_affinity(bool wide) {
 
 Component::Component(LiteRtEnvironment env, const std::string& path,
                      KvStore* kv, int num_threads,
-                     const std::string& weight_cache)
+                     const std::string& weight_cache, bool gpu)
     : env_(env), kv_(kv) {
   ENSURE_OK(LiteRtCreateModelFromFile(env, path.c_str(), &model_));
   LiteRtOptions opts;
   ENSURE_OK(LiteRtCreateOptions(&opts));
-  ENSURE_OK(LiteRtSetOptionsHardwareAccelerators(opts, kLiteRtHwAcceleratorCpu));
+  // GPU keeps CPU in the mask so unsupported ops partition instead of failing;
+  // a full compile failure surfaces as ok_=false and the caller falls back.
+  ENSURE_OK(LiteRtSetOptionsHardwareAccelerators(
+      opts, gpu ? (kLiteRtHwAcceleratorGpu | kLiteRtHwAcceleratorCpu)
+                : kLiteRtHwAcceleratorCpu));
   LiteRtOpaqueOptions oo = make_cpu_options(num_threads, weight_cache);
   if (oo) ENSURE_OK(LiteRtAddOpaqueOptions(opts, oo));
   ENSURE_OK(LiteRtCreateCompiledModel(env, model_, opts, &cm_));
@@ -272,13 +277,14 @@ LiteRtTensorBuffer Component::make_buffer(LiteRtSignature sig,
 MossLiteEngine::MossLiteEngine(std::string encoder_path,
                                std::string embedder_path,
                                std::string decoder_path, std::string cache_dir,
-                               int enc_threads, int dec_threads)
+                               int enc_threads, int dec_threads, bool gpu)
     : encoder_path_(std::move(encoder_path)),
       embedder_path_(std::move(embedder_path)),
       decoder_path_(std::move(decoder_path)),
       cache_dir_(std::move(cache_dir)),
       enc_threads_(enc_threads),
-      dec_threads_(dec_threads) {
+      dec_threads_(dec_threads),
+      gpu_(gpu) {
   // The 2026-07-23 integration note recommends big-core-count decoder threads
   // (their Exynos 1280: 398 ms/tok at big-count vs 849 at 8). That does NOT
   // hold for THIS engine, whose decode loop already pins thread affinity to
@@ -327,9 +333,18 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
   double t0 = now_s();
   set_affinity(/*wide=*/true);
   {
-    Component enc(env_, encoder_path_, nullptr, enc_threads_,
-                  cache_path(encoder_path_));
-    if (!enc.ok()) { LOGE("encoder load failed"); return out; }
+    auto enc_p = std::make_unique<Component>(env_, encoder_path_, nullptr,
+                                             enc_threads_,
+                                             cache_path(encoder_path_), gpu_);
+    if (!enc_p->ok() && gpu_) {
+      LOGE("encoder GPU compile failed — falling back to CPU for this session");
+      gpu_ = false;
+      enc_p = std::make_unique<Component>(env_, encoder_path_, nullptr,
+                                          enc_threads_,
+                                          cache_path(encoder_path_), false);
+    }
+    if (!enc_p->ok()) { LOGE("encoder load failed"); return out; }
+    Component& enc = *enc_p;
     auto& io = const_cast<SigIO&>(enc.sigs().begin()->second);
     std::vector<float> mel((size_t)kMelBins * kMelFrames);
     std::vector<float> chunk_out((size_t)375 * kHidden);
@@ -349,6 +364,9 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
 
   // ---- phase 2: embedder + decoder (fresh KV per window) ----
   KvStore kv;
+  // KV-aliased decoder buffers must stay host-visible: the decoder (and its
+  // paired embedder) always compiles CPU-only; GPU applies to the encoder,
+  // which is where the parallel compute lives anyway.
   Component emb(env_, embedder_path_, nullptr, dec_threads_,
                 cache_path(embedder_path_));
   Component dec(env_, decoder_path_, &kv, dec_threads_,

@@ -148,6 +148,23 @@ fun SettingsContent(
                         }
                     }
                 }
+                LabeledRow(stringResource(R.string.settings_asr_hw)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("cpu" to R.string.settings_backend_cpu, "gpu" to R.string.settings_backend_gpu).forEach { (id, res) ->
+                            FilterChip(
+                                selected = (config.asrHardware == id) || (id == "cpu" && config.asrHardware != "gpu"),
+                                enabled = enabled,
+                                onClick = { onChange(config.copy(asrHardware = id)) },
+                                label = { Text(stringResource(res)) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
+                                    selectedLabelColor = pal.Sky,
+                                    labelColor = pal.Slate400,
+                                ),
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -157,6 +174,30 @@ fun SettingsContent(
         val isMoss = AsrBackend.fromId(config.asrBackend) == AsrBackend.MOSS
         if (!isMoss) {
             Section(stringResource(R.string.settings_recognition))
+            // Language pinning + ITN apply to SenseVoice only (its prompt embeds them);
+            // this block was accidentally lost when the backend was dropped/restored.
+            if (AsrBackend.fromId(config.asrBackend) == AsrBackend.SENSEVOICE) {
+                LabeledRow(stringResource(R.string.settings_language)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TranscriptionConfig.LANGUAGES.forEach { (code, label) ->
+                            FilterChip(
+                                selected = config.language == code,
+                                enabled = enabled,
+                                onClick = { onChange(config.copy(language = code)) },
+                                label = { Text(label) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
+                                    selectedLabelColor = pal.Sky,
+                                    labelColor = pal.Slate400,
+                                ),
+                            )
+                        }
+                    }
+                }
+                SwitchRow(stringResource(R.string.settings_itn), config.useItn, enabled) {
+                    onChange(config.copy(useItn = it))
+                }
+            }
             SliderRow(stringResource(R.string.settings_vad_threshold), config.vadThreshold, 0.1f, 0.9f, enabled) {
                 onChange(config.copy(vadThreshold = it))
             }

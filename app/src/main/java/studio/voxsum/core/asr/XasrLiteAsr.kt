@@ -19,9 +19,10 @@ class XasrLiteAsr(
     numThreads: Int,
     vadThreshold: Float = 0.5f,
     cacheDir: String = "",
+    gpu: Boolean = false,
 ) : SpeechEngine {
 
-    private val engine = XasrLiteEngine.load(modelFile, tokensFile, numThreads, cacheDir)
+    private val engine = XasrLiteEngine.load(modelFile, tokensFile, numThreads, cacheDir, gpu)
         ?: throw IllegalStateException("X-ASR LiteRT model failed to load")
 
     private val vad = LiteVad.load(vadModelFile)

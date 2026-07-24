@@ -1309,6 +1309,7 @@ class TranscriptionService : LifecycleService() {
             decoder = models.mossLiteDecoder,
             vocabJson = models.mossLiteVocab,
             cacheDir = File(cacheDir, "xnnpack"),
+            gpu = cfg.asrHardware == "gpu",
         )
         if (engine == null) {
             runCatching { models.deleteAsr(AsrBackend.MOSS) }
@@ -1426,6 +1427,7 @@ class TranscriptionService : LifecycleService() {
                 useItn = cfg.useItn,
                 vadThreshold = cfg.vadThreshold,
                 cacheDir = cacheDir.absolutePath,
+                gpu = cfg.asrHardware == "gpu",
             )
         } else {
             XasrLiteAsr(
@@ -1435,6 +1437,7 @@ class TranscriptionService : LifecycleService() {
                 numThreads = asrThreads(),
                 vadThreshold = cfg.vadThreshold,
                 cacheDir = cacheDir.absolutePath,
+                gpu = cfg.asrHardware == "gpu",
             )
         }
     }

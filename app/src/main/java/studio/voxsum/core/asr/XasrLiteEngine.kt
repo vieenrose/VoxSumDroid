@@ -83,9 +83,10 @@ class XasrLiteEngine private constructor(
             tokensFile: File,
             threads: Int,
             cacheDir: String = "",
+            gpu: Boolean = false,
         ): XasrLiteEngine? {
             ensureLib()
-            val ptr = nativeInit(model.absolutePath, cacheDir, threads)
+            val ptr = nativeInit(model.absolutePath, cacheDir, threads, gpu)
             if (ptr == 0L) return null
             val buckets = nativeBuckets(ptr).split(",")
                 .mapNotNull { it.toIntOrNull() }.sorted().toIntArray()
@@ -163,7 +164,7 @@ class XasrLiteEngine private constructor(
             return out
         }
 
-        @JvmStatic private external fun nativeInit(path: String, cacheDir: String, threads: Int): Long
+        @JvmStatic private external fun nativeInit(path: String, cacheDir: String, threads: Int, gpu: Boolean): Long
         @JvmStatic private external fun nativeFree(ptr: Long)
         @JvmStatic private external fun nativeBuckets(ptr: Long): String
         @JvmStatic private external fun nativeDecode(

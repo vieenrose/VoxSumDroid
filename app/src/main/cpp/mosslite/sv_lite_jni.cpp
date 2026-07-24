@@ -39,7 +39,7 @@ extern "C" {
 
 JNIEXPORT jlong JNICALL
 Java_studio_voxsum_core_asr_SenseVoiceLiteEngine_nativeInit(
-    JNIEnv* env, jclass, jstring jPath, jstring jCache, jint threads) {
+    JNIEnv* env, jclass, jstring jPath, jstring jCache, jint threads, jboolean gpu) {
   const char* path = env->GetStringUTFChars(jPath, nullptr);
   const char* cache = jCache ? env->GetStringUTFChars(jCache, nullptr) : nullptr;
   auto* c = new SvCtx();
@@ -50,7 +50,12 @@ Java_studio_voxsum_core_asr_SenseVoiceLiteEngine_nativeInit(
     return 0;
   }
   c->comp = std::make_unique<mosslite::Component>(
-      c->env, path, nullptr, threads, cache ? cache : "");
+      c->env, path, nullptr, threads, cache ? cache : "", gpu == JNI_TRUE);
+  if ((!c->comp->ok() || c->comp->sigs().empty()) && gpu == JNI_TRUE) {
+    // GPU compile failed on this device/model — CPU is the safe default.
+    c->comp = std::make_unique<mosslite::Component>(
+        c->env, path, nullptr, threads, cache ? cache : "", false);
+  }
   env->ReleaseStringUTFChars(jPath, path);
   if (cache) env->ReleaseStringUTFChars(jCache, cache);
   if (!c->comp->ok() || c->comp->sigs().empty()) {

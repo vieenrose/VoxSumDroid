@@ -53,13 +53,14 @@ class MossLiteEngine private constructor(
             cacheDir: File? = null,
             encThreads: Int = 0,
             decThreads: Int = 0,
+            gpu: Boolean = false,
         ): MossLiteEngine? {
             ensureLib()
             val detok = runCatching { MossLiteDetokenizer.load(vocabJson) }.getOrNull() ?: return null
             cacheDir?.mkdirs()
             val c = nativeInit(
                 encoder.absolutePath, embedder.absolutePath, decoder.absolutePath,
-                cacheDir?.absolutePath ?: "", encThreads, decThreads,
+                cacheDir?.absolutePath ?: "", encThreads, decThreads, gpu,
             )
             if (c == 0L) return null
             return MossLiteEngine(c, detok)
@@ -67,7 +68,7 @@ class MossLiteEngine private constructor(
 
         @JvmStatic private external fun nativeInit(
             encoder: String, embedder: String, decoder: String, cacheDir: String,
-            encThreads: Int, decThreads: Int,
+            encThreads: Int, decThreads: Int, gpu: Boolean,
         ): Long
         @JvmStatic private external fun nativeFree(ctx: Long)
         @JvmStatic private external fun nativeTranscribe(

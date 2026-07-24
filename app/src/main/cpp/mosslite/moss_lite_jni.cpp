@@ -14,13 +14,13 @@ extern "C" {
 JNIEXPORT jlong JNICALL
 Java_studio_voxsum_core_asr_MossLiteEngine_nativeInit(
     JNIEnv* env, jclass, jstring jEnc, jstring jEmb, jstring jDec,
-    jstring jCacheDir, jint encThreads, jint decThreads) {
+    jstring jCacheDir, jint encThreads, jint decThreads, jboolean gpu) {
   const char* enc = env->GetStringUTFChars(jEnc, nullptr);
   const char* emb = env->GetStringUTFChars(jEmb, nullptr);
   const char* dec = env->GetStringUTFChars(jDec, nullptr);
   const char* cache = env->GetStringUTFChars(jCacheDir, nullptr);
   auto* e = new mosslite::MossLiteEngine(enc, emb, dec, cache, encThreads,
-                                         decThreads);
+                                         decThreads, gpu == JNI_TRUE);
   env->ReleaseStringUTFChars(jEnc, enc);
   env->ReleaseStringUTFChars(jEmb, emb);
   env->ReleaseStringUTFChars(jDec, dec);

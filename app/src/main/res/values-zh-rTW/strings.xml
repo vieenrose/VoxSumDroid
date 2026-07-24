@@ -331,4 +331,5 @@
     <string name="cd_status_processing">處理中</string>
     <string name="cd_status_done">已完成</string>
     <string name="storage_compile_cache">%1$s（編譯快取）</string>
+    <string name="settings_asr_hw">轉錄硬體</string>
 </resources>

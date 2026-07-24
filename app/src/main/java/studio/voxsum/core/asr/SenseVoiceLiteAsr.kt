@@ -23,10 +23,11 @@ class SenseVoiceLiteAsr(
     private val useItn: Boolean = true,
     vadThreshold: Float = 0.5f,
     cacheDir: String = "",
+    gpu: Boolean = false,
 ) : SpeechEngine {
 
     private val engine = SenseVoiceLiteEngine.load(
-        modelFile, tokensFile, cmvnFile, numThreads, cacheDir,
+        modelFile, tokensFile, cmvnFile, numThreads, cacheDir, gpu,
     ) ?: throw IllegalStateException("SenseVoice LiteRT model failed to load")
 
     private val vad = LiteVad.load(vadModelFile)

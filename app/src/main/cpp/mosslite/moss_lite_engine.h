@@ -45,8 +45,11 @@ struct KvStore {
 class Component {
  public:
   // `weight_cache`: XNNPACK weight-cache file path ("" = disabled).
+  // `gpu`: request the GPU accelerator (libLiteRtClGlAccelerator.so, packaged
+  // in jniLibs) with CPU as the partition fallback; on compile failure the
+  // caller retries with gpu=false — CPU is always the safe default.
   Component(LiteRtEnvironment env, const std::string& path, KvStore* kv,
-            int num_threads, const std::string& weight_cache);
+            int num_threads, const std::string& weight_cache, bool gpu = false);
   ~Component();
   Component(const Component&) = delete;
 
@@ -81,7 +84,7 @@ class MossLiteEngine {
   // XNNPACK thread counts for the encoder vs embedder+decoder.
   MossLiteEngine(std::string encoder_path, std::string embedder_path,
                  std::string decoder_path, std::string cache_dir,
-                 int enc_threads, int dec_threads);
+                 int enc_threads, int dec_threads, bool gpu = false);
   ~MossLiteEngine();
 
   bool ok() const { return ok_; }
@@ -99,6 +102,9 @@ class MossLiteEngine {
 
   std::string encoder_path_, embedder_path_, decoder_path_, cache_dir_;
   int enc_threads_, dec_threads_;
+  // Sticky: cleared after the first GPU compile failure so later windows
+  // don't re-pay a doomed GPU attempt.
+  bool gpu_ = false;
   LiteRtEnvironment env_ = nullptr;
   bool ok_ = false;
 };
