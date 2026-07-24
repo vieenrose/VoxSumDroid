@@ -151,11 +151,11 @@ fun SettingsContent(
         }
 
         // (3) Recognition detail — VAD.
-        Section(stringResource(R.string.settings_recognition))
         // MOSS-TD windows internally (no VAD) and diarizes natively (no separate speaker stage),
-        // so the VAD slider and the whole Diarization section don't apply to it.
+        // so the VAD slider and the whole Diarization section don't apply to it — header included.
         val isMoss = AsrBackend.fromId(config.asrBackend) == AsrBackend.MOSS
         if (!isMoss) {
+            Section(stringResource(R.string.settings_recognition))
             SliderRow(stringResource(R.string.settings_vad_threshold), config.vadThreshold, 0.1f, 0.9f, enabled) {
                 onChange(config.copy(vadThreshold = it))
             }
