@@ -33,10 +33,12 @@ interface TextGen : AutoCloseable {
          *  interface stability (the engine manages its own threading). */
         fun load(context: Context, modelPath: String, spec: LlmSpec, nThreads: Int, backend: String = "auto"): TextGen {
             android.util.Log.i("voxsum-textgen", "load spec=${spec.id} path=$modelPath backend=$backend")
-            // "auto" (default): GPU-first — Gemma prefill on long meeting reduces is the
-            // slow phase and the mobile GPU helps batch matmuls; fall back to CPU if the
-            // GPU engine fails to initialize on this device.
-            if (backend != "cpu") {
+            // "auto" (default) = CPU. GPU-first was tried and REVERTED: on Mali
+            // devices without OpenCL the ML Drift GL backend fails shader compile
+            // and the WebGPU backend HANGS the engine init at 0%% CPU — a native
+            // stall runCatching cannot intercept (verified on SM-A5360, 2026-07-24).
+            // Explicit "gpu" remains available for devices where it works.
+            if (backend == "gpu") {
                 val gpuTry = runCatching {
                     LiteLlmEngine.load(context, modelPath, spec.sampler, backend = "gpu")
                 }.getOrNull()
