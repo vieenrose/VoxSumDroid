@@ -1,6 +1,0 @@
-[submodule "native/sherpa-onnx"]
-	path = native/sherpa-onnx
-	url = https://github.com/k2-fsa/sherpa-onnx.git
-[submodule "native/onnxruntime"]
-	path = native/onnxruntime
-	url = https://github.com/microsoft/onnxruntime.git

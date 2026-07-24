@@ -1,19 +1,13 @@
 {
-  "_comment": "On-device model registry — Android. ASR backends: MOSS-TD (LiteRT, default) and X-ASR zipformer (sherpa-onnx until its LiteRT port lands). SenseVoice and Qwen3 were dropped 2026-07. Summarization: LiteRT-LM. SHA-256 pins verified after download.",
+  "_comment": "On-device model registry — Android. Single ASR backend: MOSS-TD on LiteRT (ASR + diarization + timestamps in one pass; zh/en/ja/ko/yue). Diarization pods (pyannote seg + CAM++) serve MOSS cross-window linking. Summarization: LiteRT-LM. sherpa-onnx/ONNX Runtime/llama.cpp fully removed 2026-07. SHA-256 pins verified after download.",
   "asr": [
-    {
-      "id": "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03",
-      "kind": "ASR",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03.tar.bz2",
-      "sha256": "1bd1687be051d4656d75462a28b919eecb914e8714e6eaa7e92a30112ace2a68",
-      "license": "Apache-2.0"
-    },
     {
       "id": "moss_td_encoder_q8",
       "kind": "ASR",
       "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-litert/resolve/1de273ca3d46c109e248a58b6db485bdb11f691f/moss_td_encoder_q8.tflite",
       "sha256": "8880bd69c25a1c156bcd641c06541fffdd580ba4477796578584cba7d0a75915",
-      "license": "Apache-2.0"
+      "license": "Apache-2.0",
+      "default": true
     },
     {
       "id": "moss_td_embedder_q8",
@@ -28,22 +22,6 @@
       "url": "https://huggingface.co/Luigi/moss-transcribe-diarize-litert/resolve/1de273ca3d46c109e248a58b6db485bdb11f691f/moss_td_decoder_v2_q4b32_ekv2560.tflite",
       "sha256": "8ddfa1e2ee2e0899e948e812ddc2ea10fc4f74c4abd290efdbdb1d626e9bb94b",
       "license": "Apache-2.0"
-    }
-  ],
-  "vad": [
-    {
-      "id": "silero_vad",
-      "kind": "VAD",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
-      "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
-      "license": "MIT"
-    },
-    {
-      "id": "silero_vad_litert",
-      "kind": "VAD",
-      "url": "https://huggingface.co/soniqo/Silero-VAD-v5-LiteRT/resolve/655bff6b9a748de98c17a10f6c5d7ee3c0b53cbc/silero-vad.tflite",
-      "sha256": "4559669e3423afaa11b3716d01d1421c0bf52add8b6891846ca73cc9bae875d2",
-      "license": "MIT"
     }
   ],
   "diarization": [

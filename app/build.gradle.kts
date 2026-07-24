@@ -27,7 +27,7 @@ android {
         }
         externalNativeBuild {
             cmake {
-                // Build sherpa-onnx (+onnxruntime) and llama.cpp from source.
+                // Build the LiteRT MOSS engine (voxsum-mosslite) from source.
                 arguments += listOf(
                     "-DANDROID_STL=c++_shared",
                     "-DCMAKE_BUILD_TYPE=Release",
@@ -77,13 +77,6 @@ android {
     }
     kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
     buildFeatures { compose = true; buildConfig = true }
-
-    // sherpa-onnx ships its Kotlin API under com.k2fsa.sherpa.onnx. For the F-Droid
-    // source build we add those .kt files as a source set pointing at the submodule
-    // (see native/sherpa-onnx), so no prebuilt AAR is committed.
-    sourceSets["main"].java.srcDirs(
-        "../native/sherpa-onnx/sherpa-onnx/kotlin-api",
-    )
 
     packaging {
         // c++_shared is provided once; avoid duplicate libc++_shared.so clashes.
