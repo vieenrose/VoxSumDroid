@@ -1323,14 +1323,10 @@ class TranscriptionService : LifecycleService() {
         // Capture the run gen now — the onProgress callback runs inside withContext(Default) where
         // reading coroutineContext for it isn't available (it's a plain non-suspend lambda).
         val gen = kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED
-        // The base MOSS weights emit Simplified regardless of the speech being Taiwanese; use the
-        // CONSERVATIVE s2t converter (no phrase-level TW localisation — it corrupts proper nouns).
+        // The base MOSS weights emit Simplified regardless of the speech being Taiwanese, so this
+        // is a transcript conversion like any other — one shared routing, no MOSS special case.
         val mossConvert: (String) -> String =
-            when (TargetLanguage.scriptFor(cfg.targetLanguage, this)) {
-                studio.voxsum.core.text.ChineseScript.TRADITIONAL ->
-                    OpenCcConverter.getMossTraditional(this).let { c -> { t: String -> c.convert(t) } }
-                else -> converter?.let { c -> { t: String -> c.convert(t) } } ?: { t -> t }
-            }
+            transcriptConverter(cfg, AsrBackend.MOSS)?.let { c -> { t: String -> c.convert(t) } } ?: { t -> t }
         val durS = withContext(Dispatchers.IO) { wavDurationS(wav) }
         fun toUtterances(segs: List<studio.voxsum.core.asr.moss.MossLinkedSeg>) =
             segs.mapIndexed { i, s ->
@@ -1770,24 +1766,30 @@ class TranscriptionService : LifecycleService() {
         TargetLanguage.scriptFor(cfg.targetLanguage, this)?.let { OpenCcConverter.get(this, it) }
 
     /**
-     * OpenCC for the TRANSCRIPT (generated text — summary, title, speaker names — keeps using
-     * [outputConverter], where vocabulary localisation is wanted).
+     * OpenCC for the TRANSCRIPT. The split from [outputConverter] is phonetic vs semantic: a
+     * transcript records what was SAID, so Simplified→Traditional may only re-spell the same
+     * word (conservative `s2t`); `s2twp` additionally substitutes vocabulary (信息→資訊), a
+     * semantic edit that belongs to generated text — summary, title, action items, speaker
+     * names — which keep using [outputConverter]. This holds for EVERY backend, so a
+     * Traditional transcript reads the same whichever one produced it.
      *
-     * Nemotron is the one backend with a spoken-language picker, and for it the Chinese variant
-     * IS the script choice: `zh-TW` → s2t, `zh-CN` → t2s, every other language → no conversion
-     * at all (running OpenCC over ja/ko/en output can only corrupt it). The s2t direction uses
-     * the same CONSERVATIVE converter MOSS-TD uses, so a Traditional transcript reads identically
-     * whichever backend produced it — s2twp's phrase pass rewrites proper nouns (高端疫苗 →
-     * 高階疫苗) and has no place in a transcript.
-     *
-     * The other backends have no language picker, so they stay on the Target-language routing.
+     * Which direction to apply: Nemotron is the one backend with a spoken-language picker, and
+     * for it the Chinese variant IS the choice (`zh-TW` → s2t, `zh-CN` → t2s, any other
+     * language → nothing, since OpenCC over ja/ko/en output could only corrupt it). The rest
+     * have no picker and follow Target language × locale.
      */
-    private fun transcriptConverter(cfg: TranscriptionConfig, backend: AsrBackend): OpenCcConverter? =
-        if (backend == AsrBackend.NEMOTRON) when (cfg.language) {
-            "zh-TW" -> OpenCcConverter.getMossTraditional(this)
-            "zh-CN" -> OpenCcConverter.get(this, studio.voxsum.core.text.ChineseScript.SIMPLIFIED)
+    private fun transcriptConverter(cfg: TranscriptionConfig, backend: AsrBackend): OpenCcConverter? {
+        val script = if (backend == AsrBackend.NEMOTRON) when (cfg.language) {
+            "zh-TW" -> studio.voxsum.core.text.ChineseScript.TRADITIONAL
+            "zh-CN" -> studio.voxsum.core.text.ChineseScript.SIMPLIFIED
             else -> null
-        } else outputConverter(cfg)
+        } else TargetLanguage.scriptFor(cfg.targetLanguage, this)
+        return when (script) {
+            studio.voxsum.core.text.ChineseScript.TRADITIONAL -> OpenCcConverter.getTranscriptTraditional(this)
+            studio.voxsum.core.text.ChineseScript.SIMPLIFIED -> OpenCcConverter.get(this, script)
+            null -> null
+        }
+    }
 
     /** Small thread budget — phone big-core count, not all cores (cf. num_vcpus). */
     // Thread budget for the native ASR/diarization/LLM ops. Prefer the count of highest-frequency

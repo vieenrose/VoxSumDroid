@@ -6,13 +6,14 @@ package studio.voxsum.core.asr
  * `processor_config.json` `prompt_dictionary`). "" / "auto" → the model's auto
  * slot (101).
  *
- * **zh-CN and zh-TW are separate slots, and both are offered.** They select the
- * acoustic/lexical prior (Mainland vs Taiwanese Mandarin), NOT the output script:
- * the model emits Simplified either way, and Traditional rendering stays the job
- * of the OpenCC `targetLanguage` stage — same division of labour as the other
- * backends. The zh-TW slot is usable because the shipped v1.1 export warm-starts
- * it from zh-CN (the base checkpoint left it untrained at 100% CER); the port
- * measures 15.78% CER end-to-end for it, on par with zh-CN.
+ * **zh-TW and zh-CN both decode through the zh-CN slot (4).** They are the same
+ * spoken language written in different characters, and the model emits Simplified
+ * for either slot anyway — so the variant is settled entirely by the OpenCC stage
+ * (zh-TW → s2t, zh-CN → t2s). Sharing one decode is what lets Settings switch
+ * between them instantly, re-rendering the existing transcript instead of
+ * re-transcribing. The model does expose a separate warm-started zh-TW slot (5);
+ * it is deliberately unused, since picking it would make the two variants
+ * different decodes for no gain in what the user actually sees.
  */
 object NemotronLang {
     const val AUTO_SLOT = 101
@@ -23,8 +24,8 @@ object NemotronLang {
         "" to AUTO_SLOT, "auto" to AUTO_SLOT,
         "en" to 0, "ja" to 10, "ko" to 14,
         // Bare "zh" is kept so a config stored by an older build (or carried over
-        // from SenseVoice) still resolves; it takes the Mainland slot.
-        "zh" to 4, "zh-CN" to 4, "zh-TW" to 5,
+        // from SenseVoice) still resolves. All three share slot 4 — see the class doc.
+        "zh" to 4, "zh-CN" to 4, "zh-TW" to 4,
         // Nemotron has no Cantonese slot — fall back to Mandarin rather than auto.
         "yue" to 4,
         "es" to 3, "fr" to 8, "de" to 9, "ru" to 11, "pt" to 13,

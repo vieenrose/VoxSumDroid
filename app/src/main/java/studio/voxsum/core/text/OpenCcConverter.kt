@@ -60,14 +60,18 @@ class OpenCcConverter private constructor(
         @Volatile private var traditionalConservative: OpenCcConverter? = null
 
         /**
-         * Conservative Simplified→Traditional for MOSS-TD transcripts: `s2t` plus the
-         * character-level TWVariants only — NO phrase-level Taiwan localisation. Measured on
-         * real 立法院 audio, `s2twp`'s phrase pass corrupted domain proper nouns (高端疫苗 →
-         * 高階疫苗, 程序委員會 → 程式委員會) with every observed difference being a corruption;
-         * single-character variants can't do that. Vocabulary localisation (信息→資訊 …) is
-         * deliberately given up for transcripts.
+         * Conservative Simplified→Traditional for TRANSCRIPTS (every ASR backend): `s2t` plus
+         * the character-level TWVariants only — NO phrase-level Taiwan localisation.
+         *
+         * The split is phonetic vs semantic. A transcript records what was SAID, so conversion
+         * may only re-spell the same word; [get] with [ChineseScript.TRADITIONAL] (`s2twp`) also
+         * substitutes vocabulary (信息→資訊), which is a semantic edit and belongs to generated
+         * text — summary, title, action items, speaker names. Measured on real 立法院 audio,
+         * that phrase pass corrupted domain proper nouns (高端疫苗 → 高階疫苗, 程序委員會 →
+         * 程式委員會) with every observed difference being a corruption; single-character
+         * variants can't do that.
          */
-        fun getMossTraditional(context: Context): OpenCcConverter =
+        fun getTranscriptTraditional(context: Context): OpenCcConverter =
             traditionalConservative ?: synchronized(this) {
                 traditionalConservative ?: buildTraditionalConservative(context)
                     .also { traditionalConservative = it }

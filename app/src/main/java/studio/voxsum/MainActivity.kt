@@ -1545,7 +1545,7 @@ private fun TranscribeScreen(
             // see TranscriptionService.transcriptConverter. Generated text (title / summary /
             // actions / names) keeps the localising converter, where vocabulary mapping is wanted.
             val ccTranscript = if (newScript == ChineseScript.TRADITIONAL)
-                withContext(Dispatchers.IO) { OpenCcConverter.getMossTraditional(context) } else cc
+                withContext(Dispatchers.IO) { OpenCcConverter.getTranscriptTraditional(context) } else cc
             val newUtts = withContext(Dispatchers.Default) { utts0.map { it.copy(text = ccTranscript.convert(it.text)) } }
             val newTitle = title0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
             val newSummary = summary0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
