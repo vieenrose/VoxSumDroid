@@ -18,6 +18,12 @@ import java.io.File
 object NativeLibs {
     @Volatile private var loaded = false
 
+    /** True once libvoxsum-mosslite.so is in the process — gates the LiteRT backends. */
+    @Volatile private var liteRtLoaded = false
+
+    /** Whether the LiteRT engines (Nemotron / X-ASR / MOSS-TD) are usable in this run. */
+    fun liteRtAvailable(): Boolean { ensureLoaded(); return liteRtLoaded }
+
     @Synchronized
     fun ensureLoaded() {
         if (loaded) return
@@ -28,6 +34,15 @@ object NativeLibs {
         }
         System.load(File(dir, "libvoxsum-llm.so").absolutePath)
         System.load(File(dir, "libsherpa-onnx-jni.so").absolutePath)
+        // LiteRT engines (Nemotron / X-ASR / MOSS-TD + VAD/diarization pods), the
+        // same app/src/main/cpp/mosslite sources Android builds. Optional while the
+        // desktop still ships the sherpa backends: absent .so = those backends stay
+        // unavailable rather than the whole app failing to start.
+        File(dir, "libvoxsum-mosslite.so").takeIf(File::exists)?.let {
+            runCatching { System.load(it.absolutePath) }
+                .onFailure { e -> System.err.println("LiteRT engines unavailable: ${e.message}") }
+                .onSuccess { liteRtLoaded = true }
+        }
         loaded = true
     }
 

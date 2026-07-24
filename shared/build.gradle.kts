@@ -29,6 +29,11 @@ kotlin {
             // WindowCompat, for the Android status-bar actual.
             implementation(libs.androidx.core.ktx)
         }
+        jvmMain.dependencies {
+            // org.json ships with the Android platform but not with the JDK. Adding it for the
+            // desktop target lets NemotronTokenizer stay identical to the Android copy.
+            implementation("org.json:json:20240303")
+        }
         jvmTest.dependencies {
             implementation("junit:junit:4.13.2")
         }

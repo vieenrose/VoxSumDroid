@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withContext
 import studio.voxsum.core.asr.AsrBackend
-import studio.voxsum.core.asr.AsrEngine
+import studio.voxsum.desktop.asr.SpeechEngineFactory
 import studio.voxsum.core.asr.moss.MOSS_SR
 import studio.voxsum.core.asr.moss.MossPipeline
 import studio.voxsum.core.config.TargetLanguage
@@ -79,15 +79,7 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
             // The ASR engine stays alive through diarization: its decodeSlice re-decodes the halves
             // of a fused two-speaker segment when the backend has no token timestamps (Qwen3).
             withContext(Dispatchers.Default) {
-                AsrEngine(
-                    backend = backend,
-                    files = models.asrFiles(backend),
-                    vadModel = models.vadModel.absolutePath,
-                    numThreads = 2,
-                    language = config.language,
-                    useItn = config.useItn,
-                    vadThreshold = config.vadThreshold,
-                ).use { asr ->
+                SpeechEngineFactory.create(backend, models, config).use { asr ->
                     collectTranscribeEvents(asr.transcribe(pcm), utterances, update, convert)
                     if (config.diarizationEnabled) {
                         // Diarization is an enhancement, not a prerequisite: a failure here (typically
@@ -170,10 +162,7 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
             // As in runPipeline: the ASR engine outlives transcription so diarization's split rescue
             // can re-decode fused segments on timestamp-less backends (Qwen3).
             withContext(Dispatchers.Default) {
-                AsrEngine(
-                    backend = backend, files = models.asrFiles(backend), vadModel = models.vadModel.absolutePath,
-                    numThreads = 2, language = config.language, useItn = config.useItn, vadThreshold = config.vadThreshold,
-                ).use { asr ->
+                SpeechEngineFactory.create(backend, models, config).use { asr ->
                     // Mic level indicator: peak per ~128 ms chunk, quantized to 5 buckets and pushed
                     // to the UI only on bucket change — the user can SEE the mic hears something.
                     var lastBucket = -1
@@ -440,10 +429,7 @@ suspend fun reDiarize(state: AppState, update: Update) {
         } else {
             ensureAsrAndDiarizationModels(models, backend, diarizationEnabled = true, update)
             withContext(Dispatchers.Default) {
-                AsrEngine(
-                    backend = backend, files = models.asrFiles(backend), vadModel = models.vadModel.absolutePath,
-                    numThreads = 2, language = config.language, useItn = config.useItn, vadThreshold = config.vadThreshold,
-                ).use { asr ->
+                SpeechEngineFactory.create(backend, models, config).use { asr ->
                     diarize(models, config, pcm, state.utterances, update) { s, e ->
                         convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
                     }

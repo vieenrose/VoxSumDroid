@@ -37,6 +37,11 @@ copy_real "$BUILD_DIR/lib" "libsherpa-onnx-c-api.so"
 copy_real "$BUILD_DIR/lib" "libsherpa-onnx-cxx-api.so"
 copy_real "$BUILD_DIR/_deps/onnxruntime-src/lib" "libonnxruntime.so*"
 copy_real "$BUILD_DIR" "libvoxsum-llm.so"
+# LiteRT engines (Nemotron / X-ASR / MOSS-TD + VAD/diarization pods) plus their runtime.
+# libLiteRt.so is a vendored glibc prebuilt, not a build product — see
+# desktop/native-prebuilt/linux-x64/PROVENANCE.md.
+copy_real "$BUILD_DIR" "libvoxsum-mosslite.so"
+copy_real "$DESKTOP_DIR/native-prebuilt/linux-x64" "libLiteRt.so"
 
 # Recreate the unversioned SONAME symlinks flattened builds still need for dlopen-by-SONAME
 # (e.g. libllama.so.0.0.1's own DT_SONAME is usually libllama.so.0).

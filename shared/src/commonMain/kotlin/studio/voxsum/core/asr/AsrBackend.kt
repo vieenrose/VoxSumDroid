@@ -12,7 +12,11 @@ enum class AsrBackend(
     SENSEVOICE("sensevoice", "SenseVoice (multilingual)", "SenseVoice", "multilingual"),
     XASR("x-asr", "Zipformer zh-en", "Zipformer", "zh-en transducer"),
     QWEN3("qwen3", "Qwen3-ASR (large, slow)", "Qwen3-ASR", "large, slow"),
-    MOSS("moss-td", "MOSS zh-TW meetings (diarizing)", "MOSS-TD", "zh-TW · diarizing · heavy model");
+    MOSS("moss-td", "MOSS zh-TW meetings (diarizing)", "MOSS-TD", "zh-TW · diarizing · heavy model"),
+
+    /** Nemotron-3.5-ASR 3.5 (q4-mix) on LiteRT — the multilingual backend shared
+     *  with the Android app (25 languages via a 128-slot language prompt). */
+    NEMOTRON("nemotron", "Nemotron multilingual", "Nemotron", "25 languages");
 
     /** Backends whose output already carries speaker tags — the separate
      *  pyannote/eres2net diarization stage is skipped for these. */
@@ -31,7 +35,8 @@ data class AsrModelFiles(
     val joiner: String = "",           // xasr
     val convFrontend: String = "",     // qwen3
     val tokenizerDir: String = "",     // qwen3 (a directory)
-    val tokens: String = "",           // sensevoice / xasr (empty for qwen3)
+    val tokens: String = "",           // sensevoice / xasr (empty for qwen3); nemotron: tokenizer.json
+    val promptFuse: String = "",       // nemotron (language prompt-fusion graph)
     val mossModel: String = "",        // moss-td (the ASR+diarization gguf)
     val speakerEmbedModel: String = "",// moss-td (optional CAM++ gguf for cross-window linking)
 )

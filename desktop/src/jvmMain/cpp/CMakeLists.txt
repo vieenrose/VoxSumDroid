@@ -41,6 +41,25 @@ add_library(voxsum-llm SHARED "${APP_CPP_DIR}/llm_jni.cpp")
 target_include_directories(voxsum-llm PRIVATE ${JNI_INCLUDE_DIRS})
 target_link_libraries(voxsum-llm llama)
 
+# --- LiteRT engines (shared with Android, app/src/main/cpp/mosslite) ----------
+# Same sources the Android app builds into libvoxsum-mosslite.so; they are
+# portable C++ (the only Android-ism, __android_log_print, is #ifdef __ANDROID__).
+# The runtime is the PREBUILT glibc linux-x86_64 libLiteRt.so from the official
+# ai-edge-litert 2.1.6 wheel — the Android AAR's libs are bionic and cannot load
+# here (see desktop/native-prebuilt/linux-x64/PROVENANCE.md). Same 2.1.6 version,
+# so mosslite/litert/ headers are valid for both builds.
+set(LITERT_PREBUILT "${CMAKE_CURRENT_SOURCE_DIR}/../../../native-prebuilt/linux-x64/libLiteRt.so")
+add_library(voxsum-mosslite SHARED
+    "${APP_CPP_DIR}/mosslite/moss_lite_jni.cpp"
+    "${APP_CPP_DIR}/mosslite/moss_lite_engine.cc"
+    "${APP_CPP_DIR}/mosslite/lite_pod_jni.cpp"
+    "${APP_CPP_DIR}/mosslite/xasr_lite_jni.cpp"
+    "${APP_CPP_DIR}/mosslite/nemotron_lite_jni.cpp"
+    "${APP_CPP_DIR}/mosslite/nemotron_mel.cc"
+    "${APP_CPP_DIR}/mosslite/whisper_mel.cc")
+target_include_directories(voxsum-mosslite PRIVATE "${APP_CPP_DIR}/mosslite" ${JNI_INCLUDE_DIRS})
+target_link_libraries(voxsum-mosslite "${LITERT_PREBUILT}")
+
 # --- sherpa-onnx -------------------------------------------------------------
 set(SHERPA_ONNX_ENABLE_PYTHON      OFF CACHE BOOL "" FORCE)
 set(SHERPA_ONNX_ENABLE_TESTS       OFF CACHE BOOL "" FORCE)

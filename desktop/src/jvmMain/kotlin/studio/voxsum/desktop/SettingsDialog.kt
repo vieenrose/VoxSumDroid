@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
 import studio.voxsum.core.asr.AsrBackend
+import studio.voxsum.core.asr.NemotronLang
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
@@ -101,6 +102,15 @@ fun SettingsDialog(
                             onClick = { asrBackend = b },
                         )
                     }
+                }
+                // Nemotron selects its language through a one-hot prompt slot rather than
+                // per-utterance detection, so it gets its own picker (the same 20 locales the
+                // Android build offers).
+                if (asrBackend == AsrBackend.NEMOTRON) {
+                    Text(Strings.language, color = pal.Slate400, modifier = Modifier.padding(top = 8.dp))
+                    val opts = NemotronLang.OPTIONS
+                    val selected = opts.firstOrNull { it.first == language } ?: opts.first()
+                    ChipRow(pal, opts, selected, { language = it.first }) { it.second }
                 }
                 // Language + ITN only apply to SenseVoice (the multilingual backend); the zipformer/
                 // qwen3 backends ignore them, so — like Android — show these controls only for it.

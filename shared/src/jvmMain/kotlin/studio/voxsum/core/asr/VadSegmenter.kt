@@ -1,0 +1,119 @@
+package studio.voxsum.core.asr
+
+/**
+ * Streaming speech segmentation over [LiteVad] (Silero v5 on LiteRT) — the
+ * Kotlin replacement for sherpa-onnx's `Vad` queue in AsrEngine.
+ *
+ * State machine per 512-sample window (32 ms @16 kHz):
+ *  - a run of windows with prob ≥ [threshold] totalling ≥ [minSpeechSec]
+ *    confirms a segment (tentative start = first hot window, minus one window
+ *    of pre-roll so plosive onsets aren't clipped);
+ *  - a run of prob < [threshold] lasting ≥ [minSilenceSec] closes it (the
+ *    closing silence is not included beyond one window of tail).
+ * Same tuning as the sherpa config it replaces: threshold 0.5, minSilence
+ * 0.15 s (fast A→B turn exchanges must split — see AsrEngine's comment),
+ * minSpeech 0.25 s.
+ *
+ * Feed arbitrary chunks with [accept]; completed segments queue up in
+ * [segments]. Call [flush] after the last chunk to emit trailing speech.
+ */
+class VadSegmenter(
+    private val vad: LiteVad,
+    private val threshold: Float = 0.5f,
+    minSilenceSec: Float = 0.15f,
+    minSpeechSec: Float = 0.25f,
+) {
+    class Segment(val startSample: Int, val samples: FloatArray)
+
+    val segments = ArrayDeque<Segment>()
+
+    private val minSilenceWin = (minSilenceSec * SAMPLE_RATE / WINDOW).toInt().coerceAtLeast(1)
+    private val minSpeechWin = (minSpeechSec * SAMPLE_RATE / WINDOW).toInt().coerceAtLeast(1)
+
+    private val carry = FloatArray(WINDOW)
+    private var carryLen = 0
+    private var absWindow = 0            // windows consumed since reset
+
+    private var inSpeech = false
+    private var hotRun = 0               // consecutive hot windows while idle
+    private var silRun = 0               // consecutive cold windows while in speech
+    private val pending = ArrayList<FloatArray>()   // windows of the open segment
+    private var pendingStartWin = 0
+    private var preRoll: FloatArray? = null         // one window before the segment
+
+    fun accept(chunk: FloatArray) {
+        var off = 0
+        while (off < chunk.size) {
+            val take = minOf(WINDOW - carryLen, chunk.size - off)
+            System.arraycopy(chunk, off, carry, carryLen, take)
+            carryLen += take
+            off += take
+            if (carryLen == WINDOW) {
+                process(carry.copyOf())
+                carryLen = 0
+            }
+        }
+    }
+
+    /** Emit any open/tentative segment and reset for the next stream. */
+    fun flush() {
+        if (carryLen > 0) {
+            val last = FloatArray(WINDOW)
+            System.arraycopy(carry, 0, last, 0, carryLen)
+            process(last)
+            carryLen = 0
+        }
+        if (inSpeech || hotRun >= minSpeechWin) closeSegment()
+        pending.clear(); preRoll = null
+        inSpeech = false; hotRun = 0; silRun = 0
+        vad.reset()
+        absWindow = 0
+    }
+
+    private fun process(win: FloatArray) {
+        val prob = vad.process(win)
+        val hot = prob >= threshold
+        if (!inSpeech) {
+            if (hot) {
+                if (hotRun == 0) pendingStartWin = absWindow
+                hotRun++
+                pending.add(win)
+                if (hotRun >= minSpeechWin) inSpeech = true
+            } else {
+                hotRun = 0
+                pending.clear()
+                preRoll = win               // last cold window = pre-roll candidate
+            }
+        } else {
+            pending.add(win)
+            if (hot) {
+                silRun = 0
+            } else if (++silRun >= minSilenceWin) {
+                // Drop the accumulated closing silence beyond one tail window.
+                repeat(silRun - 1) { pending.removeAt(pending.size - 1) }
+                closeSegment()
+            }
+        }
+        absWindow++
+    }
+
+    private fun closeSegment() {
+        if (pending.isNotEmpty()) {
+            val pre = preRoll
+            val n = pending.size * WINDOW + (if (pre != null) WINDOW else 0)
+            val out = FloatArray(n)
+            var o = 0
+            if (pre != null) { pre.copyInto(out, 0); o = WINDOW }
+            for (w in pending) { w.copyInto(out, o); o += WINDOW }
+            val startWin = pendingStartWin - (if (pre != null) 1 else 0)
+            segments.addLast(Segment(startWin.coerceAtLeast(0) * WINDOW, out))
+        }
+        pending.clear(); preRoll = null
+        inSpeech = false; hotRun = 0; silRun = 0
+    }
+
+    companion object {
+        const val SAMPLE_RATE = 16_000
+        const val WINDOW = 512
+    }
+}

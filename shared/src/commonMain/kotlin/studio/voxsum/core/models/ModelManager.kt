@@ -41,6 +41,10 @@ class ModelManager(appFilesDir: File) {
     val tokens: File get() = File(senseVoiceDir, "tokens.txt")
     val vadModel: File get() = File(modelsDir, "silero_vad.onnx")
 
+    /** Silero v5 as tflite — the VAD for the LiteRT backends (see LiteVad/VadSegmenter).
+     *  Separate from [vadModel], which is the sherpa/ONNX one the older backends use. */
+    val vadLiteModel: File get() = File(modelsDir, "silero-vad.tflite")
+
     // CAM++ zh+en (3D-Speaker), fp16 — replaced eres2net_base after on-device benchmarking on a
     // Pixel 6: fp16 was the fastest (~70 ms/utt, ~1.5x faster than CAM++ fp32, ~3.5x faster than
     // eres2net), half the size of fp32, with accuracy indistinguishable from fp32 (int8 was both
@@ -89,6 +93,10 @@ class ModelManager(appFilesDir: File) {
         // repo-relative paths fetched individually into the model dir. When null, only GitHub is used.
         val hfBase: String? = null,
         val hfFiles: List<String>? = null,
+        // Optional per-file sha256 pins for [hfFiles] — meaningful for revision-pinned
+        // repos. HF-only specs (Nemotron) have no GitHub archive checksum to fall back
+        // on, so these are their only integrity check.
+        val hfShas: Map<String, String>? = null,
     )
 
     private val asrSpecs: Map<AsrBackend, AsrModelSpec> = mapOf(
@@ -120,6 +128,40 @@ class ModelManager(appFilesDir: File) {
             hfFiles = listOf("encoder-epoch-99-avg-1.int8.onnx", "decoder-epoch-99-avg-1.onnx",
                 "joiner-epoch-99-avg-1.int8.onnx", "tokens.txt"),
         ),
+        // Nemotron-3.5-ASR 3.5 (q4-mix LiteRT port) — the multilingual backend shared with
+        // the Android app: 25 languages via a 128-slot prompt, four graphs (encoder INT4
+        // 596 MB + prompt-fuse fp32 + decoder/joint fp16). Runs on libvoxsum-mosslite.so
+        // (LiteRT CompiledModel), NOT sherpa/ORT. HF-only, revision-pinned with per-file
+        // sha256s. Desktop measured RTF 0.093 (8 threads, 66 s zh clip).
+        AsrBackend.NEMOTRON to AsrModelSpec(
+            dir = "nemotron-litert",
+            url = "", sha256 = "",
+            sentinels = listOf(
+                "nemotron_encoder_q4.tflite", "nemotron_prompt_fuse_fp32.tflite",
+                "nemotron_decoder_fp16.tflite", "nemotron_joint_fp16.tflite", "tokenizer.json",
+            ),
+            buildFiles = { d ->
+                AsrModelFiles(
+                    encoder = File(d, "nemotron_encoder_q4.tflite").path,
+                    promptFuse = File(d, "nemotron_prompt_fuse_fp32.tflite").path,
+                    decoder = File(d, "nemotron_decoder_fp16.tflite").path,
+                    joiner = File(d, "nemotron_joint_fp16.tflite").path,
+                    tokens = File(d, "tokenizer.json").path,
+                )
+            },
+            hfBase = "https://huggingface.co/Luigi/nemotron-asr-litert/resolve/75ec9fbbce099ef2630e14f6eceaf1576ec107dc",
+            hfFiles = listOf(
+                "nemotron_encoder_q4.tflite", "nemotron_prompt_fuse_fp32.tflite",
+                "nemotron_decoder_fp16.tflite", "nemotron_joint_fp16.tflite", "tokenizer.json",
+            ),
+            hfShas = mapOf(
+                "nemotron_encoder_q4.tflite" to "9e817d29ab20013de9962a8c347e7f68f9a896eef1e29ffcf9b0e0a0f1ef691c",
+                "nemotron_prompt_fuse_fp32.tflite" to "b4dcdc802c4124b0b0b0ff5b56344705f9b15f10c9f4983aa3503176b2e9e9b9",
+                "nemotron_decoder_fp16.tflite" to "93a3b8d91ab604305cb5c3014c4fb389cfd7b6a7397dc2e6e22df459f3f8859f",
+                "nemotron_joint_fp16.tflite" to "8e5f46279a288ff5c0ce11f581fcd3753308c2151559046c90ca62aa632d48f2",
+                "tokenizer.json" to "3f3d481deb073b64c2082e8c7860d487a3a62774bf4e9e4faac83007e181f246",
+            ),
+        ),
         AsrBackend.QWEN3 to AsrModelSpec(
             dir = "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
             url = "$REL/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
@@ -148,7 +190,9 @@ class ModelManager(appFilesDir: File) {
         if (backend == AsrBackend.MOSS) return mossReady()
         val spec = asrSpecs.getValue(backend)
         val d = specDir(spec)
-        return vadModel.exists() && spec.sentinels.all { File(d, it).exists() }
+        // The LiteRT backends segment with the tflite Silero VAD; the sherpa ones with the ONNX one.
+        val vad = if (backend == AsrBackend.NEMOTRON) vadLiteModel else vadModel
+        return vad.exists() && spec.sentinels.all { File(d, it).exists() }
     }
 
     fun asrFiles(backend: AsrBackend): AsrModelFiles =
@@ -172,7 +216,8 @@ class ModelManager(appFilesDir: File) {
     suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
         if (backend == AsrBackend.MOSS) ensureMossModels(onProgress) else
         withContext(Dispatchers.IO) {
-            ensureVad { onProgress(it * 0.1f) }
+            if (backend == AsrBackend.NEMOTRON) ensureVadLite { onProgress(it * 0.1f) }
+            else ensureVad { onProgress(it * 0.1f) }
             val spec = asrSpecs.getValue(backend)
             val d = specDir(spec)
             if (!spec.sentinels.all { File(d, it).exists() }) {
@@ -200,6 +245,13 @@ class ModelManager(appFilesDir: File) {
         }
     }
 
+    /** Silero v5 tflite (soniqo export, revision-pinned) — the VAD for the LiteRT backends. */
+    private suspend fun ensureVadLite(onProgress: (Float) -> Unit) {
+        if (vadLiteModel.length() == VAD_LITE_BYTES) { onProgress(1f); return }
+        vadLiteModel.delete()
+        download(VAD_LITE_URL, vadLiteModel, VAD_LITE_SHA, onProgress)
+    }
+
     /**
      * Provision an ASR model into [d]. Tries the HuggingFace mirror first — fetching each file
      * individually, which sidesteps GitHub's often-throttled release CDN and needs no extraction —
@@ -213,7 +265,9 @@ class ModelManager(appFilesDir: File) {
                 d.mkdirs()
                 hfFiles.forEachIndexed { i, rel ->
                     val dest = File(d, rel).apply { parentFile?.mkdirs() }
-                    download("$hfBase/$rel", dest, null) { frac -> onProgress((i + frac) / hfFiles.size) }
+                    download("$hfBase/$rel", dest, spec.hfShas?.get(rel)) { frac ->
+                        onProgress((i + frac) / hfFiles.size)
+                    }
                 }
                 return
             } catch (e: Exception) {
@@ -574,6 +628,11 @@ class ModelManager(appFilesDir: File) {
         private const val VAD_HF_URL =
             "https://huggingface.co/csukuangfj/vad/resolve/main/silero_vad.onnx"
         private const val VAD_HF_SHA = "a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28"
+        // Silero VAD v5 tflite (soniqo, revision-pinned) for the LiteRT engines — see LiteVad.
+        private const val VAD_LITE_URL =
+            "https://huggingface.co/soniqo/Silero-VAD-v5-LiteRT/resolve/655bff6b9a748de98c17a10f6c5d7ee3c0b53cbc/silero-vad.tflite"
+        private const val VAD_LITE_SHA = "4559669e3423afaa11b3716d01d1421c0bf52add8b6891846ca73cc9bae875d2"
+        private const val VAD_LITE_BYTES = 1_261_248L
 
         // CAM++ zh+en fp16 (custom conversion, benchmarked best on-device) hosted on HF.
         private const val EMB_URL =
