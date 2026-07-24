@@ -1295,7 +1295,10 @@ private fun TranscribeScreen(
                     is TranscriptEvent.Progress -> queueFraction = e.fraction
                     is TranscriptEvent.DownloadProgress -> { queueLabel = e.label; queueFraction = e.fraction }
                     is TranscriptEvent.Utterance -> queueUtterances.add(e)
+                    is TranscriptEvent.UtteranceSnapshot -> { queueUtterances.clear(); queueUtterances.addAll(e.utterances) }
                     is TranscriptEvent.Title -> queueTitle = e.title
+                    is TranscriptEvent.Partial ->
+                        queueSummary = if (e.reset) "" else (queueSummary ?: "") + e.chunk
                     is TranscriptEvent.SummaryComplete -> queueSummary = e.summary
                     else -> Unit
                 }
@@ -1311,6 +1314,7 @@ private fun TranscribeScreen(
             when (e) {
                 is TranscriptEvent.Status -> status = e.message
                 is TranscriptEvent.Utterance -> utterances.add(e)
+                is TranscriptEvent.UtteranceSnapshot -> { utterances.clear(); utterances.addAll(e.utterances) }
                 // Progress drives the BAR only; each phase sets its own status (Transcribing /
                 // Identifying speakers / Summarizing), so we no longer overwrite it with "Transcribing %"
                 // (which also mislabeled the summary phase). running guards a late event after completion.
@@ -1402,6 +1406,8 @@ private fun TranscribeScreen(
                         swapAudioKeepingPlayhead(savedUri)
                     }
                 }
+                is TranscriptEvent.Partial ->
+                    summary = if (e.reset) "" else (summary ?: "") + e.chunk
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false; if (libraryDir != null && !watchingQueue) sessionDirty = true; autosaveSessionNow() }
                 is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false; if (libraryDir != null && !watchingQueue) sessionDirty = true; autosaveSessionNow() }
                 is TranscriptEvent.Failed -> {

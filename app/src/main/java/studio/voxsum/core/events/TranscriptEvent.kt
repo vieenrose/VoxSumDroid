@@ -30,6 +30,14 @@ sealed interface TranscriptEvent {
         val tokenTimes: List<Double>? = null,
     ) : TranscriptEvent
 
+    /**
+     * Replace-all transcript snapshot. MOSS-TD re-links speakers over ALL
+     * segments after every decoded window (earlier utterances' speaker ids and
+     * indices may change), so incremental MOSS rendering replaces the list
+     * instead of appending like the per-utterance backends.
+     */
+    data class UtteranceSnapshot(val utterances: List<Utterance>) : TranscriptEvent
+
     /** 0.0..1.0 progress over the audio (mirrors "progress"). */
     data class Progress(val fraction: Float) : TranscriptEvent
 
@@ -50,7 +58,9 @@ sealed interface TranscriptEvent {
 
     // --- summarization side of the contract ---
     data class Title(val title: String) : TranscriptEvent
-    data class Partial(val chunk: String) : TranscriptEvent
+    /** Streamed summary text. [reset]=true starts a fresh buffer (a new LLM call —
+     *  map chunk, reduce round, or final pass — whose text supersedes the display). */
+    data class Partial(val chunk: String, val reset: Boolean = false) : TranscriptEvent
     data class SummaryComplete(val summary: String) : TranscriptEvent
 
     /** Extracted action items + key decisions (an editable draft, not an authoritative record). */

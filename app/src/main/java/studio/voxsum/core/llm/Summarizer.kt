@@ -56,7 +56,8 @@ class Summarizer(
     // Chinese instruction-first prompt correctly (the benchmarked reference prompt).
     private val zhTarget: Boolean = targetLanguage?.contains("中文") == true
 
-    fun summarize(transcript: String, userPrompt: String, withTitle: Boolean = true): Flow<TranscriptEvent> = flow {
+    fun summarize(transcript: String, userPrompt: String, withTitle: Boolean = true): Flow<TranscriptEvent> =
+        kotlinx.coroutines.flow.channelFlow {
         val instr = userPrompt + langClause
         // Budget every prompt in CHARS so it fits n_ctx for ANY script. CJK is the densest (~1.55
         // tokens/char), so cap at ~0.6 chars/token (*3/5); English (~4 chars/token) just gets smaller,
@@ -78,18 +79,20 @@ class Summarizer(
             (if (chunks.size > 1) (chunks.size + 5) / 6 + 1 else 0) +
             (if (withTitle) 1 else 0)
         var llmCalls = 0
-        emit(TranscriptEvent.Progress(0f))   // restart the bar for the summary phase
+        send(TranscriptEvent.Progress(0f))   // restart the bar for the summary phase
 
         val partials = ArrayList<String>(chunks.size)
         for (c in chunks) {
             val sb = StringBuilder()
             val mapPrompt = if (zhTarget) MAP_TEMPLATE_ZH.format(c)
                             else MAP_TEMPLATE.format(instr, mapInstruction, c)
-            llm.generate(SummaryText.wrap(template, mapPrompt), maxTokens = mapMaxTokens) { sb.append(it) }
+            trySend(TranscriptEvent.Partial("", reset = true))
+            llm.generate(SummaryText.wrap(template, mapPrompt), maxTokens = mapMaxTokens) {
+                sb.append(it); trySend(TranscriptEvent.Partial(it))
+            }
             partials += sb.toString().trim()
-            emit(TranscriptEvent.Partial(sb.toString().trim()))   // partials stay raw (intermediate)
             llmCalls++
-            emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
+            send(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
         }
 
         // Reduce HIERARCHICALLY so the joined prompt never overflows the context window: fold the
@@ -99,9 +102,12 @@ class Summarizer(
             val sb = StringBuilder()
             val gPrompt = if (zhTarget) REDUCE_TEMPLATE_ZH.format(group.joinToString("\n\n"))
                           else REDUCE_TEMPLATE.format(instr, reduceInstruction, group.joinToString("\n\n"))
-            llm.generate(SummaryText.wrap(template, gPrompt), reduceMax) { sb.append(it) }
+            trySend(TranscriptEvent.Partial("", reset = true))
+            llm.generate(SummaryText.wrap(template, gPrompt), reduceMax) {
+                sb.append(it); trySend(TranscriptEvent.Partial(it))
+            }
             llmCalls++
-            emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
+            send(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
             sb.toString().trim()
         }
 
@@ -112,12 +118,13 @@ class Summarizer(
         } else {
             val fPrompt = if (zhTarget) REDUCE_TEMPLATE_ZH.format(level.joinToString("\n\n"))
                           else REDUCE_TEMPLATE.format(instr, reduceInstruction, level.joinToString("\n\n"))
+            trySend(TranscriptEvent.Partial("", reset = true))
             llm.generate(
                 SummaryText.wrap(template, fPrompt),
                 maxTokens = reduceMax,
-            ) { finalSb.append(it) }
+            ) { finalSb.append(it); trySend(TranscriptEvent.Partial(it)) }
             llmCalls++
-            emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
+            send(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
         }
         var finalText = SummaryText.cleanSummary(finalSb.toString())
         // Guaranteed length bound: even with an explicit count in the prompt, a small model fed a
@@ -128,21 +135,22 @@ class Summarizer(
             val sb = StringBuilder()
             val sPrompt = if (zhTarget) SHRINK_TEMPLATE_ZH.format(finalText)
                           else SHRINK_TEMPLATE.format(instr, reduceInstruction, finalText)
+            trySend(TranscriptEvent.Partial("", reset = true))
             llm.generate(
                 SummaryText.wrap(template, sPrompt),
                 maxTokens = reduceMax,
-            ) { sb.append(it) }
+            ) { sb.append(it); trySend(TranscriptEvent.Partial(it)) }
             SummaryText.cleanSummary(sb.toString()).takeIf { it.isNotBlank() }?.let { finalText = it }
             llmCalls++
-            emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
+            send(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
         }
         val finalSummary = convert(finalText)
-        emit(TranscriptEvent.Progress(1f))
-        emit(TranscriptEvent.SummaryComplete(finalSummary))
+        send(TranscriptEvent.Progress(1f))
+        send(TranscriptEvent.SummaryComplete(finalSummary))
 
         // Title is derived from the final summary. Skipped on re-summarize (withTitle = false) so a model
         // swap for a better summary doesn't churn a title the user is happy with.
-        if (withTitle) emit(titleEvent(finalSummary))
+        if (withTitle) send(titleEvent(finalSummary))
     }
 
     /** Generate ONLY the title, from an existing summary — the "re-title" path (leaves the summary as-is). */

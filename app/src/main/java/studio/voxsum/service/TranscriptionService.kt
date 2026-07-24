@@ -25,7 +25,10 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.consumeAsFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onEach
@@ -73,6 +76,9 @@ import java.io.File
 class TranscriptionService : LifecycleService() {
 
     companion object {
+        /** Live-capture MOSS window (s) — shorter than the 90 s file default for cadence. */
+        const val MOSS_LIVE_WINDOW_S = 60
+
         private const val CHANNEL_ID = "voxsum_pipeline"
         private const val NOTIF_ID = 1
         const val EXTRA_AUDIO_URI = "audio_uri"
@@ -1132,14 +1138,45 @@ class TranscriptionService : LifecycleService() {
         }
         try {
         if (backend == AsrBackend.MOSS) {
-            // MOSS-TD can't stream live per-utterance — drain the mic (the capture job writes the
-            // WAV) and batch-process the finished recording, unless this take is deferred.
-            mic.consumeAsFlow().flowOn(Dispatchers.Default).collect { /* discard; the WAV is the source */ }
-            deferred = deferProcessing
-            withContext(Dispatchers.IO) { WavNormalizer.normalizeInPlace(wav) }
-            if (!deferred) {
+            if (deferProcessing) {
+                // Deferred take: capture only — the queue re-processes the finished WAV.
+                mic.consumeAsFlow().flowOn(Dispatchers.Default).collect { /* WAV is the source */ }
+                deferred = true
+                withContext(Dispatchers.IO) { WavNormalizer.normalizeInPlace(wav) }
+            } else {
+                // LIVE MOSS streaming: recorder.record() writes each chunk to the WAV BEFORE
+                // emitting it here, so counting consumed chunks == samples durably on disk.
+                // The pipeline's getWindow gate suspends until the next window's samples exist
+                // (or capture ended), so windows decode WHILE recording continues and each
+                // decoded window streams a transcript snapshot to the UI. Audio is already
+                // gain-managed live (LiveAgc in the recorder); the persisted WAV still gets
+                // its playback normalization after the run.
                 emitEvent(TranscriptEvent.Status(getString(R.string.svc_transcribing)))
-                diarized = runMossPhase(wav, cfg, models, converter, utterances)
+                deferred = false
+                val written = MutableStateFlow(0L)
+                val capDone = MutableStateFlow(false)
+                val drain = lifecycleScope.launch(Dispatchers.Default) {
+                    try {
+                        mic.consumeAsFlow().collect { c -> written.value += c.size }
+                    } finally {
+                        capDone.value = true
+                    }
+                }
+                try {
+                    diarized = runMossPhase(
+                        wav, cfg, models, converter, utterances,
+                        awaitSamples = { need ->
+                            combine(written, capDone) { w, d -> w >= need || d }
+                                .first { it }
+                        },
+                        // Shorter windows than the 90 s file default: first text ~1 min into the
+                        // take and steadier cadence — the accuracy sweep showed 60 s is fine.
+                        windowS = MOSS_LIVE_WINDOW_S,
+                    )
+                } finally {
+                    drain.join()
+                }
+                withContext(Dispatchers.IO) { WavNormalizer.normalizeInPlace(wav) }
             }
         } else {
         createSpeechEngine(backend, models, cfg).use { asr ->
@@ -1256,6 +1293,10 @@ class TranscriptionService : LifecycleService() {
         models: ModelManager,
         converter: OpenCcConverter?,
         utterances: MutableList<TranscriptEvent.Utterance>,
+        // Live capture: suspends until the WAV holds [needSamples] samples or recording ended
+        // (getWindow then reads a short/final window). Null = file input, everything on disk.
+        awaitSamples: (suspend (needSamples: Long) -> Unit)? = null,
+        windowS: Int = MossPipeline.WINDOW_S,
     ): Pair<List<TranscriptEvent.Utterance>, Int>? {
         // ASR runs on the LiteRT engine (encoder/embedder/decoder .tflite); cross-window
         // speaker linking embeds with the WeSpeaker ResNet34 LiteRT pod (the ggml CAM++ was
@@ -1296,7 +1337,11 @@ class TranscriptionService : LifecycleService() {
                     durS = durS,
                     // Stream windows straight from the on-disk WAV — never the whole take in RAM
                     // (a 16 kHz float buffer grows ~3.8 MB per audio-minute; 2 h ≈ 460 MB).
-                    getWindow = { off, len -> withContext(Dispatchers.IO) { readWav16Window(wav, off, len) } },
+                    getWindow = { off, len ->
+                        awaitSamples?.invoke(off.toLong() + len)
+                        withContext(Dispatchers.IO) { readWav16Window(wav, off, len) }
+                    },
+                    windowS = windowS,
                     decodeWindow = { p, maxNew -> engine.transcribeWindow(p, maxNew) },
                     embedUnit = speaker?.let { s ->
                         val f: suspend (FloatArray) -> FloatArray? = { p -> s.embed(p) }
@@ -1307,8 +1352,13 @@ class TranscriptionService : LifecycleService() {
                         // onProgress is a plain (non-suspend) callback — use the non-suspending
                         // tryEmit (as the other in-loop progress emitters do), not emitEvent.
                         utterances.clear(); utterances.addAll(toUtterances(prog.segments))
-                        if (durS > 0) {
-                            val frac = (prog.processedS / durS).toFloat().coerceIn(0f, 1f)
+                        // Stream the running transcript: MOSS re-links speakers over ALL
+                        // segments each window, so this is a replace-all snapshot, not appends.
+                        events.tryEmit(gen to TranscriptEvent.UtteranceSnapshot(utterances.toList()))
+                        // Live capture: the WAV is still growing, so re-read its length per tick.
+                        val total = if (awaitSamples == null) durS else wavDurationS(wav)
+                        if (total > 0) {
+                            val frac = (prog.processedS / total).toFloat().coerceIn(0f, 1f)
                             events.tryEmit((gen) to TranscriptEvent.Progress(frac))
                         }
                     },
