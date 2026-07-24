@@ -27,21 +27,15 @@ import java.util.concurrent.ConcurrentHashMap
  * lean and the APK FOSS); they download once into app-private storage, or can be
  * side-loaded (adb push / file copy) so the app works fully network-free.
  *
- * Phase 1 provisions the ASR models only (SenseVoice + Silero VAD). The LLM (Phase 2) and
+ * Phase 1 provisions the ASR models only (ASR + Silero VAD). The LLM (Phase 2) and
  * diarization models (Phase 3) extend this with the same pattern.
  */
 class ModelManager(context: Context) {
 
     val modelsDir: File = File(context.filesDir, "models").apply { mkdirs() }
 
-    // SenseVoice on LiteRT (replaced the sherpa int8 ONNX tarball): bucketed
-    // multi-signature q8 tflite + sentencepiece id->piece table + am.mvn CMVN.
-    private val senseVoiceDir = File(modelsDir, SENSE_VOICE_DIR)
-    val senseVoiceModel: File get() = File(senseVoiceDir, "sensevoice_small_q8.tflite")
-    val tokens: File get() = File(senseVoiceDir, "tokens.txt")
-    val senseVoiceCmvn: File get() = File(senseVoiceDir, "cmvn.json")
-    // Silero VAD: the ONNX serves the remaining sherpa backends (x-asr, qwen3);
-    // the tflite serves the LiteRT engines (SenseVoice today, X-ASR next).
+    // Silero VAD: the ONNX serves the sherpa X-ASR path; the tflite serves the
+    // LiteRT engines (X-ASR once its LiteRT port lands).
     val vadModel: File get() = File(modelsDir, "silero_vad.onnx")
     val vadLiteModel: File get() = File(modelsDir, "silero-vad.tflite")
 
@@ -83,8 +77,6 @@ class ModelManager(context: Context) {
             File(modelsDir, "moss_td_decoder_q4b32_ekv2560.tflite"),
         )
 
-    fun asrReady(): Boolean = senseVoiceModel.exists() && tokens.exists() &&
-        senseVoiceCmvn.exists() && vadLiteModel.exists()
     // Diarization is per-utterance embedding + clustering, so only the speaker-embedding
     // model is needed (no pyannote segmentation model).
     fun diarizationReady(): Boolean =
@@ -117,27 +109,6 @@ class ModelManager(context: Context) {
     )
 
     private val asrSpecs: Map<AsrBackend, AsrModelSpec> = mapOf(
-        // SenseVoice runs on LiteRT (Luigi/sensevoice-litert, converted from the official
-        // PyTorch checkpoint; long-audio CER vs fp32 beats the old sherpa int8 ONNX ~2x —
-        // see the repo's model card for the gate table). HF is the ONLY source (url = "").
-        AsrBackend.SENSEVOICE to AsrModelSpec(
-            dir = SENSE_VOICE_DIR, url = "", sha256 = "",
-            sentinels = listOf("sensevoice_small_q8.tflite", "tokens.txt", "cmvn.json"),
-            buildFiles = { d ->
-                AsrModelFiles(
-                    model = File(d, "sensevoice_small_q8.tflite").path,
-                    tokens = File(d, "tokens.txt").path,
-                    cmvn = File(d, "cmvn.json").path,
-                )
-            },
-            hfBase = "https://huggingface.co/Luigi/sensevoice-litert/resolve/$SENSE_VOICE_LITE_REV",
-            hfFiles = listOf("sensevoice_small_q8.tflite", "tokens.txt", "cmvn.json"),
-            hfShas = mapOf(
-                "sensevoice_small_q8.tflite" to SENSE_VOICE_LITE_SHA,
-                "tokens.txt" to "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc",
-                "cmvn.json" to "44e455d337799ff516dfb05137dc55ba020c0c3300c4e098856cf03b46c74f47",
-            ),
-        ),
         // The "punct" variant (matches the web app's xasr_models): mixed-case English +
         // punctuation baked into the BPE vocab. The older zh-en-2023-11-22 zipformer emitted
         // ALL-CAPS, unpunctuated English — wrong model for a readable transcript.
@@ -159,24 +130,6 @@ class ModelManager(context: Context) {
             hfFiles = listOf("encoder-epoch-99-avg-1.int8.onnx", "decoder-epoch-99-avg-1.onnx",
                 "joiner-epoch-99-avg-1.int8.onnx", "tokens.txt"),
         ),
-        AsrBackend.QWEN3 to AsrModelSpec(
-            dir = "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
-            url = "$REL/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
-            sha256 = "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
-            sentinels = listOf("conv_frontend.onnx", "encoder.int8.onnx", "decoder.int8.onnx",
-                "tokenizer/vocab.json"),
-            buildFiles = { d ->
-                AsrModelFiles(
-                    convFrontend = File(d, "conv_frontend.onnx").path,
-                    encoder = File(d, "encoder.int8.onnx").path,
-                    decoder = File(d, "decoder.int8.onnx").path,
-                    tokenizerDir = File(d, "tokenizer").path,
-                )
-            },
-            hfBase = "https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/main",
-            hfFiles = listOf("conv_frontend.onnx", "encoder.int8.onnx", "decoder.int8.onnx",
-                "tokenizer/merges.txt", "tokenizer/tokenizer_config.json", "tokenizer/vocab.json"),
-        ),
     )
 
     private fun specDir(spec: AsrModelSpec) = File(modelsDir, spec.dir)
@@ -187,8 +140,7 @@ class ModelManager(context: Context) {
         if (backend == AsrBackend.MOSS) return mossReady()
         val spec = asrSpecs.getValue(backend)
         val d = specDir(spec)
-        val vad = if (backend == AsrBackend.SENSEVOICE) vadLiteModel else vadModel
-        return vad.exists() && spec.sentinels.all { File(d, it).exists() }
+        return vadModel.exists() && spec.sentinels.all { File(d, it).exists() }
     }
 
     fun asrFiles(backend: AsrBackend): AsrModelFiles =
@@ -216,8 +168,7 @@ class ModelManager(context: Context) {
     suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
         if (backend == AsrBackend.MOSS) ensureMossModels(onProgress) else
         withContext(Dispatchers.IO) {
-            if (backend == AsrBackend.SENSEVOICE) ensureVadLite { onProgress(it * 0.1f) }
-            else ensureVad { onProgress(it * 0.1f) }
+            ensureVad { onProgress(it * 0.1f) }
             val spec = asrSpecs.getValue(backend)
             val d = specDir(spec)
             if (!spec.sentinels.all { File(d, it).exists() }) {
@@ -231,10 +182,8 @@ class ModelManager(context: Context) {
             if (backend == AsrBackend.XASR) {
                 LEGACY_ASR_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
             }
-            if (backend == AsrBackend.SENSEVOICE) {
-                // The sherpa int8 ONNX tarball this LiteRT model replaced.
-                File(modelsDir, LEGACY_SENSE_VOICE_DIR).takeIf(File::exists)?.deleteRecursively()
-            }
+            // Backends dropped 2026-07: SenseVoice (LiteRT + legacy sherpa) and Qwen3.
+            DROPPED_BACKEND_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
         }
 
     /** Fetch the shared VAD model. HuggingFace first (reliable CDN), GitHub release as fallback. */
@@ -345,12 +294,11 @@ class ModelManager(context: Context) {
     }
 
     /**
-     * Ensure the default (SenseVoice) ASR models are present, downloading what's missing.
+     * Ensure the default backend's models are present, downloading what's missing.
      * [onProgress] receives a coarse 0..1 fraction. Safe to call when already present (no-op).
-     * Delegates to the backend-aware path so it shares the HuggingFace-first provisioning.
      */
     suspend fun ensureAsrModels(onProgress: (Float) -> Unit) =
-        ensureAsrModels(AsrBackend.SENSEVOICE, onProgress)
+        ensureAsrModels(AsrBackend.fromId(""), onProgress)
 
     /** Ensure the GGUF for [spec] is present AND valid (downloads on first use; a corrupt file is
      *  deleted and re-downloaded once before giving up with a clear message). */
@@ -652,15 +600,12 @@ class ModelManager(context: Context) {
         private const val PART_SUFFIX = ".part"
 
         private const val REL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
-        const val SENSE_VOICE_DIR = "sensevoice-litert"
-        /** The sherpa int8 ONNX tarball dir the LiteRT SenseVoice replaced (reclaimed on upgrade). */
-        private const val LEGACY_SENSE_VOICE_DIR =
-            "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
-        // Luigi/sensevoice-litert revision + model sha (see the repo's model card for gates:
-        // fp32 max|Δ| 8e-5 vs torch; q8 long-audio CER beats the old int8 ONNX ~2x).
-        private const val SENSE_VOICE_LITE_REV = "8d1dfd033bafc5d40e03cb1dc714134386eb6895"
-        private const val SENSE_VOICE_LITE_SHA =
-            "555d53c6948d4c3ef22e45760690bc479d1402e2c4e23e4db54cc69160726a60"
+        /** Dirs of backends dropped in 2026-07 (SenseVoice LiteRT + sherpa, Qwen3), reclaimed on upgrade. */
+        private val DROPPED_BACKEND_DIRS = listOf(
+            "sensevoice-litert",
+            "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
+            "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
+        )
 
         // Superseded ASR model dirs to reclaim on upgrade. The old x-asr zipformer (~160 MB)
         // emitted ALL-CAPS, unpunctuated English and was replaced by the punct variant; since the

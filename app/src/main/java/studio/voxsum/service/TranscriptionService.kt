@@ -32,7 +32,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
-import studio.voxsum.core.asr.SenseVoiceLiteAsr
 import studio.voxsum.core.asr.SpeechEngine
 import studio.voxsum.core.asr.MossLiteEngine
 import studio.voxsum.core.asr.moss.MOSS_SR
@@ -823,7 +822,7 @@ class TranscriptionService : LifecycleService() {
                         }
                     }
                 // Diarize while the recognizer is still alive: the split rescue re-decodes a fused
-                // segment's halves on backends without token timestamps (Qwen3). Only the small
+                // segment's halves on backends without token timestamps. Only the small
                 // CAM++ embedder is co-resident with the ASR models — the LLM still loads after
                 // both are released.
                 if (utterances.isNotEmpty() && cfg.diarizationEnabled) {
@@ -1357,29 +1356,12 @@ class TranscriptionService : LifecycleService() {
      * token timestamps (Qwen3); only the small CAM++ embedder is co-resident with the
      * recognizer, and the LLM still loads only after both are released.
      */
-    /**
-     * Build the [SpeechEngine] for [backend]: SenseVoice runs on LiteRT
-     * (SenseVoiceLiteAsr — q8 tflite + Kotlin front end + LiteVad); X-ASR and
-     * Qwen3 remain on sherpa-onnx until their LiteRT ports land.
-     */
+    /** Build the [SpeechEngine] for [backend] (X-ASR on sherpa until its LiteRT port lands). */
     private fun createSpeechEngine(
         backend: AsrBackend,
         models: ModelManager,
         cfg: TranscriptionConfig,
-    ): SpeechEngine = if (backend == AsrBackend.SENSEVOICE) {
-        val f = models.asrFiles(backend)
-        SenseVoiceLiteAsr(
-            modelFile = java.io.File(f.model),
-            tokensFile = java.io.File(f.tokens),
-            cmvnFile = java.io.File(f.cmvn),
-            vadModelFile = models.vadLiteModel,
-            numThreads = asrThreads(),
-            language = cfg.language,
-            useItn = cfg.useItn,
-            vadThreshold = cfg.vadThreshold,
-            cacheDir = cacheDir.absolutePath,
-        )
-    } else {
+    ): SpeechEngine =
         AsrEngine(
             backend = backend,
             files = models.asrFiles(backend),
@@ -1389,7 +1371,6 @@ class TranscriptionService : LifecycleService() {
             useItn = cfg.useItn,
             vadThreshold = cfg.vadThreshold,
         )
-    }
 
     private suspend fun diarizePhase(
         wav: File,
@@ -1449,7 +1430,7 @@ class TranscriptionService : LifecycleService() {
      * Standalone re-diarize: re-run ONLY speaker detection over the existing transcript. The audio
      * is normally our own decoded 16 kHz work WAV (the player source) — reused directly; anything
      * else is decoded (with input normalization) first. An ASR engine is loaded because the
-     * fused-segment split rescue re-decodes slices on backends without token timestamps (Qwen3).
+     * fused-segment split rescue re-decodes slices on backends without token timestamps.
      */
     private suspend fun runDiarizeOnly(audioUri: String?) {
         val uri = audioUri?.let(Uri::parse)

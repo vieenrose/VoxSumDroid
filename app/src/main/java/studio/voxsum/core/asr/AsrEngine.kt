@@ -2,10 +2,8 @@ package studio.voxsum.core.asr
 
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
-import com.k2fsa.sherpa.onnx.OfflineQwen3AsrModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
-import com.k2fsa.sherpa.onnx.OfflineSenseVoiceModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.SileroVadModelConfig
 import com.k2fsa.sherpa.onnx.Vad
@@ -137,7 +135,7 @@ class AsrEngine(
         if (samples.isEmpty()) return ""
         val first = decodeSliceOnce(samples)
         if (first.isNotBlank() || samples.size < SAMPLE_RATE / 3) return first
-        // Some slice LENGTHS deterministically decode to empty (measured on Qwen3: a 19478-sample
+        // Some slice LENGTHS deterministically decode to empty: a 19478-sample
         // slice returned "" while ±160 samples decoded perfectly — an internal frame/token
         // boundary pathology). A non-trivial slice that comes back blank is retried once with
         // 0.1 s of trailing silence, which moves the length past the bad point.
@@ -290,24 +288,11 @@ class AsrEngine(
             language: String,
             useItn: Boolean,
         ): OfflineModelConfig = when (backend) {
-            AsrBackend.SENSEVOICE -> OfflineModelConfig(
-                senseVoice = OfflineSenseVoiceModelConfig(
-                    model = f.model, language = language, useInverseTextNormalization = useItn,
-                ),
-                tokens = f.tokens, numThreads = numThreads, provider = "cpu",
-            )
             AsrBackend.XASR -> OfflineModelConfig(
                 transducer = OfflineTransducerModelConfig(
                     encoder = f.encoder, decoder = f.decoder, joiner = f.joiner,
                 ),
                 tokens = f.tokens, modelType = "transducer", numThreads = numThreads, provider = "cpu",
-            )
-            AsrBackend.QWEN3 -> OfflineModelConfig(
-                qwen3Asr = OfflineQwen3AsrModelConfig(
-                    convFrontend = f.convFrontend, encoder = f.encoder,
-                    decoder = f.decoder, tokenizer = f.tokenizerDir,
-                ),
-                tokens = "", numThreads = numThreads, provider = "cpu",
             )
             AsrBackend.MOSS -> throw IllegalArgumentException(
                 "MOSS-TD is not a sherpa backend — it runs through MossPipeline, not AsrEngine",

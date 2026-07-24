@@ -90,9 +90,7 @@ fun SettingsContent(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             AsrBackend.entries.forEach { b ->
                 val taglineRes = when (b) {
-                    AsrBackend.SENSEVOICE -> R.string.asr_tagline_sensevoice
                     AsrBackend.XASR -> R.string.asr_tagline_xasr
-                    AsrBackend.QWEN3 -> R.string.asr_tagline_qwen3
                     AsrBackend.MOSS -> R.string.asr_tagline_moss
                 }
                 ModelOptionCard(
@@ -150,30 +148,8 @@ fun SettingsContent(
             }
         }
 
-        // (3) Recognition detail — language + ITN (SenseVoice only) + VAD.
+        // (3) Recognition detail — VAD.
         Section(stringResource(R.string.settings_recognition))
-        if (config.asrBackend == AsrBackend.SENSEVOICE.id) {
-            LabeledRow(stringResource(R.string.settings_language)) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TranscriptionConfig.LANGUAGES.forEach { (code, label) ->
-                        FilterChip(
-                            selected = config.language == code,
-                            enabled = enabled,
-                            onClick = { onChange(config.copy(language = code)) },
-                            label = { Text(label) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
-                                selectedLabelColor = pal.Sky,
-                                labelColor = pal.Slate400,
-                            ),
-                        )
-                    }
-                }
-            }
-            SwitchRow(stringResource(R.string.settings_itn), config.useItn, enabled) {
-                onChange(config.copy(useItn = it))
-            }
-        }
         // MOSS-TD windows internally (no VAD) and diarizes natively (no separate speaker stage),
         // so the VAD slider and the whole Diarization section don't apply to it.
         val isMoss = config.asrBackend == AsrBackend.MOSS.id

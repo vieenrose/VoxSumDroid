@@ -9,9 +9,7 @@ enum class AsrBackend(
     /** One-word descriptor for the model-picker subtitle. */
     val tagline: String,
 ) {
-    SENSEVOICE("sensevoice", "SenseVoice (multilingual)", "SenseVoice", "multilingual"),
     XASR("x-asr", "Zipformer zh-en", "Zipformer", "zh-en transducer"),
-    QWEN3("qwen3", "Qwen3-ASR (large, slow)", "Qwen3-ASR", "large, slow"),
     MOSS("moss-td", "MOSS zh-TW meetings (diarizing)", "MOSS-TD", "zh-TW + diarization");
 
     /** Backends whose output already carries speaker tags — the separate
@@ -19,20 +17,16 @@ enum class AsrBackend(
     val diarizesNatively: Boolean get() = this == MOSS
 
     companion object {
-        fun fromId(id: String): AsrBackend = entries.firstOrNull { it.id == id } ?: SENSEVOICE
+        fun fromId(id: String): AsrBackend = entries.firstOrNull { it.id == id } ?: MOSS
     }
 }
 
 /** Resolved on-device file paths for the selected backend (only relevant fields are set). */
 data class AsrModelFiles(
-    val model: String = "",            // sensevoice
-    val encoder: String = "",          // xasr / qwen3
-    val decoder: String = "",          // xasr / qwen3
+    val encoder: String = "",          // xasr
+    val decoder: String = "",          // xasr
     val joiner: String = "",           // xasr
-    val convFrontend: String = "",     // qwen3
-    val tokenizerDir: String = "",     // qwen3 (a directory)
-    val tokens: String = "",           // sensevoice / xasr (empty for qwen3)
-    val cmvn: String = "",             // sensevoice (LiteRT: am.mvn shift/scale json)
+    val tokens: String = "",           // xasr
     val mossModel: String = "",        // moss-td (the ASR+diarization gguf)
     val speakerEmbedModel: String = "",// moss-td (optional CAM++ gguf for cross-window linking)
 )

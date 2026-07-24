@@ -1,26 +1,11 @@
 {
-  "_comment": "On-device model registry — Android. ggml/llama.cpp was removed; SenseVoice and MOSS-TD run on LiteRT, X-ASR/Qwen3 remain on sherpa-onnx (ONNX) until their LiteRT ports land, summarization is LiteRT-LM (.litertlm). SHA-256 pins are real artifact hashes (verified after download in ModelManager).",
+  "_comment": "On-device model registry — Android. ASR backends: MOSS-TD (LiteRT, default) and X-ASR zipformer (sherpa-onnx until its LiteRT port lands). SenseVoice and Qwen3 were dropped 2026-07. Summarization: LiteRT-LM. SHA-256 pins verified after download.",
   "asr": [
     {
-      "id": "sensevoice-small-q8-litert",
+      "id": "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03",
       "kind": "ASR",
-      "url": "https://huggingface.co/Luigi/sensevoice-litert/resolve/8d1dfd033bafc5d40e03cb1dc714134386eb6895/sensevoice_small_q8.tflite",
-      "sha256": "555d53c6948d4c3ef22e45760690bc479d1402e2c4e23e4db54cc69160726a60",
-      "license": "Apache-2.0",
-      "default": true
-    },
-    {
-      "id": "sensevoice-tokens",
-      "kind": "ASR",
-      "url": "https://huggingface.co/Luigi/sensevoice-litert/resolve/8d1dfd033bafc5d40e03cb1dc714134386eb6895/tokens.txt",
-      "sha256": "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc",
-      "license": "Apache-2.0"
-    },
-    {
-      "id": "sensevoice-cmvn",
-      "kind": "ASR",
-      "url": "https://huggingface.co/Luigi/sensevoice-litert/resolve/8d1dfd033bafc5d40e03cb1dc714134386eb6895/cmvn.json",
-      "sha256": "44e455d337799ff516dfb05137dc55ba020c0c3300c4e098856cf03b46c74f47",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03.tar.bz2",
+      "sha256": "1bd1687be051d4656d75462a28b919eecb914e8714e6eaa7e92a30112ace2a68",
       "license": "Apache-2.0"
     },
     {
