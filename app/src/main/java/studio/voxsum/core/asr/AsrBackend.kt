@@ -10,7 +10,7 @@ enum class AsrBackend(
     val tagline: String,
 ) {
     XASR("x-asr", "Zipformer zh-en", "Zipformer", "zh-en transducer"),
-    MOSS("moss-td", "MOSS zh-TW meetings (diarizing)", "MOSS-TD", "zh-TW + diarization");
+    MOSS("moss-td", "MOSS meetings (diarizing)", "MOSS-TD", "zh/en/ja/ko/yue + diarization");
 
     /** Backends whose output already carries speaker tags — the separate
      *  pyannote/eres2net diarization stage is skipped for these. */

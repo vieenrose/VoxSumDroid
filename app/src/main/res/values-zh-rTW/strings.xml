@@ -63,7 +63,7 @@
     <string name="asr_tagline_moonshine">英語、快速</string>
     <string name="asr_tagline_xasr">x-asr · 中英、含標點</string>
     <string name="asr_tagline_qwen3">大型、較慢</string>
-    <string name="asr_tagline_moss">臺灣中文會議 · 內建語者辨識 · 重量級模型</string>
+    <string name="asr_tagline_moss">中英日韓粵 · 內建語者辨識 · 重量級模型</string>
     <string name="settings_recognition">辨識</string>
     <string name="settings_language">語言</string>
     <string name="settings_itn">反向文字正規化</string>
