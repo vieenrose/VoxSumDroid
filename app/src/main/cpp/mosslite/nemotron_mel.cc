@@ -30,12 +30,56 @@ double mel_to_hz(double mel) {
   return f;
 }
 
+// Iterative radix-2 Cooley-Tukey FFT (N = kNfft = 512 = 2^9). Forward
+// transform X[k] = sum_n x[n] e^{-j2pi kn/N}, unnormalized — matches the
+// naive per-bin DFT this replaces (no 1/N), so |X[k]|^2 is identical up to
+// float rounding. LiteRT/LiteRT-LM expose FFT only as an in-graph tflite op
+// (RFFT2D), not a callable function, so we ship our own.
+constexpr int kLog2N = 9;  // 2^9 == 512
+
+struct Fft {
+  int rev[kNfft];
+  double wcos[kNfft / 2], wsin[kNfft / 2];  // e^{-j2pi k/N}, k=0..N/2-1
+  Fft() {
+    for (int i = 0; i < kNfft; ++i) {
+      int r = 0, x = i;
+      for (int b = 0; b < kLog2N; ++b) { r = (r << 1) | (x & 1); x >>= 1; }
+      rev[i] = r;
+    }
+    for (int k = 0; k < kNfft / 2; ++k) {
+      wcos[k] = std::cos(-2.0 * M_PI * k / kNfft);
+      wsin[k] = std::sin(-2.0 * M_PI * k / kNfft);
+    }
+  }
+  // In-place FFT of complex (re,im), length kNfft. re/im are permuted in.
+  void run(double* re, double* im) const {
+    for (int i = 0; i < kNfft; ++i) {
+      int j = rev[i];
+      if (i < j) { std::swap(re[i], re[j]); std::swap(im[i], im[j]); }
+    }
+    for (int len = 2; len <= kNfft; len <<= 1) {
+      const int half = len >> 1;
+      const int step = kNfft / len;  // twiddle stride into the N/2 table
+      for (int i = 0; i < kNfft; i += len) {
+        for (int j = 0, t = 0; j < half; ++j, t += step) {
+          const double wr = wcos[t], wi = wsin[t];
+          const int a = i + j, b = i + j + half;
+          const double vr = re[b] * wr - im[b] * wi;
+          const double vi = re[b] * wi + im[b] * wr;
+          re[b] = re[a] - vr; im[b] = im[a] - vi;
+          re[a] += vr;        im[a] += vi;
+        }
+      }
+    }
+  }
+};
+
 struct Tables {
   // mel_fb[m] is a sparse-ish 257-length filter row.
   std::vector<std::vector<float>> mel_fb;
   // hann(400, periodic=False), zero-padded/centered into a kNfft window.
   std::vector<double> win;
-  std::vector<std::vector<double>> cos_t, sin_t;  // [kNbins][kNfft]
+  Fft fft;
   Tables() {
     // librosa.filters.mel(sr=16000, n_fft=512, n_mels=128, fmin=0, fmax=8000,
     // norm="slaney"): triangular filters on fft-freq grid, slaney area-norm.
@@ -62,13 +106,6 @@ struct Tables {
     const int pad = (kNfft - kWin) / 2;  // 56
     for (int i = 0; i < kWin; ++i)
       win[pad + i] = 0.5 - 0.5 * std::cos(2.0 * M_PI * i / (kWin - 1));
-    cos_t.assign(kNbins, std::vector<double>(kNfft));
-    sin_t.assign(kNbins, std::vector<double>(kNfft));
-    for (int k = 0; k < kNbins; ++k)
-      for (int i = 0; i < kNfft; ++i) {
-        cos_t[k][i] = std::cos(2.0 * M_PI * k * i / kNfft);
-        sin_t[k][i] = std::sin(2.0 * M_PI * k * i / kNfft);
-      }
   }
 };
 
@@ -99,21 +136,16 @@ void log_mel(const float* pcm, int n_samples, std::vector<float>& out) {
   // masks everything at/after floor(L/hop) to zero (attention_mask). Match it.
   const int valid = n_samples / kHop;
 
-  std::vector<double> frame(kNfft), power(kNbins);
+  std::vector<double> re(kNfft), im(kNfft), power(kNbins);
   for (int t = 0; t < valid && t < nf; ++t) {
     const int base = t * kHop;  // start in the padded signal
-    for (int i = 0; i < kNfft; ++i)
-      frame[i] = sig[base + i] * tb.win[i];
-    for (int k = 0; k < kNbins; ++k) {
-      double re = 0.0, im = 0.0;
-      const double* ct = tb.cos_t[k].data();
-      const double* st = tb.sin_t[k].data();
-      for (int i = 0; i < kNfft; ++i) {
-        re += frame[i] * ct[i];
-        im -= frame[i] * st[i];
-      }
-      power[k] = re * re + im * im;
+    for (int i = 0; i < kNfft; ++i) {
+      re[i] = sig[base + i] * tb.win[i];
+      im[i] = 0.0;
     }
+    tb.fft.run(re.data(), im.data());
+    for (int k = 0; k < kNbins; ++k)
+      power[k] = re[k] * re[k] + im[k] * im[k];
     float* orow = out.data() + static_cast<size_t>(t) * kBins;
     for (int m = 0; m < kBins; ++m) {
       const float* w = tb.mel_fb[m].data();
