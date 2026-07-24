@@ -364,13 +364,30 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
 
   // ---- phase 2: embedder + decoder (fresh KV per window) ----
   KvStore kv;
-  // KV-aliased decoder buffers must stay host-visible: the decoder (and its
-  // paired embedder) always compiles CPU-only; GPU applies to the encoder,
-  // which is where the parallel compute lives anyway.
-  Component emb(env_, embedder_path_, nullptr, dec_threads_,
-                cache_path(embedder_path_));
-  Component dec(env_, decoder_path_, &kv, dec_threads_,
-                cache_path(decoder_path_));
+  // GPU is attempted on the embedder+decoder too — prefill (batch 256/1024
+  // matmuls) is exactly the phase the mobile GPU can help, and the user-facing
+  // pain is prefill+generation, not the encoder. The KV cache lives in
+  // host-created TensorBuffers aliased across signatures; if the GPU-compiled
+  // decoder can't share them (or the q4 weights don't lower), construction or
+  // the first run fails and we rebuild CPU-only with a sticky flag.
+  auto emb_p = std::make_unique<Component>(env_, embedder_path_, nullptr,
+                                           dec_threads_,
+                                           cache_path(embedder_path_), gpu_);
+  auto dec_p = std::make_unique<Component>(env_, decoder_path_, &kv,
+                                           dec_threads_,
+                                           cache_path(decoder_path_), gpu_);
+  if ((!emb_p->ok() || !dec_p->ok()) && gpu_) {
+    LOGE("embedder/decoder GPU compile failed — CPU fallback for this session");
+    gpu_ = false;
+    kv = KvStore();
+    emb_p = std::make_unique<Component>(env_, embedder_path_, nullptr,
+                                        dec_threads_,
+                                        cache_path(embedder_path_), false);
+    dec_p = std::make_unique<Component>(env_, decoder_path_, &kv, dec_threads_,
+                                        cache_path(decoder_path_), false);
+  }
+  Component& emb = *emb_p;
+  Component& dec = *dec_p;
   if (!emb.ok() || !dec.ok()) { LOGE("embedder/decoder load failed"); return out; }
 
   std::map<int, std::string> embed_sizes, prefills;
