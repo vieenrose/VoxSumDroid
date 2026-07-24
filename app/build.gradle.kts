@@ -22,7 +22,6 @@ android {
         ndk {
             // arm64 is the only ABI worth shipping for on-device LLM perf. Override with
             // -PvoxsumAbi=x86_64 to build for an emulator (provide a matching ORT via
-            // SHERPA_ONNXRUNTIME_LIB_DIR). See RELEASING.md / the emulator test in SPIKE.md.
             abiFilters += ((project.findProperty("voxsumAbi") as String?) ?: "arm64-v8a")
         }
         externalNativeBuild {

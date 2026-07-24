@@ -1,5 +1,5 @@
 {
-  "_comment": "On-device model registry — Android. Backends (both LiteRT): MOSS-TD (default; ASR + diarization + timestamps in one pass, zh/en/ja/ko/yue) and X-ASR (zipformer transducer zh-en — the faster-than-real-time option for live use). Summarization: LiteRT-LM. sherpa-onnx/ONNX Runtime/llama.cpp removed 2026-07. SHA-256 pins verified after download.",
+  "_comment": "On-device model registry — Android. Backends (all LiteRT): X-ASR zipformer (default — 7x real-time, zh-en), MOSS-TD (one-pass ASR + diarization + timestamps, zh/en/ja/ko/yue) and SenseVoice (multilingual). Summarization: LiteRT-LM. sherpa-onnx/ONNX Runtime/llama.cpp removed 2026-07. SHA-256 pins verified after download.",
   "asr": [
     {
       "id": "moss_td_encoder_q8",
