@@ -658,7 +658,7 @@ class ModelManager(context: Context) {
             "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
         // Luigi/sensevoice-litert revision + model sha (see the repo's model card for gates:
         // fp32 max|Δ| 8e-5 vs torch; q8 long-audio CER beats the old int8 ONNX ~2x).
-        private const val SENSE_VOICE_LITE_REV = "main"
+        private const val SENSE_VOICE_LITE_REV = "8d1dfd033bafc5d40e03cb1dc714134386eb6895"
         private const val SENSE_VOICE_LITE_SHA =
             "555d53c6948d4c3ef22e45760690bc479d1402e2c4e23e4db54cc69160726a60"
 
