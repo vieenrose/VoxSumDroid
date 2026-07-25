@@ -2139,7 +2139,10 @@ private fun TranscribeScreen(
     }
     // When Settings closes after a change that needs the LLM (and a summary exists), offer a one-tap
     // re-summarize — the setting alone doesn't touch the on-screen summary, so this closes that gap.
-    LaunchedEffect(showConfigSheet) {
+    // Keyed on `screen` too: the body deliberately does nothing off the Session screen, so
+    // without it a flag raised while in Studio would keep its value but never re-run here —
+    // the prompt would stay invisible until Settings happened to be opened and closed again.
+    LaunchedEffect(showConfigSheet, screen, running) {
         // Settings is reachable from Studio too, but the actionable+visible place for this
         // Re-summarize prompt is the Session screen; skip (keep summaryStale) otherwise so it
         // surfaces when the user next opens the session.

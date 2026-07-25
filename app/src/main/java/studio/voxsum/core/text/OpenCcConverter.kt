@@ -78,13 +78,27 @@ class OpenCcConverter private constructor(
             }
 
         private fun buildTraditionalConservative(context: Context): OpenCcConverter {
-            val s2t = HashMap<String, String>(60_000)
-            loadInto(context, "opencc/STPhrases.txt", s2t)
-            loadInto(context, "opencc/STCharacters.txt", s2t)
             val twChars = HashMap<String, String>(2048)
             loadInto(context, "opencc/TWVariants.txt", twChars)
-            return build(listOf(s2t, twChars))
+            return build(listOf(s2tStage(context), twChars))
         }
+
+        /**
+         * The S→T stage (~53k entries, parsed from a 1 MB pair of dictionaries) shared by BOTH
+         * Traditional converters — a zh-Hant session builds both (conservative for the transcript,
+         * localising for the summary) and used to hold two identical copies resident. The stage is
+         * read-only once built, so sharing it is safe.
+         */
+        @Volatile private var s2t: Map<String, String>? = null
+
+        private fun s2tStage(context: Context): Map<String, String> =
+            s2t ?: synchronized(this) {
+                s2t ?: HashMap<String, String>(60_000).also { m ->
+                    loadInto(context, "opencc/STPhrases.txt", m)
+                    loadInto(context, "opencc/STCharacters.txt", m)
+                    s2t = m
+                }
+            }
 
         /** Build once per script (call off the main thread); later calls return the cached instance. */
         fun get(context: Context, script: ChineseScript): OpenCcConverter = when (script) {
@@ -98,14 +112,11 @@ class OpenCcConverter private constructor(
         // stage 2 the Taiwan-localisation pass (variant dicts first, phrase dict LAST so TW vocabulary
         // wins on any key clash). Stage-2 keys are in Traditional form (post stage 1).
         private fun buildTraditional(context: Context): OpenCcConverter {
-            val s2t = HashMap<String, String>(60_000)
-            loadInto(context, "opencc/STPhrases.txt", s2t)
-            loadInto(context, "opencc/STCharacters.txt", s2t)
             val tw = HashMap<String, String>(2048)
             loadInto(context, "opencc/TWVariants.txt", tw)
             loadInto(context, "opencc/TWVariantsPhrases.txt", tw)
             loadInto(context, "opencc/TWPhrases.txt", tw)
-            return build(listOf(s2t, tw))
+            return build(listOf(s2tStage(context), tw))
         }
 
         // t2s: T→S in one stage (phrases then chars merged).

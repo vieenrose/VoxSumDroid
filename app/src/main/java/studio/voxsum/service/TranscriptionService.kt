@@ -799,7 +799,7 @@ class TranscriptionService : LifecycleService() {
                     AudioDecoder.decodeToWav16k(this@TranscriptionService, uri, wav, normalize = true) { _, _ -> }
                 }
             }
-            diarized = runMossPhase(wav, cfg, models, converter, utterances) ?: return null
+            diarized = runMossPhase(wav, cfg, models, utterances) ?: return null
         } else {
             val asr = try {
                 createSpeechEngine(backend, models, cfg)
@@ -1168,7 +1168,7 @@ class TranscriptionService : LifecycleService() {
                 }
                 try {
                     diarized = runMossPhase(
-                        wav, cfg, models, converter, utterances,
+                        wav, cfg, models, utterances,
                         awaitSamples = { need ->
                             combine(written, capDone) { w, d -> w >= need || d }
                                 .first { it }
@@ -1295,7 +1295,6 @@ class TranscriptionService : LifecycleService() {
         wav: File,
         cfg: TranscriptionConfig,
         models: ModelManager,
-        converter: OpenCcConverter?,
         utterances: MutableList<TranscriptEvent.Utterance>,
         // Live capture: suspends until the WAV holds [needSamples] samples or recording ended
         // (getWindow then reads a short/final window). Null = file input, everything on disk.
@@ -1537,7 +1536,7 @@ class TranscriptionService : LifecycleService() {
         // MOSS-TD has no separate diarization stage — "re-diarize" re-runs the one-pass pipeline
         // (re-transcribe + re-link), the only meaningful re-diarize for this backend.
         val diarized = if (backend == AsrBackend.MOSS) {
-            runMossPhase(wav, cfg, models, converter, ArrayList()) ?: return
+            runMossPhase(wav, cfg, models, ArrayList()) ?: return
         } else {
             val asr = try {
                 createSpeechEngine(backend, models, cfg)
