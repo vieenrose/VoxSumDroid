@@ -66,14 +66,24 @@ int out_idx(const mosslite::SigIO& io, const char* s) {
   return -1;
 }
 
+
+// XNNPACK wants a weight-cache FILE, not a directory: handing it the cache dir fails with
+// "could not open file (...): Is a directory" and the cache is silently disabled (slower
+// compiles, more anonymous RAM). Derive one file per model, as MossLiteEngine::cache_path does.
+std::string cache_file(const char* cache_dir, const std::string& model_path) {
+  if (!cache_dir || !*cache_dir) return "";
+  size_t slash = model_path.rfind('/');
+  std::string base = slash == std::string::npos ? model_path : model_path.substr(slash + 1);
+  return std::string(cache_dir) + "/" + base + ".xnncache";
+}
+
 std::unique_ptr<mosslite::Component> compile(LiteRtEnvironment env,
                                              const char* path, int threads,
                                              const char* cache, bool gpu) {
-  auto c = std::make_unique<mosslite::Component>(env, path, nullptr, threads,
-                                                 cache ? cache : "", gpu);
+  const std::string wc = cache_file(cache, path);
+  auto c = std::make_unique<mosslite::Component>(env, path, nullptr, threads, wc, gpu);
   if ((!c->ok() || c->sigs().empty()) && gpu)
-    c = std::make_unique<mosslite::Component>(env, path, nullptr, threads,
-                                              cache ? cache : "", false);
+    c = std::make_unique<mosslite::Component>(env, path, nullptr, threads, wc, false);
   return c;
 }
 

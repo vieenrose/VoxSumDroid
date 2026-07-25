@@ -45,6 +45,16 @@ struct XasrCtx {
   std::unique_ptr<mosslite::Component> comp;
 };
 
+// XNNPACK wants a weight-cache FILE, not a directory: handing it the cache dir fails with
+// "could not open file (...): Is a directory" and the cache is silently disabled (slower
+// compiles, more anonymous RAM). Derive one file per model, as MossLiteEngine::cache_path does.
+std::string cache_file(const char* cache_dir, const std::string& model_path) {
+  if (!cache_dir || !*cache_dir) return "";
+  size_t slash = model_path.rfind('/');
+  std::string base = slash == std::string::npos ? model_path : model_path.substr(slash + 1);
+  return std::string(cache_dir) + "/" + base + ".xnncache";
+}
+
 int input_index(const mosslite::SigIO& io, const char* name) {
   for (size_t i = 0; i < io.in_names.size(); ++i)
     if (io.in_names[i].find(name) != std::string::npos) return (int)i;
@@ -67,12 +77,13 @@ Java_studio_voxsum_core_asr_XasrLiteEngine_nativeInit(
     delete c;
     return 0;
   }
+  const std::string wc = cache_file(cache, path);
   c->comp = std::make_unique<mosslite::Component>(
-      c->env, path, nullptr, threads, cache ? cache : "", gpu == JNI_TRUE);
+      c->env, path, nullptr, threads, wc, gpu == JNI_TRUE);
   if ((!c->comp->ok() || c->comp->sigs().empty()) && gpu == JNI_TRUE) {
     // GPU compile failed on this device/model — CPU is the safe default.
     c->comp = std::make_unique<mosslite::Component>(
-        c->env, path, nullptr, threads, cache ? cache : "", false);
+        c->env, path, nullptr, threads, wc, false);
   }
   env->ReleaseStringUTFChars(jPath, path);
   if (cache) env->ReleaseStringUTFChars(jCache, cache);

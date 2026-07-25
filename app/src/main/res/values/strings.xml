@@ -198,6 +198,7 @@
     <string name="cd_copy_summary">Copy summary</string>
     <string name="exporting">Exporting session…</string>
     <string name="exporting_hint">Continues in the background — you can keep using the app</string>
+    <string name="export_interrupted">Export was interrupted — please try again.</string>
     <string name="cover_menu">Cover…</string>
     <string name="export_copy_transcript">Copy transcript</string>
     <string name="export_share_transcript">Share transcript…</string>

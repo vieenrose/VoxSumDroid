@@ -400,6 +400,13 @@ fun StudioScreen(
                 }
                 // Queued (waiting), not the one being processed → let the user pull it back out.
                 if (e.id != processingId && e.id in queuedIds) {
+                    // …and, when nothing is being processed, start it. The drain otherwise only
+                    // restarts on a cold launch, so a queue orphaned by the service being killed
+                    // (device sleep) had NO way forward from here — the only actions were remove
+                    // and delete. enqueue() dedupes, so this is safe on an already-queued item.
+                    if (processingId == null) {
+                        ActionRow(Icons.Filled.PlaylistPlay, stringResource(R.string.action_process_now)) { actionsFor = null; onProcessNow(e) }
+                    }
                     ActionRow(Icons.Filled.RemoveCircleOutline, stringResource(R.string.action_remove_from_queue)) { actionsFor = null; onRemoveFromQueue(e) }
                 }
                 if (e.status != SessionLibrary.Status.DONE && e.id != processingId && e.id !in queuedIds) {

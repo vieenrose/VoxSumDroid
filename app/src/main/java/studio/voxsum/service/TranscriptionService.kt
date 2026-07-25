@@ -177,6 +177,11 @@ class TranscriptionService : LifecycleService() {
          *  live foreground run (which would supersede/cancel it). */
         @Volatile
         var pipelineActive = false
+
+        /** Exports currently running in the service. The UI's "Exporting session…" overlay waits
+         *  for a TranscriptEvent.ExportDone that never arrives if the process is killed mid-export
+         *  (device sleep), so it reads this to tell "still working" from "nothing is running". */
+        @Volatile var exportsInFlight = 0
             private set
 
         /** True from onStartCommand(ACTION_RECORD) until that recording job's teardown — set and
@@ -521,6 +526,7 @@ class TranscriptionService : LifecycleService() {
     // pipeline finishing must not stopSelf under a live export, and one export must not stop the
     // service under another.
     private var activeExports = 0
+        set(v) { field = v; exportsInFlight = v }
 
     /**
      * Write the open session's edits back into its library entry (rebuild session.m4a + meta via

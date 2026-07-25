@@ -649,7 +649,7 @@ private fun TranscribeScreen(
                 SessionLibrary.promoteRecording(context, wav, RecordingRecovery.seconds(wav))?.wavFile ?: wav
             }
         }
-        if (interrupted != null) { recoveredRec = interrupted; recentsVersion++; return@LaunchedEffect }
+        if (interrupted != null) { recoveredRec = interrupted; recentsVersion++ }
         // SessionAutosave is legacy: the library now durably holds every session, so restoring a
         // snapshot into a stale Session view on cold launch only hijacked the home (the user
         // expects the Studio shelf — the same content is a library row). Discard any old snapshot.
@@ -658,6 +658,10 @@ private fun TranscribeScreen(
         // pipeline is live (process death mid-drain, or a kill before the post-run auto-resume),
         // restart the drain. If a drain IS somehow already running, the service's queueDraining
         // guard absorbs the redundant kick.
+        //
+        // This runs even when a recording was recovered above: those are independent (the
+        // recovery only offers the interrupted capture), and returning early left every queued
+        // item stranded with no way to start it — the queue's ⋮ menu has no "start" action.
         if (!TranscriptionService.pipelineActive &&
             withContext(Dispatchers.IO) { ProcessingQueue.size(context) } > 0
         ) onProcessQueue()
@@ -2251,7 +2255,24 @@ private fun TranscribeScreen(
             onDismiss = { showYouTubeSheet = false },
         )
     }
-    if (exporting) ExportingOverlay(onDismiss = { exporting = false })
+    // The overlay waits for TranscriptEvent.ExportDone, which never arrives if the service is
+    // killed mid-export (the Boox kills background work aggressively on sleep) — the modal then
+    // sat there forever over a dead export. Give it a floor: once nothing is exporting in the
+    // service any more and no completion has landed, close it and say so.
+    if (exporting) {
+        LaunchedEffect(Unit) {
+            delay(2_000)   // let the service actually start and bump the counter
+            while (exporting && TranscriptionService.exportsInFlight > 0) delay(1_000)
+            if (exporting) {
+                exporting = false
+                snackbarHostState.showSnackbar(
+                    message = context.getString(R.string.export_interrupted),
+                    duration = SnackbarDuration.Long,
+                )
+            }
+        }
+        ExportingOverlay(onDismiss = { exporting = false })
+    }
     if (opening) OpeningOverlay()
     BackHandler(showConfigSheet || showPodcastSheet || showAddSourceSheet || showYouTubeSheet) {
         showConfigSheet = false; showPodcastSheet = false
