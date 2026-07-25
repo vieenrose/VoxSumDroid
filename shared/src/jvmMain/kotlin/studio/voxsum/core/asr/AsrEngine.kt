@@ -285,6 +285,11 @@ class AsrEngine(
             return t
         }
 
+        /** The only language ids sherpa's SenseVoice accepts; anything else -> "" (auto). */
+        private val SENSE_VOICE_LANGS = setOf("", "auto", "zh", "en", "ja", "ko", "yue")
+
+        internal fun senseVoiceLanguage(id: String): String = if (id in SENSE_VOICE_LANGS) id else ""
+
         /** Populate the right sub-config per backend; the decode path is backend-agnostic. */
         private fun buildModelConfig(
             backend: AsrBackend,

@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withContext
 import studio.voxsum.core.asr.AsrBackend
+import studio.voxsum.core.asr.NemotronLang
 import studio.voxsum.desktop.asr.SpeechEngineFactory
 import studio.voxsum.core.asr.moss.MOSS_SR
 import studio.voxsum.core.asr.moss.MossPipeline
@@ -541,10 +542,14 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
  * others follow Target language.
  */
 private fun transcriptConvert(config: TranscriptionConfig, backend: AsrBackend): (String) -> String {
-    val script = if (backend == AsrBackend.NEMOTRON) when (config.language) {
-        "zh-TW" -> ChineseScript.TRADITIONAL
-        "zh-CN" -> ChineseScript.SIMPLIFIED
-        else -> null
+    val script = if (backend == AsrBackend.NEMOTRON) when {
+        config.language == "zh-TW" -> ChineseScript.TRADITIONAL
+        config.language == "zh-CN" -> ChineseScript.SIMPLIFIED
+        // Explicitly non-Chinese speech: OpenCC could only corrupt it.
+        !NemotronLang.isChinese(config.language) -> null
+        // Chinese with no variant stated ("", "auto", legacy "zh"/"yue"): follow Target
+        // language, else the transcript stays Simplified under a Traditional summary.
+        else -> TargetLanguage.scriptFor(config.targetLanguage)
     } else TargetLanguage.scriptFor(config.targetLanguage)
     return when (script) {
         ChineseScript.TRADITIONAL -> OpenCcConverter.getTranscriptTraditional().let { c -> { t: String -> c.convert(t) } }

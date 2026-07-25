@@ -272,6 +272,12 @@ class ModelManager(appFilesDir: File) {
                 return
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                // HF-only specs (Nemotron) have no archive to fall back to. Rethrow the REAL
+                // error instead of falling through to download("") — that raises
+                // MalformedURLException, which the retry loop treats as transient and repeats
+                // six times before reporting a .tar.bz2 that was never meant to exist, with the
+                // actual failure swallowed. Keep whatever was downloaded so the retry resumes.
+                if (spec.url.isBlank()) throw e
                 // Mirror failed mid-way — clear partial files so the GitHub fallback starts clean.
                 d.deleteRecursively()
             }

@@ -84,6 +84,7 @@ import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.text.ChineseScript
 import studio.voxsum.core.config.FontScaleStore
 import studio.voxsum.core.config.ThemeMode
 import studio.voxsum.core.events.TranscriptEvent
@@ -260,8 +261,13 @@ private fun mainApplication() = application {
                             val newScript = TargetLanguage.scriptFor(cfg.targetLanguage)
                             if (old.targetLanguage in zh && cfg.targetLanguage in zh && newScript != null && hasContent) {
                                 val cc = OpenCcConverter.get(newScript)
+                                // Transcript stays phonetic (conservative s2t) so an in-place
+                                // re-render matches a fresh transcription; generated text keeps
+                                // the localising converter. Same split as Pipeline.transcriptConvert.
+                                val ccTranscript =
+                                    if (newScript == ChineseScript.TRADITIONAL) OpenCcConverter.getTranscriptTraditional() else cc
                                 next = next.copy(
-                                    utterances = next.utterances.map { u -> u.copy(text = cc.convert(u.text)) },
+                                    utterances = next.utterances.map { u -> u.copy(text = ccTranscript.convert(u.text)) },
                                     title = cc.convert(next.title),
                                     summary = cc.convert(next.summary),
                                     actionItems = cc.convert(next.actionItems),

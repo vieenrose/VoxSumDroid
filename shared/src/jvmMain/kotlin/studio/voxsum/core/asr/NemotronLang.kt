@@ -35,6 +35,27 @@ object NemotronLang {
 
     fun slot(languageId: String): Int = SLOT[languageId] ?: AUTO_SLOT
 
+    /** Language ids that ARE Chinese (any variant) — the ones OpenCC may touch. */
+    private val CHINESE = setOf("zh", "zh-CN", "zh-TW", "yue")
+
+    /**
+     * The script this language pins the transcript to, or `null` when the pick doesn't
+     * decide it — "auto"/"" (unknown, could be Chinese) and bare "zh"/"yue" (Chinese but no
+     * variant stated). `null` means "fall back to Target language", NOT "skip conversion":
+     * skipping would leave a Simplified transcript under a Traditional summary. An explicitly
+     * non-Chinese pick (en/ja/ko/…) returns null too but is filtered by [isChinese] first.
+     */
+    fun pinnedScriptId(languageId: String): String? = when (languageId) {
+        "zh-TW" -> "zh-Hant"
+        "zh-CN" -> "zh-Hans"
+        else -> null
+    }
+
+    /** True when the pick could produce Chinese text (so OpenCC is meaningful at all). */
+    fun isChinese(languageId: String): Boolean =
+        languageId in CHINESE || languageId.isBlank() || languageId == "auto"
+
+
     /** (id, English label) for the Settings picker, in display order. */
     val OPTIONS: List<Pair<String, String>> = listOf(
         "" to "Auto-detect",
