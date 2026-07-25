@@ -11,7 +11,10 @@ data class TranscriptionConfig(
     // --- ASR ---
     val asrBackend: String = "x-asr",  // default: fastest engine (7x real-time); MOSS opt-in for native diarization
     val asrModelId: String = "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03",
-    val language: String = "",                // SenseVoice: ""=auto, zh/en/ja/ko/yue
+    // Spoken language. "" = auto (the default) — the model decides, and the transcript is
+    // rendered Traditional (see TranscriptionService.transcriptConverter). Only Nemotron
+    // offers a picker; the other backends are always on auto.
+    val language: String = "",
     val useItn: Boolean = true,               // inverse text normalization
     val vadThreshold: Float = 0.5f,           // 0.1..0.9
 

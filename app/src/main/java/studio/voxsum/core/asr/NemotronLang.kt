@@ -51,6 +51,10 @@ object NemotronLang {
         else -> null
     }
 
+    /** No language stated — the model decides (Nemotron's auto slot; the other backends
+     *  have no picker at all, so they are always in this state). */
+    fun isAuto(languageId: String): Boolean = languageId.isBlank() || languageId == "auto"
+
     /** True when the pick could produce Chinese text (so OpenCC is meaningful at all). */
     fun isChinese(languageId: String): Boolean =
         languageId in CHINESE || languageId.isBlank() || languageId == "auto"

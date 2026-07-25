@@ -1778,19 +1778,22 @@ class TranscriptionService : LifecycleService() {
      * have no picker and follow Target language × locale.
      */
     private fun transcriptConverter(cfg: TranscriptionConfig, backend: AsrBackend): OpenCcConverter? {
-        val script = if (backend == AsrBackend.NEMOTRON) when {
+        val lang = cfg.language
+        val script = when {
             // An explicit Chinese variant pins the script outright.
-            cfg.language == "zh-TW" -> studio.voxsum.core.text.ChineseScript.TRADITIONAL
-            cfg.language == "zh-CN" -> studio.voxsum.core.text.ChineseScript.SIMPLIFIED
-            // Explicitly non-Chinese speech (en/ja/ko/…): never run OpenCC — it could only
-            // corrupt the output.
-            !studio.voxsum.core.asr.NemotronLang.isChinese(cfg.language) -> null
-            // Chinese, but no variant stated ("", "auto", legacy "zh"/"yue"): the pick doesn't
-            // decide the script, so follow Target language exactly like the other backends.
-            // Returning null here instead would emit a Simplified transcript under a
-            // Traditional summary.
+            lang == "zh-TW" -> studio.voxsum.core.text.ChineseScript.TRADITIONAL
+            lang == "zh-CN" -> studio.voxsum.core.text.ChineseScript.SIMPLIFIED
+            // No language stated — which is the default, and the only state the backends
+            // without a picker are ever in. Every model here emits Simplified, so converting
+            // to Traditional is what makes auto mode usable for a zh-TW user; it is a no-op on
+            // non-Chinese output (the converter leaves Latin/kana/hangul alone).
+            studio.voxsum.core.asr.NemotronLang.isAuto(lang) ->
+                studio.voxsum.core.text.ChineseScript.TRADITIONAL
+            // Explicitly non-Chinese speech (en/ja/ko/…): never run OpenCC.
+            !studio.voxsum.core.asr.NemotronLang.isChinese(lang) -> null
+            // Chinese without a stated variant (legacy "zh"/"yue"): follow Target language.
             else -> TargetLanguage.scriptFor(cfg.targetLanguage, this)
-        } else TargetLanguage.scriptFor(cfg.targetLanguage, this)
+        }
         return when (script) {
             studio.voxsum.core.text.ChineseScript.TRADITIONAL -> OpenCcConverter.getTranscriptTraditional(this)
             studio.voxsum.core.text.ChineseScript.SIMPLIFIED -> OpenCcConverter.get(this, script)
