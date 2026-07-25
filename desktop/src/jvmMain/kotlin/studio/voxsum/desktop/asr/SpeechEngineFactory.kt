@@ -1,7 +1,7 @@
 package studio.voxsum.desktop.asr
 
 import studio.voxsum.core.asr.AsrBackend
-import studio.voxsum.core.asr.AsrEngine
+import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.NemotronLiteAsr
 import studio.voxsum.core.asr.SpeechEngine
 import studio.voxsum.core.config.TranscriptionConfig
@@ -43,13 +43,13 @@ object SpeechEngineFactory {
                 vadThreshold = config.vadThreshold,
             )
         }
-        return AsrEngine(
-            backend = backend,
-            files = models.asrFiles(backend),
-            vadModel = models.vadModel.absolutePath,
+        // X-ASR, also on LiteRT now — sherpa-onnx and onnxruntime are gone.
+        val f = models.asrFiles(backend)
+        return XasrLiteAsr(
+            modelFile = File(f.encoder),
+            tokensFile = File(f.tokens),
+            vadModelFile = models.vadLiteModel,
             numThreads = numThreads,
-            language = config.language,
-            useItn = config.useItn,
             vadThreshold = config.vadThreshold,
         )
     }

@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withContext
 import studio.voxsum.core.asr.AsrBackend
+import studio.voxsum.core.asr.MossLiteEngine
+import studio.voxsum.core.asr.LiteSpeakerEmbedder
 import studio.voxsum.core.asr.NemotronLang
 import studio.voxsum.desktop.asr.SpeechEngineFactory
 import studio.voxsum.core.asr.moss.MOSS_SR
@@ -21,7 +23,6 @@ import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.data.SpeakerName
 import studio.voxsum.data.speakerLabel
-import studio.voxsum.desktop.asr.MossSubprocessEngine
 import studio.voxsum.desktop.audio.AudioDecoder
 import studio.voxsum.desktop.audio.AudioRecorder
 import studio.voxsum.desktop.ui.Strings
@@ -324,13 +325,22 @@ private suspend fun runMossTranscription(
         update { it.copy(status = Strings.stDownloadingAsr, progress = 0f) }
         models.ensureMossModels { p -> update { it.copy(progress = p) } }
     }
-    val engine = MossSubprocessEngine.create(
-        model = models.mossModel,
-        speakerModel = models.mossSpeakerModel.takeIf { models.mossSpeakerReady() },
-        threads = maxOf(1, minOf(8, Runtime.getRuntime().availableProcessors())),
-    ) ?: throw IllegalStateException(
-        "MOSS-TD engine binaries not found — build them with desktop/scripts/build-moss.sh",
-    )
+    // MOSS-TD on LiteRT — the same three-component engine the Android app runs, in-process
+    // through libvoxsum-mosslite.so. Replaces the RapidSpeech.cpp subprocess, whose binaries
+    // jpackage shipped without the executable bit (so a packaged build could never start it).
+    val cores = maxOf(1, minOf(8, Runtime.getRuntime().availableProcessors()))
+    val engine = MossLiteEngine.create(
+        encoder = models.mossLiteEncoder,
+        embedder = models.mossLiteEmbedder,
+        decoder = models.mossLiteDecoder,
+        vocabJson = models.mossLiteVocab,
+        cacheDir = File(appDataDir, "xnnpack-cache").apply { mkdirs() },
+        encThreads = cores,
+        decThreads = cores,
+    ) ?: throw IllegalStateException("MOSS-TD LiteRT engine failed to load")
+    val speakerEmbedder = models.mossSpeakerModel
+        .takeIf { models.mossSpeakerReady() }
+        ?.let { LiteSpeakerEmbedder.load(it) }
 
     update { it.copy(status = Strings.stTranscribing, progress = 0f) }
     val durS = pcm.size.toDouble() / MOSS_SR
@@ -349,7 +359,10 @@ private suspend fun runMossTranscription(
                 if (off >= pcm.size) FloatArray(0) else pcm.copyOfRange(off, minOf(pcm.size, off + len))
             },
             decodeWindow = { p, maxNew -> engine.transcribeWindow(p, maxNew) },
-            embedUnit = if (engine.hasSpeakerEmbedding) { p -> engine.embedUnit(p) } else null,
+            embedUnit = speakerEmbedder?.let { emb ->
+                val f: suspend (FloatArray) -> FloatArray? = { p -> emb.embed(p) }
+                f
+            },
             postProcess = mossConvert,
             onProgress = { prog ->
                 val ut = toUtterances(prog.segments)

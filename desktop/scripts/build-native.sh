@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Build the Linux-desktop native libs (llama.cpp + the voxsum-llm JNI bridge, plus sherpa-onnx
-# for ASR/VAD/diarization) for the :desktop module, then flatten + relocate them for packaging.
+# Build the Linux-desktop native libs (llama.cpp + the voxsum-llm JNI bridge, and the shared
+# LiteRT engines) for the :desktop module, then flatten + relocate them for packaging.
 # Host-arch build (linux-x86_64), not a cross-compile — plain CMake/Ninja, no NDK involved.
 # See desktop/src/jvmMain/cpp/CMakeLists.txt for exactly what gets built.
 #
-# Requires: cmake, ninja, a C/C++ toolchain, JAVA_HOME (for sherpa-onnx's JNI headers), and
+# Requires: cmake, ninja, a C/C++ toolchain, JAVA_HOME (for the JNI headers), and
 # patchelf (used by flatten-native-libs.sh; `pip install --user patchelf` if not packaged for
 # your distro).
 set -euo pipefail
@@ -23,13 +23,6 @@ cmake --build "$BUILD_DIR" -- -j "$(nproc)"
 
 "$SCRIPT_DIR/flatten-native-libs.sh"
 
-# MOSS-TD subprocess binaries (moss-td-test + rs-speaker-embed) — staged into the same
-# appResources dir AFTER flatten (which wipes it). Skipped if the submodule isn't present.
-if [ -f "$DESKTOP_DIR/../native/RapidSpeech.cpp/CMakeLists.txt" ]; then
-  "$SCRIPT_DIR/build-moss.sh"
-else
-  echo "note: native/RapidSpeech.cpp not initialized — skipping MOSS-TD binaries." >&2
-fi
 
 echo ""
 echo "Native libs built and staged for packaging at desktop/appResources/linux-x64."

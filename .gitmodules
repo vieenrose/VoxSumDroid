@@ -1,13 +1,3 @@
-[submodule "native/sherpa-onnx"]
-	path = native/sherpa-onnx
-	url = https://github.com/k2-fsa/sherpa-onnx.git
 [submodule "native/llama.cpp"]
 	path = native/llama.cpp
 	url = https://github.com/ggml-org/llama.cpp.git
-[submodule "native/onnxruntime"]
-	path = native/onnxruntime
-	url = https://github.com/microsoft/onnxruntime.git
-[submodule "native/RapidSpeech.cpp"]
-	path = native/RapidSpeech.cpp
-	url = https://github.com/vieenrose/RapidSpeech.cpp.git
-	branch = integrate-upstream

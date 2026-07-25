@@ -6,7 +6,7 @@
 #
 # Run after build-native.sh. Output feeds :desktop's appResourcesRootDir (desktop/appResources/
 # linux-x64/), from which Main.kt's NativeLibs loader System.load()s the two leaf libraries
-# (libvoxsum-llm.so, libsherpa-onnx-jni.so); their own $ORIGIN RPATH pulls in the rest.
+# (libvoxsum-llm.so, libvoxsum-mosslite.so); their own $ORIGIN RPATH pulls in the rest.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,10 +32,6 @@ copy_real "$BUILD_DIR/bin" "libggml-base.so*"
 copy_real "$BUILD_DIR/bin" "libggml-cpu.so*"
 copy_real "$BUILD_DIR/bin" "libggml.so*"
 copy_real "$BUILD_DIR/bin" "libllama.so*"
-copy_real "$BUILD_DIR/lib" "libsherpa-onnx-jni.so"
-copy_real "$BUILD_DIR/lib" "libsherpa-onnx-c-api.so"
-copy_real "$BUILD_DIR/lib" "libsherpa-onnx-cxx-api.so"
-copy_real "$BUILD_DIR/_deps/onnxruntime-src/lib" "libonnxruntime.so*"
 copy_real "$BUILD_DIR" "libvoxsum-llm.so"
 # LiteRT engines (Nemotron / X-ASR / MOSS-TD + VAD/diarization pods) plus their runtime.
 # libLiteRt.so is a vendored glibc prebuilt, not a build product — see

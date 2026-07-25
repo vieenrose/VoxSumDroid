@@ -23,6 +23,10 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "VoxSumDroid"
-include(":app")
+// :app (the Android app) is NOT built from this branch. It is maintained and released from
+// `main`, which completed the LiteRT migration; the copy under app/ here is an old snapshot
+// that still expects sherpa-onnx and the retired SenseVoice/Qwen3 backends. Its C++ sources
+// under app/src/main/cpp ARE still used — the desktop CMake compiles the shared llm_jni.cpp
+// and mosslite/ engines from there. Re-add the include to build it again.
 include(":shared")
 include(":desktop")

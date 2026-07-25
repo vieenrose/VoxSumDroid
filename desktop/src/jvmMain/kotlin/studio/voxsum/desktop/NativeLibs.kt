@@ -29,20 +29,15 @@ object NativeLibs {
         if (loaded) return
         val dir = resolveLibDir()
         checkNotNull(dir) {
-            "Native libraries not found. Run desktop/scripts/build-native.sh then " +
-                "desktop/scripts/flatten-native-libs.sh, or set VOXSUM_NATIVE_LIB_DIR."
+            "Native libraries not found. Run desktop/scripts/build-native.sh (which also " +
+                "flattens them), or set VOXSUM_NATIVE_LIB_DIR."
         }
         System.load(File(dir, "libvoxsum-llm.so").absolutePath)
-        System.load(File(dir, "libsherpa-onnx-jni.so").absolutePath)
-        // LiteRT engines (Nemotron / X-ASR / MOSS-TD + VAD/diarization pods), the
-        // same app/src/main/cpp/mosslite sources Android builds. Optional while the
-        // desktop still ships the sherpa backends: absent .so = those backends stay
-        // unavailable rather than the whole app failing to start.
-        File(dir, "libvoxsum-mosslite.so").takeIf(File::exists)?.let {
-            runCatching { System.load(it.absolutePath) }
-                .onFailure { e -> System.err.println("LiteRT engines unavailable: ${e.message}") }
-                .onSuccess { liteRtLoaded = true }
-        }
+        // LiteRT engines (X-ASR / Nemotron / MOSS-TD + VAD/diarization pods), the same
+        // app/src/main/cpp/mosslite sources Android builds. Every ASR backend runs on this
+        // now, so a failure to load is fatal rather than something to degrade around.
+        System.load(File(dir, "libvoxsum-mosslite.so").absolutePath)
+        liteRtLoaded = true
         loaded = true
     }
 

@@ -61,8 +61,15 @@ class ModelManager(appFilesDir: File) {
     // MOSS-TD: one GGUF does ASR + diarization + timestamps (RapidSpeech.cpp runtime). The 14 MB
     // CAM++ GGUF is OPTIONAL — without it per-window [Sxx] tags still work, only cross-window
     // speaker-identity linking is lost. See docs/INTEGRATION-MOSS-TD.md.
-    val mossModel: File get() = File(modelsDir, "moss-transcribe-base-q4mix.gguf")
-    val mossSpeakerModel: File get() = File(modelsDir, "campplus-cn-common.gguf")
+    // MOSS-TD on LiteRT: the three-component split + vocab.json for detokenization. Replaces
+    // the RapidSpeech.cpp GGUF + subprocess binaries (which jpackage could not even ship
+    // executable). The CAM++ tflite is optional — without it per-window [Sxx] tags still work,
+    // only cross-window speaker linking is lost.
+    val mossSpeakerModel: File get() = File(modelsDir, "campplus_cn_common_500f.tflite")
+    val mossLiteEncoder: File get() = File(modelsDir, "moss_td_encoder_q8.tflite")
+    val mossLiteEmbedder: File get() = File(modelsDir, "moss_td_embedder_q8.tflite")
+    val mossLiteDecoder: File get() = File(modelsDir, "moss_td_decoder_v2_q4b32_ekv2560.tflite")
+    val mossLiteVocab: File get() = File(modelsDir, "moss_td_vocab.json")
     // Older embeddings to reclaim on upgrade: eres2net_base, the interim CAM++ fp32, and the
     // abandoned fine-tuned MOSS-TD lineage (replaced by the base q4mix weights — the fine-tunes
     // had speaker-diarization and timestamp-accuracy regressions).
@@ -79,8 +86,12 @@ class ModelManager(appFilesDir: File) {
 
     /** The MOSS-TD model is ready once its (mandatory) ASR+diarization GGUF is present and valid.
      *  The CAM++ speaker GGUF is optional — [mossSpeakerReady] reports it separately. */
-    fun mossReady(): Boolean = mossModel.exists() && isValidGguf(mossModel, MOSS_BYTES)
-    fun mossSpeakerReady(): Boolean = mossSpeakerModel.exists() && isValidGguf(mossSpeakerModel, MOSS_SPK_BYTES)
+    fun mossReady(): Boolean =
+        mossLiteEncoder.length() == MOSSLITE_ENC_BYTES &&
+        mossLiteEmbedder.length() == MOSSLITE_EMB_BYTES &&
+        mossLiteDecoder.length() == MOSSLITE_DEC_BYTES &&
+        mossLiteVocab.length() == MOSSLITE_VOCAB_BYTES
+    fun mossSpeakerReady(): Boolean = mossSpeakerModel.length() == MOSS_SPK_BYTES
 
     // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
     private data class AsrModelSpec(
@@ -104,23 +115,25 @@ class ModelManager(appFilesDir: File) {
                 // The "punct" variant (matches the web app's xasr_models): mixed-case English +
         // punctuation baked into the BPE vocab. The older zh-en-2023-11-22 zipformer emitted
         // ALL-CAPS, unpunctuated English — wrong model for a readable transcript.
+        // X-ASR on LiteRT (Luigi/xasr-litert): OCTAV-q8 bucketed masked export, gated on host
+        // — encoder max|d| 3.1e-06 vs the source ONNX, and q8 CER identical to the fp32 tflite.
+        // Replaces the sherpa-onnx transducer trio; HF is the only source.
         AsrBackend.XASR to AsrModelSpec(
-            dir = "sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03",
-            url = "$REL/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03.tar.bz2",
-            sha256 = "1bd1687be051d4656d75462a28b919eecb914e8714e6eaa7e92a30112ace2a68",
-            sentinels = listOf("encoder-epoch-99-avg-1.int8.onnx", "decoder-epoch-99-avg-1.onnx",
-                "joiner-epoch-99-avg-1.int8.onnx", "tokens.txt"),
+            dir = "xasr-litert",
+            url = "", sha256 = "",
+            sentinels = listOf("xasr_q8_octav.tflite", "tokens.txt"),
             buildFiles = { d ->
                 AsrModelFiles(
-                    encoder = File(d, "encoder-epoch-99-avg-1.int8.onnx").path,
-                    decoder = File(d, "decoder-epoch-99-avg-1.onnx").path,
-                    joiner = File(d, "joiner-epoch-99-avg-1.int8.onnx").path,
+                    encoder = File(d, "xasr_q8_octav.tflite").path,
                     tokens = File(d, "tokens.txt").path,
                 )
             },
-            hfBase = "https://huggingface.co/csukuangfj2/sherpa-onnx-x-asr-zipformer-transducer-zh-en-punct-int8-2026-06-03/resolve/main",
-            hfFiles = listOf("encoder-epoch-99-avg-1.int8.onnx", "decoder-epoch-99-avg-1.onnx",
-                "joiner-epoch-99-avg-1.int8.onnx", "tokens.txt"),
+            hfBase = "https://huggingface.co/Luigi/xasr-litert/resolve/main",
+            hfFiles = listOf("xasr_q8_octav.tflite", "tokens.txt"),
+            hfShas = mapOf(
+                "xasr_q8_octav.tflite" to "33849c8eed0faf7f268a36d852c3557c72d10782473667f39d3483e282fe00ed",
+                "tokens.txt" to "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c",
+            ),
         ),
         // Nemotron-3.5-ASR 3.5 (q4-mix LiteRT port) — the multilingual backend shared with
         // the Android app: 25 languages via a 128-slot prompt, four graphs (encoder INT4
@@ -167,13 +180,14 @@ class ModelManager(appFilesDir: File) {
         val spec = asrSpecs.getValue(backend)
         val d = specDir(spec)
         // The LiteRT backends segment with the tflite Silero VAD; the sherpa ones with the ONNX one.
-        val vad = if (backend == AsrBackend.NEMOTRON) vadLiteModel else vadModel
+        // Every remaining backend runs on LiteRT and segments with the tflite Silero VAD.
+        val vad = vadLiteModel
         return vad.exists() && spec.sentinels.all { File(d, it).exists() }
     }
 
     fun asrFiles(backend: AsrBackend): AsrModelFiles =
         if (backend == AsrBackend.MOSS) AsrModelFiles(
-            mossModel = mossModel.absolutePath,
+            mossModel = mossLiteDecoder.absolutePath,
             speakerEmbedModel = mossSpeakerModel.takeIf { mossSpeakerReady() }?.absolutePath ?: "",
         )
         else asrSpecs.getValue(backend).let { it.buildFiles(specDir(it)) }
@@ -184,7 +198,11 @@ class ModelManager(appFilesDir: File) {
      * true and [ensureAsrModels] would otherwise skip the download) but incomplete/corrupt.
      */
     fun deleteAsr(backend: AsrBackend) {
-        if (backend == AsrBackend.MOSS) { mossModel.takeIf(File::exists)?.delete(); return }
+        if (backend == AsrBackend.MOSS) {
+            listOf(mossLiteEncoder, mossLiteEmbedder, mossLiteDecoder, mossLiteVocab)
+                .forEach { it.takeIf(File::exists)?.delete() }
+            return
+        }
         specDir(asrSpecs.getValue(backend)).takeIf(File::exists)?.deleteRecursively()
     }
 
@@ -192,8 +210,7 @@ class ModelManager(appFilesDir: File) {
     suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
         if (backend == AsrBackend.MOSS) ensureMossModels(onProgress) else
         withContext(Dispatchers.IO) {
-            if (backend == AsrBackend.NEMOTRON) ensureVadLite { onProgress(it * 0.1f) }
-            else ensureVad { onProgress(it * 0.1f) }
+            ensureVadLite { onProgress(it * 0.1f) }
             val spec = asrSpecs.getValue(backend)
             val d = specDir(spec)
             if (!spec.sentinels.all { File(d, it).exists() }) {
@@ -363,20 +380,26 @@ class ModelManager(appFilesDir: File) {
      * the native runtime uncatchably).
      */
     suspend fun ensureMossModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        if (!(mossModel.exists() && isValidGguf(mossModel, MOSS_BYTES))) {
-            if (mossModel.exists()) mossModel.delete()
-            var attempt = 0
-            while (true) {
-                attempt++
-                download(MOSS_URL, mossModel, MOSS_SHA) { onProgress(it * 0.97f) }
-                if (isValidGguf(mossModel, MOSS_BYTES)) break
-                mossModel.delete()
-                check(attempt < 2) { "MOSS-TD model download is corrupt after $attempt attempts. Please try again." }
-                onProgress(0f)
+        // Four LiteRT artifacts, each size+sha verified by download(). Weighted by size so the
+        // bar advances evenly across the ~735 MB set.
+        data class Part(val file: File, val url: String, val sha: String, val bytes: Long)
+        val parts = listOf(
+            Part(mossLiteEncoder, MOSSLITE_ENC_URL, MOSSLITE_ENC_SHA, MOSSLITE_ENC_BYTES),
+            Part(mossLiteEmbedder, MOSSLITE_EMB_URL, MOSSLITE_EMB_SHA, MOSSLITE_EMB_BYTES),
+            Part(mossLiteDecoder, MOSSLITE_DEC_URL, MOSSLITE_DEC_SHA, MOSSLITE_DEC_BYTES),
+            Part(mossLiteVocab, MOSSLITE_VOCAB_URL, MOSSLITE_VOCAB_SHA, MOSSLITE_VOCAB_BYTES),
+        )
+        val total = parts.sumOf { it.bytes }.toDouble()
+        var done = 0.0
+        for (p in parts) {
+            if (p.file.length() != p.bytes) {
+                if (p.file.exists()) p.file.delete()
+                download(p.url, p.file, p.sha) { f -> onProgress(((done + f * p.bytes) / total).toFloat() * 0.97f) }
             }
+            done += p.bytes
         }
-        // Optional speaker model — never fail the run if it can't be fetched.
-        if (!(mossSpeakerModel.exists() && isValidGguf(mossSpeakerModel, MOSS_SPK_BYTES))) {
+        // Optional speaker embedder — never fail the run if it can't be fetched.
+        if (mossSpeakerModel.length() != MOSS_SPK_BYTES) {
             runCatching {
                 if (mossSpeakerModel.exists()) mossSpeakerModel.delete()
                 download(MOSS_SPK_URL, mossSpeakerModel, MOSS_SPK_SHA) { onProgress(0.97f + it * 0.03f) }
@@ -615,6 +638,25 @@ class ModelManager(appFilesDir: File) {
             "https://huggingface.co/soniqo/Silero-VAD-v5-LiteRT/resolve/655bff6b9a748de98c17a10f6c5d7ee3c0b53cbc/silero-vad.tflite"
         private const val VAD_LITE_SHA = "4559669e3423afaa11b3716d01d1421c0bf52add8b6891846ca73cc9bae875d2"
         private const val VAD_LITE_BYTES = 1_261_248L
+        // CAM++ zh+en speaker embedder as tflite — optional cross-window speaker linking.
+        private const val MOSS_SPK_URL =
+            "https://huggingface.co/Luigi/campplus-litert/resolve/985721e598976ac8f4433e25bf41f61bec1e16df/campplus_cn_common_500f.tflite"
+        private const val MOSS_SPK_SHA = "e7aeb9312b17a8c76af38cb772d0e291b30dd377f3dd5aeb6648383ae7da87d9"
+        private const val MOSS_SPK_BYTES = 28_730_020L
+        private const val MOSSLITE_REV =
+            "https://huggingface.co/Luigi/moss-transcribe-diarize-litert/resolve/1de273ca3d46c109e248a58b6db485bdb11f691f"
+        private const val MOSSLITE_ENC_URL = "$MOSSLITE_REV/moss_td_encoder_q8.tflite"
+        private const val MOSSLITE_ENC_SHA = "8880bd69c25a1c156bcd641c06541fffdd580ba4477796578584cba7d0a75915"
+        private const val MOSSLITE_ENC_BYTES = 321_145_488L
+        private const val MOSSLITE_EMB_URL = "$MOSSLITE_REV/moss_td_embedder_q8.tflite"
+        private const val MOSSLITE_EMB_SHA = "08b68e2301b078c6c13da7d2dc0b261d4162c2ddaa18078946fad446c3fcf292"
+        private const val MOSSLITE_EMB_BYTES = 161_054_896L
+        private const val MOSSLITE_DEC_URL = "$MOSSLITE_REV/moss_td_decoder_v2_q4b32_ekv2560.tflite"
+        private const val MOSSLITE_DEC_SHA = "8ddfa1e2ee2e0899e948e812ddc2ea10fc4f74c4abd290efdbdb1d626e9bb94b"
+        private const val MOSSLITE_DEC_BYTES = 251_497_728L
+        private const val MOSSLITE_VOCAB_URL = "$MOSSLITE_REV/tokenizer/vocab.json"
+        private const val MOSSLITE_VOCAB_SHA = "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+        private const val MOSSLITE_VOCAB_BYTES = 2_776_833L
 
         // CAM++ zh+en fp16 (custom conversion, benchmarked best on-device) hosted on HF.
         private const val EMB_URL =
@@ -631,16 +673,5 @@ class ModelManager(appFilesDir: File) {
 
         // MOSS-TD (RapidSpeech.cpp GGUFs) — see models/manifest.json. Exact artifact sizes so the
         // GGUF magic+size check is a tight lower bound; the SHA pins are verified on download.
-        // Base (not fine-tuned) MOSS-Transcribe-Diarize, uniform q4_K with token_embd held at f16
-        // ("q4mix" — uniform quantization collapses utterance segmentation). Pinned to a commit so
-        // the download is reproducible and the sha256 stays verifiable.
-        private const val MOSS_URL =
-            "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/59391ef6e1657af9fa2d1f30d3db8027e037dd4f/moss-transcribe-base-q4mix.gguf"
-        private const val MOSS_SHA = "06b21a4c16302175936a2876266d3d90fba2d746b4dce50678dadc11ec6ad6bf"
-        private const val MOSS_BYTES = 758_922_240L
-        private const val MOSS_SPK_URL =
-            "https://huggingface.co/Luigi/moss-transcribe-diarize-zhtw-gguf/resolve/59391ef6e1657af9fa2d1f30d3db8027e037dd4f/campplus.gguf"
-        private const val MOSS_SPK_SHA = "c49e5e80128c8e04ca6febc1f0ac86d477a28413a4f10297608c68bd799ad564"
-        private const val MOSS_SPK_BYTES = 14_255_904L
     }
 }
