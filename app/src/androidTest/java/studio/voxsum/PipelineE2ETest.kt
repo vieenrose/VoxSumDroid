@@ -1,5 +1,7 @@
 package studio.voxsum
 
+import studio.voxsum.core.models.LlmRegistry
+import studio.voxsum.core.asr.AsrBackend
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -7,10 +9,11 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
-import studio.voxsum.core.llm.LlmEngine
+import studio.voxsum.core.llm.TextGen
 import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.ModelManager
 
@@ -33,9 +36,9 @@ class PipelineE2ETest {
         // Self-provision every model (downloads what's missing) — validates the real
         // download/extract/SHA path on whatever hardware runs this (incl. a non-rooted phone
         // where we can't pre-push). Skips downloads when the files are already present.
-        if (!models.asrReady()) {
+        if (!models.asrReady(AsrBackend.XASR)) {
             Log.i(TAG, "downloading ASR models…")
-            models.ensureAsrModels { f -> Log.i(TAG, "asr dl ${(f * 100).toInt()}%") }
+            models.ensureAsrModels(AsrBackend.XASR) { f -> Log.i(TAG, "asr dl ${(f * 100).toInt() }%") }
         }
         if (!models.diarizationReady()) {
             Log.i(TAG, "downloading diarization models…")
@@ -45,16 +48,17 @@ class PipelineE2ETest {
             Log.i(TAG, "downloading LLM model…")
             models.ensureLlmModel { f -> Log.i(TAG, "llm dl ${(f * 100).toInt()}%") }
         }
-        assertTrue("models provisioned", models.asrReady() && models.diarizationReady() && models.llmReady())
+        assertTrue("models provisioned", models.asrReady(AsrBackend.XASR) && models.diarizationReady() && models.llmReady())
 
         val pcm = readWav16kMono(inst.context.assets.open("two-speaker.wav"))
 
         // 1) ASR
         val utterances = mutableListOf<TranscriptEvent.Utterance>()
-        AsrEngine(
-            studio.voxsum.core.asr.AsrBackend.SENSEVOICE,
-            models.asrFiles(studio.voxsum.core.asr.AsrBackend.SENSEVOICE),
-            models.vadModel.absolutePath, numThreads = 4,
+        XasrLiteAsr(
+            modelFile = java.io.File(models.asrFiles(studio.voxsum.core.asr.AsrBackend.XASR).encoder),
+            tokensFile = java.io.File(models.asrFiles(studio.voxsum.core.asr.AsrBackend.XASR).tokens),
+            vadModelFile = models.vadLiteModel,
+            numThreads = 4,
         ).use { asr ->
             asr.transcribe(pcm).collect { if (it is TranscriptEvent.Utterance) utterances.add(it) }
         }
@@ -70,7 +74,7 @@ class PipelineE2ETest {
         // 3) Summarize (diarization released; LLM loaded last — the two-phase memory model)
         val transcript = tagged.joinToString("\n") { it.text }
         val summary = StringBuilder()
-        LlmEngine.load(models.llmModel.absolutePath, nThreads = 4).use { llm ->
+        TextGen.load(app, models.llmModel.absolutePath, LlmRegistry.byId(LlmRegistry.DEFAULT_ID), nThreads = 4).use { llm ->
             Summarizer(llm).summarize(transcript, "Summarize the key points.").collect { e ->
                 if (e is TranscriptEvent.SummaryComplete) summary.append(e.summary)
             }

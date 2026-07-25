@@ -10,6 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.audio.AudioDecoder
@@ -62,7 +63,7 @@ class RobustnessInstrumentedTest {
 
     @Test(timeout = 60_000) fun asrHandlesEmptySilentAndTinyPcm() = runBlocking {
         val models = ModelManager(app)
-        if (!models.asrReady()) models.ensureAsrModels { }
+        if (!models.asrReady(AsrBackend.XASR)) models.ensureAsrModels(AsrBackend.XASR) { }
         for ((name, pcm) in listOf(
             "empty" to FloatArray(0),
             "silence2s" to FloatArray(32_000),          // all zeros, no speech
@@ -70,10 +71,12 @@ class RobustnessInstrumentedTest {
             "loud-noise" to FloatArray(32_000) { if (it % 2 == 0) 0.99f else -0.99f },
         )) {
             val utts = mutableListOf<TranscriptEvent.Utterance>()
-            AsrEngine(
-                AsrBackend.SENSEVOICE, models.asrFiles(AsrBackend.SENSEVOICE),
-                models.vadModel.absolutePath, numThreads = 4,
-            ).use { asr -> asr.transcribe(pcm).collect { if (it is TranscriptEvent.Utterance) utts.add(it) } }
+            XasrLiteAsr(
+            modelFile = java.io.File(models.asrFiles(AsrBackend.XASR).encoder),
+            tokensFile = java.io.File(models.asrFiles(AsrBackend.XASR).tokens),
+            vadModelFile = models.vadLiteModel,
+            numThreads = 4,
+        ).use { asr -> asr.transcribe(pcm).collect { if (it is TranscriptEvent.Utterance) utts.add(it) } }
             Log.i(TAG, "asr[$name] -> ${utts.size} utterances (no crash)")
         }
         // Reaching here without a native abort is the assertion.
@@ -82,11 +85,13 @@ class RobustnessInstrumentedTest {
 
     @Test(timeout = 60_000) fun asrLiveHandlesImmediatelyClosedStream() = runBlocking {
         val models = ModelManager(app)
-        if (!models.asrReady()) models.ensureAsrModels { }
+        if (!models.asrReady(AsrBackend.XASR)) models.ensureAsrModels(AsrBackend.XASR) { }
         val utts = mutableListOf<TranscriptEvent.Utterance>()
-        AsrEngine(
-            AsrBackend.SENSEVOICE, models.asrFiles(AsrBackend.SENSEVOICE),
-            models.vadModel.absolutePath, numThreads = 4,
+        XasrLiteAsr(
+            modelFile = java.io.File(models.asrFiles(AsrBackend.XASR).encoder),
+            tokensFile = java.io.File(models.asrFiles(AsrBackend.XASR).tokens),
+            vadModelFile = models.vadLiteModel,
+            numThreads = 4,
         ).use { asr -> asr.transcribeLive(flow { /* emit nothing, close immediately */ })
             .collect { if (it is TranscriptEvent.Utterance) utts.add(it) } }
         assertEquals("an empty recording yields no utterances", 0, utts.size)

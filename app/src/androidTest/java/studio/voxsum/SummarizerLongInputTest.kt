@@ -10,7 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import studio.voxsum.core.events.TranscriptEvent
-import studio.voxsum.core.llm.LlmEngine
+import studio.voxsum.core.llm.TextGen
 import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
@@ -38,7 +38,7 @@ class SummarizerLongInputTest {
         val transcript = "今天的会议讨论了产品路线图、下个季度的目标以及市场推广计划。".repeat(48)
         val summary = StringBuilder()
         var partials = 0
-        LlmEngine.load(models.llmModel.absolutePath, nThreads = 4, nCtx = 2048).use { llm ->
+        TextGen.load(app, models.llmModel.absolutePath, LlmRegistry.byId(LlmRegistry.DEFAULT_ID), nThreads = 4).use { llm ->
             Summarizer(llm, template = LlmRegistry.byId(LlmRegistry.DEFAULT_ID).chatTemplate)
                 .summarize(transcript, "Summarize the key points.")
                 .flowOn(Dispatchers.Default)

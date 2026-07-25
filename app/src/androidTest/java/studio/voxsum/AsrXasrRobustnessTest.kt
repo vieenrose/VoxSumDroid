@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.events.TranscriptEvent
@@ -47,10 +48,10 @@ class AsrXasrRobustnessTest {
         }
 
         val utterances = mutableListOf<TranscriptEvent.Utterance>()
-        AsrEngine(
-            AsrBackend.XASR,
-            models.asrFiles(AsrBackend.XASR),
-            models.vadModel.absolutePath,
+        XasrLiteAsr(
+            modelFile = java.io.File(models.asrFiles(AsrBackend.XASR).encoder),
+            tokensFile = java.io.File(models.asrFiles(AsrBackend.XASR).tokens),
+            vadModelFile = models.vadLiteModel,
             numThreads = 4,
         ).use { asr ->
             // If a segment decode escaped drain(), this collect would THROW and fail the test.

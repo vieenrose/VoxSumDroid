@@ -1,5 +1,6 @@
 package studio.voxsum
 
+import studio.voxsum.core.asr.AsrBackend
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -7,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
@@ -28,18 +30,19 @@ class DiarizationTest {
         val models = ModelManager(app)
         // Self-provision (download what's missing) so this test is order-independent — it previously
         // failed on a fresh device when it ran before EmbeddingBenchmarkTest fetched the speaker model.
-        if (!models.asrReady()) models.ensureAsrModels { }
+        if (!models.asrReady(AsrBackend.XASR)) models.ensureAsrModels(AsrBackend.XASR) { }
         if (!models.diarizationReady()) models.ensureDiarizationModels { }
-        assertTrue("ASR provisioned", models.asrReady())
+        assertTrue("ASR provisioned", models.asrReady(AsrBackend.XASR))
         assertTrue("diarization provisioned", models.diarizationReady())
 
         val pcm = readWav16kMono(inst.context.assets.open("two-speaker.wav"))
 
         val utterances = mutableListOf<TranscriptEvent.Utterance>()
-        AsrEngine(
-            studio.voxsum.core.asr.AsrBackend.SENSEVOICE,
-            models.asrFiles(studio.voxsum.core.asr.AsrBackend.SENSEVOICE),
-            models.vadModel.absolutePath, numThreads = 4,
+        XasrLiteAsr(
+            modelFile = java.io.File(models.asrFiles(studio.voxsum.core.asr.AsrBackend.XASR).encoder),
+            tokensFile = java.io.File(models.asrFiles(studio.voxsum.core.asr.AsrBackend.XASR).tokens),
+            vadModelFile = models.vadLiteModel,
+            numThreads = 4,
         ).use { asr ->
             asr.transcribe(pcm).collect { if (it is TranscriptEvent.Utterance) utterances.add(it) }
         }

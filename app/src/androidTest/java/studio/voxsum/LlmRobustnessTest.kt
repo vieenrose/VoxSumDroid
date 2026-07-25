@@ -6,7 +6,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import studio.voxsum.core.llm.LlmEngine
+import studio.voxsum.core.llm.TextGen
+import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
 
 /**
@@ -27,7 +28,7 @@ class LlmRobustnessTest {
         val models = ModelManager(app)
         assertTrue("push the default GGUF first", models.llmReady())
 
-        LlmEngine.load(models.llmModel.absolutePath, nThreads = 4, nCtx = 4096).use { llm ->
+        TextGen.load(app, models.llmModel.absolutePath, LlmRegistry.byId(LlmRegistry.DEFAULT_ID), nThreads = 4).use { llm ->
             // ~1760 CJK chars ≈ ~2700 tokens (Gemma ≈ 1.5-1.6 tok/CJK-char) — a single map chunk in the
             // 2049..4096 window that used to SIGABRT: it passes the n_ctx guard but the whole prompt is
             // one llama_batch that exceeded the old n_batch=2048. With n_batch raised to n_ctx it decodes.

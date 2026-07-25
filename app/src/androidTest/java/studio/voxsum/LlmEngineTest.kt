@@ -6,7 +6,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import studio.voxsum.core.llm.LlmEngine
+import studio.voxsum.core.llm.TextGen
+import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
 
 /**
@@ -17,7 +18,7 @@ import studio.voxsum.core.models.ModelManager
  * (files/models/<default fileName>, e.g. gemma-3-1b-it-q4.gguf).
  */
 @RunWith(AndroidJUnit4::class)
-class LlmEngineTest {
+class TextGenTest {
 
     @Test
     fun generatesCompletion() {
@@ -26,7 +27,7 @@ class LlmEngineTest {
         assertTrue("push a GGUF to files/models/llm.gguf first", models.llmReady())
 
         val streamed = StringBuilder()
-        val full = LlmEngine.load(models.llmModel.absolutePath, nThreads = 4, nCtx = 1024)
+        val full = TextGen.load(app, models.llmModel.absolutePath, LlmRegistry.byId(LlmRegistry.DEFAULT_ID), nThreads = 4)
             .use { llm ->
                 llm.generate("The capital of France is", maxTokens = 16) { piece ->
                     streamed.append(piece)
@@ -38,5 +39,5 @@ class LlmEngineTest {
         assertTrue("expected streamed tokens via callback", streamed.isNotEmpty())
     }
 
-    private companion object { const val TAG = "LlmEngineTest" }
+    private companion object { const val TAG = "TextGenTest" }
 }

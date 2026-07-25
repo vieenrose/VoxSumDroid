@@ -57,8 +57,8 @@ class SettingsContentTest {
     @Test fun selectingAsrBackendReportsIt() {
         var changed: TranscriptionConfig? = null
         host(onChange = { changed = it })
-        compose.onNodeWithText(AsrBackend.SENSEVOICE.shortName).performScrollTo().performClick()
-        assertEquals(AsrBackend.SENSEVOICE.id, changed?.asrBackend)
+        compose.onNodeWithText(AsrBackend.XASR.shortName).performScrollTo().performClick()
+        assertEquals(AsrBackend.XASR.id, changed?.asrBackend)
     }
 
     @Test fun selectingLlmReportsIt() {
@@ -93,7 +93,7 @@ class SettingsContentTest {
 
     @Test fun disabledStateDisablesTheModelCards() {
         host(enabled = false)
-        compose.onNodeWithText(AsrBackend.SENSEVOICE.shortName).assertIsNotEnabled()
+        compose.onNodeWithText(AsrBackend.XASR.shortName).assertIsNotEnabled()
     }
 
     @Test fun aboutSectionShowsTheAppVersion() {

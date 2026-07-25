@@ -10,7 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import studio.voxsum.core.llm.ActionItemExtractor
-import studio.voxsum.core.llm.LlmEngine
+import studio.voxsum.core.llm.TextGen
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
 
@@ -44,7 +44,7 @@ class ActionItemExtractorTest {
         """.trimIndent()
 
         val out = withContext(Dispatchers.Default) {
-            LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = 4).use { llm ->
+            TextGen.load(ctx, models.llmFile(spec).absolutePath, spec, nThreads = 4).use { llm ->
                 ActionItemExtractor(llm, template = spec.chatTemplate).extract(transcript)
             }
         }

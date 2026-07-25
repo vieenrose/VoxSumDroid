@@ -52,7 +52,7 @@ class TranscriptFlowTest {
         awaitReady()
         // Each phase now owns the status line via a Status event (Progress drives only the bar).
         val msg = "Identifying speakers (uitest)"
-        TranscriptionService.events.tryEmit(TranscriptEvent.Status(msg))
+        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.Status(msg))
         waitForText(msg)
         compose.onNodeWithText(msg, substring = true).assertIsDisplayed()
     }
@@ -66,16 +66,15 @@ class TranscriptFlowTest {
         // was already processed — and skipped.
         val dl = "Downloading summary model 42% (uitest)"
         val marker = "Marker after download (uitest)"
-        TranscriptionService.events.tryEmit(TranscriptEvent.DownloadProgress(0.42f, dl))
-        TranscriptionService.events.tryEmit(TranscriptEvent.Status(marker))
+        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.DownloadProgress(0.42f, dl))
+        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.Status(marker))
         waitForText(marker)
         compose.onAllNodesWithText(dl, substring = true).assertCountEquals(0)
     }
 
     @Test fun completeRendersUtterancesAndLineSpeakerCount() {
         awaitReady()
-        TranscriptionService.events.tryEmit(
-            TranscriptEvent.Complete(
+        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.Complete(
                 utterances = listOf(
                     TranscriptEvent.Utterance(0, "first line here", 0.0, 1.0, speaker = 0),
                     TranscriptEvent.Utterance(1, "second line here", 1.0, 2.0, speaker = 1),
@@ -92,7 +91,7 @@ class TranscriptFlowTest {
 
     @Test fun failedEventShowsErrorStatus() {
         awaitReady()
-        TranscriptionService.events.tryEmit(TranscriptEvent.Failed("disk full"))
+        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.Failed("disk full"))
         val expected = str(R.string.status_error, "disk full")
         waitForText(expected)
         // The error surfaces in BOTH the status line and a snackbar — assert at least one is shown.
@@ -105,7 +104,7 @@ class TranscriptFlowTest {
         // RecordingSaved event is exactly how the recording flow hands the player its WAV.
         val bytes = InstrumentationRegistry.getInstrumentation().context.assets.open("en.wav").use { it.readBytes() }
         val wav = File(compose.activity.cacheDir, "uitest_player.wav").apply { writeBytes(bytes) }
-        TranscriptionService.events.tryEmit(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
+        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
 
         // The docked player appears with a Play control (the MediaPlayer prepares off-thread).
         val play = str(R.string.cd_play)

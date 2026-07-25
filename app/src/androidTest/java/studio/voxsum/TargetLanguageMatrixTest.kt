@@ -9,7 +9,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.events.TranscriptEvent
-import studio.voxsum.core.llm.LlmEngine
+import studio.voxsum.core.llm.TextGen
 import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
@@ -44,7 +44,7 @@ class TargetLanguageMatrixTest {
             }
             assertTrue("provisioned ${spec.id}", models.llmReady(spec))
 
-            LlmEngine.load(models.llmFile(spec).absolutePath, nThreads = 4, nCtx = 2048).use { llm ->
+            TextGen.load(app, models.llmFile(spec).absolutePath, LlmRegistry.byId(LlmRegistry.DEFAULT_ID), nThreads = 4).use { llm ->
                 for (lang in TargetLanguage.entries) {
                     val convert: (String) -> String =
                         if (lang.convertsToTraditional) { s -> opencc.convert(s) } else { s -> s }

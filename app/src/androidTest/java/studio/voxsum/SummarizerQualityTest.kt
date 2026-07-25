@@ -1,5 +1,6 @@
 package studio.voxsum
 
+import studio.voxsum.core.models.LlmRegistry
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -8,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import studio.voxsum.core.events.TranscriptEvent
-import studio.voxsum.core.llm.LlmEngine
+import studio.voxsum.core.llm.TextGen
 import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.ChatTemplate
 import studio.voxsum.core.text.ChineseScript
@@ -38,7 +39,7 @@ class SummarizerQualityTest {
             args.getString("model") ?: studio.voxsum.core.models.LlmRegistry.DEFAULT_ID,
         )
         val cc = OpenCcConverter.get(ctx, ChineseScript.TRADITIONAL)   // app converts output to zh-TW
-        val llm = LlmEngine.load(gguf, nThreads = 4, nCtx = 4096, sampler = spec.sampler)
+        val llm = TextGen.load(ctx, gguf, spec, nThreads = 4)
         val summary = StringBuilder(); val title = StringBuilder(); var mapChunks = 0
         val t0 = System.nanoTime()
         Summarizer(llm, template = spec.chatTemplate, targetLanguage = "Traditional Chinese (繁體中文)",

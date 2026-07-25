@@ -1,5 +1,6 @@
 package studio.voxsum
 
+import studio.voxsum.core.asr.AsrBackend
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -8,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.models.ModelManager
@@ -31,19 +33,19 @@ class AsrEngineTest {
         val app = inst.targetContext
 
         val models = ModelManager(app)
-        if (!models.asrReady()) {
+        if (!models.asrReady(AsrBackend.XASR)) {
             Log.i(TAG, "models not present, downloading…")
-            models.ensureAsrModels { }
+            models.ensureAsrModels(AsrBackend.XASR) { }
         }
 
         val pcm = readWav16kMono(inst.context.assets.open("en.wav"))
         Log.i(TAG, "decoded ${pcm.size} samples (${pcm.size / 16000.0}s)")
 
         val utterances = mutableListOf<TranscriptEvent.Utterance>()
-        AsrEngine(
-            studio.voxsum.core.asr.AsrBackend.SENSEVOICE,
-            models.asrFiles(studio.voxsum.core.asr.AsrBackend.SENSEVOICE),
-            models.vadModel.absolutePath,
+        XasrLiteAsr(
+            modelFile = java.io.File(models.asrFiles(studio.voxsum.core.asr.AsrBackend.XASR).encoder),
+            tokensFile = java.io.File(models.asrFiles(studio.voxsum.core.asr.AsrBackend.XASR).tokens),
+            vadModelFile = models.vadLiteModel,
             numThreads = 4,
         ).use { asr ->
             asr.transcribe(pcm).collect { e ->
@@ -68,7 +70,7 @@ class AsrEngineTest {
         val inst = InstrumentationRegistry.getInstrumentation()
         val app = inst.targetContext
         val models = ModelManager(app)
-        if (!models.asrReady()) models.ensureAsrModels { }
+        if (!models.asrReady(AsrBackend.XASR)) models.ensureAsrModels(AsrBackend.XASR) { }
 
         val pcm = readWav16kMono(inst.context.assets.open("en.wav"))
         // Stream the waveform as 2048-sample mic blocks (~128 ms), the AudioRecorder block size.
@@ -82,10 +84,10 @@ class AsrEngineTest {
         }
 
         val utterances = mutableListOf<TranscriptEvent.Utterance>()
-        AsrEngine(
-            studio.voxsum.core.asr.AsrBackend.SENSEVOICE,
-            models.asrFiles(studio.voxsum.core.asr.AsrBackend.SENSEVOICE),
-            models.vadModel.absolutePath,
+        XasrLiteAsr(
+            modelFile = java.io.File(models.asrFiles(studio.voxsum.core.asr.AsrBackend.XASR).encoder),
+            tokensFile = java.io.File(models.asrFiles(studio.voxsum.core.asr.AsrBackend.XASR).tokens),
+            vadModelFile = models.vadLiteModel,
             numThreads = 4,
         ).use { asr ->
             asr.transcribeLive(chunks).collect { e ->

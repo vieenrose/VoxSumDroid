@@ -1,5 +1,6 @@
 package studio.voxsum
 
+import studio.voxsum.core.models.LlmRegistry
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -8,7 +9,7 @@ import org.json.JSONObject
 import org.junit.Test
 import org.junit.runner.RunWith
 import studio.voxsum.core.events.TranscriptEvent
-import studio.voxsum.core.llm.LlmEngine
+import studio.voxsum.core.llm.TextGen
 import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.ChatTemplate
 import java.io.File
@@ -60,7 +61,7 @@ class LlmBenchTest {
 
         val nThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
         val tLoad = SystemClock.elapsedRealtime()
-        val llm = LlmEngine.load(local.absolutePath, nThreads, nCtx)
+        val llm = TextGen.load(appCtx, local.absolutePath, LlmRegistry.byId(LlmRegistry.DEFAULT_ID), nThreads)
         out.appendLine("load=${SystemClock.elapsedRealtime() - tLoad}ms  RSS after load=${rssMb()}MB  peak=${hwmMb()}MB"); flush()
 
         // null targetLanguage → "write it in the same language as the transcript": tests whether the

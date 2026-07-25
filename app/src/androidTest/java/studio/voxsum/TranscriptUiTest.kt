@@ -42,12 +42,10 @@ class TranscriptUiTest {
         compose.onAllNodesWithText(addAudio).onFirst().assertIsDisplayed()
 
         // Simulate the pipeline emitting a status then two utterances.
-        TranscriptionService.events.tryEmit(TranscriptEvent.Status("Transcribing…"))
-        TranscriptionService.events.tryEmit(
-            TranscriptEvent.Utterance(0, "hello world", 0.0, 1.0)
+        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.Status("Transcribing…"))
+        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.Utterance(0, "hello world", 0.0, 1.0)
         )
-        TranscriptionService.events.tryEmit(
-            TranscriptEvent.Utterance(1, "second line", 1.0, 2.0)
+        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.Utterance(1, "second line", 1.0, 2.0)
         )
 
         // The list updates incrementally; wait for the rendered text.

@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.diarization.DiarizationEngine
@@ -40,7 +41,7 @@ class MeetingDiarizationEvalTest {
         val numSpeakers = args.getString("numSpeakers")?.toIntOrNull() ?: -1
 
         val models = ModelManager(app)
-        if (!models.asrReady()) models.ensureAsrModels { }
+        if (!models.asrReady(AsrBackend.XASR)) models.ensureAsrModels(AsrBackend.XASR) { }
         if (!models.diarizationReady()) models.ensureDiarizationModels { }
 
         // Same ASR path the app uses (SenseVoice + Silero VAD).
@@ -52,9 +53,11 @@ class MeetingDiarizationEvalTest {
         var asrMs = 0L
         var diarMs = 0L
         var usedSeg = false
-        AsrEngine(
-            AsrBackend.SENSEVOICE, models.asrFiles(AsrBackend.SENSEVOICE),
-            models.vadModel.absolutePath, numThreads = 4,
+        XasrLiteAsr(
+            modelFile = java.io.File(models.asrFiles(AsrBackend.XASR).encoder),
+            tokensFile = java.io.File(models.asrFiles(AsrBackend.XASR).tokens),
+            vadModelFile = models.vadLiteModel,
+            numThreads = 4,
         ).use { asr ->
             asr.transcribe(pcm).collect { if (it is TranscriptEvent.Utterance) utterances.add(it) }
             asrMs = System.currentTimeMillis() - tAsr
