@@ -1,0 +1,4 @@
+• Chinese transcripts now come out Traditional when the spoken language is left on Auto — previously this depended on your device locale, so an English-locale device produced Simplified.
+• Fixes a stalled processing queue: if the service was killed while the screen was off, a waiting recording could not be started at all. Queued items now offer "Process now", and the queue also resumes when a recording is recovered.
+• The "Exporting session…" dialog no longer hangs forever when the export is interrupted.
+• The speech models' weight cache now works (it was silently disabled), so repeat runs load faster and use less memory.
