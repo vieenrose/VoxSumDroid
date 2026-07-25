@@ -1,0 +1,5 @@
+• Chinese transcripts keep proper nouns intact. Simplified→Traditional conversion now only re-spells words in the transcript instead of substituting vocabulary, which was rewriting names (高端疫苗 → 高階疫苗). Summaries and titles still get the full Taiwan localisation.
+• Fixed a mixed-script transcript: with Nemotron on Auto-detect, the transcript stayed Simplified while the summary was converted.
+• Nemotron: zh-TW and zh-CN are selectable again. Switching between them re-renders the existing transcript instantly instead of re-transcribing.
+• A settings change no longer offers a one-tap action that would silently discard your summary, edits and speaker names.
+• Fixes a memory leak and a silent truncation in the Nemotron engine, and makes an interrupted model download resume instead of restarting.
