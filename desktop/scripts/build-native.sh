@@ -15,7 +15,7 @@ BUILD_DIR="${VOXSUM_NATIVE_BUILD_DIR:-$DESKTOP_DIR/build-native}"
 
 # NB: no apostrophe in this message — inside ${var:?word} bash treats one as an opening
 # quote and the script fails to parse ("unexpected EOF while looking for matching `}'").
-: "${JAVA_HOME:?JAVA_HOME must be set: the sherpa-onnx JNI build needs jni.h}"
+: "${JAVA_HOME:?JAVA_HOME must be set: the JNI build needs jni.h}"
 
 mkdir -p "$BUILD_DIR"
 cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -S "$DESKTOP_DIR/src/jvmMain/cpp" -B "$BUILD_DIR"

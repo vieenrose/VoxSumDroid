@@ -56,4 +56,38 @@ class XasrLiteEngineTest {
             println("X-ASR desktop decode: ${r.tokens.size} tokens, text=\"${r.text.take(80)}\"")
         }
     }
+
+    /**
+     * A cache DIRECTORY must produce a per-model `<model>.xnncache` FILE. XNNPACK wants a file:
+     * handed the directory it fails with "could not open file (...): Is a directory" and silently
+     * disables the cache — slower compiles and more anonymous RAM, with nothing in the logs that
+     * looks like an error. The JNI derives the filename; this proves it still does.
+     */
+    @Test
+    fun writesAPerModelXnnpackWeightCache() {
+        val libDir = env("VOXSUM_NATIVE_LIB_DIR")?.let(::File)
+        val modelDir = env("VOXSUM_XASR_DIR")?.let(::File)
+        assumeTrue("set VOXSUM_NATIVE_LIB_DIR + VOXSUM_XASR_DIR to run", libDir != null && modelDir != null)
+        val so = File(libDir!!, "libvoxsum-mosslite.so")
+        assumeTrue("libvoxsum-mosslite.so not built", so.exists())
+        System.load(so.absolutePath)
+
+        val model = File(modelDir!!, "xasr_q8_octav.tflite")
+        val cache = File(System.getProperty("java.io.tmpdir"), "voxsum-xnncache-test").apply {
+            deleteRecursively(); mkdirs()
+        }
+        val engine = XasrLiteEngine.load(
+            model = model, tokensFile = File(modelDir, "tokens.txt"), threads = 4,
+            cacheDir = cache.absolutePath,
+        )
+        requireNotNull(engine) { "X-ASR export failed to compile on this runtime" }
+        engine.use { it.decode(FloatArray(XasrLiteEngine.SAMPLE_RATE)) }
+
+        val produced = cache.listFiles()?.toList().orEmpty()
+        assertTrue(
+            "expected ${model.name}.xnncache in $cache, found $produced",
+            produced.any { it.name == "${model.name}.xnncache" && it.length() > 0 },
+        )
+        cache.deleteRecursively()
+    }
 }

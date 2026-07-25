@@ -7,18 +7,26 @@ import studio.voxsum.core.asr.SpeechEngine
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.desktop.NativeLibs
+import studio.voxsum.desktop.appDataDir
 import java.io.File
 
 /**
  * Builds the [SpeechEngine] for a VAD-segmented backend — the desktop counterpart of
  * Android's `TranscriptionService.createSpeechEngine`.
  *
- * Two runtimes coexist here while the desktop migrates to LiteRT (Android completed that
- * move in 2026-07): the sherpa-onnx [AsrEngine] still serves SenseVoice / X-ASR / Qwen3,
- * and [NemotronLiteAsr] runs the LiteRT graphs through `libvoxsum-mosslite.so`. MOSS-TD
- * is not built here — it windows internally and goes through the subprocess engine.
+ * Every backend runs on LiteRT through `libvoxsum-mosslite.so` (sherpa-onnx, onnxruntime and the
+ * RapidSpeech.cpp subprocess are gone). MOSS-TD is not built here — it windows internally, so
+ * `Pipeline` drives `MossLiteEngine` directly.
  */
 object SpeechEngineFactory {
+
+    /**
+     * XNNPACK weight cache, the same directory MOSS uses. Passing "" (the default) disables it,
+     * which is what the desktop did until now: every launch recompiled each model's weights and
+     * held them as anonymous RAM. The JNI derives one `<model>.xnncache` file per model inside it.
+     */
+    private val xnnCacheDir: String
+        get() = File(appDataDir, "xnnpack-cache").apply { mkdirs() }.absolutePath
 
     fun create(
         backend: AsrBackend,
@@ -41,6 +49,7 @@ object SpeechEngineFactory {
                 numThreads = numThreads,
                 languageId = config.language,
                 vadThreshold = config.vadThreshold,
+                cacheDir = xnnCacheDir,
             )
         }
         // X-ASR, also on LiteRT now — sherpa-onnx and onnxruntime are gone.
@@ -51,6 +60,7 @@ object SpeechEngineFactory {
             vadModelFile = models.vadLiteModel,
             numThreads = numThreads,
             vadThreshold = config.vadThreshold,
+            cacheDir = xnnCacheDir,
         )
     }
 }
