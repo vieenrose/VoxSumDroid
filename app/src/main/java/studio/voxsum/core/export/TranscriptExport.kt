@@ -15,15 +15,22 @@ import java.util.Locale
  */
 object TranscriptExport {
 
-    /** Plain text: optional title + summary, then `[mm:ss] Speaker: text` per line. */
+    /** Plain text: optional title + summary + action items, then `[mm:ss] Speaker: text` per line. */
     fun plainText(
         utterances: List<TranscriptEvent.Utterance>,
         label: (Int) -> String,
         title: String?,
         summary: String?,
+        actionItems: String? = null,
+        actionsHeading: String? = null,
     ): String = buildString {
         title?.trim()?.takeIf { it.isNotEmpty() }?.let { append(it).append("\n\n") }
         summary?.trim()?.takeIf { it.isNotEmpty() }?.let { append(it).append("\n\n") }
+        // "-" is the extractor's own "nothing found" marker, not an action item.
+        actionItems?.trim()?.takeIf { it.isNotEmpty() && it != "-" }?.let {
+            actionsHeading?.let { h -> append(h).append("\n") }
+            append(it).append("\n\n")
+        }
         for (u in utterances) {
             val text = u.text.trim()
             if (text.isEmpty()) continue
@@ -33,7 +40,7 @@ object TranscriptExport {
         }
     }
 
-    /** Markdown: H1 title, optional Summary section, then a timestamped, speaker-bolded list. */
+    /** Markdown: H1 title, optional Summary + Action items sections, then a timestamped, speaker-bolded list. */
     fun markdown(
         utterances: List<TranscriptEvent.Utterance>,
         label: (Int) -> String,
@@ -41,10 +48,15 @@ object TranscriptExport {
         summary: String?,
         summaryHeading: String,
         transcriptHeading: String,
+        actionItems: String? = null,
+        actionsHeading: String? = null,
     ): String = buildString {
         append("# ").append(title?.trim()?.ifEmpty { null } ?: transcriptHeading).append("\n\n")
         summary?.trim()?.takeIf { it.isNotEmpty() }?.let {
             append("## ").append(summaryHeading).append("\n\n").append(it).append("\n\n")
+        }
+        actionItems?.trim()?.takeIf { it.isNotEmpty() && it != "-" }?.let {
+            append("## ").append(actionsHeading ?: "Action items").append("\n\n").append(it).append("\n\n")
         }
         append("## ").append(transcriptHeading).append("\n\n")
         for (u in utterances) {

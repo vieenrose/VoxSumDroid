@@ -29,6 +29,8 @@ object PdfExport {
         summary: String?,
         summaryHeading: String,
         transcriptHeading: String,
+        actionItems: String? = null,
+        actionsHeading: String? = null,
     ) {
         val titlePaint = paint(18f, bold = true)
         val headingPaint = paint(13f, bold = true)
@@ -39,6 +41,11 @@ object PdfExport {
         title?.trim()?.takeIf { it.isNotEmpty() }?.let { pager.block(it, titlePaint); pager.gap(10f) }
         summary?.trim()?.takeIf { it.isNotEmpty() }?.let {
             pager.block(summaryHeading, headingPaint); pager.gap(4f)
+            pager.block(it, bodyPaint); pager.gap(14f)
+        }
+        // "-" is the extractor's own "nothing found" marker, not an action item.
+        actionItems?.trim()?.takeIf { it.isNotEmpty() && it != "-" }?.let {
+            pager.block(actionsHeading ?: "Action items", headingPaint); pager.gap(4f)
             pager.block(it, bodyPaint); pager.gap(14f)
         }
         pager.block(transcriptHeading, headingPaint); pager.gap(4f)

@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SkipNext
@@ -81,10 +82,7 @@ fun SessionTopBar(
     // MOSS-TD transcribes + diarizes in one pass — its Re-transcribe becomes a combined
     // "Re-transcribe & re-diarize" and the separate Re-detect-speakers item is hidden.
     isMossBackend: Boolean = false,
-    onSaveSessionM4a: () -> Unit, onShareSessionM4a: () -> Unit,
-    onCopyTranscript: () -> Unit, onShareTranscript: () -> Unit,
-    onExportTxt: () -> Unit, onExportSrt: () -> Unit, onExportVtt: () -> Unit,
-    onExportLrc: () -> Unit, onExportMarkdown: () -> Unit, onExportPdf: () -> Unit,
+    onOpenExport: () -> Unit,
     onSettings: () -> Unit,
 ) {
     val pal = LocalVoxSumPalette.current
@@ -137,8 +135,7 @@ fun SessionTopBar(
             OverflowMenu(
                 canReTranscribe, onReTranscribe, canReSummarize, onReSummarize, canReTitle, onReTitle,
                 canReDiarize, onReDiarize, canExtractActions, onExtractActions,
-                canExport, isMossBackend, onSaveSessionM4a, onShareSessionM4a, onCopyTranscript, onShareTranscript,
-                onExportTxt, onExportSrt, onExportVtt, onExportLrc, onExportMarkdown, onExportPdf, onSettings,
+                canExport, isMossBackend, onOpenExport, onSettings,
             )
         }
         // A healthy idle status ("Loaded session — N lines") is two-second information, not
@@ -179,10 +176,7 @@ private fun OverflowMenu(
     canExtractActions: Boolean, onExtractActions: () -> Unit,
     canExport: Boolean,
     isMossBackend: Boolean,
-    onSaveSessionM4a: () -> Unit, onShareSessionM4a: () -> Unit,
-    onCopyTranscript: () -> Unit, onShareTranscript: () -> Unit,
-    onExportTxt: () -> Unit, onExportSrt: () -> Unit, onExportVtt: () -> Unit,
-    onExportLrc: () -> Unit, onExportMarkdown: () -> Unit, onExportPdf: () -> Unit,
+    onOpenExport: () -> Unit,
     onSettings: () -> Unit,
 ) {
     val pal = LocalVoxSumPalette.current
@@ -207,19 +201,13 @@ private fun OverflowMenu(
             if (canExtractActions) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.Checklist, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_extract_actions)) }, onClick = pick(onExtractActions))
             if (canReTranscribe || canReSummarize || canReTitle || canReDiarize || canExtractActions) HorizontalDivider()
-            // --- session archive + text exports (disabled while running, like before) ---
+            // --- exports (disabled while running, like before) ---
+            // One entry, not eight: the formats and the save/share choice live in ExportSheet, which
+            // groups them by what you get. A dropdown this long also meant several slow full-page
+            // repaints on e-ink.
             if (canExport) {
-                DropdownMenuItem(text = { Text(stringResource(R.string.session_save_m4a)) }, onClick = pick(onSaveSessionM4a))
-                DropdownMenuItem(text = { Text(stringResource(R.string.session_share_m4a)) }, onClick = pick(onShareSessionM4a))
-                HorizontalDivider()
-                DropdownMenuItem(text = { Text(stringResource(R.string.export_copy_transcript)) }, onClick = pick(onCopyTranscript))
-                DropdownMenuItem(text = { Text(stringResource(R.string.export_share_transcript)) }, onClick = pick(onShareTranscript))
-                DropdownMenuItem(text = { Text(stringResource(R.string.export_txt)) }, onClick = pick(onExportTxt))
-                DropdownMenuItem(text = { Text(stringResource(R.string.export_srt)) }, onClick = pick(onExportSrt))
-                DropdownMenuItem(text = { Text(stringResource(R.string.export_vtt)) }, onClick = pick(onExportVtt))
-                DropdownMenuItem(text = { Text(stringResource(R.string.export_lrc)) }, onClick = pick(onExportLrc))
-                DropdownMenuItem(text = { Text(stringResource(R.string.export_md)) }, onClick = pick(onExportMarkdown))
-                DropdownMenuItem(text = { Text(stringResource(R.string.export_pdf)) }, onClick = pick(onExportPdf))
+                DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.IosShare, null, Modifier.size(18.dp)) },
+                    text = { Text(stringResource(R.string.export_menu_entry)) }, onClick = pick(onOpenExport))
                 HorizontalDivider()
             }
             DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.Tune, null, Modifier.size(18.dp)) },

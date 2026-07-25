@@ -149,6 +149,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.core.content.IntentCompat
+import studio.voxsum.core.export.ExportFormat
 import studio.voxsum.core.export.TranscriptExport
 import java.io.File
 import studio.voxsum.R
@@ -183,6 +184,7 @@ import studio.voxsum.data.speakerColor
 import studio.voxsum.data.speakerColorOn
 import studio.voxsum.service.TranscriptionService
 import studio.voxsum.ui.AddSourceSheet
+import studio.voxsum.ui.ExportSheet
 import studio.voxsum.ui.CaptureScreen
 import studio.voxsum.ui.SessionTabs
 import studio.voxsum.ui.SessionTopBar
@@ -508,6 +510,7 @@ private fun TranscribeScreen(
     var sessionDirty by remember { mutableStateOf(false) }
     var showPodcastSheet by remember { mutableStateOf(false) }
     var showAddSourceSheet by remember { mutableStateOf(false) }
+    var showExportSheet by remember { mutableStateOf(false) }
     var showYouTubeSheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val utterances = remember { mutableStateListOf<TranscriptEvent.Utterance>() }
@@ -905,7 +908,7 @@ private fun TranscribeScreen(
         sessionDirty = false; statusIsError = false
         coverEnabled = true
         showPodcastSheet = false; showConfigSheet = false
-        showAddSourceSheet = false; showYouTubeSheet = false
+        showAddSourceSheet = false; showYouTubeSheet = false; showExportSheet = false
         lastSaveUri = null; coverBitmap = null; coverFromSession = false   // fresh session → reset Save target + identicon
         summaryStale = false; transcriptStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false; sessionGen++
         watchingQueue = false; pendingNextTalk = false; pendingAutoProcess = false
@@ -1258,6 +1261,90 @@ private fun TranscribeScreen(
             ))
         }
     }
+    // --- One export entry point for ExportSheet: (format, save|share). ---
+    // Content is regenerated per call from the CURRENT session, like each saver does, so edits made
+    // while a picker/chooser was open are captured.
+    fun exportText(f: ExportFormat): String {
+        val utts = utterances.toList()
+        val actionsHeading = context.getString(R.string.export_heading_actions)
+        return when (f) {
+            ExportFormat.TEXT -> TranscriptExport.plainText(utts, speakerLabel, title, summary, actionItems, actionsHeading)
+            ExportFormat.MARKDOWN -> TranscriptExport.markdown(
+                utts, speakerLabel, title, summary,
+                context.getString(R.string.export_heading_summary),
+                context.getString(R.string.export_heading_transcript),
+                actionItems, actionsHeading,
+            )
+            ExportFormat.SRT -> TranscriptExport.srt(utts, speakerLabel)
+            ExportFormat.VTT -> TranscriptExport.vtt(utts, speakerLabel)
+            ExportFormat.LRC -> TranscriptExport.lrc(utts, speakerLabel, title)
+            ExportFormat.PDF, ExportFormat.M4A -> ""   // binary — written by their own writers
+        }
+    }
+
+    // Sharing a document/subtitle format: SAF only offers "save to a location", so to hand the file
+    // to another app we materialise it in a private cache dir and pass a FileProvider uri. Before
+    // this, only .m4a and the plain transcript could be shared at all.
+    fun shareExport(f: ExportFormat) {
+        val utts = utterances.toList(); val t = title; val sum = summary; val acts = actionItems
+        val sumH = context.getString(R.string.export_heading_summary)
+        val txH = context.getString(R.string.export_heading_transcript)
+        val actH = context.getString(R.string.export_heading_actions)
+        val body = if (f == ExportFormat.PDF) null else exportText(f)
+        scope.launch {
+            val file = withContext(Dispatchers.IO) {
+                runCatching {
+                    // Own cache dir, cleared each time: a previous share must not leak a stale file,
+                    // and this must not collide with share_audio / the session export dir.
+                    val dir = File(context.cacheDir, "share_export").apply { mkdirs() }
+                    dir.listFiles()?.forEach { it.delete() }
+                    File(dir, "${exportBaseName()}.${f.ext}").also { out ->
+                        if (f == ExportFormat.PDF) {
+                            out.outputStream().use { os ->
+                                studio.voxsum.core.export.PdfExport.write(os, utts, speakerLabel, t, sum, sumH, txH, acts, actH)
+                            }
+                        } else {
+                            out.writeText(body.orEmpty())
+                        }
+                    }
+                }.getOrNull()
+            }
+            val shareUri = file?.let {
+                runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", it) }.getOrNull()
+            }
+            if (shareUri == null) { notify(context.getString(R.string.export_share_failed)); return@launch }
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = f.mime
+                putExtra(Intent.EXTRA_STREAM, shareUri)
+                putExtra(Intent.EXTRA_SUBJECT, t ?: context.getString(R.string.app_name))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            runCatching { context.startActivity(Intent.createChooser(send, context.getString(R.string.export_action_share))) }
+        }
+    }
+
+    fun onExport(f: ExportFormat, share: Boolean) {
+        if (f == ExportFormat.M4A) {
+            if (share) shareSession(VoxsumSession.Format.M4A)
+            // Re-saving an already-saved (or opened-writable) session overwrites the SAME file;
+            // only the first save opens the document picker — no more x(1).m4a proliferation.
+            else lastSaveUri?.let { stageSessionExport(false, it, VoxsumSession.Format.M4A) }
+                ?: sessionSaverM4a.launch(VoxsumSession.suggestFileName(title, VoxsumSession.Format.M4A.ext))
+            return
+        }
+        if (share) { shareExport(f); return }
+        val name = "${exportBaseName()}.${f.ext}"
+        when (f) {
+            ExportFormat.TEXT -> txtSaver.launch(name)
+            ExportFormat.MARKDOWN -> mdSaver.launch(name)
+            ExportFormat.PDF -> pdfSaver.launch(name)
+            ExportFormat.SRT -> srtSaver.launch(name)
+            ExportFormat.VTT -> vttSaver.launch(name)
+            ExportFormat.LRC -> lrcSaver.launch(name)
+            ExportFormat.M4A -> Unit   // handled above
+        }
+    }
+
     fun copyTranscript() {
         val cm = context.getSystemService(android.content.ClipboardManager::class.java)
         cm?.setPrimaryClip(android.content.ClipData.newPlainText("VoxSum transcript", transcriptText()))
@@ -1981,21 +2068,7 @@ private fun TranscribeScreen(
                 onSearch = { sessTab = 1; searchActive = !searchActive; if (!searchActive) searchQuery = "" },
                 onSettings = { showConfigSheet = true },
                 // No pre-decode here; the picker callback hands the build+write to the service.
-                onSaveSessionM4a = {
-                    // Re-saving an already-saved (or opened-writable) session overwrites the SAME file;
-                    // only the first save opens the document picker — no more x(1).m4a proliferation.
-                    lastSaveUri?.let { stageSessionExport(false, it, VoxsumSession.Format.M4A) }
-                        ?: sessionSaverM4a.launch(VoxsumSession.suggestFileName(title, VoxsumSession.Format.M4A.ext))
-                },
-                onShareSessionM4a = { shareSession(VoxsumSession.Format.M4A) },
-                onCopyTranscript = { copyTranscript() },
-                onShareTranscript = { shareTranscript() },
-                onExportTxt = { txtSaver.launch("${exportBaseName()}.txt") },
-                onExportSrt = { srtSaver.launch("${exportBaseName()}.srt") },
-                onExportVtt = { vttSaver.launch("${exportBaseName()}.vtt") },
-                onExportLrc = { lrcSaver.launch("${exportBaseName()}.lrc") },
-                onExportMarkdown = { mdSaver.launch("${exportBaseName()}.md") },
-                onExportPdf = { pdfSaver.launch("${exportBaseName()}.pdf") },
+                onOpenExport = { showExportSheet = true },
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -2239,6 +2312,13 @@ private fun TranscribeScreen(
             onDismiss = { showPodcastSheet = false },
         )
     }
+    if (showExportSheet) {
+        ExportSheet(
+            onExport = { f, share -> onExport(f, share) },
+            onCopyTranscript = { copyTranscript() },
+            onDismiss = { showExportSheet = false },
+        )
+    }
     if (showAddSourceSheet) {
         AddSourceSheet(
             onPickFile = { picker.launch(arrayOf("audio/*", "video/*")) },
@@ -2274,9 +2354,9 @@ private fun TranscribeScreen(
         ExportingOverlay(onDismiss = { exporting = false })
     }
     if (opening) OpeningOverlay()
-    BackHandler(showConfigSheet || showPodcastSheet || showAddSourceSheet || showYouTubeSheet) {
+    BackHandler(showConfigSheet || showPodcastSheet || showAddSourceSheet || showYouTubeSheet || showExportSheet) {
         showConfigSheet = false; showPodcastSheet = false
-        showAddSourceSheet = false; showYouTubeSheet = false
+        showAddSourceSheet = false; showYouTubeSheet = false; showExportSheet = false
     }
 }
 
@@ -2845,9 +2925,13 @@ private fun UtteranceRow(
                     },
                     inlineContent = if (label == null) emptyMap() else mapOf(
                         INLINE_CHIP to InlineTextContent(
-                            // Estimated placeholder: CJK glyphs ~1em, latin ~0.55em, + chip padding.
+                            // MEASURED, not estimated. The old per-character guess (latin 7 sp, CJK
+                            // 12 sp, + 18 sp padding) under-counted the chip's own 20 dp padding and
+                            // any wide glyph, so the placeholder came out narrower than the chip and
+                            // the last character was clipped — "Bob" rendered as "Bo". Measuring with
+                            // the chip's real style is exact for latin, CJK and mixed labels alike.
                             Placeholder(
-                                width = (label.sumOf { c -> (if (c.code > 0x2E7F) 12 else 7).toLong() } + 18).toInt().sp,
+                                width = speakerChipWidth(label),
                                 height = 20.sp,
                                 placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
                             ),
@@ -2910,6 +2994,36 @@ private fun UtteranceTextEditor(initial: String, onSave: (String) -> Unit, onCan
     }
 }
 
+/**
+ * Text style of a speaker chip. Shared by [SpeakerTag] and [speakerChipWidth] so the measured
+ * placeholder and the rendered chip can never disagree.
+ *
+ * Tight line box: CJK glyphs at labelMedium's default 16 sp line height plus 3 dp paddings exceeded
+ * the 18 sp inline placeholder and the bottom of 語者 was clipped. lineHeight == fontSize with no
+ * extra font padding keeps the chip inside the placeholder with the glyphs fully visible.
+ */
+@Composable
+private fun speakerChipTextStyle() = MaterialTheme.typography.labelMedium.copy(
+    lineHeight = 12.sp,
+    platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+    fontWeight = FontWeight.Medium,
+)
+
+/** Chip padding (10 dp each side) + its 1 dp border each side. */
+private val SPEAKER_CHIP_CHROME = 22.dp
+
+/** Exact inline-placeholder width for a speaker chip: measured label + the chip's own chrome. */
+@Composable
+private fun speakerChipWidth(label: String): androidx.compose.ui.unit.TextUnit {
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val style = speakerChipTextStyle()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    return remember(label, style, density) {
+        val textPx = measurer.measure(label, style, maxLines = 1).size.width
+        with(density) { (textPx.toDp() + SPEAKER_CHIP_CHROME).toSp() }
+    }
+}
+
 @Composable
 private fun SpeakerTag(
     speakerId: Int,
@@ -2929,16 +3043,8 @@ private fun SpeakerTag(
         ) {
             Text(
                 label,
-                // Tight line box: CJK glyphs at labelMedium's default 16 sp line height plus
-                // 3 dp paddings exceeded the 18 sp inline placeholder and the bottom of 語者
-                // was clipped. lineHeight == fontSize + no extra font padding keeps the chip
-                // inside the placeholder with the glyphs fully visible.
-                style = MaterialTheme.typography.labelMedium.copy(
-                    lineHeight = 12.sp,
-                    platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
-                ),
+                style = speakerChipTextStyle(),
                 color = color,
-                fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 modifier = Modifier
                     .clickable(onClick = onTap)

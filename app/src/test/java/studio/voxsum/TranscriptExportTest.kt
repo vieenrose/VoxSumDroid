@@ -52,6 +52,29 @@ class TranscriptExportTest {
         assertTrue(md.contains("- `00:01` **Speaker 1** Hello there"))
     }
 
+    @Test fun documentFormatsCarryActionItems() {
+        // Action items used to reach no export at all — only the .m4a archive held them.
+        val txt = TranscriptExport.plainText(sample, label, "T", "sum", "- Alice to follow up", "Action items")
+        assertTrue(txt.contains("Action items\n- Alice to follow up"))
+        val md = TranscriptExport.markdown(
+            sample, label, "T", "sum", "Summary", "Transcript", "- Alice to follow up", "Action items",
+        )
+        assertTrue(md.contains("## Action items\n\n- Alice to follow up"))
+        // Section order is Summary → Actions → Transcript.
+        assertTrue(md.indexOf("## Summary") < md.indexOf("## Action items"))
+        assertTrue(md.indexOf("## Action items") < md.indexOf("## Transcript"))
+    }
+
+    @Test fun theExtractorsNothingFoundMarkerIsNotRenderedAsAnActionItem() {
+        // ActionItemExtractor writes "-" when it finds nothing; that must not become a section.
+        val txt = TranscriptExport.plainText(sample, label, "T", "sum", "-", "Action items")
+        assertFalse(txt.contains("Action items"))
+        val md = TranscriptExport.markdown(sample, label, "T", "sum", "Summary", "Transcript", "-", "Action items")
+        assertFalse(md.contains("## Action items"))
+        // Absent (null) action items behave the same way.
+        assertFalse(TranscriptExport.markdown(sample, label, "T", "sum", "Summary", "Transcript").contains("Action items"))
+    }
+
     @Test fun degenerateEndGetsOneSecondCueAndNoSpeakerPrefixWhenNull() {
         val srt = TranscriptExport.srt(listOf(u(0, "x", 10.0, 10.0, null)), label)
         assertTrue(srt.contains("00:00:10,000 --> 00:00:11,000"))
