@@ -1,0 +1,5 @@
+• Exporting is now one "Export & share…" entry that opens a sheet grouping formats by what you get — a VoxSum session, a document (PDF/Markdown/text) or subtitles (SRT/VTT/LRC) — instead of eight items buried in the overflow menu.
+• Action items are finally included in exports. They previously appeared only inside the .m4a session file, so a PDF or Markdown export silently left them out.
+• Every format can now be shared, not just the session file and the plain transcript.
+• Fixes summaries and titles that could come back empty: a generation that ran to its length budget discarded everything it had produced.
+• Fixes speaker names losing their last character in the transcript ("Bob" showed as "Bo"). Saved sessions were never affected — the names were stored correctly all along.
