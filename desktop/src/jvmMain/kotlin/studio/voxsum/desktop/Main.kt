@@ -83,6 +83,7 @@ import androidx.compose.ui.window.application
 import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.ConfigStore
+import studio.voxsum.core.asr.NemotronLang
 import studio.voxsum.core.config.TargetLanguage
 import studio.voxsum.core.text.ChineseScript
 import studio.voxsum.core.config.FontScaleStore
@@ -279,9 +280,24 @@ private fun mainApplication() = application {
                         if (hasSummary && (newStyle != oldStyle || cfg.llmModelId != old.llmModelId || cfg.summaryPrompt != old.summaryPrompt)) {
                             next = next.copy(summaryStale = true)
                         }
+                        // Spoken language: for Nemotron the Chinese variant only picks the OpenCC
+                        // direction — same prompt slot, so the decode is byte-identical and this is
+                        // a pure re-render (transcript only; the summary's language is Target
+                        // language's business). Mirrors MainActivity's zh-TW<->zh-CN branch.
+                        val sameSlot = NemotronLang.slot(cfg.language) == NemotronLang.slot(old.language)
+                        val newPin = NemotronLang.pinnedScriptId(cfg.language)
+                        val pureScriptRelabel = cfg.language != old.language && sameSlot && newPin != null &&
+                            AsrBackend.fromId(cfg.asrBackend) == AsrBackend.NEMOTRON
+                        if (pureScriptRelabel && hasContent) {
+                            val ccT = if (newPin == "zh-Hant") OpenCcConverter.getTranscriptTraditional()
+                                      else OpenCcConverter.get(ChineseScript.SIMPLIFIED)
+                            next = next.copy(utterances = next.utterances.map { u -> u.copy(text = ccT.convert(u.text)) })
+                        }
                         // Recognition-affecting changes → the transcript itself is stale; offer a
-                        // re-transcribe (which refreshes the whole tree).
-                        if (hasContent && (cfg.asrBackend != old.asrBackend || cfg.language != old.language ||
+                        // re-transcribe (which refreshes the whole tree). A same-slot Chinese
+                        // relabel handled just above is NOT one of them.
+                        if (hasContent && (cfg.asrBackend != old.asrBackend ||
+                                (cfg.language != old.language && !(sameSlot && pureScriptRelabel)) ||
                                 cfg.useItn != old.useItn || cfg.vadThreshold != old.vadThreshold ||
                                 cfg.diarizationEnabled != old.diarizationEnabled || cfg.numSpeakers != old.numSpeakers)
                         ) {

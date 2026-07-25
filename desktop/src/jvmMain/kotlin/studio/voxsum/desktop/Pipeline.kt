@@ -69,12 +69,11 @@ suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryS
         // Convert each utterance to the target Chinese script at ASR-emit time, like Android's
         // outputConverter (TranscriptionService) — SenseVoice emits Simplified, so without this a
         // zh-Hant target shows a Simplified transcript. Same converter the summary/actions use.
-        val script = TargetLanguage.scriptFor(config.targetLanguage)
         val convert: (String) -> String = transcriptConvert(config, backend)
 
         val (tagged, speakerCount) = if (backend == AsrBackend.MOSS) {
             // MOSS-TD diarizes natively in one pass — no sherpa ASR, no separate diarization stage.
-            runMossTranscription(models, config, pcm, convert, update, utterances)
+            runMossTranscription(models, config, pcm, update, utterances)
         } else {
             ensureAsrAndDiarizationModels(models, backend, config.diarizationEnabled, update)
             update { it.copy(status = Strings.stTranscribing, progress = 0f) }
@@ -140,7 +139,6 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
         val dest = File(recordingsDir, "recording_${System.currentTimeMillis()}.wav")
         val recorder = AudioRecorder()
         val utterances = ArrayList<TranscriptEvent.Utterance>()
-        val script = TargetLanguage.scriptFor(config.targetLanguage)
         val convert: (String) -> String = transcriptConvert(config, backend)
 
         val (tagged, speakerCount) = if (backend == AsrBackend.MOSS) {
@@ -158,7 +156,7 @@ suspend fun recordAndTranscribe(config: TranscriptionConfig, style: SummaryStyle
             update { it.copy(audioFile = dest, fileName = dest.name, micLevel = 0f) }
             withContext(Dispatchers.IO) { studio.voxsum.core.audio.WavNormalizer.normalizeInPlace(dest) }
             val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(dest) }
-            runMossTranscription(models, config, pcm, convert, update, utterances)
+            runMossTranscription(models, config, pcm, update, utterances)
         } else {
             ensureAsrAndDiarizationModels(models, backend, config.diarizationEnabled, update)
             // As in runPipeline: the ASR engine outlives transcription so diarization's split rescue
@@ -320,7 +318,7 @@ private suspend fun ensureAsrAndDiarizationModels(
  */
 private suspend fun runMossTranscription(
     models: ModelManager, config: TranscriptionConfig, pcm: FloatArray,
-    convert: (String) -> String, update: Update, utterances: MutableList<TranscriptEvent.Utterance>,
+    update: Update, utterances: MutableList<TranscriptEvent.Utterance>,
 ): Pair<List<TranscriptEvent.Utterance>, Int> {
     if (!models.mossReady()) {
         update { it.copy(status = Strings.stDownloadingAsr, progress = 0f) }
@@ -416,12 +414,11 @@ suspend fun reDiarize(state: AppState, update: Update) {
         // Same normalize=true as runPipeline: diarization must hear the same audio ASR heard.
         val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(file, normalize = true) }
 
-        val script = TargetLanguage.scriptFor(config.targetLanguage)
         val convert: (String) -> String = transcriptConvert(config, backend)
         val (tagged, speakerCount) = if (backend == AsrBackend.MOSS) {
             // MOSS has no separate diarization stage — "re-detect speakers" re-runs the one-pass
             // pipeline (re-transcribe + re-link), the only meaningful re-diarize for this backend.
-            runMossTranscription(models, config, pcm, convert, update, ArrayList())
+            runMossTranscription(models, config, pcm, update, ArrayList())
         } else {
             ensureAsrAndDiarizationModels(models, backend, diarizationEnabled = true, update)
             withContext(Dispatchers.Default) {

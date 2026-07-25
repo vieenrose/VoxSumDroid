@@ -64,13 +64,27 @@ class OpenCcConverter private constructor(
             }
 
         private fun buildTraditionalConservative(): OpenCcConverter {
-            val s2t = HashMap<String, String>(60_000)
-            loadInto("opencc/STPhrases.txt", s2t)
-            loadInto("opencc/STCharacters.txt", s2t)
             val twChars = HashMap<String, String>(2048)
             loadInto("opencc/TWVariants.txt", twChars)
-            return build(listOf(s2t, twChars))
+            return build(listOf(s2tStage(), twChars))
         }
+
+        /**
+         * The S→T stage (~53k entries from a 1 MB dictionary pair) shared by BOTH Traditional
+         * converters — a zh-Hant session builds the conservative one for the transcript and the
+         * localising one for the summary, and used to keep two identical copies resident. Stages
+         * are read-only once built, so sharing is safe.
+         */
+        @Volatile private var s2t: Map<String, String>? = null
+
+        private fun s2tStage(): Map<String, String> =
+            s2t ?: synchronized(this) {
+                s2t ?: HashMap<String, String>(60_000).also { m ->
+                    loadInto("opencc/STPhrases.txt", m)
+                    loadInto("opencc/STCharacters.txt", m)
+                    s2t = m
+                }
+            }
 
         fun get(script: ChineseScript): OpenCcConverter = when (script) {
             ChineseScript.TRADITIONAL -> traditional ?: synchronized(this) { traditional ?: buildTraditional().also { traditional = it } }
@@ -78,14 +92,11 @@ class OpenCcConverter private constructor(
         }
 
         private fun buildTraditional(): OpenCcConverter {
-            val s2t = HashMap<String, String>(60_000)
-            loadInto("opencc/STPhrases.txt", s2t)
-            loadInto("opencc/STCharacters.txt", s2t)
             val tw = HashMap<String, String>(2048)
             loadInto("opencc/TWVariants.txt", tw)
             loadInto("opencc/TWVariantsPhrases.txt", tw)
             loadInto("opencc/TWPhrases.txt", tw)
-            return build(listOf(s2t, tw))
+            return build(listOf(s2tStage(), tw))
         }
 
         private fun buildSimplified(): OpenCcConverter {
