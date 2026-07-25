@@ -15,6 +15,16 @@
 #
 # The isolated app has its own storage: it re-downloads models (~1.7 GB) on first run and cannot
 # see the real app's sessions. That is the point — nothing of the user's is read or written.
+#
+# KNOWN LIMIT: tests using Compose's createComposeRule() (AddSourceSheetTest, SourceSheetsTest,
+# UiComponentsTest, SettingsContentTest …) fail under the suffixed id with
+#   Unable to resolve activity … <testpkg>/androidx.activity.ComponentActivity
+# The rule hosts content in ComponentActivity resolved against the instrumentation package, and
+# with a renamed application id that lookup is not satisfied — adding ui-test-manifest as an
+# androidTest dependency and declaring the activity in an androidTest manifest both failed to fix
+# it. Those tests pass normally WITHOUT isolation, so run them on an emulator (or any device with
+# no release build installed) via the usual `gradlew connectedDebugAndroidTest`. Use this script
+# for the device-specific half: engines, pipeline, robustness, storage, exports.
 set -euo pipefail
 
 SERIAL="${1:-}"
@@ -46,8 +56,25 @@ echo ">> installing (alongside any release build)"
 "$ADB" -s "$SERIAL" install -r -t "$TEST_APK" >/dev/null
 
 echo ">> running the suite (first run downloads models; expect it to be slow)"
-"$ADB" -s "$SERIAL" shell am instrument -w -r "$@" \
-  studio.voxsum.androidtest.test/androidx.test.runner.AndroidJUnitRunner
+# Per class, not one big run: a test that gets OOM-killed takes the whole instrumentation with it
+# (the runner dies, and every class after it silently never reports). Isolating them means one
+# crash costs one class. Pass -e class ... yourself to run a single one.
+RUNNER=studio.voxsum.androidtest.test/androidx.test.runner.AndroidJUnitRunner
+if [ $# -gt 0 ]; then
+  "$ADB" -s "$SERIAL" shell am instrument -w -r "$@" "$RUNNER"
+else
+  CLASSES=$(find "$ROOT/app/src/androidTest/java" -name '*Test.kt' -exec basename {} .kt \; | sort)
+  pass=0; fail=0; crash=0
+  for c in $CLASSES; do
+    printf '\n=== %s ===\n' "$c"
+    out=$("$ADB" -s "$SERIAL" shell am instrument -w -r -e class "studio.voxsum.$c" "$RUNNER" 2>&1) || true
+    echo "$out" | grep -E '^(OK|FAILURES|Tests run|INSTRUMENTATION_RESULT: shortMsg)' || true
+    if echo "$out" | grep -q 'Process crashed'; then crash=$((crash+1))
+    elif echo "$out" | grep -q '^FAILURES'; then fail=$((fail+1))
+    else pass=$((pass+1)); fi
+  done
+  printf '\n>> classes: %d clean, %d with failures, %d crashed\n' "$pass" "$fail" "$crash"
+fi
 
 # Clean up so the isolated copy's models do not sit on the device forever.
 echo ">> uninstalling the isolated test build"

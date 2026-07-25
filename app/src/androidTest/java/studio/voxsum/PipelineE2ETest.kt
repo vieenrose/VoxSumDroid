@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
+import org.junit.Before
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,6 +27,27 @@ import studio.voxsum.core.models.ModelManager
  */
 @RunWith(AndroidJUnit4::class)
 class PipelineE2ETest {
+
+    /**
+     * This drives ASR + diarization + the ~2.5 GB summarizer in one test. On a small device the
+     * kernel's lowmemorykiller takes the process mid-run — which aborts the WHOLE instrumentation,
+     * not just this class, so the remaining tests never report. (Observed on a 3.6 GB Boox:
+     * "lowmemorykiller: super critical pressure event" at the moment of the crash.) The app itself
+     * is fine there because it serialises the phases and frees the ASR engine before the LLM loads;
+     * this test holds more at once. Skip rather than take the suite down with us.
+     */
+    @Before fun requireEnoughRam() {
+        val am = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+            .targetContext.getSystemService(android.content.Context.ACTIVITY_SERVICE)
+                as android.app.ActivityManager
+        val info = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+        val totalMb = info.totalMem / (1024 * 1024)
+        org.junit.Assume.assumeTrue(
+            "needs ~5 GB RAM to hold ASR + diarization + the summarizer at once; this device has ${totalMb}MB",
+            totalMb >= 5_000,
+        )
+    }
+
 
     @Test
     fun fullPipelineProducesTranscriptSpeakersAndSummary() = runBlocking {
