@@ -8,7 +8,11 @@ project(voxsum-desktop-native)
 #
 # sherpa-onnx and onnxruntime were removed in 2026-07 when the last backend (X-ASR) moved to
 # LiteRT, mirroring the Android app; RapidSpeech.cpp went with the MOSS-TD subprocess. Every
-# model now runs on LiteRT through libvoxsum-mosslite.so, except summarization (llama.cpp).
+# ASR/VAD/diarization model now runs on LiteRT through libvoxsum-mosslite.so.
+#
+# llama.cpp (and its ggml) STAYS, deliberately: it runs the Gemma 4 summarizer here. Android
+# summarizes with LiteRT-LM, which has no desktop port — so this is the one remaining ggml
+# dependency and it is not a leftover to clean up.
 # ---------------------------------------------------------------------------
 
 set(NATIVE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../native")
