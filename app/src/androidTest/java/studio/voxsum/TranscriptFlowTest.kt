@@ -1,6 +1,5 @@
 package studio.voxsum
 
-import android.Manifest
 import android.net.Uri
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -13,69 +12,76 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import java.io.File
+import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.ExternalResource
 import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 import studio.voxsum.core.events.TranscriptEvent
-import studio.voxsum.service.TranscriptionService
 
 /**
  * Activity-level UI flow tests: inject real pipeline events into TranscriptionService.events (exactly
  * as the service emits them) and assert the screen reflects each — the transcript list, the always-
  * visible status line (progress / line+speaker count / error). Complements the isolated component tests.
+ *
+ * These assert against the Session screen, which MainActivity only reaches for a started or reopened
+ * session, so each test opens a seeded one first — see [SessionFixture] for why it has to be a real
+ * embedded session rather than a bare audio file.
  */
 @RunWith(AndroidJUnit4::class)
-@org.junit.Ignore("Written for the pre-Studio home: it waits for the Add-audio button (now only an icon contentDescription) and injects events expecting the Session screen, but MainActivity now opens on the Studio shelf and only navigates to Session when a session is started or reopened. Needs rewriting to open a saved session first (see VoxsumSessionM4aTest for building one) — the assertions themselves are still valid.")
 class TranscriptFlowTest {
 
     private val compose = createAndroidComposeRule<MainActivity>()
 
+    /** Seeding must finish BEFORE the activity launches, so it lives in a rule outside the compose one. */
+    private val seed = object : ExternalResource() {
+        override fun before() { SessionFixture.clear(); SessionFixture.seed() }
+    }
+
     @get:Rule
     val rules: RuleChain = RuleChain
-        .outerRule(GrantPermissionRule.grant(Manifest.permission.POST_NOTIFICATIONS))
+        .outerRule(SessionFixture.notificationPermission)
+        .around(seed)
         .around(compose)
 
     private fun str(resId: Int, vararg args: Any) = compose.activity.getString(resId, *args)
 
-    /** Ensure the screen has composed (so its event collector is active) before injecting events. */
-    private fun awaitReady() {
-        compose.onAllNodesWithText(compose.activity.getString(R.string.add_audio)).onFirst().assertIsDisplayed()
-    }
+    @Before fun openSession() = SessionFixture.open(compose)
+
+    @After fun tidy() = SessionFixture.cleanUp()
 
     private fun waitForText(text: String) = compose.waitUntil(5_000) {
         compose.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
     }
 
     @Test fun statusEventUpdatesStatusLine() {
-        awaitReady()
         // Each phase now owns the status line via a Status event (Progress drives only the bar).
         val msg = "Identifying speakers (uitest)"
-        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.Status(msg))
+        SessionFixture.emit(TranscriptEvent.Status(msg))
         waitForText(msg)
         compose.onNodeWithText(msg, substring = true).assertIsDisplayed()
     }
 
     @Test fun downloadProgressIgnoredWhenNotRunning() {
-        awaitReady()
         // DownloadProgress drives the status line ONLY during an active run — the handler guards on
-        // `running` so a late buffered event (e.g. after Stop) can't re-stick the UI. With no run
-        // active (home screen), its label must NOT appear. A follow-up Status (which updates
+        // `running` so a late buffered event (e.g. after Stop) can't re-stick the UI. A reopened
+        // session is not running, so its label must NOT appear. A follow-up Status (which updates
         // unconditionally) acts as an ordering marker: once it shows, the DownloadProgress before it
         // was already processed — and skipped.
         val dl = "Downloading summary model 42% (uitest)"
         val marker = "Marker after download (uitest)"
-        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.DownloadProgress(0.42f, dl))
-        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.Status(marker))
+        SessionFixture.emit(TranscriptEvent.DownloadProgress(0.42f, dl))
+        SessionFixture.emit(TranscriptEvent.Status(marker))
         waitForText(marker)
         compose.onAllNodesWithText(dl, substring = true).assertCountEquals(0)
     }
 
     @Test fun completeRendersUtterancesAndLineSpeakerCount() {
-        awaitReady()
-        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.Complete(
+        SessionFixture.emit(
+            TranscriptEvent.Complete(
                 utterances = listOf(
                     TranscriptEvent.Utterance(0, "first line here", 0.0, 1.0, speaker = 0),
                     TranscriptEvent.Utterance(1, "second line here", 1.0, 2.0, speaker = 1),
@@ -91,8 +97,7 @@ class TranscriptFlowTest {
     }
 
     @Test fun failedEventShowsErrorStatus() {
-        awaitReady()
-        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.Failed("disk full"))
+        SessionFixture.emit(TranscriptEvent.Failed("disk full"))
         val expected = str(R.string.status_error, "disk full")
         waitForText(expected)
         // The error surfaces in BOTH the status line and a snackbar — assert at least one is shown.
@@ -100,12 +105,11 @@ class TranscriptFlowTest {
     }
 
     @Test fun loadingAnAudioSourceShowsThePlayerAndPlayToggles() {
-        awaitReady()
         // Stage a real, short 16 kHz wav into the app's cache and load it as the audio source — a
         // RecordingSaved event is exactly how the recording flow hands the player its WAV.
         val bytes = InstrumentationRegistry.getInstrumentation().context.assets.open("en.wav").use { it.readBytes() }
         val wav = File(compose.activity.cacheDir, "uitest_player.wav").apply { writeBytes(bytes) }
-        TranscriptionService.events.tryEmit(TranscriptionService.UNTAGGED to TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
+        SessionFixture.emit(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
 
         // The docked player appears with a Play control (the MediaPlayer prepares off-thread).
         val play = str(R.string.cd_play)
