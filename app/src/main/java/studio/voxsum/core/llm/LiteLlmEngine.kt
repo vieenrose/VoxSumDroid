@@ -42,6 +42,23 @@ class LiteLlmEngine private constructor(
         val eng = engine ?: return ""
         if (cancelled) return ""
         val t0 = SystemClock.elapsedRealtime()
+        val sb = StringBuilder()
+        var pieces = 0
+        // Set when WE stop the generation at the output cap, to tell that apart from a
+        // user cancel: both arrive as a CancellationException out of collect, but a
+        // capped generation must keep the text it already produced.
+        var capped = false
+        fun finish(): String {
+            val text = dedupeAdjacentSentences(sb.toString().trim())
+            onToken.onToken(text)
+            val s = (SystemClock.elapsedRealtime() - t0) / 1000.0
+            Log.i(
+                "voxsum-litellm",
+                "perf: prompt=${prompt.length} ch, out=$pieces pieces/${text.length} ch in %.1fs%s (litertlm)"
+                    .format(s, if (capped) " [capped]" else ""),
+            )
+            return text
+        }
         return try {
             val conversation = eng.createConversation(
                 ConversationConfig(
@@ -53,8 +70,6 @@ class LiteLlmEngine private constructor(
                 ),
             )
             active = conversation
-            val sb = StringBuilder()
-            var pieces = 0
             conversation.use { conv ->
                 runBlocking {
                     conv.sendMessageAsync(prompt).collect { msg ->
@@ -66,25 +81,25 @@ class LiteLlmEngine private constructor(
                         // Output budget: the engine stops at end-of-turn natively, but a
                         // degenerate generation must not free-run — cancel past the cap.
                         if (maxTokens in 1..pieces && !cancelled) {
+                            capped = true
                             runCatching { conv.cancelProcess() }
                         }
                     }
                 }
             }
-            var text = dedupeAdjacentSentences(sb.toString().trim())
-            onToken.onToken(text)
-            val s = (SystemClock.elapsedRealtime() - t0) / 1000.0
-            Log.i(
-                "voxsum-litellm",
-                "perf: prompt=${prompt.length} ch, out=$pieces pieces/${text.length} ch in %.1fs (litertlm)".format(s),
-            )
-            text
+            finish()
         } catch (t: Throwable) {
-            // cancelProcess() surfaces as a CancellationException from collect — the
-            // accumulated text is intentionally discarded on user-cancel.
-            if (cancelled) "" else {
-                Log.e("voxsum-litellm", "generate failed", t)
-                ""
+            // cancelProcess() surfaces as a CancellationException from collect. On a USER
+            // cancel the partial text is intentionally discarded; on our own output cap it
+            // is the result — returning "" there silently emptied any generation that ran
+            // to its budget (a long map chunk, or almost any title at maxTokens = 24).
+            when {
+                cancelled -> ""
+                capped -> finish()
+                else -> {
+                    Log.e("voxsum-litellm", "generate failed", t)
+                    ""
+                }
             }
         } finally {
             active = null
