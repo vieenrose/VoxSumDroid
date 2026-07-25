@@ -539,15 +539,20 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
  * others follow Target language.
  */
 private fun transcriptConvert(config: TranscriptionConfig, backend: AsrBackend): (String) -> String {
-    val script = if (backend == AsrBackend.NEMOTRON) when {
-        config.language == "zh-TW" -> ChineseScript.TRADITIONAL
-        config.language == "zh-CN" -> ChineseScript.SIMPLIFIED
+    val lang = config.language
+    val script = when {
+        // An explicit Chinese variant pins the script outright.
+        lang == "zh-TW" -> ChineseScript.TRADITIONAL
+        lang == "zh-CN" -> ChineseScript.SIMPLIFIED
+        // No language stated — the default, and the only state the backends without a picker
+        // are ever in. Every model here emits Simplified, so converting to Traditional is what
+        // makes auto mode usable for a zh-TW user; it is a no-op on non-Chinese output.
+        NemotronLang.isAuto(lang) -> ChineseScript.TRADITIONAL
         // Explicitly non-Chinese speech: OpenCC could only corrupt it.
-        !NemotronLang.isChinese(config.language) -> null
-        // Chinese with no variant stated ("", "auto", legacy "zh"/"yue"): follow Target
-        // language, else the transcript stays Simplified under a Traditional summary.
+        !NemotronLang.isChinese(lang) -> null
+        // Chinese without a stated variant (legacy "zh"/"yue"): follow Target language.
         else -> TargetLanguage.scriptFor(config.targetLanguage)
-    } else TargetLanguage.scriptFor(config.targetLanguage)
+    }
     return when (script) {
         ChineseScript.TRADITIONAL -> OpenCcConverter.getTranscriptTraditional().let { c -> { t: String -> c.convert(t) } }
         ChineseScript.SIMPLIFIED -> OpenCcConverter.get(ChineseScript.SIMPLIFIED).let { c -> { t: String -> c.convert(t) } }
