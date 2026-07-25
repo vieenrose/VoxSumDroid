@@ -8,6 +8,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasAnySibling
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -71,8 +73,14 @@ class SettingsContentTest {
     @Test fun togglingDiarizationReportsIt() {
         var changed: TranscriptionConfig? = null
         host(baseCfg.copy(diarizationEnabled = true), onChange = { changed = it })
-        // x-asr backend → the diarization Switch is the only toggleable node.
-        compose.onNode(isToggleable()).performScrollTo().assertIsOn().performClick()
+        // Settings now has several toggleables (hardware chips, the precise-diarization switch),
+        // so anchor on the row's own label instead of assuming a single one.
+        val label = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+            .targetContext.getString(R.string.settings_identify_speakers)
+        // useUnmergedTree: the merged semantics tree flattens the SwitchRow hierarchy, so every
+        // switch in the section looks like a sibling of every label and the matcher finds two.
+        compose.onNode(isToggleable() and hasAnySibling(hasText(label)), useUnmergedTree = true)
+            .performScrollTo().assertIsOn().performClick()
         assertEquals(false, changed?.diarizationEnabled)
     }
 

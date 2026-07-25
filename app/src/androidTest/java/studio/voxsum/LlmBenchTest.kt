@@ -32,7 +32,8 @@ class LlmBenchTest {
 
     @Test fun bench() { runBlocking {
         val args = InstrumentationRegistry.getArguments()
-        val modelUrl = args.getString("modelUrl") ?: error("pass -e modelUrl <http://127.0.0.1:PORT/x.gguf>")
+        val modelUrl = args.getString("modelUrl")
+        org.junit.Assume.assumeTrue("opt-in benchmark — pass -e modelUrl <http://127.0.0.1:PORT/model> to run", modelUrl != null)
         val bytes = (args.getString("bytes") ?: "0").toLong()
         val template = ChatTemplate.valueOf(args.getString("template") ?: "CHATML")
         val label = args.getString("label") ?: "model"
@@ -51,7 +52,7 @@ class LlmBenchTest {
         // filesDir, where native open()/mmap works. Skip if a same-size copy is already there.
         val local = File(appCtx.filesDir, "bench.gguf")
         if (local.length() != bytes || bytes == 0L) {
-            (java.net.URL(modelUrl).openConnection() as java.net.HttpURLConnection).apply {
+            (java.net.URL(modelUrl!!).openConnection() as java.net.HttpURLConnection).apply {
                 connectTimeout = 15000; readTimeout = 120000
             }.inputStream.use { i -> local.outputStream().use { o -> i.copyTo(o, 1 shl 20) } }
         }

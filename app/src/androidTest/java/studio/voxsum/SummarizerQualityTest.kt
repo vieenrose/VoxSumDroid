@@ -32,6 +32,7 @@ class SummarizerQualityTest {
         val gguf = args.getString("gguf") ?: "/data/local/tmp/qwen3-q8.gguf"
         val label = args.getString("label") ?: "Qwen3-0.6B Q8"
         val txt = args.getString("txt") ?: "/data/local/tmp/longtranscript.txt"
+        org.junit.Assume.assumeTrue("optional fixture — push a transcript to $txt to run", java.io.File(txt).exists())
         val transcript = File(txt).readText()
         assertTrue("push the gguf first → $gguf", File(gguf).exists())
 

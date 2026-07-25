@@ -57,6 +57,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // -PisolatedTestId installs the instrumented build under its own application id so it
+            // coexists with an installed release build. Without it, a debug-signed install of the
+            // same id forces an uninstall, taking the user's session library and models with it.
+            if (project.hasProperty("isolatedTestId")) applicationIdSuffix = ".androidtest"
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(
@@ -114,4 +120,7 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+    // Also in the test APK: with a suffixed application id the Compose rules launch
+    // ComponentActivity from the TEST package, which must therefore declare it.
+    androidTestImplementation("androidx.compose.ui:ui-test-manifest")
 }
