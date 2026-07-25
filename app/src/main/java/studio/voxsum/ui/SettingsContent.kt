@@ -525,11 +525,19 @@ private fun Section(title: String) {
 @Composable
 private fun NemotronLanguageRow(selected: String, enabled: Boolean, onSelect: (String) -> Unit) {
     val pal = LocalVoxSumPalette.current
+    // A stored id that has no chip (the legacy "zh"/"yue", or one left by another backend)
+    // must still show SOMETHING selected, else the row reads as "nothing chosen" while the
+    // engine happily decodes with it. Resolve it to the chip it behaves like.
+    val shown = when {
+        NemotronLang.OPTIONS.any { it.first == selected } -> selected
+        NemotronLang.slot(selected) == NemotronLang.slot("zh-CN") -> "zh-CN"
+        else -> ""
+    }
     LabeledRow(stringResource(R.string.settings_language)) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             NemotronLang.OPTIONS.forEach { (id, label) ->
                 FilterChip(
-                    selected = selected == id,
+                    selected = shown == id,
                     enabled = enabled,
                     onClick = { onSelect(id) },
                     label = { Text(label) },

@@ -36,8 +36,17 @@ class NemotronLiteAsr(
         encoder, promptFuse, decoder, joint, tokenizerJson, numThreads, cacheDir, gpu,
     ) ?: throw IllegalStateException("Nemotron LiteRT model failed to load")
 
-    private val vad = LiteVad.load(vadModelFile)
-        ?: run { engine.close(); throw IllegalStateException("Silero VAD tflite failed to load") }
+    // LiteVad.load can THROW as well as return null (it parses the pod's shape strings after
+    // nativeInit already handed back a live handle). Either way the ~600 MB engine above is
+    // allocated already and must not leak — an exception escaping a property initializer means
+    // the caller's use{} block never runs.
+    private val vad = try {
+        LiteVad.load(vadModelFile)
+            ?: throw IllegalStateException("Silero VAD tflite failed to load")
+    } catch (t: Throwable) {
+        engine.close()
+        throw t
+    }
 
     private val segmenter = VadSegmenter(vad, threshold = vadThreshold)
     private val index = intArrayOf(0)
@@ -115,7 +124,13 @@ class NemotronLiteAsr(
     override fun decodeSlice(samples: FloatArray): String {
         if (samples.isEmpty()) return ""
         return try {
-            AsrEngine.cleanTranscript(engine.decode(samples, slot).text).trim()
+            // The encoder is fixed at MAX_DECODE_SEC and silently truncates longer input, so split
+            // here as drain() does — this path sees utterances from a 30 s-ceiling backend when a
+            // restored session is re-diarized.
+            AsrEngine.cleanTranscript(
+                AsrEngine.splitLongSegment(samples, NemotronLiteEngine.MAX_DECODE_SEC)
+                    .joinToString("") { (_, piece) -> engine.decode(piece, slot).text }
+            ).trim()
         } catch (t: Throwable) {
             android.util.Log.w("NemotronLiteAsr", "split re-decode failed; keeping the fused line", t)
             ""

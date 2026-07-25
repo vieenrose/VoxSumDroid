@@ -273,9 +273,12 @@ class ModelManager(context: Context) {
                 return
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                // HF-only spec (Nemotron): there is no archive to fall back to, so surface the real
+                // error — and do it BEFORE the wipe, so a retry resumes instead of re-fetching the
+                // 596 MB encoder from zero.
+                if (spec.url.isEmpty()) throw e
                 // Mirror failed mid-way — clear partial files so the GitHub fallback starts clean.
                 d.deleteRecursively()
-                if (spec.url.isEmpty()) throw e   // HF-only spec: no archive fallback exists
             }
         }
         val archive = File(modelsDir, "${spec.dir}.tar.bz2")

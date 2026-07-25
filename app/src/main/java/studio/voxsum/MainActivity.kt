@@ -153,6 +153,7 @@ import studio.voxsum.core.export.TranscriptExport
 import java.io.File
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
+import studio.voxsum.core.asr.NemotronLang
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.RecordingRecovery
 import studio.voxsum.core.library.ProcessingQueue
@@ -1529,7 +1530,7 @@ private fun TranscribeScreen(
     // Re-render every Chinese text node into [newScript] via OpenCC — the cheap path for a pure
     // Traditional↔Simplified switch (no LLM). Conversion preserves wording, so it's applied to ALL nodes
     // including user-edited ones; the converter leaves Latin / kana / hangul untouched.
-    fun applyChineseScript(newScript: ChineseScript) {
+    fun applyChineseScript(newScript: ChineseScript, transcriptOnly: Boolean = false) {
         val gen = sessionGen
         val seq = ++scriptSeq
         val edit0 = editSeq
@@ -1547,10 +1548,15 @@ private fun TranscribeScreen(
             val ccTranscript = if (newScript == ChineseScript.TRADITIONAL)
                 withContext(Dispatchers.IO) { OpenCcConverter.getTranscriptTraditional(context) } else cc
             val newUtts = withContext(Dispatchers.Default) { utts0.map { it.copy(text = ccTranscript.convert(it.text)) } }
-            val newTitle = title0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
-            val newSummary = summary0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
-            val newActions = actions0?.let { withContext(Dispatchers.Default) { cc.convert(it) } }
-            val newNames = withContext(Dispatchers.Default) { names0.mapValues { (_, n) -> n.copy(name = cc.convert(n.name)) } }
+            // [transcriptOnly]: the spoken-language pick changed, which says nothing about the
+            // language the summary should be written in — that is Target language's job. Leave
+            // generated text alone rather than silently flipping a summary the user set to
+            // Simplified into Traditional.
+            val newTitle = title0?.takeIf { !transcriptOnly }?.let { withContext(Dispatchers.Default) { cc.convert(it) } } ?: title0
+            val newSummary = summary0?.takeIf { !transcriptOnly }?.let { withContext(Dispatchers.Default) { cc.convert(it) } } ?: summary0
+            val newActions = actions0?.takeIf { !transcriptOnly }?.let { withContext(Dispatchers.Default) { cc.convert(it) } } ?: actions0
+            val newNames = if (transcriptOnly) names0 else
+                withContext(Dispatchers.Default) { names0.mapValues { (_, n) -> n.copy(name = cc.convert(n.name)) } }
             if (seq != scriptSeq || gen != sessionGen || edit0 != editSeq) return@launch   // superseded / session changed / edited → drop
             for (i in newUtts.indices) if (i < utterances.size) utterances[i] = newUtts[i]
             title = newTitle; summary = newSummary; actionItems = newActions
@@ -2139,12 +2145,14 @@ private fun TranscribeScreen(
         // surfaces when the user next opens the session.
         if (!showConfigSheet && transcriptStale && !running && screen == Screen.Session) {
             transcriptStale = false
-            val res = snackbarHostState.showSnackbar(
+            // Informational only — deliberately NO action button. Re-transcribing runs
+            // clearSession(), discarding the summary, hand edits and speaker names, and this
+            // snackbar appears exactly where the harmless Re-summarize prompt does. The user
+            // takes that step through the ⋮ menu, where it reads as the destructive action it is.
+            snackbarHostState.showSnackbar(
                 message = context.getString(R.string.asr_language_changed),
-                actionLabel = context.getString(R.string.re_transcribe),
                 duration = SnackbarDuration.Long,
             )
-            if (res == SnackbarResult.ActionPerformed) audioUri?.let { launchAudio(it) }
         }
         if (!showConfigSheet && summaryStale && !summary.isNullOrBlank() && !running && screen == Screen.Session) {
             summaryStale = false
@@ -2192,13 +2200,17 @@ private fun TranscribeScreen(
                 // Any other change selects a different prompt slot, i.e. a genuinely different
                 // transcription → offer Re-transcribe instead.
                 if (newCfg.language != old.language && utterances.isNotEmpty()) {
-                    val zhVariants = setOf("zh-TW", "zh-CN")
-                    if (old.language in zhVariants && newCfg.language in zhVariants) {
+                    // Same prompt slot => the decode would be byte-identical, so this is a pure
+                    // script re-render (covers zh-TW<->zh-CN and the legacy "zh"/"yue" ids, which
+                    // all share slot 4). Only a genuinely different slot needs a re-transcribe.
+                    val sameDecode = NemotronLang.slot(old.language) == NemotronLang.slot(newCfg.language)
+                    val newPin = NemotronLang.pinnedScriptId(newCfg.language)
+                    if (sameDecode && newPin != null) {
                         applyChineseScript(
-                            if (newCfg.language == "zh-TW") ChineseScript.TRADITIONAL
-                            else ChineseScript.SIMPLIFIED
+                            if (newPin == "zh-Hant") ChineseScript.TRADITIONAL else ChineseScript.SIMPLIFIED,
+                            transcriptOnly = true,
                         )
-                    } else {
+                    } else if (!sameDecode) {
                         transcriptStale = true
                     }
                 }

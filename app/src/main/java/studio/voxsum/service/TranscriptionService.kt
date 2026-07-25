@@ -1779,10 +1779,18 @@ class TranscriptionService : LifecycleService() {
      * have no picker and follow Target language × locale.
      */
     private fun transcriptConverter(cfg: TranscriptionConfig, backend: AsrBackend): OpenCcConverter? {
-        val script = if (backend == AsrBackend.NEMOTRON) when (cfg.language) {
-            "zh-TW" -> studio.voxsum.core.text.ChineseScript.TRADITIONAL
-            "zh-CN" -> studio.voxsum.core.text.ChineseScript.SIMPLIFIED
-            else -> null
+        val script = if (backend == AsrBackend.NEMOTRON) when {
+            // An explicit Chinese variant pins the script outright.
+            cfg.language == "zh-TW" -> studio.voxsum.core.text.ChineseScript.TRADITIONAL
+            cfg.language == "zh-CN" -> studio.voxsum.core.text.ChineseScript.SIMPLIFIED
+            // Explicitly non-Chinese speech (en/ja/ko/…): never run OpenCC — it could only
+            // corrupt the output.
+            !studio.voxsum.core.asr.NemotronLang.isChinese(cfg.language) -> null
+            // Chinese, but no variant stated ("", "auto", legacy "zh"/"yue"): the pick doesn't
+            // decide the script, so follow Target language exactly like the other backends.
+            // Returning null here instead would emit a Simplified transcript under a
+            // Traditional summary.
+            else -> TargetLanguage.scriptFor(cfg.targetLanguage, this)
         } else TargetLanguage.scriptFor(cfg.targetLanguage, this)
         return when (script) {
             studio.voxsum.core.text.ChineseScript.TRADITIONAL -> OpenCcConverter.getTranscriptTraditional(this)
