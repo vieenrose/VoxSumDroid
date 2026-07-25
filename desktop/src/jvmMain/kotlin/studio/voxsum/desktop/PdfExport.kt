@@ -48,6 +48,8 @@ object PdfExport {
         summary: String?,
         summaryHeading: String,
         transcriptHeading: String,
+        actionItems: String? = null,
+        actionsHeading: String? = null,
     ) {
         PDDocument().use { doc ->
             val font = loadBodyFont(doc)
@@ -55,6 +57,11 @@ object PdfExport {
             title?.trim()?.takeIf { it.isNotEmpty() }?.let { pager.block(it, 18f, bold = true); pager.gap(10f) }
             summary?.trim()?.takeIf { it.isNotEmpty() }?.let {
                 pager.block(summaryHeading, 13f, bold = true); pager.gap(4f)
+                pager.block(it, 10f); pager.gap(14f)
+            }
+            // "-" is the extractor's own "nothing found" marker, not an action item.
+            actionItems?.trim()?.takeIf { it.isNotEmpty() && it != "-" }?.let {
+                pager.block(actionsHeading ?: "Action items", 13f, bold = true); pager.gap(4f)
                 pager.block(it, 10f); pager.gap(14f)
             }
             pager.block(transcriptHeading, 13f, bold = true); pager.gap(4f)

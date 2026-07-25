@@ -70,6 +70,11 @@ object Strings {
     val stDownloadingLlm: String get() = t("Downloading summarization model…", "Téléchargement du modèle de résumé…", "下載摘要模型中…")
     val stNoSpeech: String get() = t("No speech detected", "Aucune parole détectée", "未偵測到語音")
     fun saveAs(fmt: String): String = t("Save as $fmt", "Enregistrer en $fmt", "另存為 $fmt")
+    fun exportGroupDocument(): String = t("Document", "Document", "文件")
+    fun exportGroupSubtitles(): String = t("Subtitles", "Sous-titres", "字幕")
+    fun exportHeadingSummary(): String = t("Summary", "Résumé", "摘要")
+    fun exportHeadingTranscript(): String = t("Transcript", "Transcription", "逐字稿")
+    fun exportHeadingActions(): String = t("Action items", "Actions à suivre", "待辦事項")
     val stDiarizationSkipped: String get() = t(
         "Speaker detection failed — continuing without speakers",
         "Détection des locuteurs échouée — poursuite sans locuteurs",
