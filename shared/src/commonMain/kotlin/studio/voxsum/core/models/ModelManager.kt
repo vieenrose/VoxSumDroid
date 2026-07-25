@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrModelFiles
+import studio.voxsum.core.config.TranscriptionConfig
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.BufferedInputStream
@@ -100,14 +101,7 @@ class ModelManager(appFilesDir: File) {
     )
 
     private val asrSpecs: Map<AsrBackend, AsrModelSpec> = mapOf(
-        AsrBackend.SENSEVOICE to AsrModelSpec(
-            dir = SENSE_VOICE_DIR, url = SENSE_VOICE_URL, sha256 = SENSE_VOICE_SHA,
-            sentinels = listOf("model.int8.onnx", "tokens.txt"),
-            buildFiles = { d -> AsrModelFiles(model = File(d, "model.int8.onnx").path, tokens = File(d, "tokens.txt").path) },
-            hfBase = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main",
-            hfFiles = listOf("model.int8.onnx", "tokens.txt"),
-        ),
-        // The "punct" variant (matches the web app's xasr_models): mixed-case English +
+                // The "punct" variant (matches the web app's xasr_models): mixed-case English +
         // punctuation baked into the BPE vocab. The older zh-en-2023-11-22 zipformer emitted
         // ALL-CAPS, unpunctuated English — wrong model for a readable transcript.
         AsrBackend.XASR to AsrModelSpec(
@@ -162,25 +156,7 @@ class ModelManager(appFilesDir: File) {
                 "tokenizer.json" to "3f3d481deb073b64c2082e8c7860d487a3a62774bf4e9e4faac83007e181f246",
             ),
         ),
-        AsrBackend.QWEN3 to AsrModelSpec(
-            dir = "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
-            url = "$REL/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
-            sha256 = "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
-            sentinels = listOf("conv_frontend.onnx", "encoder.int8.onnx", "decoder.int8.onnx",
-                "tokenizer/vocab.json"),
-            buildFiles = { d ->
-                AsrModelFiles(
-                    convFrontend = File(d, "conv_frontend.onnx").path,
-                    encoder = File(d, "encoder.int8.onnx").path,
-                    decoder = File(d, "decoder.int8.onnx").path,
-                    tokenizerDir = File(d, "tokenizer").path,
-                )
-            },
-            hfBase = "https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/main",
-            hfFiles = listOf("conv_frontend.onnx", "encoder.int8.onnx", "decoder.int8.onnx",
-                "tokenizer/merges.txt", "tokenizer/tokenizer_config.json", "tokenizer/vocab.json"),
-        ),
-    )
+            )
 
     private fun specDir(spec: AsrModelSpec) = File(modelsDir, spec.dir)
 
@@ -343,12 +319,12 @@ class ModelManager(appFilesDir: File) {
     }
 
     /**
-     * Ensure the default (SenseVoice) ASR models are present, downloading what's missing.
+     * Ensure the DEFAULT backend's ASR models are present, downloading what's missing.
      * [onProgress] receives a coarse 0..1 fraction. Safe to call when already present (no-op).
      * Delegates to the backend-aware path so it shares the HuggingFace-first provisioning.
      */
     suspend fun ensureAsrModels(onProgress: (Float) -> Unit) =
-        ensureAsrModels(AsrBackend.SENSEVOICE, onProgress)
+        ensureAsrModels(AsrBackend.fromId(TranscriptionConfig().asrBackend), onProgress)
 
     /** Ensure the GGUF for [spec] is present AND valid (downloads on first use; a corrupt file is
      *  deleted and re-downloaded once before giving up with a clear message). */

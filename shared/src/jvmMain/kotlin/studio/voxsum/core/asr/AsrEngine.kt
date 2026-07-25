@@ -301,24 +301,11 @@ class AsrEngine(
             // LiteRT backends never build a sherpa OfflineModelConfig (see SpeechEngineFactory).
             AsrBackend.NEMOTRON ->
                 throw IllegalArgumentException("$backend runs on LiteRT, not sherpa-onnx")
-            AsrBackend.SENSEVOICE -> OfflineModelConfig(
-                senseVoice = OfflineSenseVoiceModelConfig(
-                    model = f.model, language = language, useInverseTextNormalization = useItn,
-                ),
-                tokens = f.tokens, numThreads = numThreads, provider = "cpu",
-            )
             AsrBackend.XASR -> OfflineModelConfig(
                 transducer = OfflineTransducerModelConfig(
                     encoder = f.encoder, decoder = f.decoder, joiner = f.joiner,
                 ),
                 tokens = f.tokens, modelType = "transducer", numThreads = numThreads, provider = "cpu",
-            )
-            AsrBackend.QWEN3 -> OfflineModelConfig(
-                qwen3Asr = OfflineQwen3AsrModelConfig(
-                    convFrontend = f.convFrontend, encoder = f.encoder,
-                    decoder = f.decoder, tokenizer = f.tokenizerDir,
-                ),
-                tokens = "", numThreads = numThreads, provider = "cpu",
             )
             AsrBackend.MOSS -> throw IllegalArgumentException(
                 "MOSS-TD is not a sherpa backend — it runs through MossPipeline, not AsrEngine",

@@ -9,9 +9,7 @@ enum class AsrBackend(
     /** One-word descriptor for the model-picker subtitle. */
     val tagline: String,
 ) {
-    SENSEVOICE("sensevoice", "SenseVoice (multilingual)", "SenseVoice", "multilingual"),
     XASR("x-asr", "Zipformer zh-en", "Zipformer", "zh-en transducer"),
-    QWEN3("qwen3", "Qwen3-ASR (large, slow)", "Qwen3-ASR", "large, slow"),
     MOSS("moss-td", "MOSS zh-TW meetings (diarizing)", "MOSS-TD", "zh-TW · diarizing · heavy model"),
 
     /** Nemotron-3.5-ASR 3.5 (q4-mix) on LiteRT — the multilingual backend shared
@@ -23,19 +21,18 @@ enum class AsrBackend(
     val diarizesNatively: Boolean get() = this == MOSS
 
     companion object {
-        fun fromId(id: String): AsrBackend = entries.firstOrNull { it.id == id } ?: SENSEVOICE
+        // Unknown / retired ids (sensevoice, qwen3 — dropped 2026-07, see the Android app)
+        // resolve to the default backend rather than a backend that no longer exists.
+        fun fromId(id: String): AsrBackend = entries.firstOrNull { it.id == id } ?: XASR
     }
 }
 
 /** Resolved on-device file paths for the selected backend (only relevant fields are set). */
 data class AsrModelFiles(
-    val model: String = "",            // sensevoice
-    val encoder: String = "",          // xasr / qwen3
-    val decoder: String = "",          // xasr / qwen3
+    val encoder: String = "",          // xasr / nemotron
+    val decoder: String = "",          // xasr / nemotron
     val joiner: String = "",           // xasr
-    val convFrontend: String = "",     // qwen3
-    val tokenizerDir: String = "",     // qwen3 (a directory)
-    val tokens: String = "",           // sensevoice / xasr (empty for qwen3); nemotron: tokenizer.json
+    val tokens: String = "",           // xasr (tokens.txt); nemotron (tokenizer.json)
     val promptFuse: String = "",       // nemotron (language prompt-fusion graph)
     val mossModel: String = "",        // moss-td (the ASR+diarization gguf)
     val speakerEmbedModel: String = "",// moss-td (optional CAM++ gguf for cross-window linking)

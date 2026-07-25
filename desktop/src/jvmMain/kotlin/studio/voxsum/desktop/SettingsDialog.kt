@@ -112,18 +112,6 @@ fun SettingsDialog(
                     val selected = opts.firstOrNull { it.first == language } ?: opts.first()
                     ChipRow(pal, opts, selected, { language = it.first }) { it.second }
                 }
-                // Language + ITN only apply to SenseVoice (the multilingual backend); the zipformer/
-                // qwen3 backends ignore them, so — like Android — show these controls only for it.
-                if (asrBackend == AsrBackend.SENSEVOICE) {
-                    Text(Strings.language, color = pal.Slate400, modifier = Modifier.padding(top = 8.dp))
-                    val selectedLang = TranscriptionConfig.LANGUAGES.firstOrNull { it.first == language }
-                        ?: TranscriptionConfig.LANGUAGES.first()
-                    ChipRow(pal, TranscriptionConfig.LANGUAGES, selectedLang, { language = it.first }) { it.second }
-                    Row(Modifier.padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Switch(checked = useItn, onCheckedChange = { useItn = it })
-                        Text(Strings.itnCheckbox, color = pal.Slate200)
-                    }
-                }
                 Text(Strings.vadSensitivity("%.1f".format(java.util.Locale.US, vadThreshold)), color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
                 Slider(value = vadThreshold, onValueChange = { vadThreshold = it }, valueRange = 0.1f..0.9f)
             }
@@ -140,7 +128,10 @@ fun SettingsDialog(
                         ModelOptionCard(
                             title = spec.displayName,
                             subtitle = Strings.modelSubtitle(mb, ram),
-                            selected = llmModelId == spec.id,
+                            // Normalize like the runtime does: a stored id from a removed model
+                            // resolves to DEFAULT_ID, so the card must show what will actually run
+                            // instead of matching raw strings and leaving nothing highlighted.
+                            selected = LlmRegistry.byId(llmModelId).id == spec.id,
                             downloaded = llmReady[spec.id] == true,
                             onClick = { llmModelId = spec.id },
                         )
