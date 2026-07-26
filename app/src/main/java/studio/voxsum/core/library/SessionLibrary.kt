@@ -137,7 +137,7 @@ object SessionLibrary {
         // session's audio instead when the WAV was already pruned (session.m4a-only entries).
         audio: Uri? = null,
     ): Entry? {
-        val built = VoxsumSession.buildSessionOgg(
+        val built = VoxsumSession.buildSession(
             context, entry.dir, audio ?: Uri.fromFile(entry.wavFile), utterances, speakerNames,
             summary, actionItems, title, asrModelId, llmModelId,
             coverEnabled = true, fileName = SESSION_NAME, format = VoxsumSession.Format.M4A,

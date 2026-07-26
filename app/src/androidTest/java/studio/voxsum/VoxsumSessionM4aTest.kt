@@ -34,7 +34,7 @@ class VoxsumSessionM4aTest {
         )
         val names = mapOf(0 to SpeakerName("Alice", "user", ""), 1 to SpeakerName("小明", "user", ""))
 
-        val built = VoxsumSession.buildSessionOgg(
+        val built = VoxsumSession.buildSession(
             ctx, dir, Uri.fromFile(wav), utts, names,
             summary = "• a key point", actionItems = "- Alice to follow up", title = "規劃會議 Q3",
             asrModelId = "x-asr", llmModelId = "gemma", coverEnabled = true,

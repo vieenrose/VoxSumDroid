@@ -222,7 +222,8 @@ class TranscriptionService : LifecycleService() {
         val llmModelId: String?,
         val coverEnabled: Boolean,
         val fileName: String,
-        val format: VoxsumSession.Format = VoxsumSession.Format.OGG,
+        // No OGG default: it needs an Opus encoder many devices lack. Callers state the format.
+        val format: VoxsumSession.Format,
     )
 
     private var pipelineJob: Job? = null
@@ -550,7 +551,7 @@ class TranscriptionService : LifecycleService() {
                 // mkdirs() the dir back and resurrect a ghost row, so bail if it is gone.
                 val entry = SessionLibrary.byId(this@TranscriptionService, req.entryId) ?: return@runCatching
                 // Prefer the raw capture; older entries have it pruned, so fall back to the open
-                // session's audio (safe even when that IS the entry's session.m4a: buildSessionOgg
+                // session's audio (safe even when that IS the entry's session.m4a: buildSession
                 // decodes the input to a temp before it overwrites the output).
                 val audio = if (entry.wavFile.exists()) Uri.fromFile(entry.wavFile) else req.audioUri
                 val updated = SessionLibrary.attachResults(
@@ -593,7 +594,7 @@ class TranscriptionService : LifecycleService() {
                 if (req.share) {
                     val dir = File(cacheDir, "shared").apply { mkdirs() }
                     dir.listFiles()?.forEach { it.delete() }
-                    val built = VoxsumSession.buildSessionOgg(
+                    val built = VoxsumSession.buildSession(
                         this@TranscriptionService, dir, req.audioUri, req.utterances, req.speakerNames,
                         req.summary, req.actionItems, req.title, req.asrModelId, req.llmModelId, req.coverEnabled, req.fileName, req.format,
                     )
@@ -1019,7 +1020,7 @@ class TranscriptionService : LifecycleService() {
                         val summary = if (transcript.isBlank()) SummaryResult(null, null)
                         else summarizeWith(llm, spec, transcript, cfgAll, converter)
                         // The user may have DELETED this entry while it summarized. attachResults →
-                        // buildSessionOgg would mkdirs() the deleted dir and resurrect a ghost
+                        // buildSession would mkdirs() the deleted dir and resurrect a ghost
                         // session, so bail if the entry is gone. (onDelete also dequeues it.)
                         if (SessionLibrary.byId(this, id) == null) {
                             ProcessingQueue.remove(this, id)

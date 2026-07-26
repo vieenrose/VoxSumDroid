@@ -28,7 +28,7 @@ class SpeakerNameRoundTripTest {
         }
         val map = names.withIndex().associate { (i, n) -> i to SpeakerName(n, "user", "") }
 
-        val built = VoxsumSession.buildSessionOgg(
+        val built = VoxsumSession.buildSession(
             ctx, dir, Uri.fromFile(wav), utts, map,
             summary = null, actionItems = null, title = "spk",
             asrModelId = "x-asr", llmModelId = "gemma", coverEnabled = false,

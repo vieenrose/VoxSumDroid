@@ -37,8 +37,12 @@ object VoxsumSession {
     /** Container the session is stored in. Both embed the SAME self-describing session (audio +
      *  transcript + summary + speakers + cover + title) and reopen losslessly; M4A/AAC is the most
      *  universally-playable option, OGG/Opus the most efficient. */
+    /**
+     * Container for a WRITTEN session. M4A/AAC only: OGG/Opus needed an Opus ENCODER that many
+     * devices do not have (a Boox ships only the decoder, disabled at that), so writing .ogg
+     * silently failed there. Reading a legacy .ogg session still works — see [open].
+     */
     enum class Format(val ext: String, val mime: String) {
-        OGG("ogg", "audio/ogg"),
         M4A("m4a", "audio/mp4"),
     }
 
@@ -74,10 +78,10 @@ object VoxsumSession {
     data class Built(val file: File, val transcriptEmbedded: Boolean)
 
     /** Stable per-track fingerprint: SHA-256 of the decoded 16 kHz PCM — the cover seed. Identical to
-     *  the value [buildSessionOgg] derives from the same audio, so an in-app live preview equals the
+     *  the value [buildSession] derives from the same audio, so an in-app live preview equals the
      *  cover that gets embedded on save. Decodes to a throwaway temp WAV; null if it can't be decoded. */
     suspend fun audioFingerprint(context: Context, audioUri: Uri): ByteArray? = withContext(Dispatchers.IO) {
-        // Match buildSessionOgg exactly (same bytes hashed → identical cover): if the source is
+        // Match buildSession exactly (same bytes hashed → identical cover): if the source is
         // already a canonical 16 kHz mono WAV, hash it directly (no decode); otherwise decode to a
         // throwaway temp. Both hash the whole WAV including its 44-byte header, and the decode is
         // deterministic, so the live-preview cover equals the one embedded on save either way.
@@ -106,7 +110,7 @@ object VoxsumSession {
      * the file is still a playable ogg with TITLE/DESCRIPTION/LYRICS, but can't be reopened as an
      * editable session, so the caller MUST surface that (never report a silent full success).
      */
-    suspend fun buildSessionOgg(
+    suspend fun buildSession(
         context: Context,
         dir: File,
         audioUri: Uri?,
@@ -119,7 +123,11 @@ object VoxsumSession {
         llmModelId: String?,
         coverEnabled: Boolean = true,   // auto-generate + embed the cover (deterministic from audio + title)
         fileName: String = "session.$EXT",
-        format: Format = Format.OGG,    // OGG/Opus (default) or M4A/AAC — both embed the full session
+        // NO DEFAULT, deliberately. This used to default to OGG, which needs an Opus ENCODER —
+        // hardware that not every device has (a Boox Note Air ships only the decoder, and even that
+        // is disabled), so the default silently produced nothing there. Every caller already
+        // passes M4A; making it explicit means a future caller cannot inherit the broken one.
+        format: Format,
     ): Built? = withContext(Dispatchers.IO) {
         if (audioUri == null) return@withContext null
         dir.mkdirs()
@@ -149,10 +157,7 @@ object VoxsumSession {
         // Dot-prefixed temp name so it can never collide with a suggestFileName() output (which is
         // trimmed of leading dots), avoiding deleting the very file we return in the share flow.
         val plain = File(dir, ".audio_tmp.${format.ext}")
-        val transcoded = when (format) {
-            Format.OGG -> AudioTranscoder.wavToOggOpus(workWav, plain)
-            Format.M4A -> AudioTranscoder.wavToM4aAac(workWav, plain)
-        }
+        val transcoded = AudioTranscoder.wavToM4aAac(workWav, plain)
         if (!reuseSource) workWav.delete()   // never delete the reused SOURCE (the library capture)
         if (!transcoded) {
             android.util.Log.w("voxsum-session", "wav->${format.ext} transcode returned false")
@@ -192,39 +197,11 @@ object VoxsumSession {
         // A null blob (too large to round-trip) → embed a playable file with just player metadata,
         // no VOXSUM session; transcriptEmbedded=false so the caller reports PARTIAL, not FULL.
         var embedded: Boolean = if (blob == null) {
-            when (format) {
-                Format.OGG -> {
-                    val lite = LinkedHashMap<String, String>()
-                    cleanTitle?.let { lite["TITLE"] = it }
-                    cleanSummary?.let { lite["DESCRIPTION"] = it }
-                    coverJpeg?.let { lite[CoverArt.FIELD] = CoverArt.encode(it, coverW, coverH) }
-                    if (lite.isEmpty() || !OggOpusTags.write(plain, tagged, lite)) plain.copyTo(tagged, overwrite = true)
-                }
-                Format.M4A -> {
-                    if (!Mp4Tags.write(plain, tagged, voxsum = null, title = cleanTitle, description = cleanSummary, coverJpeg = coverJpeg, lyrics = null)) plain.copyTo(tagged, overwrite = true)
-                }
-            }
+                if (!Mp4Tags.write(plain, tagged, voxsum = null, title = cleanTitle, description = cleanSummary, coverJpeg = coverJpeg, lyrics = null)) plain.copyTo(tagged, overwrite = true)
             false
-        } else when (format) {
-            Format.OGG -> {
-                val comments = LinkedHashMap<String, String>()
-                comments[FIELD] = blob
-                cleanTitle?.let { comments["TITLE"] = it }
-                cleanSummary?.let { comments["DESCRIPTION"] = it }
-                lyrics?.let { comments["LYRICS"] = it }
-                coverJpeg?.let { comments[CoverArt.FIELD] = CoverArt.encode(it, coverW, coverH) }   // any player shows it
-                if (OggOpusTags.write(plain, tagged, comments)) true
-                else {
-                    // Genuine-error fallback: a playable ogg with just TITLE/DESCRIPTION (no session).
-                    val lite = comments.filterKeys { it != FIELD && it != "LYRICS" && it != CoverArt.FIELD }
-                    if (lite.isEmpty() || !OggOpusTags.write(plain, tagged, lite)) plain.copyTo(tagged, overwrite = true)
-                    false
-                }
-            }
-            Format.M4A -> {
-                if (Mp4Tags.write(plain, tagged, voxsum = blob, title = cleanTitle, description = cleanSummary, coverJpeg = coverJpeg, lyrics = lyrics)) true
-                else { plain.copyTo(tagged, overwrite = true); false }   // fallback: playable m4a, no session
-            }
+        } else {
+            if (Mp4Tags.write(plain, tagged, voxsum = blob, title = cleanTitle, description = cleanSummary, coverJpeg = coverJpeg, lyrics = lyrics)) true
+            else { plain.copyTo(tagged, overwrite = true); false }   // fallback: playable m4a, no session
         }
         // Belt-and-braces: whatever the tag writer reported, a session file must exist and be
         // non-empty before the caller may mark the entry DONE — a phantom success here strands a
@@ -243,16 +220,16 @@ object VoxsumSession {
         Built(finalOut, embedded)
     }
 
-    /** Write a self-describing `.ogg` to [out]; the return distinguishes full vs partial vs failed. */
+    /** Write a self-describing session file to [out]; the return distinguishes full vs partial vs failed. */
     suspend fun save(
         context: Context, out: OutputStream, audioUri: Uri?,
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
         summary: String?, actionItems: String?, title: String?, asrModelId: String?, llmModelId: String?,
-        coverEnabled: Boolean = true, format: Format = Format.OGG,
+        coverEnabled: Boolean = true, format: Format,   // no default — see buildSession
     ): SaveOutcome = withContext(Dispatchers.IO) {
         out.use { o ->
             val dir = File(context.cacheDir, "voxsum_save").apply { mkdirs() }
-            val built = buildSessionOgg(context, dir, audioUri, utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId, coverEnabled, "session.${format.ext}", format)
+            val built = buildSession(context, dir, audioUri, utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId, coverEnabled, "session.${format.ext}", format)
                 ?: return@use SaveOutcome.FAILED
             built.file.inputStream().use { it.copyTo(o) }
             built.file.delete()

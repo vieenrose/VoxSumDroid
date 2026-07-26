@@ -26,7 +26,7 @@ class SessionCoverMp4Test {
         }
         val dir = File(ctx.cacheDir, "cover_build").apply { mkdirs() }
 
-        val built = VoxsumSession.buildSessionOgg(
+        val built = VoxsumSession.buildSession(
             context = ctx, dir = dir, audioUri = Uri.fromFile(wav),
             utterances = emptyList(), speakerNames = emptyMap(),
             summary = "a short summary", actionItems = null,
