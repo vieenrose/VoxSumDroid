@@ -90,7 +90,7 @@ from the dev tree. Every item below was actually executed and observed:
 - **Re-run actions**: re-summarize, LLM-based speaker-name detection, and action-item extraction —
   all reuse Android's shared `SpeakerNamer`/`ActionItemExtractor`, verified with a real run that
   correctly renamed a speaker and produced a real action-item list.
-- **Export**: plain text, Markdown, SRT, and VTT via the shared `TranscriptExport`.
+- **Export**: grouped by what you get — a **document** (PDF, Markdown, plain text) carrying the title, summary, action items and the timestamped transcript, or **subtitles** (SRT, VTT, LRC) with speaker labels — via the shared `TranscriptExport`. Section headings follow the UI language.
 - **Speaker/text editing**: rename a speaker, reassign a single line to a different speaker, edit
   any utterance's text inline; a search bar filters the visible transcript.
 - **Live recording**: mic capture → live ASR → diarize → summarize, verified with a real recording
