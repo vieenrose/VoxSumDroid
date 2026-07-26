@@ -144,7 +144,12 @@ class ModelManager(context: Context) {
         // multilingual (25 languages via a 128-slot prompt), four graphs
         // (encoder INT4 596 MB + prompt-fuse fp32 + decoder/joint fp16). INT4 FC
         // needs the CompiledModel path (same libLiteRt.so as MOSS). HF-only,
-        // revision-pinned to Luigi/nemotron-asr-litert@75ec9fbb (v1.1). Boox
+        // revision-pinned to Luigi/nemotron-asr-litert-zhtw@bbc906fe (v2, zh-TW FINE-TUNED —
+        // Common Voice zh-TW CER 38.43 -> 13.90 on this q4-mix build, ~2.7x, same 663 MB).
+        // The slot mapping is UNCHANGED: on v2 auto/zh-CN/zh-TW land within ~0.7 CER and the
+        // ranking flips between fp32 and quantized, so they are equivalent — and slot 4 (which
+        // zh-TW and zh-CN already share, keeping the instant script switch) is the best of the
+        // three on the quantized build we ship. Boox
         // (4×A73) RTF 0.554 on 66 s zh — realtime-capable. Native mel is
         // byte-parity with the HF NemotronAsrStreamingFeatureExtractor.
         AsrBackend.NEMOTRON to AsrModelSpec(
@@ -164,17 +169,17 @@ class ModelManager(context: Context) {
                     tokens = File(d, "tokenizer.json").path,
                 )
             },
-            hfBase = "https://huggingface.co/Luigi/nemotron-asr-litert/resolve/75ec9fbbce099ef2630e14f6eceaf1576ec107dc",
+            hfBase = "https://huggingface.co/Luigi/nemotron-asr-litert-zhtw/resolve/bbc906fe254b8c1b84d53fc64b9204efd3d08b57",
             hfFiles = listOf(
                 "nemotron_encoder_q4.tflite", "nemotron_prompt_fuse_fp32.tflite",
                 "nemotron_decoder_fp16.tflite", "nemotron_joint_fp16.tflite",
                 "tokenizer.json",
             ),
             hfShas = mapOf(
-                "nemotron_encoder_q4.tflite" to "9e817d29ab20013de9962a8c347e7f68f9a896eef1e29ffcf9b0e0a0f1ef691c",
-                "nemotron_prompt_fuse_fp32.tflite" to "b4dcdc802c4124b0b0b0ff5b56344705f9b15f10c9f4983aa3503176b2e9e9b9",
-                "nemotron_decoder_fp16.tflite" to "93a3b8d91ab604305cb5c3014c4fb389cfd7b6a7397dc2e6e22df459f3f8859f",
-                "nemotron_joint_fp16.tflite" to "8e5f46279a288ff5c0ce11f581fcd3753308c2151559046c90ca62aa632d48f2",
+                "nemotron_encoder_q4.tflite" to "b1b3c93add91ee2253c8d6d24172614a83f6572720dea0150fb34285be53a0c2",
+                "nemotron_prompt_fuse_fp32.tflite" to "21c59326f8633c3824f9e92dcaded6148978dcd53591846c85c9b1ac982a1bba",
+                "nemotron_decoder_fp16.tflite" to "e92dfa900ebd9d7cd87429c9bb7c304b7e3fa61dc233c74f2e074fbb4342222b",
+                "nemotron_joint_fp16.tflite" to "d728fb09aa034b85b1549772fef6cfc4f85d7df0faf59c6db4ad2e7fbbfdc848",
                 "tokenizer.json" to "3f3d481deb073b64c2082e8c7860d487a3a62774bf4e9e4faac83007e181f246",
             ),
         ),

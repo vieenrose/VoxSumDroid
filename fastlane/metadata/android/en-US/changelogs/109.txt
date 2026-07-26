@@ -1,0 +1,3 @@
+• The Nemotron speech model is now the zh-TW fine-tuned build: Chinese accuracy improves roughly 2.7× (Common Voice zh-TW character error rate 38.4% → 13.9%), at the same 663 MB download.
+• Nothing to change in your settings — the language options and the instant Traditional/Simplified switch work exactly as before. If you already downloaded Nemotron, it re-downloads once to pick up the new weights.
+• X-ASR remains the default and is still the most accurate choice for Chinese and English; Nemotron is the multilingual option.
