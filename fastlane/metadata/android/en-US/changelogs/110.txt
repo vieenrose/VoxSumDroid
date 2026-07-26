@@ -1,0 +1,2 @@
+• Fixes 0.33.0 not actually delivering the improved Chinese speech model: if you already had Nemotron downloaded, the app considered it up to date and kept using the old weights. It now notices the model was re-pinned and fetches the new one — models you already have at the right version are kept, not re-downloaded.
+• The speech-engine cards in Settings now describe Nemotron as "zh-TW fine-tuned", and that text is finally translated into French and Traditional Chinese instead of falling back to English.

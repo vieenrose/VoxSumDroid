@@ -187,6 +187,31 @@ class ModelManager(context: Context) {
 
     private fun specDir(spec: AsrModelSpec) = File(modelsDir, spec.dir)
 
+    /**
+     * Do the files on disk come from the revision we currently pin?
+     *
+     * Sentinels are filenames and do not change when weights are re-pinned — Nemotron v1.1 -> the
+     * v2 zh-TW fine-tune keeps all five names — so without this check an existing install silently
+     * stays on the old weights forever.
+     *
+     * Fast path is a marker file written at download time. When it is absent (every install that
+     * predates the marker) we do NOT just re-download: that would cost X-ASR users a 295 MB fetch
+     * of files they already have. Instead we hash what is on disk against the pinned SHAs and, if
+     * they already match, adopt them by writing the marker. Hashing runs at most once per model.
+     */
+    private fun revisionMatches(spec: AsrModelSpec, d: File): Boolean {
+        val want = spec.hfBase ?: return true          // no HF pin (tar.bz2 spec) — nothing to compare
+        val marker = File(d, REVISION_MARKER)
+        if (marker.exists() && marker.readText().trim() == want) return true
+        val shas = spec.hfShas?.takeIf { it.isNotEmpty() } ?: return marker.exists()
+        val allMatch = shas.all { (rel, sha) ->
+            val f = File(d, rel)
+            f.exists() && runCatching { sha256Of(f) }.getOrNull() == sha
+        }
+        if (allMatch) runCatching { marker.writeText(want) }   // adopt: same bytes, just unstamped
+        return allMatch
+    }
+
     fun asrReady(backend: AsrBackend): Boolean {
         // MOSS-TD isn't a sherpa/tar.bz2 spec — its readiness is the tflite trio check. No VAD
         // needed (the model windows internally), so keep it out of the sentinel/VAD path.
@@ -224,7 +249,11 @@ class ModelManager(context: Context) {
             ensureVadLite { onProgress(it * 0.1f) }
             val spec = asrSpecs.getValue(backend)
             val d = specDir(spec)
-            if (!spec.sentinels.all { File(d, it).exists() }) {
+            // Re-provision when the files are missing OR when they came from a DIFFERENT pinned
+            // revision. Sentinels are filenames, which do not change when weights are re-pinned:
+            // without the revision check, upgrading (e.g. Nemotron v1.1 -> the v2 zh-TW fine-tune,
+            // same five filenames) silently leaves every existing install on the old weights.
+            if (!spec.sentinels.all { File(d, it).exists() } || !revisionMatches(spec, d)) {
                 provisionAsr(spec, d) { onProgress(0.1f + it * 0.9f) }
                 onProgress(1f)
             }
@@ -275,6 +304,9 @@ class ModelManager(context: Context) {
                         onProgress((i + frac) / hfFiles.size)
                     }
                 }
+                // Stamp what these files came from, so a later re-pin is detectable without
+                // hashing 600 MB on a tablet. Written only after every file landed.
+                runCatching { File(d, REVISION_MARKER).writeText(hfBase) }
                 return
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -611,6 +643,9 @@ class ModelManager(context: Context) {
     }
 
     companion object {
+        /** Written next to a spec's files, recording the pinned revision they came from. */
+        const val REVISION_MARKER = ".revision"
+
         // Per-destination download locks, shared across ALL ModelManager instances (the UI's
         // detect-names path constructs its own ModelManager), so concurrent first-run downloads of the
         // same file can't interleave-corrupt the shared ".part" temp. See download().
