@@ -1,0 +1,2 @@
+• Fixes a crash that killed the app every time it summarized, generated a title or extracted action items. The release build stripped a method the speech-model runtime calls from native code, so the process aborted the moment generation started. Only release builds were affected — which is why it survived testing.
+• Settings switches now announce which setting they control to screen readers, instead of an unlabelled "switch".

@@ -79,7 +79,7 @@ them one by one while you watch each session's live status.
 - **Edit anything** — fix a word, rename a speaker, tweak the title or summary, right in place.
 - **Fix the speakers** — move a misattributed line to the right person, or merge two speakers into one.
 - **Copy** the whole summary with one tap.
-- **Export the words** — copy or share the transcript as text, or save **subtitles (`.srt`/`.vtt`)**, plain text, Markdown, or a printable **PDF** for any other app.
+- **Export the words** — one **Export & share…** sheet, grouped by what you get: the **VoxSum session** (`.m4a`), a **document** (**PDF**, **Markdown**, plain text) carrying the title, summary, action items and the timestamped transcript, or **subtitles** (`.srt`/`.vtt`/`.lrc`) with speaker labels. Everything can be **saved or shared**, and the transcript copies to the clipboard in one tap.
 - **Re-run** the transcription, the summary, **just the speaker detection** (*Re-detect speakers*), or the speaker-name detection whenever you like — and VoxSum keeps everything consistent: change the summary language or style (or edit the transcript) and it offers a one-tap **re-summarize**, which also refreshes the title (unless you wrote your own). Switching just between **繁體中文 ↔ 简体中文** converts the title, summary, and transcript **instantly**, no re-run needed.
 - **Save or share as one file** — the whole session (audio + transcript + summary + speakers + a cover) packs into a single **`.m4a`**. It **plays in any music app** — showing the title, cover, summary, and the **time-synced transcript** as [scrolling lyrics](#synced-lyrics-in-android-music-players) — and **reopens in VoxSum** with everything intact. `.m4a` reaches the widest set of players (iPhones, cars, every app); older `.ogg` sessions still open too.
 
@@ -149,7 +149,7 @@ timestamps visible.)
 
 > **Notes.** All three verified on a Pixel — the current line highlights as it plays. The **summary**
 > also lives in the standard **comment** tag (song info). A standalone **`.lrc` sidecar** export
-> (**Export → “Save synced lyrics (.lrc)”**) is also available for players that prefer one.
+> (**Export & share… → Subtitles → LRC**) is also available for players that prefer one.
 
 ## For developers
 
@@ -169,7 +169,13 @@ Requires Android Studio (Ladybug+), SDK 35, NDK 27.2. No submodules, no ONNX Run
 git clone https://github.com/vieenrose/VoxSumDroid.git
 cd VoxSumDroid
 ./gradlew :app:assembleDebug          # arm64-v8a by default
+./gradlew :app:testDebugUnitTest      # JVM unit tests
+scripts/test-on-device.sh             # instrumented suite on a connected device
 ```
+
+`test-on-device.sh` installs under its own application id, so an installed release build — and its
+sessions and models — is left untouched. Set `VOXSUM_SEED_MODELS` to a directory laid out like the
+app's `files/models` to skip the multi-GB on-device download.
 
 See [`SPIKE.md`](SPIKE.md) for the proven recipe and [`RELEASING.md`](RELEASING.md) for how tagging
 `v*` produces a signed release APK via CI.

@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasAnySibling
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -77,9 +78,10 @@ class SettingsContentTest {
         // so anchor on the row's own label instead of assuming a single one.
         val label = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
             .targetContext.getString(R.string.settings_identify_speakers)
-        // useUnmergedTree: the merged semantics tree flattens the SwitchRow hierarchy, so every
-        // switch in the section looks like a sibling of every label and the matcher finds two.
-        compose.onNode(isToggleable() and hasAnySibling(hasText(label)), useUnmergedTree = true)
+        // Each switch carries its row's label as a contentDescription. Sibling matching cannot work
+        // here: a bare Row contributes no semantics node, so every switch is a sibling of every
+        // label — and merging the Row does not help, a Switch is itself a merging node.
+        compose.onNode(isToggleable() and hasContentDescription(label))
             .performScrollTo().assertIsOn().performClick()
         assertEquals(false, changed?.diarizationEnabled)
     }

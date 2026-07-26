@@ -15,8 +15,8 @@ android {
         applicationId = "studio.voxsum"
         minSdk = 26          // MediaCodec PCM-float output + reasonable native perf
         targetSdk = 35
-        versionCode = 107
-        versionName = "0.32.0"
+        versionCode = 108
+        versionName = "0.32.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -62,6 +62,18 @@ android {
             // coexists with an installed release build. Without it, a debug-signed install of the
             // same id forces an uninstall, taking the user's session library and models with it.
             if (project.hasProperty("isolatedTestId")) applicationIdSuffix = ".androidtest"
+            // -PminifyDebug runs the debug build through R8 with the RELEASE keep rules, so
+            // JNI-by-name breakage — which cannot reproduce in a normal debug build — is testable
+            // on device. This is how the LiteRT-LM SamplerConfig abort was caught; without it the
+            // whole instrumented suite passes while every release-build summarize kills the app.
+            if (project.hasProperty("minifyDebug")) {
+                isMinifyEnabled = true
+                proguardFiles(
+                    getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro",
+                    "proguard-debug-tests.pro",
+                )
+            }
         }
         release {
             isMinifyEnabled = true

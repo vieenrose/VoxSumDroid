@@ -1,12 +1,8 @@
 # Keep JNI entry points reachable from native code.
--keep class studio.voxsum.core.llm.LlmEngine { *; }
-# The native token-streaming callback looks up TokenCallback.onToken by name via JNI GetMethodID.
-# Without this keep, R8 renames onToken in release → GetMethodID returns null → JNI abort (SIGABRT)
-# the moment summarization starts. The nested interface is a SEPARATE class, so the LlmEngine keep
-# above does NOT cover it.
--keep class studio.voxsum.core.llm.LlmEngine$TokenCallback { *; }
-# sherpa-onnx Kotlin API is called from its own JNI by name.
--keep class com.k2fsa.sherpa.onnx.** { *; }
+# (studio.voxsum.core.llm.LlmEngine and the sherpa-onnx API are gone since the LiteRT migration;
+#  their rules were removed. The MOSS/X-ASR/Nemotron JNI binds by class+method name — those classes
+#  are referenced from Kotlin so R8 keeps them, and the release dex is checked in CI.)
+-keep class studio.voxsum.core.llm.TextGen$TokenCallback { *; }
 
 # Same JNI-reflection story as TokenCallback: offline-speaker-diarization.cc resolves the
 # diarization progress callback by EXACT name+signature — GetMethodID("invoke",
@@ -28,6 +24,15 @@
 -dontwarn javax.xml.**
 -dontwarn org.w3c.dom.**
 -dontwarn org.xml.sax.**
+
+# LiteRT-LM: its NATIVE code reads the Kotlin config objects back through JNI. Verified on-device:
+# nativeCreateConversation does CallIntMethodV on SamplerConfig.getTopK(), so R8 renaming the
+# getters makes GetMethodID return null and ART aborts the process ("JNI DETECTED ERROR IN
+# APPLICATION: mid == null") the moment a conversation is created — i.e. on EVERY summarize/title
+# in a minified build, while debug builds are fine. Keep the whole surface: the JNI reads several
+# of these types by name and there is no upstream consumer rule shipped with the AAR.
+-keep class com.google.ai.edge.litertlm.** { *; }
+-keepclassmembers class com.google.ai.edge.litertlm.** { *; }
 
 # Nicer crash traces in release.
 -keepattributes SourceFile,LineNumberTable

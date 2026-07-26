@@ -30,6 +30,24 @@ import studio.voxsum.core.text.OpenCcConverter
 @RunWith(AndroidJUnit4::class)
 class TargetLanguageMatrixTest {
 
+    /**
+     * Loads the 2.6 GB summarizer and generates once per target language. On a 3.7 GB device that
+     * is an OOM kill partway through — and a crash takes the WHOLE instrumentation with it, then
+     * poisons every later class: Android marks a force-stopped package as "stopped" and excludes it
+     * from intent/provider resolution, so subsequent activity tests fail with "Unable to resolve
+     * activity" for reasons that have nothing to do with them. Skip rather than take the run down.
+     */
+    @org.junit.Before fun requireEnoughRam() {
+        val am = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+            .targetContext.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val totalMb = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+            .totalMem / (1024 * 1024)
+        org.junit.Assume.assumeTrue(
+            "needs ~5 GB RAM to hold the summarizer across the language matrix; this device has ${totalMb}MB",
+            totalMb >= 5_000,
+        )
+    }
+
     @Test
     fun everyLlmSummarizesInEveryTargetLanguage() = runBlocking {
         val app = InstrumentationRegistry.getInstrumentation().targetContext

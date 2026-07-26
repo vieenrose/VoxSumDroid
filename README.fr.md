@@ -80,7 +80,7 @@ pendant que vous suivez le statut de chaque session en direct.
 - **Modifiez tout** — corrigez un mot, renommez un intervenant, ajustez le titre ou le résumé, sur place.
 - **Corrigez les intervenants** — déplacez une ligne mal attribuée vers la bonne personne, ou fusionnez deux intervenants.
 - **Copiez** tout le résumé d'un seul geste.
-- **Exportez le texte** — copiez ou partagez la transcription en texte, ou enregistrez des **sous-titres (`.srt`/`.vtt`)**, du texte brut, du Markdown ou un **PDF** imprimable pour d'autres applis.
+- **Exportez le texte** — une seule feuille **Exporter et partager…**, regroupée par ce que vous obtenez : la **session VoxSum** (`.m4a`), un **document** (**PDF**, **Markdown**, texte brut) contenant le titre, le résumé, les actions à suivre et la transcription horodatée, ou des **sous-titres** (`.srt`/`.vtt`/`.lrc`) avec les étiquettes de locuteur. Tout peut être **enregistré ou partagé**, et la transcription se copie en un geste.
 - **Relancez** la transcription, le résumé ou la détection des noms quand vous voulez — et VoxSum garde le tout cohérent : changez la langue ou le style du résumé (ou modifiez la transcription) et il propose un **re-résumé** en un geste, qui rafraîchit aussi le titre (sauf si vous l'avez écrit vous-même). Un simple passage entre **繁體中文 ↔ 简体中文** convertit le titre, le résumé et la transcription **instantanément**, sans relance.
 - **Enregistrez ou partagez en un seul fichier** — toute la session (audio + transcription + résumé + intervenants + une pochette) tient dans un unique **`.m4a`** qui **se lit dans n'importe quelle appli musicale** (avec le titre, la pochette, le résumé et la **transcription synchronisée** en paroles — voir [*Paroles synchronisées dans les lecteurs Android*](#paroles-synchronisées-dans-les-lecteurs-android)) et **se rouvre dans VoxSum** avec tout intact. (`.m4a` a la plus large compatibilité — iPhone, autoradios, tous les lecteurs ; les anciennes sessions `.ogg` s'ouvrent toujours.)
 
@@ -150,8 +150,8 @@ sans synchro affichent simplement le texte, avec les horodatages `[mm:ss]` visib
 *Transcription synchronisée qui défile sur un Pixel — **Retro Music**, **Gramophone** et **Musicolet** (la ligne en cours se surligne pendant la lecture).*
 
 > **Remarques.** Les trois sont vérifiés sur un Pixel — la ligne en cours se surligne pendant la lecture. Le
-> **résumé** figure aussi dans la balise **commentaire** standard. Un export **`.lrc` annexe** (**Exporter →
-> « Enregistrer les paroles synchronisées (.lrc) »**) est aussi disponible pour les lecteurs qui le préfèrent.
+> **résumé** figure aussi dans la balise **commentaire** standard. Un export **`.lrc` annexe**
+> (**Exporter et partager… → Sous-titres → LRC**) est aussi disponible pour les lecteurs qui le préfèrent.
 
 ## Pour les développeurs
 

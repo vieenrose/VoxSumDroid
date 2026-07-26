@@ -46,6 +46,8 @@ import studio.voxsum.core.power.BackgroundReliability
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -570,7 +572,16 @@ private fun SwitchRow(label: String, checked: Boolean, enabled: Boolean, onChang
     ) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = pal.Slate200,
             modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled, colors = voxSumSwitchColors())
+        Switch(
+            checked = checked, onCheckedChange = onChange, enabled = enabled,
+            colors = voxSumSwitchColors(),
+            // Name the switch after its row. A bare Row contributes no semantics node, so the label
+            // and the switch land as unrelated siblings of the scrolling Column: TalkBack announced
+            // an unlabelled "switch", and nothing could tell one row's switch from another's.
+            // (Merging the Row does NOT fix it — a Switch is itself a merging node, so it stays
+            // separate instead of folding into the row.)
+            modifier = Modifier.semantics { contentDescription = label },
+        )
     }
 }
 
