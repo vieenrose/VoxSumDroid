@@ -112,6 +112,7 @@ class AsrAccuracyBenchTest {
         val zh = (env("VOXSUM_BENCH_LANG") ?: "zh") == "zh"
         val slot = if (zh) 4 else 0        // zh-CN / en-US prompt slots
         val limit = env("VOXSUM_BENCH_N")?.toIntOrNull() ?: 25
+        val show = env("VOXSUM_BENCH_SHOW")?.toIntOrNull() ?: 3
 
         val clips = tsv!!.readLines().mapNotNull { line ->
             val parts = line.split('\t')
@@ -152,11 +153,11 @@ class AsrAccuracyBenchTest {
                     total += r.size
                     xErr += editDistance(r, units(normalize(xText, zh), zh))
                     nErr += editDistance(r, units(normalize(nText, zh), zh))
-                    if (i < 3) {
-                        println("--- clip ${i + 1}: ${wav.name}")
-                        println("    REF   ${ref.take(70)}")
-                        println("    XASR  ${xText.take(70)}")
-                        println("    NEMO  ${nText.take(70)}")
+                    if (i < show) {
+                        println("--- clip ${i + 1}  (${"%.1f".format(pcm.size / 16_000.0)} s)")
+                        println("    REF   $ref")
+                        println("    XASR  $xText")
+                        println("    NEMO  $nText")
                     }
                 }
             }
