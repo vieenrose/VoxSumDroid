@@ -202,7 +202,7 @@ class ModelManager(context: Context) {
     private fun revisionMatches(spec: AsrModelSpec, d: File): Boolean {
         val want = spec.hfBase ?: return true          // no HF pin (tar.bz2 spec) — nothing to compare
         val marker = File(d, REVISION_MARKER)
-        if (marker.exists() && marker.readText().trim() == want) return true
+        if (markerMatches(spec, d)) return true
         val shas = spec.hfShas?.takeIf { it.isNotEmpty() } ?: return marker.exists()
         val allMatch = shas.all { (rel, sha) ->
             val f = File(d, rel)
@@ -218,7 +218,21 @@ class ModelManager(context: Context) {
         if (backend == AsrBackend.MOSS) return mossReady()
         val spec = asrSpecs.getValue(backend)
         val d = specDir(spec)
-        return vadLiteModel.exists() && spec.sentinels.all { File(d, it).exists() }
+        // The revision marker is part of "ready". Callers gate provisioning on this
+        // (`if (!asrReady(b)) ensureAsrModels(b)`), so a check that only ensureAsrModels performs
+        // is never reached when the files exist — which is how the Nemotron v2 re-pin shipped
+        // twice without reaching a single device. Cheap on purpose: a small file read, no hashing.
+        // The expensive hash-and-adopt lives in ensureAsrModels, which runs at most once.
+        return vadLiteModel.exists() &&
+            spec.sentinels.all { File(d, it).exists() } &&
+            markerMatches(spec, d)
+    }
+
+    /** Cheap half of the revision check: does the stamp on disk name the revision we pin? */
+    private fun markerMatches(spec: AsrModelSpec, d: File): Boolean {
+        val want = spec.hfBase ?: return true
+        val marker = File(d, REVISION_MARKER)
+        return marker.exists() && runCatching { marker.readText().trim() }.getOrNull() == want
     }
 
     fun asrFiles(backend: AsrBackend): AsrModelFiles =

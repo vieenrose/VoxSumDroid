@@ -1,0 +1,1 @@
+• Actually delivers the improved Chinese speech model. 0.33.0 shipped the new weights but never fetched them, and 0.33.1's fix sat on a code path the app skipped whenever the old files were present. The check is now part of the readiness test itself, so an existing Nemotron install picks up the new weights on its next transcription.
