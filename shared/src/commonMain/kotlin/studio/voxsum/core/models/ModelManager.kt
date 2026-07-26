@@ -94,7 +94,7 @@ class ModelManager(appFilesDir: File) {
     fun mossSpeakerReady(): Boolean = mossSpeakerModel.length() == MOSS_SPK_BYTES
 
     // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
-    private data class AsrModelSpec(
+    internal data class AsrModelSpec(
         val dir: String,
         val url: String,                              // GitHub release .tar.bz2 (fallback source)
         val sha256: String,                           // checksum of the GitHub archive
@@ -176,6 +176,31 @@ class ModelManager(appFilesDir: File) {
 
     private fun specDir(spec: AsrModelSpec) = File(modelsDir, spec.dir)
 
+    /**
+     * Do the files on disk come from the revision we currently pin?
+     *
+     * Sentinels are filenames and do not change when weights are re-pinned — Nemotron v1.1 -> the
+     * v2 zh-TW fine-tune keeps all five names — so without this an existing install silently stays
+     * on the old weights.
+     *
+     * Fast path is a marker written at download time. When it is absent (installs predating the
+     * marker) we hash what is on disk against the pinned SHAs rather than re-downloading blindly,
+     * which would cost X-ASR users a 295 MB fetch of files they already have. Matching files are
+     * adopted by writing the marker, so the hashing happens at most once per model.
+     */
+    internal fun revisionMatches(spec: AsrModelSpec, d: File): Boolean {
+        val want = spec.hfBase ?: return true
+        val marker = File(d, REVISION_MARKER)
+        if (marker.exists() && marker.readText().trim() == want) return true
+        val shas = spec.hfShas?.takeIf { it.isNotEmpty() } ?: return marker.exists()
+        val allMatch = shas.all { (rel, sha) ->
+            val f = File(d, rel)
+            f.exists() && runCatching { sha256Of(f) }.getOrNull() == sha
+        }
+        if (allMatch) runCatching { marker.writeText(want) }
+        return allMatch
+    }
+
     fun asrReady(backend: AsrBackend): Boolean {
         // MOSS-TD isn't a sherpa/tar.bz2 spec — its readiness is the GGUF check. No VAD needed
         // (the model windows internally), so keep it out of the sentinel/VAD path.
@@ -216,7 +241,7 @@ class ModelManager(appFilesDir: File) {
             ensureVadLite { onProgress(it * 0.1f) }
             val spec = asrSpecs.getValue(backend)
             val d = specDir(spec)
-            if (!spec.sentinels.all { File(d, it).exists() }) {
+            if (!spec.sentinels.all { File(d, it).exists() } || !revisionMatches(spec, d)) {
                 provisionAsr(spec, d) { onProgress(0.1f + it * 0.9f) }
                 onProgress(1f)
             }
@@ -265,6 +290,9 @@ class ModelManager(appFilesDir: File) {
                         onProgress((i + frac) / hfFiles.size)
                     }
                 }
+                // Stamp the revision these files came from, so a later re-pin is detectable
+                // without hashing hundreds of MB. Written only after every file landed.
+                runCatching { File(d, REVISION_MARKER).writeText(hfBase) }
                 return
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -587,6 +615,9 @@ class ModelManager(appFilesDir: File) {
     }
 
     companion object {
+        /** Written next to a spec's files, recording the pinned revision they came from. */
+        const val REVISION_MARKER = ".revision"
+
         // Per-destination download locks, shared across ALL ModelManager instances (the UI's
         // detect-names path constructs its own ModelManager), so concurrent first-run downloads of the
         // same file can't interleave-corrupt the shared ".part" temp. See download().
