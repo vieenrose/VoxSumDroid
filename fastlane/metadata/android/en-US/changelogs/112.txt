@@ -1,0 +1,2 @@
+• Sessions are now saved only as .m4a. The older .ogg container needed audio hardware that many devices — including several e-ink tablets — simply do not have, so choosing it there produced nothing at all.
+• Heads-up if you have old files: a session saved as .ogg by an earlier version now opens as plain audio on Android, without its transcript. It still plays, and the desktop app continues to read those files in full.
