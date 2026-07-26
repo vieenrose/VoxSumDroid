@@ -35,17 +35,7 @@ object AudioTranscoder {
         }
     }
 
-    /** Stream a 16 kHz mono 16-bit WAV (our [WavWriter] format) to OGG/Opus — bounded memory. */
-    fun wavToOggOpus(wav: File, dest: File): Boolean =
-        runCatching {
-            RandomAccessFile(wav, "r").use { raf ->
-                raf.seek(44)   // skip the canonical 44-byte header
-                encodeOgg(dest) { into -> raf.read(into).let { if (it <= 0) -1 else it } }
-            }
-        }.getOrElse { android.util.Log.w("voxsum-ogg", "wav→ogg transcode failed", it); dest.delete(); false }
 
-    /** Stream a 16 kHz mono WAV to AAC in an MP4 (.m4a) container — the universally-playable session
-     *  format. The native AAC encoder is mandatory on Android, so this works on any device (API 18+). */
     fun wavToM4aAac(wav: File, dest: File): Boolean =
         runCatching {
             RandomAccessFile(wav, "r").use { raf ->

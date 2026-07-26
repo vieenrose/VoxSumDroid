@@ -11,7 +11,6 @@ import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioTranscoder
 import studio.voxsum.core.audio.WavIo
 import studio.voxsum.core.audio.Mp4Tags
-import studio.voxsum.core.audio.OggOpusTags
 import studio.voxsum.core.cover.CoverArt
 import studio.voxsum.core.cover.CoverGenerator
 import studio.voxsum.core.events.TranscriptEvent
@@ -65,7 +64,7 @@ object VoxsumSession {
         val title: String?,
         val asrModelId: String?,
         val llmModelId: String?,
-        val recovered: Boolean,   // false => plain .ogg with no embedded session
+        val recovered: Boolean,   // false => plain audio with no embedded session
         val coverJpeg: ByteArray? = null,   // embedded cover art (METADATA_BLOCK_PICTURE), if any
         val coverSig: String? = null,       // signature the embedded cover was built from
         val actionItems: String? = null,    // extracted action items + decisions (editable draft)
@@ -74,7 +73,7 @@ object VoxsumSession {
     /** Outcome of a save: FULL = transcript embedded; PARTIAL = audio+summary only (blob too big); FAILED. */
     enum class SaveOutcome { FULL, PARTIAL, FAILED }
 
-    /** A built session `.ogg` + whether the editable transcript blob fit inside it. */
+    /** A built session file + whether the editable transcript blob fit inside it. */
     data class Built(val file: File, val transcriptEmbedded: Boolean)
 
     /** Stable per-track fingerprint: SHA-256 of the decoded 16 kHz PCM — the cover seed. Identical to
@@ -237,7 +236,7 @@ object VoxsumSession {
         }
     }
 
-    /** Open a `.ogg`: extract it to cache and recover the embedded session (if any). */
+    /** Open a session file: extract its audio to cache and recover the embedded session (if any). */
     suspend fun open(context: Context, src: Uri): Loaded = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "voxsum_open_${src.hashCode().toUInt()}")
         // Reclaim earlier opened-session caches (each holds a full audio copy) — keep only this one.
@@ -248,12 +247,11 @@ object VoxsumSession {
         val audio = File(dir, "session.bin")
         context.contentResolver.openInputStream(src)?.use { ins -> audio.outputStream().use { ins.copyTo(it) } }
             ?: error("Could not open file")
-        // Detect the container by magic ("OggS" = OGG; "ftyp" at offset 4 = MP4/M4A) and read the
-        // session + cover from the matching tag layer. Both embed the identical VOXSUM blob.
+        // Sessions live in MP4/M4A ("ftyp" at offset 4). Anything else is treated as plain
+        // audio: it still plays, it just carries no embedded transcript.
         val isM4a = isMp4(audio)
-        val coverJpeg = if (isM4a) Mp4Tags.readCover(audio)
-            else OggOpusTags.read(audio, CoverArt.FIELD)?.let { CoverArt.decode(it) }
-        val blob = if (isM4a) Mp4Tags.readVoxsum(audio) else OggOpusTags.read(audio, FIELD)
+        val coverJpeg = if (isM4a) Mp4Tags.readCover(audio) else null
+        val blob = if (isM4a) Mp4Tags.readVoxsum(audio) else null
         if (blob == null || blob.length > MAX_BLOB_CHARS) {
             // No embedded session (or an implausibly large blob) — load as plain audio.
             return@withContext Loaded(audio, emptyList(), emptyMap(), null, null, null, null, recovered = false, coverJpeg = coverJpeg)
@@ -276,7 +274,7 @@ object VoxsumSession {
      *  session or transcribed. */
     suspend fun hasEmbeddedSession(file: File): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            val blob = if (isMp4(file)) Mp4Tags.readVoxsum(file) else OggOpusTags.read(file, FIELD)
+            val blob = if (isMp4(file)) Mp4Tags.readVoxsum(file) else null
             blob != null && blob.length <= MAX_BLOB_CHARS
         }.getOrDefault(false)
     }

@@ -6,7 +6,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import studio.voxsum.core.audio.OggOpusTags
 import studio.voxsum.core.cover.CoverArt
 import java.io.File
 
@@ -44,26 +43,6 @@ class CoverArtTest {
         assertNotEquals(a, CoverArt.signature("Team sync", listOf(0xFFFF6B6B.toInt(), 0xFF4ECDC4.toInt()), "uri://y")) // audio changed
     }
 
-    @Test fun coverEmbedsInOggAndRecovers() {
-        assumeTrue("clean.ogg fixture present", clean.exists())
-        assumeTrue("jpeg fixture present", jpegFixture.exists())
-        val jpeg = jpegFixture.readBytes()
-        val value = CoverArt.encode(jpeg, 64, 64)
-        val dest = File("$scratch/kotlin_cover.ogg")
-        assertTrue(OggOpusTags.write(clean, dest, mapOf("VOXSUM" to "hi", CoverArt.FIELD to value)))
-        // Cover recovers byte-for-byte through the real OpusTags read + picture-block decode.
-        val recovered = OggOpusTags.read(dest, CoverArt.FIELD)?.let { CoverArt.decode(it) }
-        assertArrayEquals(jpeg, recovered)
-        assertEquals("hi", OggOpusTags.read(dest, "VOXSUM"))
-    }
 
-    @Test fun largeCoverSpansMultiplePagesAndRecovers() {
-        assumeTrue("clean.ogg fixture present", clean.exists())
-        // ~120 KB "jpeg" → forces the OpusTags packet (cover + transcript) across several OGG pages.
-        val jpeg = ByteArray(120_000) { (it % 251).toByte() }
-        val value = CoverArt.encode(jpeg, 1024, 1024)
-        val dest = File.createTempFile("ogg_bigcover", ".ogg")
-        assertTrue(OggOpusTags.write(clean, dest, mapOf(CoverArt.FIELD to value, "VOXSUM" to "x".repeat(5000))))
-        assertArrayEquals(jpeg, OggOpusTags.read(dest, CoverArt.FIELD)?.let { CoverArt.decode(it) })
-    }
+
 }
