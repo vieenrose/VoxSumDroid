@@ -188,10 +188,17 @@ class ModelManager(appFilesDir: File) {
      * which would cost X-ASR users a 295 MB fetch of files they already have. Matching files are
      * adopted by writing the marker, so the hashing happens at most once per model.
      */
+    /** Cheap half of the revision check: does the stamp on disk name the revision we pin? */
+    internal fun markerMatches(spec: AsrModelSpec, d: File): Boolean {
+        val want = spec.hfBase ?: return true
+        val marker = File(d, REVISION_MARKER)
+        return marker.exists() && runCatching { marker.readText().trim() }.getOrNull() == want
+    }
+
     internal fun revisionMatches(spec: AsrModelSpec, d: File): Boolean {
         val want = spec.hfBase ?: return true
         val marker = File(d, REVISION_MARKER)
-        if (marker.exists() && marker.readText().trim() == want) return true
+        if (markerMatches(spec, d)) return true
         val shas = spec.hfShas?.takeIf { it.isNotEmpty() } ?: return marker.exists()
         val allMatch = shas.all { (rel, sha) ->
             val f = File(d, rel)
@@ -210,7 +217,12 @@ class ModelManager(appFilesDir: File) {
         // The LiteRT backends segment with the tflite Silero VAD; the sherpa ones with the ONNX one.
         // Every remaining backend runs on LiteRT and segments with the tflite Silero VAD.
         val vad = vadLiteModel
-        return vad.exists() && spec.sentinels.all { File(d, it).exists() }
+        // The revision marker is part of "ready": callers gate provisioning on this
+        // (`if (!asrReady(b)) ensureAsrModels(b)`), so a check performed only inside
+        // ensureAsrModels is never reached while the files exist — which is how the Nemotron v2
+        // re-pin shipped without reaching any device. Cheap: a small file read, no hashing. The
+        // hash-and-adopt path lives in ensureAsrModels and runs at most once.
+        return vad.exists() && spec.sentinels.all { File(d, it).exists() } && markerMatches(spec, d)
     }
 
     fun asrFiles(backend: AsrBackend): AsrModelFiles =

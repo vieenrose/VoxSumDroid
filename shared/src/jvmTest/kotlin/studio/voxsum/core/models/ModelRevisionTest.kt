@@ -68,4 +68,20 @@ class ModelRevisionTest {
         assertFalse("a marker naming another revision must not satisfy the current pin", mm.revisionMatches(s, d))
         d.deleteRecursively()
     }
+
+    @Test fun readinessItselfMustNoticeARePin() {
+        // The regression that shipped TWICE: callers do `if (!asrReady(b)) ensureAsrModels(b)`, so
+        // a revision check living only inside ensureAsrModels never runs while the files exist.
+        // Readiness must therefore include the (cheap) marker check.
+        val d = tempModelDir()
+        File(d, "weights.bin").writeText("v1.1 weights")
+        val s = spec(d, "https://example/resolve/v2", mapOf("weights.bin" to "deadbeef"))
+        val mm = ModelManager(d.parentFile)
+        assertFalse("files with no revision stamp must not read as ready", mm.markerMatches(s, d))
+        File(d, ModelManager.REVISION_MARKER).writeText("https://example/resolve/v1.1")
+        assertFalse("a stamp naming the OLD revision must not read as ready", mm.markerMatches(s, d))
+        File(d, ModelManager.REVISION_MARKER).writeText("https://example/resolve/v2")
+        assertTrue("a stamp naming the pinned revision reads as ready", mm.markerMatches(s, d))
+        d.deleteRecursively()
+    }
 }
