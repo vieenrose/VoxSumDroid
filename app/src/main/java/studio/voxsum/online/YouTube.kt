@@ -1,9 +1,11 @@
 package studio.voxsum.online
 
 import android.content.Context
+import android.media.MediaCodecList
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.schabi.newpipe.extractor.MediaFormat as NpMediaFormat
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.downloader.Downloader
@@ -68,14 +70,64 @@ object YouTube {
         }
     }
 
-    /** Resolve a YouTube URL to its highest-bitrate audio-only stream. Throws if none. */
+    /**
+     * The platform decoder MIME a NewPipe audio format needs, or null when we can't tell (then we
+     * assume it is fine rather than dropping a stream we might well have been able to play).
+     */
+    internal fun decoderMime(fmt: NpMediaFormat?): String? = when (fmt) {
+        NpMediaFormat.M4A, NpMediaFormat.MPEG_4 -> "audio/mp4a-latm"
+        NpMediaFormat.OPUS, NpMediaFormat.WEBMA_OPUS -> "audio/opus"
+        NpMediaFormat.WEBMA, NpMediaFormat.WEBM, NpMediaFormat.OGG -> "audio/vorbis"
+        NpMediaFormat.MP3, NpMediaFormat.MP2 -> "audio/mpeg"
+        NpMediaFormat.FLAC -> "audio/flac"
+        NpMediaFormat.WAV, NpMediaFormat.AIFF, NpMediaFormat.AIF -> "audio/raw"
+        else -> null
+    }
+
+    /** Decoder MIME types this device actually has — computed once, it never changes at runtime. */
+    internal val deviceDecoders: Set<String> by lazy {
+        runCatching {
+            MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+                .filterNot { it.isEncoder }
+                .flatMap { it.supportedTypes.asList() }
+                .mapTo(mutableSetOf()) { it.lowercase() }
+        }.getOrDefault(emptySet())
+    }
+
+    internal fun deviceCanDecode(fmt: NpMediaFormat?): Boolean {
+        val mime = decoderMime(fmt) ?: return true
+        return deviceDecoders.isEmpty() || mime in deviceDecoders
+    }
+
+    /**
+     * Resolve a YouTube URL to the LOWEST-bitrate audio-only stream THIS DEVICE CAN DECODE.
+     *
+     * Two rules, in this order:
+     *
+     * 1. Decodable first. YouTube's best audio is normally Opus in a WebM container, and plenty of
+     *    Android devices ship no Opus decoder — a Boox Tab Mini C (API 30) has only
+     *    aac/mp3/vorbis/g711/gsm/raw. Downloading Opus there succeeds and the pipeline then dies
+     *    inside MediaCodec with "0xfffffffe" (NAME_NOT_FOUND), which reads as a corrupt-file bug
+     *    and is not one.
+     * 2. Then cheapest. Everything downstream is resampled to 16 kHz mono for the ASR models, so a
+     *    high-bitrate stream buys no accuracy — it only costs the user download time and storage.
+     *
+     * Streams that report no bitrate at all are a last resort (we can't rank them).
+     */
     suspend fun resolve(url: String): YouTubeAudio = withContext(Dispatchers.IO) {
         ensureInit()
         val info = StreamInfo.getInfo(ServiceList.YouTube, url.trim())
-        val best = info.audioStreams
-            .filter { !it.content.isNullOrBlank() }
-            .maxByOrNull { it.averageBitrate }
-            ?: error("No audio stream available for this video (it may be region- or login-gated).")
+        val streams = info.audioStreams.filter { !it.content.isNullOrBlank() }
+        if (streams.isEmpty()) {
+            error("No audio stream available for this video (it may be region- or login-gated).")
+        }
+        val playable = streams.filter { deviceCanDecode(it.format) }
+        val best = playable.filter { it.averageBitrate > 0 }.minByOrNull { it.averageBitrate }
+            ?: playable.firstOrNull()
+            ?: error(
+                "This device cannot decode any audio format this video offers " +
+                    "(${streams.mapNotNull { it.format?.getName() }.distinct().joinToString()}).",
+            )
         val ext = best.format?.suffix?.takeIf { it.isNotBlank() } ?: "m4a"
         YouTubeAudio(title = info.name?.ifBlank { "YouTube audio" } ?: "YouTube audio",
             streamUrl = best.content, ext = ext)

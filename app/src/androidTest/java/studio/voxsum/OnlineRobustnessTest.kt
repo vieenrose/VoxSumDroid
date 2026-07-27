@@ -3,10 +3,12 @@ package studio.voxsum
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.schabi.newpipe.extractor.MediaFormat as NpMediaFormat
 import studio.voxsum.online.Podcast
 import studio.voxsum.online.YouTube
 
@@ -37,6 +39,47 @@ class OnlineRobustnessTest {
         assertTrue(YouTube.looksLikeUrl("  www.youtube.com/watch?v=x  "))
         assertFalse(YouTube.looksLikeUrl("funny cat videos"))
         assertFalse(YouTube.looksLikeUrl(""))
+    }
+
+    // --- stream selection vs the device's real codecs ------------------------------------------
+
+    /**
+     * Stream selection must agree with what MediaCodec on THIS device can actually decode.
+     *
+     * The bug: resolve() took the highest-bitrate audio stream, which on YouTube is Opus/WebM. A
+     * Boox Tab Mini C (API 30) has no Opus decoder at all — only aac/mp3/vorbis/g711/gsm/raw — so
+     * the download succeeded and the pipeline then died in MediaCodec with "Error 0xfffffffe".
+     */
+    @Test fun formatFilterMatchesTheDevicesRealDecoderList() {
+        val decoders = YouTube.deviceDecoders
+        assertTrue("MediaCodecList returned nothing — cannot judge decodability", decoders.isNotEmpty())
+        Log.i(TAG, "audio decoders: ${decoders.filter { it.startsWith("audio/") }.sorted()}")
+
+        // AAC is mandated by every Android profile, so the m4a fallback must always be selectable.
+        assertTrue("m4a must be decodable everywhere", YouTube.deviceCanDecode(NpMediaFormat.M4A))
+
+        // Opus/WebM is accepted iff the device really has the codec — the whole point of the filter.
+        val hasOpus = "audio/opus" in decoders
+        assertEquals(hasOpus, YouTube.deviceCanDecode(NpMediaFormat.WEBMA_OPUS))
+        assertEquals(hasOpus, YouTube.deviceCanDecode(NpMediaFormat.OPUS))
+
+        // A format we have no mapping for must NOT be dropped — unknown is not the same as unplayable.
+        assertTrue(YouTube.deviceCanDecode(null))
+    }
+
+    /**
+     * End-to-end on the real service: whatever resolve() picks must be a container this device can
+     * actually open. Skipped rather than failed when YouTube gates the player response (poToken) —
+     * that is an upstream condition, not a regression here.
+     */
+    @Test(timeout = 90_000) fun resolvedStreamIsDecodableOnThisDevice() = runBlocking {
+        val audio = runCatching { YouTube.resolve("https://www.youtube.com/watch?v=jNQXAC9IVRw") }
+            .getOrElse { Log.i(TAG, "resolve unavailable: ${it.message?.take(120)}"); return@runBlocking }
+        Log.i(TAG, "picked .${audio.ext} for '${audio.title}'")
+        assertTrue(
+            "resolve() chose .${audio.ext}, which this device cannot decode",
+            YouTube.deviceCanDecode(NpMediaFormat.getFromSuffix(audio.ext)),
+        )
     }
 
     // --- YouTube adversarial -----------------------------------------------------------------

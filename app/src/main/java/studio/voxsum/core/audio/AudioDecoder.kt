@@ -138,12 +138,24 @@ object AudioDecoder {
             require(srcRate > 0) { "Invalid sample rate: $srcRate" }
             require(srcChannels > 0) { "Invalid channel count: $srcChannels" }
 
-            codec = MediaCodec.createDecoderByType(mime).also {
-                it.configure(inFormat, null, null, 0)
-                it.start()
+            // Not every device has every decoder — a Boox Tab Mini C (API 30) ships no Opus codec
+            // at all, so an Opus/WebM file (what YouTube serves as its best audio) fails right
+            // here. Raw, that surfaces as MediaCodec "Error 0xfffffffe" (NAME_NOT_FOUND) or a bare
+            // IOException, both of which read as a corrupt file. Say what actually happened.
+            val dec = try {
+                MediaCodec.createDecoderByType(mime)
+            } catch (e: Exception) {
+                throw IllegalStateException("This device has no decoder for $mime audio", e)
+            }
+            codec = dec
+            try {
+                dec.configure(inFormat, null, null, 0)
+                dec.start()
+            } catch (e: Exception) {
+                throw IllegalStateException("This device could not decode $mime audio", e)
             }
             // Resample to 16 kHz DURING decode so we never hold the full source-rate waveform.
-            decodeResampledMono(extractor, codec, srcChannels, srcRate, sink)
+            decodeResampledMono(extractor, dec, srcChannels, srcRate, sink)
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
