@@ -63,12 +63,21 @@ object YouTube {
         }
     }
 
+    /**
+     * Resolve to the LOWEST-bitrate audio-only stream. Everything downstream is resampled to
+     * 16 kHz mono for the ASR models, so a high-bitrate stream buys no accuracy — it only costs
+     * download time and disk. Streams reporting no bitrate are a last resort (we can't rank them).
+     *
+     * Unlike the Android build, format is not a constraint here: decoding goes through system
+     * ffmpeg, which handles Opus/WebM. (Android must additionally filter on MediaCodec's real
+     * decoder list — see that copy's kdoc.)
+     */
     suspend fun resolve(url: String): YouTubeAudio = withContext(Dispatchers.IO) {
         ensureInit()
         val info = StreamInfo.getInfo(ServiceList.YouTube, url.trim())
-        val best = info.audioStreams
-            .filter { !it.content.isNullOrBlank() }
-            .maxByOrNull { it.averageBitrate }
+        val streams = info.audioStreams.filter { !it.content.isNullOrBlank() }
+        val best = streams.filter { it.averageBitrate > 0 }.minByOrNull { it.averageBitrate }
+            ?: streams.firstOrNull()
             ?: error("No audio stream available for this video (it may be region- or login-gated).")
         val ext = best.format?.suffix?.takeIf { it.isNotBlank() } ?: "m4a"
         YouTubeAudio(title = info.name?.ifBlank { "YouTube audio" } ?: "YouTube audio", streamUrl = best.content, ext = ext)
