@@ -1,0 +1,3 @@
+• YouTube imports failed on devices without an Opus decoder — several e-ink tablets among them. VoxSum was picking the highest-bitrate audio track, which YouTube serves as Opus, and the transcription then stopped with an unexplained codec error. It now picks a format your device can actually decode.
+• YouTube audio is downloaded at the lowest available bitrate. Everything is resampled to 16 kHz mono for the speech models anyway, so this costs no accuracy and saves download time and storage.
+• When a file really cannot be decoded, the error now says which audio format is missing instead of showing a raw codec number.
