@@ -171,16 +171,29 @@ object AudioDecoder {
         return -1
     }
 
+    /** An int from a MediaFormat, or null when the key is absent (getInteger throws below API 29). */
+    private fun MediaFormat.intOrNull(key: String): Int? = runCatching { getInteger(key) }.getOrNull()
+
     /** Decode loop: downmix each frame to mono and stream it through a resampler that appends
-     *  only 16 kHz samples — so memory scales with the 16 kHz output, not the source rate. */
+     *  only 16 kHz samples — so memory scales with the 16 kHz output, not the source rate.
+     *
+     *  [channelsHint] / [srcRateHint] come from the CONTAINER and are only a starting guess: the
+     *  decoder's OUTPUT format is what actually describes the PCM we get here, and for HE-AAC the
+     *  two differ. YouTube's cheapest m4a (itag 139, 48 kbps) is HE-AAC: the container declares the
+     *  base rate (e.g. 22050 Hz) while SBR makes the decoder emit double that. Resampling 44100 Hz
+     *  PCM as if it were 22050 Hz stretches the audio to twice its length at half pitch, and the
+     *  ASR models then transcribe nonsense from something that sounds fine to the codec. So take
+     *  the rate and channel count from INFO_OUTPUT_FORMAT_CHANGED, which MediaCodec always emits
+     *  before the first output buffer. */
     private fun decodeResampledMono(
         extractor: MediaExtractor,
         codec: MediaCodec,
-        channels: Int,
-        srcRate: Int,
+        channelsHint: Int,
+        srcRateHint: Int,
         sink: PcmSink,
     ) {
-        val resampler = Resampler(srcRate, SAMPLE_RATE, sink)
+        var channels = channelsHint
+        var resampler = Resampler(srcRateHint, SAMPLE_RATE, sink)
         val bufferInfo = MediaCodec.BufferInfo()
         var sawInputEos = false
         var sawOutputEos = false
@@ -207,6 +220,25 @@ object AudioDecoder {
 
             val outIndex = codec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
             if (outIndex < 0) {
+                if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    val outFormat = codec.outputFormat
+                    val rate = outFormat.intOrNull(MediaFormat.KEY_SAMPLE_RATE) ?: srcRateHint
+                    val ch = outFormat.intOrNull(MediaFormat.KEY_CHANNEL_COUNT) ?: channelsHint
+                    // Guard the same way the container values are guarded: a bogus rate would make
+                    // the resampler's step <= 0 (infinite loop) and a bogus channel count would
+                    // divide by zero. Keep the last good values instead of trusting the decoder.
+                    if (rate > 0 && ch > 0) {
+                        if (rate != srcRateHint || ch != channelsHint) {
+                            android.util.Log.i(
+                                "voxsum-audio",
+                                "decoder output ${rate}Hz/${ch}ch differs from container " +
+                                    "${srcRateHint}Hz/${channelsHint}ch (SBR/HE-AAC) — following the decoder",
+                            )
+                        }
+                        channels = ch
+                        resampler = Resampler(rate, SAMPLE_RATE, sink)
+                    }
+                }
                 if (sawInputEos && outIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
                     check(++drainPolls <= MAX_DRAIN_POLLS) { "decoder produced no end-of-stream" }
                 }

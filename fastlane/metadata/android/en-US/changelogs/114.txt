@@ -1,0 +1,2 @@
+• Fixed garbled transcripts from YouTube audio. Low-bitrate YouTube tracks use HE-AAC, where the file header states half the sample rate the decoder actually produces. VoxSum trusted the header, so the audio reached the speech models at half speed and half pitch and was transcribed as nonsense. It now follows the decoder, which is what the audio really is.
+• This affects any HE-AAC source, not just YouTube. If a recent transcript came out wrong, run it again — the audio itself was always fine.
