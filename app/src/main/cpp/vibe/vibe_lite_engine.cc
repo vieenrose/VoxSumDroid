@@ -552,7 +552,8 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     // own weights pushes it out of page cache, the next window re-faults it from
     // flash, which would explain an encoder that costs 15.9 s warm and ~28 s after.
     // Major faults distinguish that from any CPU-side story.
-    LOGI("encode %.1fs  majflt=%ld (+%ld)", last_encode_s, majflt(), majflt() - mf0);
+    const long mf1 = majflt();
+    LOGI("encode %.1fs  majflt=%ld (+%ld)", last_encode_s, mf1, mf1 - mf0);
 
     // Prompt: audio features occupy the speech-pad span, so they are spliced in as
     // input EMBEDDINGS rather than tokenized. Text ids around them are embedded
