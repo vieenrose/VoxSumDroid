@@ -219,6 +219,37 @@ Generation dominates because autoregressive decode is a sequence of batch-1 matm
 XNNPACK — tuned for feed-forward throughput — handles poorly. That is also why the two
 non-autoregressive backends are one to two orders of magnitude faster here.
 
+### VibeVoice-ASR-BitNet (VIBE)
+
+VIBE is not in the table above — it is measured on a different clip, so the rows would not be
+comparable. Its own history is worth recording, because almost all of it was recovering speed the
+implementation was giving away rather than reducing work. 60 s of English in 10 s windows, each
+pair measured back to back on one device:
+
+| | RTF | wall |
+|---|---:|---:|
+| first working version | 6.28 | 377 s |
+| + big-core pinning moved before graph compile | 4.95 | 297 s |
+| + idle ternary workers park instead of spinning | 3.42 | 205 s |
+| + wide encoder mask, batched prompt remainder | 3.23 | 194 s |
+| + pause-snapped windows and a silence gate | **2.59** | **155 s** |
+
+**2.4x, transcript byte-identical at every step.** Only the last row processes less audio; the rest
+is the same work done properly. Two traps, both worth knowing for any backend here:
+
+- **A thread inherits its affinity mask when it is created.** Pinning inside the inference call
+  cannot move a pool built during graph compilation, so every XNNPACK phase ran unpinned while the
+  ternary pool — a lazy static, first built inside the inference call — was pinned. Compile under
+  the mask you want.
+- **A spin-wait pool must eventually block.** VIBE's workers spun and then called `sched_yield` in
+  an unbounded loop, which returns immediately when nothing else is ready, so they burned every
+  pinned core for the engine's whole life. It was invisible in the phases the pool serves and
+  surfaced in the encoder, which merely had to share cores with it.
+
+The remaining budget per 10 s window is encode 14.7 s, prefill 11.1 s, decode 7.7 s. The audio
+front end — two full VibeVoice tokenizer encoders summed, and **not** the BitNet part — is now the
+largest single cost and sets an RTF floor near 1.6 on this device.
+
 Thread count matters more than it looks: XNNPACK defaults to a **single** thread, so
 `TranscriptionService.bigCoreThreads` sets it explicitly from the big-core count (clamped 2..4).
 Leaving it unset roughly halves throughput — Nemotron measures RTF 4.78 single-threaded versus
