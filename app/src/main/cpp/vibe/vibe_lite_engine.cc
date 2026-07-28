@@ -43,6 +43,27 @@ namespace {
 // 148-204 ms/token from `adb shell` and 689 ms/token inside the app. MossLiteEngine
 // pins its decode loop for the same reason. Wide=true restores the full mask for
 // phases that genuinely want every core.
+// 16 kHz (what the app records and every other backend uses) -> 24 kHz (what this
+// encoder was trained and exported for). Linear interpolation, matching the
+// reference audio_io.h.
+//
+// Feeding 16 kHz straight into a 24 kHz encoder is not a small error: the model
+// hears the clip 1.5x too fast, and it transcribed a 7 s English sentence as
+// plausible but wrong words.
+std::vector<float> resample_16k_to_24k(const float* in, int n) {
+    const double ratio = 16000.0 / 24000.0;
+    const int out_n = static_cast<int>(n / ratio);
+    std::vector<float> out(out_n);
+    for (int i = 0; i < out_n; i++) {
+        const double pos = i * ratio;
+        const int idx = static_cast<int>(pos);
+        const double frac = pos - idx;
+        if (idx + 1 < n) out[i] = static_cast<float>((1.0 - frac) * in[idx] + frac * in[idx + 1]);
+        else if (idx < n) out[i] = in[idx];
+    }
+    return out;
+}
+
 void set_big_core_affinity(bool wide) {
     const int online = std::max(1, static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN)));
     std::vector<unsigned long long> freqs(online, 0);
@@ -453,13 +474,15 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     LiteRtGetTensorBufferSize(enc_.ins[0], &in_bytes);
     LiteRtGetTensorBufferSize(enc_.outs[0], &out_bytes);
     const int window = static_cast<int>(in_bytes / sizeof(float));
+    const std::vector<float> pcm24k = resample_16k_to_24k(pcm16k, n_samples);
+    const int n24 = static_cast<int>(pcm24k.size());
     {
         void* p = nullptr;
         if (LiteRtLockTensorBuffer(enc_.ins[0], &p, kLiteRtTensorBufferLockModeWrite)
             != kLiteRtStatusOk) return out;
         auto* dst = static_cast<float*>(p);
-        const int n = std::min(n_samples, window);
-        memcpy(dst, pcm16k, static_cast<size_t>(n) * sizeof(float));
+        const int n = std::min(n24, window);
+        memcpy(dst, pcm24k.data(), static_cast<size_t>(n) * sizeof(float));
         if (n < window) memset(dst + n, 0, static_cast<size_t>(window - n) * sizeof(float));
         LiteRtUnlockTensorBuffer(enc_.ins[0]);
     }
@@ -468,7 +491,13 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     if (LiteRtLockTensorBuffer(enc_.outs[0], &fp, kLiteRtTensorBufferLockModeRead)
         != kLiteRtStatusOk) return out;
     const auto* feats = static_cast<const float*>(fp);
-    const int n_frames = static_cast<int>(out_bytes / sizeof(float) / dim_);
+    // Frames the AUDIO actually covers, not the padded window. The export has a
+    // fixed 10 s window, so a 7 s clip still yields 75 frames — 21 of which are
+    // encoded silence. The reference sizes the speech span as
+    // ceil(n_samples_24k / 3200) and splices exactly that many, so feeding the
+    // full window hands the model 21 frames of padding as if it were speech.
+    const int frames_in_graph = static_cast<int>(out_bytes / sizeof(float) / dim_);
+    const int n_frames = std::min(frames_in_graph, (n24 + 3199) / 3200);
     LiteRtUnlockTensorBuffer(enc_.outs[0]);
     last_encode_s = now_s() - t0;
 
