@@ -250,6 +250,12 @@ The remaining budget per 10 s window is encode 14.7 s, prefill 11.1 s, decode 7.
 front end — two full VibeVoice tokenizer encoders summed, and **not** the BitNet part — is now the
 largest single cost and sets an RTF floor near 1.6 on this device.
 
+A wider encoder window was tried and rejected. The chat template costs a fixed 50 tokens per
+window against 7.5 audio frames per second, so 30 s windows cut prompt tokens 25% exactly as
+predicted, and the encoder is linear in window length. But its activations are not free — peak
+RssAnon went 937 MB to 1739 MB and the lowmemorykiller took the process mid-decode. Roughly 10%
+less prefill work is not worth 1.9x the unevictable memory.
+
 Thread count matters more than it looks: XNNPACK defaults to a **single** thread, so
 `TranscriptionService.bigCoreThreads` sets it explicitly from the big-core count (clamped 2..4).
 Leaving it unset roughly halves throughput — Nemotron measures RTF 4.78 single-threaded versus
