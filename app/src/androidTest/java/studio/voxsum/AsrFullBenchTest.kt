@@ -202,7 +202,7 @@ class AsrFullBenchTest {
                 val cut = (MossWindower.pauseCut(piece, 10, 16000, snapSeconds = 2.0) * 16000)
                     .toInt().coerceIn(1, piece.size)
                 val used = if (cut < piece.size) piece.copyOfRange(0, cut) else piece
-                if (!MossWindower.isSilent(used)) {
+                if (!MossWindower.isSilentStrict(used)) {
                     sb.append(it.transcribeWindow(used).trim()).append(' ')
                 }
                 s += used.size

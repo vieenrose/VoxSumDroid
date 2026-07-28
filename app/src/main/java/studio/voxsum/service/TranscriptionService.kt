@@ -1368,7 +1368,7 @@ class TranscriptionService : LifecycleService() {
 
                 // Dead air costs a full encode + prefill + decode — tens of seconds
                 // on this hardware — and returns nothing. Skip it.
-                if (MossWindower.isSilent(used)) {
+                if (MossWindower.isSilentStrict(used)) {
                     skippedSilent++
                     start += used.size
                     emitEvent(TranscriptEvent.Progress(start.toFloat() / totalSamples))
