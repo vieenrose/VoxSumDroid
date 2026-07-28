@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.isActive
+import studio.voxsum.core.asr.moss.MossWindower
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -1344,18 +1345,38 @@ class TranscriptionService : LifecycleService() {
             return@withContext false
         }
         engine.use { e ->
-            // Read a window at a time rather than the whole file: a 5-minute clip is
-            // 4.8 M samples and the engine only ever sees 10 s of it.
+            // Read a window at a time rather than the whole file: an hour of audio
+            // is 57 M samples and the engine only ever sees 10 s of it.
             val totalSamples = maxOf(0L, wav.length() - WavIo.HEADER) / 2
             val windowSamples = VIBE_WINDOW_SEC * 16_000
             var index = 0
             var start = 0L
+            var skippedSilent = 0
             while (start < totalSamples) {
                 if (!isActive) break
                 val piece = readWav16Window(wav, start.toInt(), windowSamples)
                 if (piece.isEmpty()) break
-                val text = e.transcribeWindow(piece).trim()
-                val end = start + piece.size
+
+                // Cut at a PAUSE, not at a fixed boundary. The encoder graph is a
+                // fixed 10 s and pads, so feeding less costs nothing extra — while
+                // slicing blind puts a cut mid-word every 10 s, and this model has no
+                // cross-window state to recover from it. Search only the last 2 s so
+                // windows stay 8-10 s rather than shrinking toward half the graph.
+                val cutS = MossWindower.pauseCut(piece, VIBE_WINDOW_SEC, 16_000, snapSeconds = 2.0)
+                val cut = (cutS * 16_000).toInt().coerceIn(1, piece.size)
+                val used = if (cut < piece.size) piece.copyOfRange(0, cut) else piece
+
+                // Dead air costs a full encode + prefill + decode — tens of seconds
+                // on this hardware — and returns nothing. Skip it.
+                if (MossWindower.isSilent(used)) {
+                    skippedSilent++
+                    start += used.size
+                    emitEvent(TranscriptEvent.Progress(start.toFloat() / totalSamples))
+                    continue
+                }
+
+                val text = e.transcribeWindow(used).trim()
+                val end = start + used.size
                 if (text.isNotEmpty()) {
                     val u = TranscriptEvent.Utterance(
                         index = index++,
@@ -1369,6 +1390,8 @@ class TranscriptionService : LifecycleService() {
                 start = end
                 emitEvent(TranscriptEvent.Progress(start.toFloat() / totalSamples))
             }
+            if (skippedSilent > 0)
+                android.util.Log.i("voxsum-vibe", "skipped $skippedSilent silent window(s)")
         }
         true
     }

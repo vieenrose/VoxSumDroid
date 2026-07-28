@@ -34,10 +34,19 @@ object MossWindower {
      * cut lands in silence, not mid-utterance. A piece shorter than a full window
      * is the final one — keep all of it.
      */
-    fun pauseCut(piece: FloatArray, windowS: Int, sr: Int = MOSS_SR): Double {
+    fun pauseCut(
+        piece: FloatArray,
+        windowS: Int,
+        sr: Int = MOSS_SR,
+        /** Tail span to search for a pause. Defaults to [snapS]; VibeVoice passes a
+         *  smaller value because its encoder window is a fixed 10 s, so a 5 s search
+         *  span would let windows shrink to half the graph the model already paid
+         *  for. */
+        snapSeconds: Double = snapS(windowS),
+    ): Double {
         val n = piece.size
         if (n < windowS * sr) return n.toDouble() / sr          // final window: keep all
-        val snap = snapS(windowS)
+        val snap = snapSeconds
         val from = max(0, n - (snap * sr).toInt())
         val win = round(0.4 * sr).toInt()
         val hop = round(0.1 * sr).toInt()

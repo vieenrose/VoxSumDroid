@@ -15,6 +15,7 @@ import studio.voxsum.core.asr.SpeechEngine
 import studio.voxsum.core.asr.VibeLiteEngine
 import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.moss.MossPipeline
+import studio.voxsum.core.asr.moss.MossWindower
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.models.ModelManager
 import java.io.File
@@ -189,14 +190,22 @@ class AsrFullBenchTest {
             prefill = File(vd, "prefill_512_t16_c.tflite").takeIf { it.exists() },
             xnnCacheDir = File(app.cacheDir, "xnnpack"), threads = 4,
         ) ?: error("Vibe engine failed to load")
+        // Same windowing the service uses: cut at a pause rather than a fixed
+        // boundary, and skip dead air, which otherwise costs a full
+        // encode+prefill+decode and returns nothing.
         return e.use {
             val win = 10 * 16000
             val sb = StringBuilder()
             var s = 0
             while (s < pcm.size) {
                 val piece = pcm.copyOfRange(s, minOf(s + win, pcm.size))
-                sb.append(it.transcribeWindow(piece).trim()).append(' ')
-                s += win
+                val cut = (MossWindower.pauseCut(piece, 10, 16000, snapSeconds = 2.0) * 16000)
+                    .toInt().coerceIn(1, piece.size)
+                val used = if (cut < piece.size) piece.copyOfRange(0, cut) else piece
+                if (!MossWindower.isSilent(used)) {
+                    sb.append(it.transcribeWindow(used).trim()).append(' ')
+                }
+                s += used.size
             }
             sb.toString().trim()
         }
