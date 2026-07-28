@@ -28,15 +28,17 @@ class VibeEncoderBenchTest {
 
     @Test fun benchmarkLiteRtFrontEnd() {
         val app = InstrumentationRegistry.getInstrumentation().targetContext
-        val model = File(app.getExternalFilesDir(null), "vibe_front_10s_q8.tflite")
-        Assume.assumeTrue("push vibe_front_10s_q8.tflite to ${model.absolutePath}", model.exists())
+        val name = InstrumentationRegistry.getArguments().getString("model")
+            ?: "vibe_front_10s_q8.tflite"
+        val model = File(app.getExternalFilesDir(null), name)
+        Assume.assumeTrue("push $name to ${model.absolutePath}", model.exists())
 
         val threads = 4
         val anon = AnonPeak().start()
         // The isolated test app is reinstalled per run, wiping cacheDir, so a warm
         // cache can only be observed WITHIN one invocation: load once to write the
         // cache, close, load again to hit it.
-        val cache = File(app.cacheDir, "xnnpack/vibe_front_10s_q8.bin")
+        val cache = File(app.cacheDir, "xnnpack/$name.bin")
         val tCold = System.nanoTime()
         LitePod.load(model, threads, weightCache = cache)?.close()
             ?: error("LitePod failed to load the export")

@@ -23,8 +23,16 @@ class MossLiteEngine private constructor(
     fun transcribeWindow(pcm: FloatArray, maxNewTokens: Int): String {
         val ids = MossLitePrompt.buildIds(pcm.size)
         val tokens = nativeTranscribe(ctx, pcm, ids, maxNewTokens)
+        lastPromptTokens = ids.size
+        lastGeneratedTokens = tokens.size
         return detok.decode(tokens)
     }
+
+    /** Prompt / generated token counts for the last window. With [lastTimings] these
+     *  give per-token rates, which is the only way to compare this decoder against a
+     *  different runtime's — wall clock alone confounds rate with output length. */
+    var lastPromptTokens: Int = 0; private set
+    var lastGeneratedTokens: Int = 0; private set
 
     /** Phase timings of the last [transcribeWindow], in seconds: encode, prefill, decode.
      *  Zeroes before the first window. The backend benchmark needs these — total wall

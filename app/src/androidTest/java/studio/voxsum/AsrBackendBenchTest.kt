@@ -193,17 +193,19 @@ class AsrBackendBenchTest {
             cacheDir = File(app.cacheDir, "xnnpack"),
         ) ?: throw IllegalStateException("MOSS LiteRT engine failed to load")
 
-        var enc = 0.0; var pre = 0.0; var dec = 0.0
+        var enc = 0.0; var pre = 0.0; var dec = 0.0; var prompt = 0; var gen = 0
         val text = engine.use { e ->
             val raw = e.transcribeWindow(pcm, maxOf(5120, MossPipeline.TOKENS_PER_AUDIO_SECOND * audioS.toInt()))
             val (a, b, c) = e.lastTimings()
             enc = a; pre = b; dec = c
+            prompt = e.lastPromptTokens; gen = e.lastGeneratedTokens
             raw
         }
         val wallS = (System.nanoTime() - t0) / 1e9
         return Result(
             AsrBackend.MOSS.id, audioS, wallS, sampler.stop(),
             encodeS = enc, prefillS = pre, decodeS = dec, text = text,
+            prefillToks = prompt, genToks = gen,
         )
     }
 
@@ -211,8 +213,11 @@ class AsrBackendBenchTest {
         append("%-10s rtf=%.2f  infer=%.1fs  load=%.1fs  peakAnon=%d MB"
             .format(r.backend, r.rtf, r.wallS, r.loadS, r.peakAnonMb))
         if (r.encodeS > 0 || r.decodeS > 0) {
-            append("  encode=%.1fs prefill=%.1fs decode=%.1fs"
-                .format(r.encodeS, r.prefillS, r.decodeS))
+            append("  encode=%.1fs prefill=%.1fs (%d tok, %.1f tok/s) decode=%.1fs (%d tok, %.0f ms/tok)"
+                .format(r.encodeS, r.prefillS, r.prefillToks,
+                    if (r.prefillS > 0) r.prefillToks / r.prefillS else 0.0,
+                    r.decodeS, r.genToks,
+                    if (r.genToks > 0) r.decodeS * 1000 / r.genToks else 0.0))
         }
         append("\n  text: ${r.text.take(160)}")
     }
