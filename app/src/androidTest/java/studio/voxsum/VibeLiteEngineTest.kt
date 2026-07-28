@@ -65,11 +65,41 @@ class VibeLiteEngineTest {
             val pcm = inst.context.assets.open("en.wav").use { readWav16kMono(it) }
                 .let { it.copyOf(minOf(it.size, 160_000)) }
             Log.i(TAG, "pcm ${pcm.size} samples (${pcm.size / 16000.0}s)")
+            // An app process is cgroup-scheduled and cpuset takes precedence over
+            // sched_setaffinity, so the engine's big-core pin cannot escape it.
+            // Log what the kernel actually granted rather than assuming.
+            runCatching {
+                Log.i(TAG, "cpuset=${File("/proc/self/cpuset").readText().trim()} " +
+                    "cgroup=${File("/proc/self/cgroup").readLines().firstOrNull()?.take(80)} " +
+                    "affinity=${File("/proc/self/status").readLines()
+                        .firstOrNull { it.startsWith("Cpus_allowed_list") }?.trim()}")
+            }
 
-            val t0 = System.nanoTime()
-            val text = e.transcribeWindow(pcm, maxNewTokens = 64)
-            val wall = (System.nanoTime() - t0) / 1e9
-            val s = e.lastStats()
+            // Twice, because the in-app decode measured ~4.8x the same graphs run
+            // from adb shell. Ruled out in turn: cpuset (/foreground, all 8 CPUs
+            // allowed), big-core affinity (no effect), decode position (CLI cost is
+            // flat from pos 8 to 48), and warmup — pass 1 is SLOWER than pass 0,
+            // and encode rises with it (16 -> 27 s).
+            //
+            // Everything degrading together is this device's schedutil governor
+            // under sustained load: a memory-bound workload stalls often enough to
+            // read as low utilization, and the big cores drop from 2016 to ~1050
+            // MHz. By the time decode runs here, encode and prefill have already
+            // loaded the device for ~40 s; the CLI measurement starts fresh. Both
+            // numbers are real, they just measure different thermal states.
+            var text = ""
+            var s = e.lastStats()
+            var wall = 0.0
+            repeat(2) { pass ->
+                val t0 = System.nanoTime()
+                text = e.transcribeWindow(pcm, maxNewTokens = 64)
+                wall = (System.nanoTime() - t0) / 1e9
+                s = e.lastStats()
+                Log.i(TAG, "pass $pass: wall=${"%.1f".format(wall)}s " +
+                    "prefill=${"%.1f".format(s.prefillSec)}s decode=${"%.1f".format(s.decodeSec)}s " +
+                    (if (s.generatedTokens > 0)
+                        "${"%.0f".format(s.decodeSec * 1000 / s.generatedTokens)} ms/tok" else "0 tok"))
+            }
 
             Log.i(TAG, "RESULT wall=${"%.2f".format(wall)}s " +
                 "encode=${"%.2f".format(s.encodeSec)}s " +
