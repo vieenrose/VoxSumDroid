@@ -81,7 +81,8 @@ class AsrFullBenchTest {
 
         val out = File("/sdcard/Download/asr_full_bench.txt")
         out.parentFile?.mkdirs()
-        out.writeText("VoxSum ASR benchmark — 5 min per language, four backends\n\n")
+        if (!out.exists() || InstrumentationRegistry.getArguments().getString("append") != "1")
+            out.writeText("VoxSum ASR benchmark — 5 min per language, four backends\n\n")
 
         val rows = ArrayList<Row>()
         for (lang in listOf("en", "zhtw")) {
@@ -91,8 +92,14 @@ class AsrFullBenchTest {
             val audioSec = pcm.size / 16000.0
             Log.i(TAG, "=== $lang: ${"%.1f".format(audioSec)}s ===")
 
+            // -e only x-asr,moss restricts the run. One backend's death taking the
+            // others' results with it is not hypothetical: a full 8-cell run died to
+            // lmkd at cell 5 under system-wide memory pressure, and cells 1-4 with it.
+            val only = InstrumentationRegistry.getArguments().getString("only")
+                ?.split(',')?.map { it.trim() }
             for (backend in listOf(AsrBackend.XASR, AsrBackend.NEMOTRON,
                                    AsrBackend.VIBE, AsrBackend.MOSS)) {
+                if (only != null && backend.id !in only) continue
                 val r = runCatching { measure(backend, lang, models, app, dir, pcm, audioSec, ref) }
                     .getOrElse { Log.w(TAG, "${backend.id}/$lang failed: ${it.message}"); null }
                 if (r != null) {
