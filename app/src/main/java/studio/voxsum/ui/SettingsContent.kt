@@ -98,6 +98,7 @@ fun SettingsContent(
                     AsrBackend.XASR -> R.string.asr_tagline_xasr
                     AsrBackend.MOSS -> R.string.asr_tagline_moss
                     AsrBackend.NEMOTRON -> R.string.asr_tagline_nemotron
+                    AsrBackend.VIBE -> R.string.asr_tagline_vibe
                 }
                 ModelOptionCard(
                     title = b.shortName,

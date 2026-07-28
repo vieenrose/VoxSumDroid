@@ -11,7 +11,13 @@ enum class AsrBackend(
 ) {
     XASR("x-asr", "Zipformer zh-en", "Zipformer", "zh-en transducer"),
     MOSS("moss-td", "MOSS meetings (diarizing)", "MOSS-TD", "zh/en/ja/ko/yue + diarization"),
-    NEMOTRON("nemotron", "Nemotron multilingual", "Nemotron", "25 languages");
+    NEMOTRON("nemotron", "Nemotron multilingual", "Nemotron", "25 languages"),
+
+    /** VibeVoice-ASR-BitNet (MIT) — a ternary BitNet decoder running entirely on
+     *  LiteRT through a custom op, so it adds no ggml to the APK. Measured at
+     *  parity with the ggml build on decode speed and half its unevictable
+     *  memory. Strongest here on zh/en code-switching. */
+    VIBE("vibe-asr", "VibeVoice-ASR (BitNet)", "VibeASR", "7 languages · code-switching");
 
     /** Backends whose output already carries speaker tags — the separate
      *  pyannote/eres2net diarization stage is skipped for these. */
@@ -31,4 +37,11 @@ data class AsrModelFiles(
     val promptFuse: String = "",       // nemotron (language prompt-fusion graph)
     val mossModel: String = "",        // moss-td (the ASR+diarization gguf)
     val speakerEmbedModel: String = "",// moss-td (optional CAM++ gguf for cross-window linking)
+    val vibeEncoder: String = "",      // vibe-asr (LiteRT audio front end)
+    val vibeDecoder: String = "",      // vibe-asr (28-layer ternary decode graph)
+    val vibePrefill: String = "",      // vibe-asr (batched prefill graph, optional)
+    val vibeHead: String = "",         // vibe-asr (int8 LM head + output norm)
+    val vibeWeightsDir: String = "",   // vibe-asr (dec_w***/dec_c*** + manifest)
+    val vibeEmbedding: String = "",    // vibe-asr (Q6_K token_embd table)
+    val vibeVocab: String = "",        // vibe-asr (vocab.json for detokenization)
 )
