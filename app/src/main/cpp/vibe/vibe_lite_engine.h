@@ -96,6 +96,13 @@ class VibeLiteEngine {
     int step_batched_ = 0, step_single_ = 0;
     double step_batched_s_ = 0, step_single_s_ = 0;
 
+    /** The chat prefix is byte-identical in every window and always sits at
+     *  positions 0..kPrefixLen-1, where a causal model lets it attend only to
+     *  itself. Its K/V are therefore the same every window, so once the cache holds
+     *  them, later windows can start prefilling past it. */
+    static constexpr int kPrefixLen = 26;
+    bool prefix_cached_ = false;
+
  private:
     explicit VibeLiteEngine(const VibeConfig& cfg) : cfg_(cfg) {}
     bool Init();

@@ -645,6 +645,7 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     static const int32_t kSuffixTail[] = {6486, 7699, 11, 4486, 1356, 3114, 432,
         13, 151645, 198, 151644, 77091, 198};
 
+    static_assert(sizeof(kPrefix) / sizeof(kPrefix[0]) == kPrefixLen, "kPrefixLen");
     for (int32_t id : kPrefix) push_token(id);
     seq.insert(seq.end(), feats, feats + static_cast<size_t>(n_frames) * dim_);
     for (int32_t id : kSuffixHead) push_token(id);
@@ -662,7 +663,13 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     t0 = now_s();
     step_batched_ = step_single_ = 0;
     step_batched_s_ = step_single_s_ = 0;
-    int pos = 0;
+    // The chat PREFIX is byte-identical in every window and always occupies
+    // positions 0..N-1, and a causal model lets those positions attend only to each
+    // other — never to the audio that follows. So its K/V entries are the same every
+    // window, and once the cache holds them, re-deriving them is pure waste. Only
+    // the prefix qualifies: the suffix sits at audio-dependent positions and attends
+    // across the frames, so it genuinely changes.
+    int pos = prefix_cached_ ? kPrefixLen : 0;
     const float* hidden = nullptr;
     if (prefill_t_ > 1) {
         for (; pos + prefill_t_ <= n_prompt; pos += prefill_t_)
@@ -685,6 +692,7 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     for (; pos < n_prompt; pos++)
         hidden = Step(seq.data() + static_cast<size_t>(pos) * dim_, 1, pos);
     last_prefill_s = now_s() - t0;
+    prefix_cached_ = true;
     LOGI("prefill: %d tok batched in %.1fs (%.0f ms/tok), %d single in %.1fs (%.0f ms/tok)",
          step_batched_, step_batched_s_,
          step_batched_ ? step_batched_s_ * 1000 / step_batched_ : 0.0,
