@@ -24,6 +24,7 @@ import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -807,6 +808,16 @@ class TranscriptionService : LifecycleService() {
                 }
             }
             diarized = runMossPhase(wav, cfg, models, utterances) ?: return null
+        } else if (backend == AsrBackend.VIBE) {
+            // VibeVoice windows internally like MOSS-TD (fixed 10 s encoder window),
+            // so it does not go through the VAD-segmented SpeechEngine path either.
+            // It does NOT diarize, so the separate diarization stage still applies.
+            if (!ownWav) {
+                withContext(Dispatchers.IO) {
+                    AudioDecoder.decodeToWav16k(this@TranscriptionService, uri, wav, normalize = true) { _, _ -> }
+                }
+            }
+            if (!runVibePhase(wav, models, utterances)) return null
         } else {
             val asr = try {
                 createSpeechEngine(backend, models, cfg)
@@ -1298,6 +1309,70 @@ class TranscriptionService : LifecycleService() {
      * transcript rides the Complete event (MOSS re-links speakers each window, so it isn't a simple
      * append stream like the sherpa backends).
      */
+    /**
+     * VibeVoice-ASR on LiteRT. Returns false if the engine could not load.
+     *
+     * The encoder export fixes a 10 s window, so the audio is sliced into 10 s
+     * pieces and each transcribed independently. Timestamps are therefore
+     * window-granular: the model emits no time markers, unlike MOSS-TD.
+     */
+    private val VIBE_WINDOW_SEC = 10
+
+    private suspend fun runVibePhase(
+        wav: File,
+        models: ModelManager,
+        utterances: MutableList<TranscriptEvent.Utterance>,
+    ): Boolean = withContext(Dispatchers.Default) {
+        // `this` is the CoroutineScope of this withContext block, so isActive here
+        // reflects cancellation of the pipeline job.
+        val f = models.asrFiles(AsrBackend.VIBE)
+        val engine = studio.voxsum.core.asr.VibeLiteEngine.create(
+            encoder = java.io.File(f.vibeEncoder),
+            decoder = java.io.File(f.vibeDecoder),
+            head = java.io.File(f.vibeHead),
+            weightsDir = java.io.File(f.vibeWeightsDir),
+            manifest = models.vibeManifest,
+            embeddingTable = java.io.File(f.vibeEmbedding),
+            vocabJson = java.io.File(f.vibeVocab),
+            prefill = java.io.File(f.vibePrefill).takeIf { it.exists() },
+            xnnCacheDir = java.io.File(cacheDir, "xnnpack"),
+            threads = asrThreads(),
+        )
+        if (engine == null) {
+            runCatching { models.deleteAsr(AsrBackend.VIBE) }
+            emitEvent(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))
+            return@withContext false
+        }
+        engine.use { e ->
+            // Read a window at a time rather than the whole file: a 5-minute clip is
+            // 4.8 M samples and the engine only ever sees 10 s of it.
+            val totalSamples = maxOf(0L, wav.length() - WavIo.HEADER) / 2
+            val windowSamples = VIBE_WINDOW_SEC * 16_000
+            var index = 0
+            var start = 0L
+            while (start < totalSamples) {
+                if (!isActive) break
+                val piece = readWav16Window(wav, start.toInt(), windowSamples)
+                if (piece.isEmpty()) break
+                val text = e.transcribeWindow(piece).trim()
+                val end = start + piece.size
+                if (text.isNotEmpty()) {
+                    val u = TranscriptEvent.Utterance(
+                        index = index++,
+                        text = text,
+                        startSec = start / 16_000.0,
+                        endSec = end / 16_000.0,
+                    )
+                    utterances.add(u)
+                    emitEvent(u)
+                }
+                start = end
+                emitEvent(TranscriptEvent.Progress(start.toFloat() / totalSamples))
+            }
+        }
+        true
+    }
+
     private suspend fun runMossPhase(
         wav: File,
         cfg: TranscriptionConfig,
