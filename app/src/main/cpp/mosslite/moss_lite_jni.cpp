@@ -55,4 +55,20 @@ Java_studio_voxsum_core_asr_MossLiteEngine_nativeTranscribe(
   return out;
 }
 
+// Per-window phase timings from the LAST nativeTranscribe, in seconds:
+// {encode, prefill, decode}. The engine already tracks these; without a way to
+// read them from Kotlin the only externally visible number is total wall clock,
+// which cannot separate "the audio encoder is slow" from "generation is slow" —
+// the distinction the backend benchmark exists to report.
+JNIEXPORT jdoubleArray JNICALL
+Java_studio_voxsum_core_asr_MossLiteEngine_nativeLastTimings(JNIEnv* env, jclass,
+                                                             jlong ptr) {
+  jdoubleArray out = env->NewDoubleArray(3);
+  auto* e = reinterpret_cast<mosslite::MossLiteEngine*>(ptr);
+  if (!e) return out;
+  const jdouble t[3] = { e->last_encode_s, e->last_prefill_s, e->last_decode_s };
+  env->SetDoubleArrayRegion(out, 0, 3, t);
+  return out;
+}
+
 }  // extern "C"

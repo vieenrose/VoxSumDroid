@@ -26,6 +26,15 @@ class MossLiteEngine private constructor(
         return detok.decode(tokens)
     }
 
+    /** Phase timings of the last [transcribeWindow], in seconds: encode, prefill, decode.
+     *  Zeroes before the first window. The backend benchmark needs these — total wall
+     *  clock alone cannot separate a slow audio encoder from slow generation. */
+    fun lastTimings(): Triple<Double, Double, Double> {
+        if (ctx == 0L) return Triple(0.0, 0.0, 0.0)
+        val t = nativeLastTimings(ctx)
+        return Triple(t[0], t[1], t[2])
+    }
+
     override fun close() {
         if (ctx != 0L) { nativeFree(ctx); ctx = 0L }
     }
@@ -74,6 +83,8 @@ class MossLiteEngine private constructor(
         @JvmStatic private external fun nativeTranscribe(
             ctx: Long, pcm: FloatArray, ids: IntArray, maxNew: Int,
         ): IntArray
+        /** {encode, prefill, decode} seconds for the last window. */
+        @JvmStatic private external fun nativeLastTimings(ctx: Long): DoubleArray
     }
 }
 

@@ -1814,8 +1814,11 @@ class TranscriptionService : LifecycleService() {
     // schedules the surplus onto slow little cores, and the parallel step runs at the pace of the
     // slowest thread — so on a lopsided SoC (e.g. 2 big + 6 little) 4 threads is SLOWER than 2. On a
     // balanced 4-big SoC (this Boox: Snapdragon 662, 4×2.0 GHz + 4×1.8 GHz) it resolves to 4, so no
-    // change there. Falls back to all cores if cpufreq is unreadable. Clamped 1..4 (diminishing
-    // returns + memory-bandwidth bound above that on mobile). Computed once.
+    // change there. Falls back to all cores if cpufreq is unreadable. Clamped 2..4: the ceiling is
+    // diminishing returns (memory-bandwidth bound above that on mobile); the FLOOR of 2 stops a
+    // single-big-core reading from handing the ASR engines one thread. XNNPACK's own default is a
+    // single thread and it roughly halves throughput, so never land there by accident.
+    // Computed once.
     private val bigCoreThreads: Int by lazy {
         val cores = Runtime.getRuntime().availableProcessors()
         val n = runCatching {
@@ -1825,7 +1828,7 @@ class TranscriptionService : LifecycleService() {
             }
             if (freqs.isEmpty()) null else freqs.max().let { top -> freqs.count { it == top } }
         }.getOrNull() ?: cores
-        n.coerceIn(1, 4)
+        n.coerceIn(2, 4)
     }
 
     private fun asrThreads(): Int = bigCoreThreads
