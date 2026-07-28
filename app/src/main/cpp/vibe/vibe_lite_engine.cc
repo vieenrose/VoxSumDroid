@@ -271,6 +271,17 @@ VibeLiteEngine::~VibeLiteEngine() {
 }
 
 bool VibeLiteEngine::Init() {
+    // BEFORE any graph is compiled. XNNPACK builds its worker pool inside
+    // CompileGraph, and a pthread inherits its creator's affinity mask at creation
+    // — so pinning later, in Transcribe, cannot reach those workers. The ternary
+    // GEMM's pool is a function-local static built lazily on its first dispatch,
+    // which IS inside Transcribe, so it was already pinned and the XNNPACK phases
+    // were not.
+    //
+    // The asymmetry showed in the numbers: over three identical 10 s windows the
+    // encoder (pure XNNPACK) drifted 16.3 -> 25.7 -> 26.1 s while ternary prefill
+    // held 24.3/24.1/24.0. A drooping governor would have dragged both.
+    set_big_core_affinity(false);
     if (LiteRtCreateEnvironment(0, nullptr, &env_) != kLiteRtStatusOk) return false;
     const std::string cache = cfg_.xnn_cache_dir;
     if (!CompileGraph(env_, cfg_.encoder_path, false, cfg_.threads,
@@ -431,6 +442,7 @@ void VibeLiteEngine::EmbedToken(int32_t id, float* out) const {
 
 const float* VibeLiteEngine::Step(const float* embeddings, int n, int start_pos) {
     Graph& g = (n > 1 && prefill_t_ == n) ? pre_ : dec_;
+    const double t_step = now_s();
     WriteBuf(g.ins[0], embeddings, static_cast<size_t>(n) * dim_ * sizeof(float));
     if (n == 1) {
         const int64_t pos = start_pos;
@@ -441,6 +453,14 @@ const float* VibeLiteEngine::Step(const float* embeddings, int n, int start_pos)
         WriteBuf(g.ins[1], pos.data(), pos.size() * sizeof(int64_t));
     }
     if (!g.run()) return nullptr;
+    // Which graph actually carried each step, and at what per-token rate. Prefill
+    // measured 193 ms/token in-app against 68 ms/token on the bench, and it should
+    // never be dearer per token than single-token decode — so the batched path
+    // either is not being taken or is not running at its benchmarked rate, and a
+    // per-step tag is the only thing that tells those two apart.
+    step_batched_ += (&g == &pre_) ? n : 0;
+    step_single_ += (&g == &pre_) ? 0 : n;
+    ((&g == &pre_) ? step_batched_s_ : step_single_s_) += now_s() - t_step;
     void* p = nullptr;
     if (LiteRtLockTensorBuffer(g.outs[0], &p, kLiteRtTensorBufferLockModeRead) != kLiteRtStatusOk)
         return nullptr;
@@ -543,6 +563,8 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     // at a time. Batching is worth ~1.2x here: the kernel is compute-bound on
     // ARMv8.0, so it amortizes weight reads but not arithmetic.
     t0 = now_s();
+    step_batched_ = step_single_ = 0;
+    step_batched_s_ = step_single_s_ = 0;
     int pos = 0;
     const float* hidden = nullptr;
     if (prefill_t_ > 1) {
@@ -552,6 +574,11 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     for (; pos < n_prompt; pos++)
         hidden = Step(seq.data() + static_cast<size_t>(pos) * dim_, 1, pos);
     last_prefill_s = now_s() - t0;
+    LOGI("prefill: %d tok batched in %.1fs (%.0f ms/tok), %d single in %.1fs (%.0f ms/tok)",
+         step_batched_, step_batched_s_,
+         step_batched_ ? step_batched_s_ * 1000 / step_batched_ : 0.0,
+         step_single_, step_single_s_,
+         step_single_ ? step_single_s_ * 1000 / step_single_ : 0.0);
     if (!hidden) return out;
 
     // Decode greedily.

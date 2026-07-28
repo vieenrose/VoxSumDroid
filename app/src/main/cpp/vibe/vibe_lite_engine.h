@@ -91,6 +91,10 @@ class VibeLiteEngine {
 
     double last_encode_s = 0, last_prefill_s = 0, last_decode_s = 0;
     int last_prompt_tokens = 0, last_generated_tokens = 0;
+    /** Tokens carried by the batched prefill graph vs one at a time, and the
+     *  seconds each spent, so a shortfall attributes to the right path. */
+    int step_batched_ = 0, step_single_ = 0;
+    double step_batched_s_ = 0, step_single_s_ = 0;
 
  private:
     explicit VibeLiteEngine(const VibeConfig& cfg) : cfg_(cfg) {}
