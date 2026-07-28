@@ -84,6 +84,22 @@ void set_big_core_affinity(bool wide) {
     sched_setaffinity(0, sizeof(set), &set);
 }
 
+/** Major faults so far: pages that had to come back from storage, not just from
+ *  the free list. Minor faults are cheap; these are the ones that cost seconds. */
+long majflt() {
+    FILE* f = fopen("/proc/self/stat", "r");
+    if (!f) return -1;
+    long v = -1;
+    // field 12 of /proc/self/stat, after comm — which can contain spaces, so skip
+    // to the closing paren rather than counting from the start.
+    int c;
+    while ((c = fgetc(f)) != EOF && c != ')') {}
+    // fields after ')': state(3) ppid pgrp session tty tpgid flags minflt cminflt majflt
+    if (fscanf(f, " %*c %*d %*d %*d %*d %*d %*u %*lu %*lu %ld", &v) != 1) v = -1;
+    fclose(f);
+    return v;
+}
+
 double now_s() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -484,6 +500,7 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
 
     // Encoder: the export fixes the window, so pad or clip to it.
     double t0 = now_s();
+    const long mf0 = majflt();
     size_t in_bytes = 0, out_bytes = 0;
     if (enc_.ins.empty()) {
         enc_.ins.assign(1, nullptr);
@@ -520,6 +537,12 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     const int n_frames = std::min(frames_in_graph, (n24 + 3199) / 3200);
     LiteRtUnlockTensorBuffer(enc_.outs[0]);
     last_encode_s = now_s() - t0;
+    // The encoder graph is 700 MB of int8 — larger than the 2-bit decoder's 328 MB
+    // — and mmap'd file-backed, so it is evictable. If a decoder pass streaming its
+    // own weights pushes it out of page cache, the next window re-faults it from
+    // flash, which would explain an encoder that costs 15.9 s warm and ~28 s after.
+    // Major faults distinguish that from any CPU-side story.
+    LOGI("encode %.1fs  majflt=%ld (+%ld)", last_encode_s, majflt(), majflt() - mf0);
 
     // Prompt: audio features occupy the speech-pad span, so they are spliced in as
     // input EMBEDDINGS rather than tokenized. Text ids around them are embedded

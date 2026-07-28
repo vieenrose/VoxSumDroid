@@ -53,6 +53,7 @@ class TernaryPool {
     ~TernaryPool() {
         stop_.store(true, std::memory_order_relaxed);
         epoch_.fetch_add(1, std::memory_order_release);   // wake the spinners
+        { std::lock_guard<std::mutex> lk(m_); cv_.notify_all(); }  // and the parked
         for (auto& t : workers_) t.join();
     }
 
@@ -64,6 +65,7 @@ class TernaryPool {
         nt_ = nt;
         remaining_.store(nt - 1, std::memory_order_relaxed);
         epoch_.fetch_add(1, std::memory_order_release);
+        wake();
         run_range(0);                       // this thread takes the first chunk
         // SPIN, then yield. A decoder dispatches the pool ~84 times per token (3
         // MLP projections x 28 layers), and each dispatch is a few milliseconds of
@@ -84,6 +86,20 @@ class TernaryPool {
     }
 
  private:
+    // How long a worker stays hot before parking. kSpins of `yield` is ~10 us; the
+    // sched_yield phase adds ~1 ms. Gaps within a burst are microseconds, so in
+    // practice only the first dispatch after an encoder pass pays a futex wake.
+    static constexpr int kSpins = 8192;
+    static constexpr int kYields = 1024;
+
+    /** Only touches the mutex when someone is actually parked, so the common case
+     *  — a burst already in flight, nobody blocked — stays a single relaxed load. */
+    void wake() {
+        if (blocked_.load(std::memory_order_acquire) == 0) return;
+        std::lock_guard<std::mutex> lk(m_);
+        cv_.notify_all();
+    }
+
     void run_range(int idx) {
         const int chunk = (n_items_ + nt_ - 1) / nt_;
         const int lo = std::min(n_items_, idx * chunk);
@@ -97,16 +113,42 @@ class TernaryPool {
             int spins = 0;
             while (epoch_.load(std::memory_order_acquire) == seen) {
                 if (stop_.load(std::memory_order_relaxed)) return;
-                if (++spins < 8192) {
+                if (++spins < kSpins) {
 #if defined(__aarch64__) || defined(__arm__)
                     __asm__ __volatile__("yield");
 #endif
-                } else {
+                } else if (spins < kSpins + kYields) {
                     std::this_thread::yield();
+                } else {
+                    // Nothing has arrived for ~a millisecond, so this is not a gap
+                    // between dispatches within a burst — the pool is idle. BLOCK.
+                    //
+                    // This loop used to yield here forever, and sched_yield on a
+                    // runqueue with nothing else ready returns immediately, so the
+                    // workers burned every core they were pinned to for the entire
+                    // life of the engine. It was invisible in prefill and decode,
+                    // where the pool IS the work; it showed up in the ENCODER,
+                    // which is pure XNNPACK and was contending with 3 spinners for
+                    // 4 big cores — 15.9 s on the first window, when the pool does
+                    // not yet exist (it is a lazy static, first dispatched in
+                    // prefill), and 29 s on every window after it.
+                    //
+                    // Blocking per dispatch is what made the condition-variable
+                    // version 1.8x slower than single-threaded. Blocking only past
+                    // the spin window leaves the hot path alone: inside a burst the
+                    // next dispatch lands in microseconds, well within kSpins.
+                    std::unique_lock<std::mutex> lk(m_);
+                    blocked_.fetch_add(1, std::memory_order_relaxed);
+                    cv_.wait(lk, [&] {
+                        return epoch_.load(std::memory_order_acquire) != seen ||
+                               stop_.load(std::memory_order_relaxed);
+                    });
+                    blocked_.fetch_sub(1, std::memory_order_relaxed);
+                    break;
                 }
             }
-            seen = epoch_.load(std::memory_order_acquire);
             if (stop_.load(std::memory_order_relaxed)) return;
+            seen = epoch_.load(std::memory_order_acquire);
             if (idx < nt_) run_range(idx);
             remaining_.fetch_sub(1, std::memory_order_release);
         }
@@ -119,6 +161,9 @@ class TernaryPool {
     std::atomic<int> remaining_{0};
     std::atomic<uint64_t> epoch_{0};
     std::atomic<bool> stop_{false};
+    std::atomic<int> blocked_{0};
+    std::mutex m_;
+    std::condition_variable cv_;
 };
 
 // Parallelise only when there is enough work to pay for the handoff. Measured per
