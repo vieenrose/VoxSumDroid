@@ -33,9 +33,13 @@ class VibeLongAudioTest {
         val wav = File(benchDir, "${lang}_5min.wav")
         Assume.assumeTrue("push ${wav.name} to $benchDir", wav.exists())
 
+        // The encoder window is baked into the export, so the graph and the slicing
+        // have to agree. A longer window amortizes the chat template, which is a
+        // FIXED 50 tokens per window against 7.5 audio frames per second.
+        val winSecs = args.getString("win")?.toInt() ?: 10
         val vd = File(args.getString("vibeDir") ?: "/data/local/tmp/vibe_engine")
         val engine = VibeLiteEngine.create(
-            encoder = File(vd, "vibe_front_10s_q8.tflite"),
+            encoder = File(vd, "vibe_front_${winSecs}s_q8.tflite"),
             decoder = File(vd, "decoder_28L_512_c.tflite"),
             head = File(vd, "head_q8.tflite"),
             weightsDir = File(vd, "weights"),
@@ -55,13 +59,13 @@ class VibeLongAudioTest {
         Log.i(TAG, "$lang: ${pcm.size / 16_000.0}s")
 
         engine!!.use { e ->
-            val fixed = run(e, pcm, snap = false)
+            val fixed = run(e, pcm, snap = false, winSecs = winSecs)
             Log.i(TAG, "FIXED    windows=${fixed.windows} skipped=${fixed.skipped} " +
                 "wall=${"%.1f".format(fixed.wall)}s")
             Log.i(TAG, "  ${fixed.text.take(300)}")
 
             if (args.getString("arms") == "fixed") return@use
-            val snapped = run(e, pcm, snap = true)
+            val snapped = run(e, pcm, snap = true, winSecs = winSecs)
             Log.i(TAG, "SNAPPED  windows=${snapped.windows} skipped=${snapped.skipped} " +
                 "wall=${"%.1f".format(snapped.wall)}s  " +
                 "(${"%.2f".format(fixed.wall / snapped.wall)}x)")
@@ -71,8 +75,8 @@ class VibeLongAudioTest {
 
     private data class Res(val text: String, val wall: Double, val windows: Int, val skipped: Int)
 
-    private fun run(e: VibeLiteEngine, pcm: FloatArray, snap: Boolean): Res {
-        val win = 10 * 16_000
+    private fun run(e: VibeLiteEngine, pcm: FloatArray, snap: Boolean, winSecs: Int): Res {
+        val win = winSecs * 16_000
         val sb = StringBuilder()
         var s = 0
         var windows = 0
@@ -81,7 +85,7 @@ class VibeLongAudioTest {
         while (s < pcm.size) {
             val piece = pcm.copyOfRange(s, minOf(s + win, pcm.size))
             val used = if (!snap) piece else {
-                val cut = (MossWindower.pauseCut(piece, 10, 16_000, snapSeconds = 2.0) * 16_000)
+                val cut = (MossWindower.pauseCut(piece, winSecs, 16_000, snapSeconds = 2.0) * 16_000)
                     .toInt().coerceIn(1, piece.size)
                 if (cut < piece.size) piece.copyOfRange(0, cut) else piece
             }

@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <string>
 
 #include "litert/c/litert_custom_op_kernel.h"
 #include "litert/c/litert_layout.h"
@@ -36,13 +37,6 @@
 namespace vibe {
 namespace {
 
-// Pin the calling thread to the highest-frequency ("big") cores.
-//
-// An Android app process is cgroup-scheduled, and an instrumentation test lands
-// somewhere much more restricted than a shell binary: the same decode measured
-// 148-204 ms/token from `adb shell` and 689 ms/token inside the app. MossLiteEngine
-// pins its decode loop for the same reason. Wide=true restores the full mask for
-// phases that genuinely want every core.
 // 16 kHz (what the app records and every other backend uses) -> 24 kHz (what this
 // encoder was trained and exported for). Linear interpolation, matching the
 // reference audio_io.h.
@@ -64,6 +58,13 @@ std::vector<float> resample_16k_to_24k(const float* in, int n) {
     return out;
 }
 
+// Pin the calling thread to the highest-frequency ("big") cores.
+//
+// An Android app process is cgroup-scheduled, and an instrumentation test lands
+// somewhere much more restricted than a shell binary: the same decode measured
+// 148-204 ms/token from `adb shell` and 689 ms/token inside the app. MossLiteEngine
+// pins its decode loop for the same reason. wide=true restores the full mask for
+// phases that genuinely want every core — see the encoder in Init().
 void set_big_core_affinity(bool wide) {
     const int online = std::max(1, static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN)));
     std::vector<unsigned long long> freqs(online, 0);
@@ -99,6 +100,11 @@ long majflt() {
     fclose(f);
     return v;
 }
+
+// The encoder's sample rate and its total stride: one output frame per HOP_SAMPLES
+// input samples, matching export_litert.py's SR/HOP.
+constexpr int ENC_RATE = 24000;
+constexpr int HOP_SAMPLES = 3200;
 
 double now_s() {
     struct timespec ts;
@@ -544,7 +550,7 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     // ceil(n_samples_24k / 3200) and splices exactly that many, so feeding the
     // full window hands the model 21 frames of padding as if it were speech.
     const int frames_in_graph = static_cast<int>(out_bytes / sizeof(float) / dim_);
-    const int n_frames = std::min(frames_in_graph, (n24 + 3199) / 3200);
+    const int n_frames = std::min(frames_in_graph, (n24 + HOP_SAMPLES - 1) / HOP_SAMPLES);
     LiteRtUnlockTensorBuffer(enc_.outs[0]);
     last_encode_s = now_s() - t0;
     // The encoder graph is 700 MB of int8 — larger than the 2-bit decoder's 328 MB
@@ -576,19 +582,26 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     //   <|speech_end|>\nThis is a N seconds audio, please transcribe it.<|im_end|>\n
     //   <|im_start|>assistant\n
     //
-    // The duration phrase is fixed at the encoder's 10 s window rather than
-    // re-tokenized per clip, which would need a BPE encoder on this side for a
-    // string the window makes constant anyway.
+    // The duration phrase follows the encoder's window rather than being fixed at
+    // 10 s, so a different export needs no code change. Only the integer part
+    // varies — a window is always a whole number of 3200-sample frames — so the
+    // digits are emitted directly (Qwen2.5 tokenizes them one at a time, '0' = 15)
+    // instead of pulling a BPE encoder onto this side for a two-character string.
     static const int32_t kPrefix[] = {
         151644, 8948, 198, 2610, 525, 264, 10950, 17847, 429, 1356, 55136, 7699,
         1946, 1119, 1467, 2550, 304, 4718, 3561, 13, 151645, 198, 151644, 872, 198, 151646};
-    static const int32_t kSuffix[] = {
-        151647, 198, 1986, 374, 264, 220, 16, 15, 13, 15, 15, 6486, 7699, 11,
-        4486, 1356, 3114, 432, 13, 151645, 198, 151644, 77091, 198};
+    //  <|speech_end|> \n  This  is   a   " "                 seconds audio  ,
+    static const int32_t kSuffixHead[] = {151647, 198, 1986, 374, 264, 220};
+    static const int32_t kSuffixTail[] = {6486, 7699, 11, 4486, 1356, 3114, 432,
+        13, 151645, 198, 151644, 77091, 198};
 
     for (int32_t id : kPrefix) push_token(id);
     seq.insert(seq.end(), feats, feats + static_cast<size_t>(n_frames) * dim_);
-    for (int32_t id : kSuffix) push_token(id);
+    for (int32_t id : kSuffixHead) push_token(id);
+    const int win_secs = std::max(1, frames_in_graph * HOP_SAMPLES / ENC_RATE);
+    for (char c : std::to_string(win_secs)) push_token(15 + (c - '0'));
+    for (int32_t id : {13, 15, 15}) push_token(id);      // ".00"
+    for (int32_t id : kSuffixTail) push_token(id);
 
     const int n_prompt = static_cast<int>(seq.size() / dim_);
     last_prompt_tokens = n_prompt;
