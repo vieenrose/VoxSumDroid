@@ -93,6 +93,14 @@ class ModelManager(appFilesDir: File) {
         mossLiteVocab.length() == MOSSLITE_VOCAB_BYTES
     fun mossSpeakerReady(): Boolean = mossSpeakerModel.length() == MOSS_SPK_BYTES
 
+    // --- VibeVoice-ASR-BitNet (hybrid: LiteRT front end + ggml ternary decoder) ---
+    // Two loose files rather than a tar.bz2 spec, same as MOSS-TD, so it sits outside
+    // the asrSpecs registry and is special-cased alongside it below.
+    val vibeVaeModel: File get() = File(modelsDir, "vibe_front_10s_q8.tflite")
+    val vibeLmModel: File get() = File(modelsDir, "vibeasr-lm-i2_s-embed-q6_k.gguf")
+    fun vibeReady(): Boolean =
+        vibeVaeModel.length() == VIBE_VAE_BYTES && vibeLmModel.length() == VIBE_LM_BYTES
+
     // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
     internal data class AsrModelSpec(
         val dir: String,
@@ -212,6 +220,9 @@ class ModelManager(appFilesDir: File) {
         // MOSS-TD isn't a sherpa/tar.bz2 spec — its readiness is the GGUF check. No VAD needed
         // (the model windows internally), so keep it out of the sentinel/VAD path.
         if (backend == AsrBackend.MOSS) return mossReady()
+        // Like MOSS: loose files, and no VAD needed because the binary windows the
+        // audio itself.
+        if (backend == AsrBackend.VIBE) return vibeReady()
         val spec = asrSpecs.getValue(backend)
         val d = specDir(spec)
         // The LiteRT backends segment with the tflite Silero VAD; the sherpa ones with the ONNX one.
@@ -230,6 +241,10 @@ class ModelManager(appFilesDir: File) {
             mossModel = mossLiteDecoder.absolutePath,
             speakerEmbedModel = mossSpeakerModel.takeIf { mossSpeakerReady() }?.absolutePath ?: "",
         )
+        else if (backend == AsrBackend.VIBE) AsrModelFiles(
+            vibeVae = vibeVaeModel.absolutePath,
+            vibeLm = vibeLmModel.absolutePath,
+        )
         else asrSpecs.getValue(backend).let { it.buildFiles(specDir(it)) }
 
     /**
@@ -243,12 +258,27 @@ class ModelManager(appFilesDir: File) {
                 .forEach { it.takeIf(File::exists)?.delete() }
             return
         }
+        if (backend == AsrBackend.VIBE) {
+            listOf(vibeVaeModel, vibeLmModel).forEach { it.takeIf(File::exists)?.delete() }
+            return
+        }
         specDir(asrSpecs.getValue(backend)).takeIf(File::exists)?.deleteRecursively()
     }
 
     /** Download + extract the model for [backend] if missing (VAD shared across backends). */
     suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
-        if (backend == AsrBackend.MOSS) ensureMossModels(onProgress) else
+        if (backend == AsrBackend.MOSS) ensureMossModels(onProgress)
+        // VibeVoice models are not provisioned automatically yet: 1.7 GB with no
+        // hosted copy of our LiteRT front-end export. Fail with the paths rather
+        // than silently starting a download that does not exist.
+        else if (backend == AsrBackend.VIBE) {
+            check(vibeReady()) {
+                "VibeVoice-ASR models missing. Place them at:\n" +
+                    "  ${vibeVaeModel.absolutePath}\n  ${vibeLmModel.absolutePath}"
+            }
+            onProgress(1f)
+        }
+        else
         withContext(Dispatchers.IO) {
             ensureVadLite { onProgress(it * 0.1f) }
             val spec = asrSpecs.getValue(backend)
@@ -689,6 +719,12 @@ class ModelManager(appFilesDir: File) {
             "https://huggingface.co/Luigi/campplus-litert/resolve/985721e598976ac8f4433e25bf41f61bec1e16df/campplus_cn_common_500f.tflite"
         private const val MOSS_SPK_SHA = "e7aeb9312b17a8c76af38cb772d0e291b30dd377f3dd5aeb6648383ae7da87d9"
         private const val MOSS_SPK_BYTES = 28_730_020L
+
+        // VibeVoice-ASR-BitNet. The LM is upstream (microsoft/VibeVoice-ASR-BitNet);
+        // the front end is our LiteRT export of the same checkpoint's two tokenizer
+        // encoders plus their connectors, fixed to a 10 s window.
+        private const val VIBE_VAE_BYTES = 700_186_232L
+        private const val VIBE_LM_BYTES = 992_877_600L
         private const val MOSSLITE_REV =
             "https://huggingface.co/Luigi/moss-transcribe-diarize-litert/resolve/1de273ca3d46c109e248a58b6db485bdb11f691f"
         private const val MOSSLITE_ENC_URL = "$MOSSLITE_REV/moss_td_encoder_q8.tflite"
