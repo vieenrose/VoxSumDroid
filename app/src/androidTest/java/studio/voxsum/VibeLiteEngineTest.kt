@@ -48,9 +48,13 @@ class VibeLiteEngineTest {
             manifest = File(dir, "dec_28L_manifest.txt"),
             embeddingTable = File(dir, "embd_table.bin"),
             vocabJson = File(dir, "vocab.json"),
-            // The prefill export is ctx-specific; only use it when it matches.
-            prefill = File(dir, "prefill_t16_c.tflite")
-                .takeIf { it.exists() && decoder.name.contains("_128_") },
+            // The prefill export is ctx-specific — its KV cache tensors carry the
+            // context length — so pick the one matching the decode graph. A
+            // mismatch silently falls back to one-token-at-a-time prefill, which
+            // cost 88 s on a 125-token prompt.
+            prefill = File(dir, if (decoder.name.contains("_512_"))
+                "prefill_512_t16_c.tflite" else "prefill_t16_c.tflite")
+                .takeIf { it.exists() },
             xnnCacheDir = File(app.cacheDir, "xnnpack"),
             threads = 4,
         )

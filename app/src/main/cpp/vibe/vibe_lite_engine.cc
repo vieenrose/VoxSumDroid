@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sched.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -34,6 +35,33 @@
 
 namespace vibe {
 namespace {
+
+// Pin the calling thread to the highest-frequency ("big") cores.
+//
+// An Android app process is cgroup-scheduled, and an instrumentation test lands
+// somewhere much more restricted than a shell binary: the same decode measured
+// 148-204 ms/token from `adb shell` and 689 ms/token inside the app. MossLiteEngine
+// pins its decode loop for the same reason. Wide=true restores the full mask for
+// phases that genuinely want every core.
+void set_big_core_affinity(bool wide) {
+    const int online = std::max(1, static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN)));
+    std::vector<unsigned long long> freqs(online, 0);
+    for (int c = 0; c < online; c++) {
+        char path[128];
+        snprintf(path, sizeof(path),
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", c);
+        if (FILE* f = fopen(path, "r")) {
+            if (fscanf(f, "%llu", &freqs[c]) != 1) freqs[c] = 0;
+            fclose(f);
+        }
+    }
+    const unsigned long long top = *std::max_element(freqs.begin(), freqs.end());
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    for (int c = 0; c < online && c < CPU_SETSIZE; c++)
+        if (wide || top == 0 || freqs[c] == top) CPU_SET(c, &set);
+    sched_setaffinity(0, sizeof(set), &set);
+}
 
 double now_s() {
     struct timespec ts;
@@ -210,6 +238,14 @@ std::unique_ptr<VibeLiteEngine> VibeLiteEngine::Create(const VibeConfig& cfg) {
 }
 
 VibeLiteEngine::~VibeLiteEngine() {
+    // pre_ BORROWS dec_'s weight and cache buffers; only its own input 0/1 and
+    // output 0 are its own. Clear the borrowed handles so ~Graph does not free
+    // them twice.
+    for (size_t i = 2; i < pre_.ins.size(); i++) pre_.ins[i] = nullptr;
+    for (size_t i = 1; i < pre_.outs.size(); i++) pre_.outs[i] = nullptr;
+    // dec_'s outputs 1.. are aliases of its own inputs; drop them for the same
+    // reason.
+    for (size_t i = 1; i < dec_.outs.size(); i++) dec_.outs[i] = nullptr;
     if (env_) LiteRtDestroyEnvironment(env_);
 }
 
@@ -342,6 +378,8 @@ bool VibeLiteEngine::LoadDecoderGraphs() {
             LiteRtGetNumSignatureInputs(pre_.sig, &pin);
             LiteRtGetNumSignatureOutputs(pre_.sig, &pout);
             if (pin == n_in && pout == n_out) {
+                // Weight and cache buffers are shared verbatim — same tensors, same
+                // order — so prefill updates the very caches decode then reads.
                 pre_.ins = dec_.ins;      // borrowed, not owned
                 pre_.outs = dec_.outs;
                 size_t pb = 0;
@@ -352,6 +390,12 @@ bool VibeLiteEngine::LoadDecoderGraphs() {
                 }
                 LiteRtTensorBuffer p = nullptr;
                 if (MakeManaged(env_, pre_, true, 1, &pb, &p)) pre_.ins[1] = p;
+                // Its own hidden OUTPUT too: that tensor is [T, dim] where decode's
+                // is [1, dim]. Sharing decode's buffer let the graph write 16 rows
+                // into space for one — which produced an empty transcript rather
+                // than a crash, so it looked like a model problem.
+                LiteRtTensorBuffer h = nullptr;
+                if (MakeManaged(env_, pre_, false, 0, &pb, &h)) pre_.outs[0] = h;
             } else {
                 LOGE("prefill signature does not match decode; ignoring it");
             }
@@ -380,7 +424,9 @@ const float* VibeLiteEngine::Step(const float* embeddings, int n, int start_pos)
     if (LiteRtLockTensorBuffer(g.outs[0], &p, kLiteRtTensorBufferLockModeRead) != kLiteRtStatusOk)
         return nullptr;
     LiteRtUnlockTensorBuffer(g.outs[0]);
-    return static_cast<const float*>(p);
+    // The hidden state that predicts the NEXT token is the LAST row of the batch,
+    // not the first.
+    return static_cast<const float*>(p) + static_cast<size_t>(n - 1) * dim_;
 }
 
 int32_t VibeLiteEngine::Argmax(const float* logits, int n) const {
@@ -393,6 +439,7 @@ int32_t VibeLiteEngine::Argmax(const float* logits, int n) const {
 std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_samples, int max_new) {
     std::vector<int32_t> out;
     if (!pcm16k || n_samples <= 0) return out;
+    set_big_core_affinity(false);
 
     // Encoder: the export fixes the window, so pad or clip to it.
     double t0 = now_s();
