@@ -260,13 +260,27 @@ bool VibeLiteEngine::LoadDecoderGraphs() {
     weights_.resize(n_in);
     const LiteRtParamIndex cache_first = n_in - 2 * n_layers_;
     for (LiteRtParamIndex i = 0; i < n_in; i++) {
-        weights_[i] = Mapping(cfg_.weights_dir + "/" + files[i]);
-        if (!weights_[i].ok()) { LOGE("missing %s", files[i].c_str()); return false; }
-
         // Inputs 0/1 are the embedding and position, rewritten every step; the
         // trailing 2*L are KV caches ALIASED AS OUTPUTS, so the graph writes into
         // them. Neither can be a read-only mapping — that segfaults on step one.
         const bool writable = (i <= 1) || (i >= cache_first);
+
+        // The manifest names a file for EVERY input because the export dumps a
+        // sample of each, but inputs 0/1 are supplied at runtime and the caches
+        // start zeroed, so those files need not be shipped. Only the weights are
+        // required.
+        if (!writable) {
+            weights_[i] = Mapping(cfg_.weights_dir + "/" + files[i]);
+            if (!weights_[i].ok()) { LOGE("missing weight file %s", files[i].c_str()); return false; }
+        }
+        if (writable) {
+            size_t need = 0;
+            if (!MakeManaged(env_, dec_, true, i, &need, &dec_.ins[i])) return false;
+            // Caches must start at zero; a managed buffer is not guaranteed to be.
+            std::vector<uint8_t> zeros(need, 0);
+            WriteBuf(dec_.ins[i], zeros.data(), need);
+            continue;
+        }
         LiteRtTensor t = nullptr;
         LiteRtRankedTensorType tt;
         LiteRtTensorBufferRequirements reqs = nullptr;
@@ -278,7 +292,7 @@ bool VibeLiteEngine::LoadDecoderGraphs() {
             if (LiteRtGetTensorBufferRequirementsBufferSize(reqs, &req) == kLiteRtStatusOk)
                 want = req;
         }
-        if (!writable && want <= weights_[i].size() &&
+        if (want <= weights_[i].size() &&
             LiteRtCreateTensorBufferFromHostMemory(&tt, const_cast<uint8_t*>(weights_[i].data()),
                                                    want, nullptr, &dec_.ins[i]) == kLiteRtStatusOk) {
             continue;
@@ -420,11 +434,31 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
         seq.resize(seq.size() + dim_);
         EmbedToken(id, seq.data() + seq.size() - dim_);
     };
-    push_token(151644);                      // <|im_start|>
-    push_token(151646);                      // <|speech_start|>
+    // The chat template is NOT optional. A minimal
+    // <|im_start|><|speech_start|>feats<|speech_end|><|im_start|> wrapper loaded and
+    // decoded cleanly but transcribed a 7 s English clip as "Hmm. The guy." — the
+    // model has no idea it is being asked to transcribe. These are the exact ids the
+    // reference prompt_builder.h produces, dumped from the shipped tokenizer, in the
+    // same spirit as MossLitePrompt's constants:
+    //
+    //   <|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n<|speech_start|>
+    //   {audio}
+    //   <|speech_end|>\nThis is a N seconds audio, please transcribe it.<|im_end|>\n
+    //   <|im_start|>assistant\n
+    //
+    // The duration phrase is fixed at the encoder's 10 s window rather than
+    // re-tokenized per clip, which would need a BPE encoder on this side for a
+    // string the window makes constant anyway.
+    static const int32_t kPrefix[] = {
+        151644, 8948, 198, 2610, 525, 264, 10950, 17847, 429, 1356, 55136, 7699,
+        1946, 1119, 1467, 2550, 304, 4718, 3561, 13, 151645, 198, 151644, 872, 198, 151646};
+    static const int32_t kSuffix[] = {
+        151647, 198, 1986, 374, 264, 220, 16, 15, 13, 15, 15, 6486, 7699, 11,
+        4486, 1356, 3114, 432, 13, 151645, 198, 151644, 77091, 198};
+
+    for (int32_t id : kPrefix) push_token(id);
     seq.insert(seq.end(), feats, feats + static_cast<size_t>(n_frames) * dim_);
-    push_token(151647);                      // <|speech_end|>
-    push_token(151644);                      // <|im_start|> (assistant turn)
+    for (int32_t id : kSuffix) push_token(id);
 
     const int n_prompt = static_cast<int>(seq.size() / dim_);
     last_prompt_tokens = n_prompt;
