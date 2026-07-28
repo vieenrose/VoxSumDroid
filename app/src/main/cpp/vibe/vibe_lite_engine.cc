@@ -297,11 +297,21 @@ bool VibeLiteEngine::Init() {
     // The asymmetry showed in the numbers: over three identical 10 s windows the
     // encoder (pure XNNPACK) drifted 16.3 -> 25.7 -> 26.1 s while ternary prefill
     // held 24.3/24.1/24.0. A drooping governor would have dragged both.
-    set_big_core_affinity(false);
     if (LiteRtCreateEnvironment(0, nullptr, &env_) != kLiteRtStatusOk) return false;
     const std::string cache = cfg_.xnn_cache_dir;
-    if (!CompileGraph(env_, cfg_.encoder_path, false, cfg_.threads,
+    // The same inheritance rule, used deliberately: the encoder is a big dense conv
+    // workload that runs ALONE — nothing else is in flight during it — so it is the
+    // one phase that wants every core, little ones included. Compiling it under the
+    // wide mask leaves its workers wide for the engine's lifetime, while the graphs
+    // compiled after it stay on the big cores where they belong: the head runs
+    // interleaved with decode, and the ternary pool must not be handed a little core
+    // when its chunks are split evenly.
+    const int enc_threads = std::max(cfg_.threads,
+        static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN)));
+    set_big_core_affinity(true);
+    if (!CompileGraph(env_, cfg_.encoder_path, false, enc_threads,
                       cache.empty() ? "" : cache + "/vibe_enc.xnncache", &enc_)) return false;
+    set_big_core_affinity(false);
     if (!CompileGraph(env_, cfg_.head_path, false, cfg_.threads,
                       cache.empty() ? "" : cache + "/vibe_head.xnncache", &head_)) return false;
     if (!LoadDecoderGraphs()) return false;
@@ -593,6 +603,20 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     if (prefill_t_ > 1) {
         for (; pos + prefill_t_ <= n_prompt; pos += prefill_t_)
             hidden = Step(seq.data() + static_cast<size_t>(pos) * dim_, prefill_t_, pos);
+        // Cover the remainder with one more FULL batch that reaches backwards to
+        // end at n_prompt, rather than stepping it one token at a time. A 125-token
+        // prompt is 7x16 + 13, and those 13 were costing 250 ms/token against 90
+        // batched — 10% of the tokens for ~25% of prefill.
+        //
+        // The overlap is safe because a prefill step is idempotent: re-running
+        // positions 109..111 writes the same K/V into the same cache slots, from the
+        // same embeddings at the same positions, and every position it attends to is
+        // already correct. Re-running 3 tokens is far cheaper than stepping 13.
+        if (pos < n_prompt && n_prompt >= prefill_t_) {
+            const int start = n_prompt - prefill_t_;
+            hidden = Step(seq.data() + static_cast<size_t>(start) * dim_, prefill_t_, start);
+            pos = n_prompt;
+        }
     }
     for (; pos < n_prompt; pos++)
         hidden = Step(seq.data() + static_cast<size_t>(pos) * dim_, 1, pos);
