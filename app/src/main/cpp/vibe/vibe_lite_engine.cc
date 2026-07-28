@@ -701,24 +701,42 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     LOGI("after prefill: RssAnon %ld kB", rss_anon_kb());
     if (!hidden) return out;
 
-    // Decode greedily.
+    // Decode greedily. Split the head from the 28-layer step: decode measures
+    // ~290 ms/token against the decoder graph's own 123.5 ms benchmark, and the
+    // 233 MB int8 head is the obvious suspect for the difference — but that was an
+    // estimate from bandwidth, never a measurement.
     t0 = now_s();
+    double head_s = 0, argmax_s = 0, embed_s = 0, step_s = 0;
     for (int step = 0; step < max_new && pos < ctx_; step++) {
+        const double th = now_s();
         WriteBuf(head_.ins[0], hidden, static_cast<size_t>(dim_) * sizeof(float));
         if (!head_.run()) break;
         void* lp = nullptr;
         if (LiteRtLockTensorBuffer(head_.outs[0], &lp, kLiteRtTensorBufferLockModeRead)
             != kLiteRtStatusOk) break;
+        head_s += now_s() - th;
+        const double ta = now_s();
         const int32_t next = Argmax(static_cast<const float*>(lp), vocab_);
         LiteRtUnlockTensorBuffer(head_.outs[0]);
+        argmax_s += now_s() - ta;
         if (next == 151643 || next == 151645) break;      // <|endoftext|> / <|im_end|>
         out.push_back(next);
+        const double te = now_s();
         EmbedToken(next, emb_.data());
+        embed_s += now_s() - te;
+        const double ts = now_s();
         hidden = Step(emb_.data(), 1, pos);
+        step_s += now_s() - ts;
         pos++;
         if (!hidden) break;
     }
     last_decode_s = now_s() - t0;
+    if (!out.empty()) {
+        const double n = static_cast<double>(out.size());
+        LOGI("decode %zu tok: head %.0f ms/tok, argmax %.0f, embed %.0f, 28L step %.0f",
+             out.size(), head_s * 1000 / n, argmax_s * 1000 / n,
+             embed_s * 1000 / n, step_s * 1000 / n);
+    }
     last_generated_tokens = static_cast<int>(out.size());
     return out;
 }

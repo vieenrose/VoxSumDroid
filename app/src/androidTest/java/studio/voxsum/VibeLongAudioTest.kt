@@ -38,6 +38,11 @@ class VibeLongAudioTest {
         // FIXED 50 tokens per window against 7.5 audio frames per second.
         val winSecs = args.getString("win")?.toInt() ?: 10
         val vd = File(args.getString("vibeDir") ?: "/data/local/tmp/vibe_engine")
+        // The decode and prefill graphs are context-specific and must be a matched
+        // pair. A smaller ctx is worth testing because per-token cost tracks
+        // position, so some of the work may scale with the graph's ctx too.
+        val decName = args.getString("dec") ?: "decoder_28L_512_c.tflite"
+        val preName = args.getString("pre") ?: "prefill_512_t16_c.tflite"
 
         // -e warm 1 builds and drops a throwaway engine first, so the XNNPACK weight
         // cache is populated before the engine under measurement is built. The
@@ -48,13 +53,13 @@ class VibeLongAudioTest {
         if (args.getString("warm") == "1") {
             VibeLiteEngine.create(
                 encoder = File(vd, "vibe_front_${winSecs}s_q8.tflite"),
-                decoder = File(vd, "decoder_28L_512_c.tflite"),
+                decoder = File(vd, decName),
                 head = File(vd, "head_q8.tflite"),
                 weightsDir = File(vd, "weights"),
                 manifest = File(vd, "dec_28L_manifest.txt"),
                 embeddingTable = File(vd, "embd_table.bin"),
                 vocabJson = File(vd, "vocab.json"),
-                prefill = File(vd, "prefill_512_t16_c.tflite").takeIf { it.exists() },
+                prefill = File(vd, preName).takeIf { it.exists() },
                 xnnCacheDir = File(app.cacheDir, "xnnpack"),
                 threads = 4,
             )?.close()
@@ -62,13 +67,13 @@ class VibeLongAudioTest {
 
         val engine = VibeLiteEngine.create(
             encoder = File(vd, "vibe_front_${winSecs}s_q8.tflite"),
-            decoder = File(vd, "decoder_28L_512_c.tflite"),
+            decoder = File(vd, decName),
             head = File(vd, "head_q8.tflite"),
             weightsDir = File(vd, "weights"),
             manifest = File(vd, "dec_28L_manifest.txt"),
             embeddingTable = File(vd, "embd_table.bin"),
             vocabJson = File(vd, "vocab.json"),
-            prefill = File(vd, "prefill_512_t16_c.tflite").takeIf { it.exists() },
+            prefill = File(vd, preName).takeIf { it.exists() },
             // app.cacheDir, because the app must be able to WRITE it. Pointing this
             // at /data/local/tmp looks appealing (it survives the harness uninstall)
             // but the app has no write permission there, the cache silently does not
