@@ -50,7 +50,8 @@ class VibeLongAudioTest {
 
         // Only the first 60 s: a full 5 minutes is ~30 windows at tens of seconds
         // each, and the ratio between the two strategies is what matters here.
-        val pcm = readWav16k(wav).let { it.copyOf(minOf(it.size, 60 * 16_000)) }
+        val secs = args.getString("seconds")?.toInt() ?: 60
+        val pcm = readWav16k(wav).let { it.copyOf(minOf(it.size, secs * 16_000)) }
         Log.i(TAG, "$lang: ${pcm.size / 16_000.0}s")
 
         engine!!.use { e ->
@@ -59,6 +60,7 @@ class VibeLongAudioTest {
                 "wall=${"%.1f".format(fixed.wall)}s")
             Log.i(TAG, "  ${fixed.text.take(300)}")
 
+            if (args.getString("arms") == "fixed") return@use
             val snapped = run(e, pcm, snap = true)
             Log.i(TAG, "SNAPPED  windows=${snapped.windows} skipped=${snapped.skipped} " +
                 "wall=${"%.1f".format(snapped.wall)}s  " +
@@ -88,6 +90,13 @@ class VibeLongAudioTest {
             } else {
                 sb.append(e.transcribeWindow(used).trim()).append(' ')
                 windows++
+                // Total wall clock cannot separate a slow front end from slow
+                // generation, and the two want completely different fixes.
+                val st = e.lastStats()
+                Log.i(TAG, "  w$windows ${"%.1f".format(used.size / 16_000.0)}s  " +
+                    "enc=${"%.1f".format(st.encodeSec)}s " +
+                    "pre=${"%.1f".format(st.prefillSec)}s/${st.promptTokens}tok " +
+                    "dec=${"%.1f".format(st.decodeSec)}s/${st.generatedTokens}tok")
             }
             s += used.size
         }
