@@ -101,6 +101,19 @@ long majflt() {
     return v;
 }
 
+/** Anonymous resident KB. The only memory the kernel cannot evict under pressure,
+ *  and therefore the number that decides whether the app survives. */
+long rss_anon_kb() {
+    FILE* f = fopen("/proc/self/status", "r");
+    if (!f) return -1;
+    char line[256];
+    long v = -1;
+    while (fgets(line, sizeof(line), f))
+        if (sscanf(line, "RssAnon: %ld kB", &v) == 1) break;
+    fclose(f);
+    return v;
+}
+
 // The encoder's sample rate and its total stride: one output frame per HOP_SAMPLES
 // input samples, matching export_litert.py's SR/HOP.
 constexpr int ENC_RATE = 24000;
@@ -164,6 +177,22 @@ LiteRtCustomOpKernel kTernaryKernel = {TernaryInit, TernaryLayouts, TernaryRun, 
 // XNNPACK options ride in a TOML payload (LrtCpuOptions is not exported).
 // weight_cache_file_path is not optional in practice: without it XNNPACK repacks
 // into anonymous RAM and repays the cost on every load.
+/** Did XNNPACK actually produce the weight cache we asked for?
+ *
+ *  When the path is not writable it does not fail the compile, does not warn, and
+ *  quietly packs the weights into ANONYMOUS memory instead. Measured on a Boox:
+ *  peak RssAnon 906 MB with a working cache, 1552 MB without — a 646 MB swing in
+ *  the one number that decides whether the app is killed, with nothing in the log.
+ *  A cache path that silently does nothing is worse than no cache path. */
+void WarnIfCacheMissing(const std::string& path) {
+    if (path.empty()) return;
+    struct stat st {};
+    if (stat(path.c_str(), &st) != 0 || st.st_size == 0)
+        LOGE("XNNPACK weight cache %s was not written — weights will be packed into "
+             "anonymous memory. Is the directory writable by this process?",
+             path.c_str());
+}
+
 LiteRtOpaqueOptions CpuOptions(int threads, const std::string& cache) {
     char toml[1024];
     int off = 0;
@@ -303,6 +332,7 @@ bool VibeLiteEngine::Init() {
     // The asymmetry showed in the numbers: over three identical 10 s windows the
     // encoder (pure XNNPACK) drifted 16.3 -> 25.7 -> 26.1 s while ternary prefill
     // held 24.3/24.1/24.0. A drooping governor would have dragged both.
+    const long anon0 = rss_anon_kb();
     if (LiteRtCreateEnvironment(0, nullptr, &env_) != kLiteRtStatusOk) return false;
     const std::string cache = cfg_.xnn_cache_dir;
     // The same inheritance rule, used deliberately: the encoder is a big dense conv
@@ -317,17 +347,20 @@ bool VibeLiteEngine::Init() {
     set_big_core_affinity(true);
     if (!CompileGraph(env_, cfg_.encoder_path, false, enc_threads,
                       cache.empty() ? "" : cache + "/vibe_enc.xnncache", &enc_)) return false;
+    WarnIfCacheMissing(cache.empty() ? "" : cache + "/vibe_enc.xnncache");
     set_big_core_affinity(false);
     if (!CompileGraph(env_, cfg_.head_path, false, cfg_.threads,
                       cache.empty() ? "" : cache + "/vibe_head.xnncache", &head_)) return false;
+    WarnIfCacheMissing(cache.empty() ? "" : cache + "/vibe_head.xnncache");
     if (!LoadDecoderGraphs()) return false;
 
     scratch_.resize(dim_ + 2 * Q6K_BLOCK);
     emb_.resize(dim_);
     embd_ = Mapping(cfg_.embd_path);
     if (!embd_.ok()) { LOGE("embedding table missing"); return false; }
-    LOGI("vibe engine ready: %d layers, ctx %d, vocab %d, prefill %d",
-         n_layers_, ctx_, vocab_, prefill_t_);
+    LOGI("vibe engine ready: %d layers, ctx %d, vocab %d, prefill %d — RssAnon %ld kB "
+         "(entered Init at %ld)", n_layers_, ctx_, vocab_, prefill_t_, rss_anon_kb(), anon0);
+    (void)anon0;
     return true;
 }
 
@@ -358,6 +391,7 @@ bool VibeLiteEngine::LoadDecoderGraphs() {
 
     dec_.ins.assign(n_in, nullptr);
     weights_.resize(n_in);
+    size_t mmap_bytes = 0, copy_bytes = 0;
     const LiteRtParamIndex cache_first = n_in - 2 * n_layers_;
     for (LiteRtParamIndex i = 0; i < n_in; i++) {
         // Inputs 0/1 are the embedding and position, rewritten every step; the
@@ -395,12 +429,19 @@ bool VibeLiteEngine::LoadDecoderGraphs() {
         if (want <= weights_[i].size() &&
             LiteRtCreateTensorBufferFromHostMemory(&tt, const_cast<uint8_t*>(weights_[i].data()),
                                                    want, nullptr, &dec_.ins[i]) == kLiteRtStatusOk) {
+            mmap_bytes += weights_[i].size();
             continue;
         }
+        // Fallback: the runtime wants a buffer this mapping cannot satisfy, so the
+        // weights get COPIED into anonymous memory — the one kind this port is
+        // trying not to spend. Worth knowing how much lands here.
         size_t need = 0;
         if (!MakeManaged(env_, dec_, true, i, &need, &dec_.ins[i])) return false;
         WriteBuf(dec_.ins[i], weights_[i].data(), std::min(need, weights_[i].size()));
+        copy_bytes += need;
     }
+    LOGI("decoder weights: %.1f MB mmap'd, %.1f MB copied to anon",
+         mmap_bytes / 1e6, copy_bytes / 1e6);
 
     dec_.outs.assign(n_out, nullptr);
     for (LiteRtParamIndex i = 0; i < n_out; i++) {
@@ -559,7 +600,7 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
     // flash, which would explain an encoder that costs 15.9 s warm and ~28 s after.
     // Major faults distinguish that from any CPU-side story.
     const long mf1 = majflt();
-    LOGI("encode %.1fs  majflt=%ld (+%ld)", last_encode_s, mf1, mf1 - mf0);
+    LOGI("encode %.1fs  majflt=+%ld  RssAnon %ld kB", last_encode_s, mf1 - mf0, rss_anon_kb());
 
     // Prompt: audio features occupy the speech-pad span, so they are spliced in as
     // input EMBEDDINGS rather than tokenized. Text ids around them are embedded
@@ -640,6 +681,7 @@ std::vector<int32_t> VibeLiteEngine::Transcribe(const float* pcm16k, int n_sampl
          step_batched_ ? step_batched_s_ * 1000 / step_batched_ : 0.0,
          step_single_, step_single_s_,
          step_single_ ? step_single_s_ * 1000 / step_single_ : 0.0);
+    LOGI("after prefill: RssAnon %ld kB", rss_anon_kb());
     if (!hidden) return out;
 
     // Decode greedily.

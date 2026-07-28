@@ -47,6 +47,10 @@ class VibeLongAudioTest {
             embeddingTable = File(vd, "embd_table.bin"),
             vocabJson = File(vd, "vocab.json"),
             prefill = File(vd, "prefill_512_t16_c.tflite").takeIf { it.exists() },
+            // app.cacheDir, because the app must be able to WRITE it. Pointing this
+            // at /data/local/tmp looks appealing (it survives the harness uninstall)
+            // but the app has no write permission there, the cache silently does not
+            // happen, and peak RssAnon goes 906 MB -> 1552 MB.
             xnnCacheDir = File(app.cacheDir, "xnnpack"),
             threads = 4,
         )
