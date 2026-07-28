@@ -31,17 +31,28 @@ extern "C" {
 
 JNIEXPORT jlong JNICALL
 Java_studio_voxsum_core_asr_LitePod_nativeInit(JNIEnv* env, jclass,
-                                               jstring jPath, jint threads) {
+                                               jstring jPath, jint threads,
+                                               jstring jWeightCache) {
   const char* path = env->GetStringUTFChars(jPath, nullptr);
+  // XNNPACK repacks every weight at load. With no cache file those repacked
+  // weights are ANONYMOUS memory — unevictable, and for a large model they
+  // dwarf the model itself (measured: 1.2 GB of anon for a 700 MB encoder).
+  // Backed by a file they become mmap'd, evictable, shared across loads, and
+  // the repack turns into a cache hit rather than ~7 s of work. Empty disables
+  // it, which stays the right default for the tiny pods (VAD, segmentation)
+  // this class was written for.
+  const char* cache = jWeightCache ? env->GetStringUTFChars(jWeightCache, nullptr) : "";
   auto* p = new Pod();
   if (LiteRtCreateEnvironment(0, nullptr, &p->env) != kLiteRtStatusOk) {
     env->ReleaseStringUTFChars(jPath, path);
+    if (jWeightCache) env->ReleaseStringUTFChars(jWeightCache, cache);
     delete p;
     return 0;
   }
   p->comp = std::make_unique<mosslite::Component>(p->env, path, nullptr,
-                                                  threads, "");
+                                                  threads, cache);
   env->ReleaseStringUTFChars(jPath, path);
+  if (jWeightCache) env->ReleaseStringUTFChars(jWeightCache, cache);
   if (!p->comp->ok() || p->comp->sigs().empty()) {
     if (p->env) LiteRtDestroyEnvironment(p->env);
     delete p;

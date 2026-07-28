@@ -26,9 +26,19 @@ class LitePod private constructor(
             if (!loaded) { System.loadLibrary("voxsum-mosslite"); loaded = true }
         }
 
-        fun load(model: File, threads: Int = 1): LitePod? {
+        /**
+         * @param weightCache XNNPACK weight-cache FILE path. XNNPACK repacks every
+         *   weight at load; with no cache those repacked weights are anonymous,
+         *   unevictable memory, and for a large model they dwarf the model itself
+         *   (measured: 1.2 GB of anon for a 700 MB encoder). Backed by a file they
+         *   become mmap'd evictable pages and the repack becomes a cache hit.
+         *   null keeps it off — the right default for the small pods (VAD,
+         *   segmentation) this class was built for, where the repack is trivial.
+         */
+        fun load(model: File, threads: Int = 1, weightCache: File? = null): LitePod? {
             ensureLib()
-            val p = nativeInit(model.absolutePath, threads)
+            weightCache?.parentFile?.mkdirs()
+            val p = nativeInit(model.absolutePath, threads, weightCache?.absolutePath ?: "")
             if (p == 0L) return null
             val info = nativeInfo(p)
             val (ins, outs) = info.split("|").let { parts ->
@@ -38,7 +48,7 @@ class LitePod private constructor(
             return LitePod(p, ins, outs)
         }
 
-        @JvmStatic private external fun nativeInit(path: String, threads: Int): Long
+        @JvmStatic private external fun nativeInit(path: String, threads: Int, weightCache: String): Long
         @JvmStatic private external fun nativeFree(ptr: Long)
         @JvmStatic private external fun nativeInfo(ptr: Long): String
         @JvmStatic private external fun nativeRun(ptr: Long, inputs: Array<FloatArray>): Array<FloatArray>
