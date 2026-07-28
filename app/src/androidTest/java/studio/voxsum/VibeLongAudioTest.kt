@@ -38,6 +38,28 @@ class VibeLongAudioTest {
         // FIXED 50 tokens per window against 7.5 audio frames per second.
         val winSecs = args.getString("win")?.toInt() ?: 10
         val vd = File(args.getString("vibeDir") ?: "/data/local/tmp/vibe_engine")
+
+        // -e warm 1 builds and drops a throwaway engine first, so the XNNPACK weight
+        // cache is populated before the engine under measurement is built. The
+        // harness uninstalls the test build after every run, wiping app.cacheDir, so
+        // without this every measurement pays a COLD cache — 231 MB of anonymous
+        // memory to pack the head alone. Production keeps the cache across launches,
+        // so the warm number is the one users actually live with.
+        if (args.getString("warm") == "1") {
+            VibeLiteEngine.create(
+                encoder = File(vd, "vibe_front_${winSecs}s_q8.tflite"),
+                decoder = File(vd, "decoder_28L_512_c.tflite"),
+                head = File(vd, "head_q8.tflite"),
+                weightsDir = File(vd, "weights"),
+                manifest = File(vd, "dec_28L_manifest.txt"),
+                embeddingTable = File(vd, "embd_table.bin"),
+                vocabJson = File(vd, "vocab.json"),
+                prefill = File(vd, "prefill_512_t16_c.tflite").takeIf { it.exists() },
+                xnnCacheDir = File(app.cacheDir, "xnnpack"),
+                threads = 4,
+            )?.close()
+        }
+
         val engine = VibeLiteEngine.create(
             encoder = File(vd, "vibe_front_${winSecs}s_q8.tflite"),
             decoder = File(vd, "decoder_28L_512_c.tflite"),

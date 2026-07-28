@@ -214,6 +214,7 @@ LiteRtOpaqueOptions CpuOptions(int threads, const std::string& cache) {
 
 bool CompileGraph(LiteRtEnvironment env, const std::string& path, bool custom_op,
                   int threads, const std::string& cache, Graph* g) {
+    const long a_entry = rss_anon_kb();
     if (LiteRtCreateModelFromFile(env, path.c_str(), &g->model) != kLiteRtStatusOk) {
         LOGE("could not load %s", path.c_str());
         return false;
@@ -224,10 +225,18 @@ bool CompileGraph(LiteRtEnvironment env, const std::string& path, bool custom_op
     if (LiteRtOpaqueOptions oo = CpuOptions(threads, cache)) LiteRtAddOpaqueOptions(opts, oo);
     if (custom_op)
         LiteRtAddCustomOpKernelOption(opts, "voxsum.ternary_matmul", 1, &kTernaryKernel, nullptr);
+    // Split model load from compile. The head costs +231 MB of ANONYMOUS memory and
+    // its .tflite is 235 MB, which is suspicious enough to want the two separated:
+    // a model read into a buffer is fixable by mmap, weights packed by XNNPACK are
+    // not fixable the same way.
+    const long a_loaded = rss_anon_kb();
     if (LiteRtCreateCompiledModel(env, g->model, opts, &g->cm) != kLiteRtStatusOk) {
         LOGE("could not compile %s", path.c_str());
         return false;
     }
+    LOGI("%s: load +%ld kB, compile +%ld kB",
+         path.substr(path.find_last_of('/') + 1).c_str(), a_loaded - a_entry,
+         rss_anon_kb() - a_loaded);
     LiteRtGetModelSignature(g->model, 0, &g->sig);
     return true;
 }
