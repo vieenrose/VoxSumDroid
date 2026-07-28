@@ -250,6 +250,17 @@ The remaining budget per 10 s window is encode 14.7 s, prefill 11.1 s, decode 7.
 front end — two full VibeVoice tokenizer encoders summed, and **not** the BitNet part — is now the
 largest single cost and sets an RTF floor near 1.6 on this device.
 
+Memory is worth stating precisely, because the upstream figure is easy to misread. Peak RssAnon
+through the full pipeline is **906 MB**: 173 MB of ART and test harness, +55 MB compiling the
+encoder, +231 MB compiling the head, +46 MB for the decoder graphs and their 330 MB of weights
+(fully zero-copy — 330.1 MB mmap'd, 0.0 MB copied), and **+399 MB of encoder activations**. The
+241 MB quoted for the LiteRT export is a decode-only measurement and does not include the front
+end.
+
+One failure mode to know about: if the XNNPACK weight-cache path is not writable, XNNPACK does not
+fail, does not warn, and packs weights into anonymous memory instead — 906 MB becomes 1552 MB with
+nothing in the log. The engine now stats the cache file after each compile and complains.
+
 A wider encoder window was tried and rejected. The chat template costs a fixed 50 tokens per
 window against 7.5 audio frames per second, so 30 s windows cut prompt tokens 25% exactly as
 predicted, and the encoder is linear in window length. But its activations are not free — peak
