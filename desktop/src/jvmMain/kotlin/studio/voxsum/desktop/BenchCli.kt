@@ -24,6 +24,11 @@ fun runBenchCli(args: Array<String>) {
     val utterances = runBlocking { benchTranscribe(file, config) }
     val wall = (System.nanoTime() - t0) / 1e9
 
+    // BENCH_DUMP_FORMAT: also write the unified summarizer-input format, so the
+    // exact text the LLM would receive can be validated against real models.
+    System.getenv("BENCH_DUMP_FORMAT")?.let { path ->
+        java.io.File(path).writeText(studio.voxsum.core.llm.TranscriptFormat.format(utterances))
+    }
     for (u in utterances) {
         val tag = u.speaker?.let { "[S$it] " } ?: ""
         println("$tag${u.text}")
