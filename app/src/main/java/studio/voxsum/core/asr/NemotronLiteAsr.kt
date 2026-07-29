@@ -48,7 +48,9 @@ class NemotronLiteAsr(
         throw t
     }
 
-    private val segmenter = VadSegmenter(vad, threshold = vadThreshold, preRollWin = 4)
+    // pr=4 was tuned against the q4-mix encoder; the q8 encoder moved the optimum —
+    // ws A/B: pr8 beats pr4 on BOTH langs (en 13.30 -> 11.87 WER, zh 17.70 -> 17.46 CER).
+    private val segmenter = VadSegmenter(vad, threshold = vadThreshold, preRollWin = 8)
     private val index = intArrayOf(0)
 
     private var decodeNanos = 0L
