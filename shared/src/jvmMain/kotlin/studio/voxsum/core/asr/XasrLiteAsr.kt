@@ -28,7 +28,7 @@ class XasrLiteAsr(
     private val vad = LiteVad.load(vadModelFile)
         ?: run { engine.close(); throw IllegalStateException("Silero VAD tflite failed to load") }
 
-    private val segmenter = VadSegmenter(vad, threshold = vadThreshold)
+    private val segmenter = VadSegmenter(vad, threshold = vadThreshold, preRollWin = 2)
 
     private val index = intArrayOf(0)
 

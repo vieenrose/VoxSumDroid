@@ -48,7 +48,7 @@ class NemotronLiteAsr(
         throw t
     }
 
-    private val segmenter = VadSegmenter(vad, threshold = vadThreshold)
+    private val segmenter = VadSegmenter(vad, threshold = vadThreshold, preRollWin = 4)
     private val index = intArrayOf(0)
 
     private var decodeNanos = 0L

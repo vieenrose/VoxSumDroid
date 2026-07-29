@@ -22,6 +22,11 @@ class VadSegmenter(
     private val threshold: Float = 0.5f,
     minSilenceSec: Float = 0.15f,
     minSpeechSec: Float = 0.25f,
+    /** Windows of real-audio pre-roll prepended to each segment. Swept per backend
+     *  on the 5-min bench (2026-07-29): x-asr wants 2 (more bleeds into continuous
+     *  zh, CER 15.3→16.0 at 4+), nemotron wants 4 (its strided encoder needs more
+     *  leading context; never 0). */
+    private val preRollWin: Int = PRE_ROLL_WIN,
 ) {
     class Segment(val startSample: Int, val samples: FloatArray)
 
@@ -87,7 +92,7 @@ class VadSegmenter(
                 // encoder's leading context the same way the tail was starved
                 // ("在家"→"最佳" on the first word of nearly every zh segment).
                 preRollBuf.addLast(win)
-                if (preRollBuf.size > PRE_ROLL_WIN) preRollBuf.removeFirst()
+                if (preRollBuf.size > preRollWin) preRollBuf.removeFirst()
             }
         } else {
             pending.add(win)
@@ -129,7 +134,7 @@ class VadSegmenter(
         /** Closing-audio windows kept per segment (~0.26 s at 512/16 kHz). */
         private const val TAIL_PAD_WIN = 8
         /** Leading cold windows kept per segment (~0.26 s of real audio). */
-        private const val PRE_ROLL_WIN = 8
+        const val PRE_ROLL_WIN = 8
 
         const val SAMPLE_RATE = 16_000
         const val WINDOW = 512
