@@ -73,6 +73,11 @@ class XasrLiteEngineTest {
         System.load(so.absolutePath)
 
         val model = File(modelDir!!, "xasr_q8_octav.tflite")
+        // This test deliberately ENABLES the cache to prove the file-writing mechanism
+        // (used by the single-signature backends). Production x-asr must run with the
+        // cache OFF — its shared-weight bucketed signatures collide in the cache and
+        // the big buckets decode empty — which is fine here: only silence is decoded
+        // and only the cache file's existence is asserted, never transcription output.
         val cache = File(System.getProperty("java.io.tmpdir"), "voxsum-xnncache-test").apply {
             deleteRecursively(); mkdirs()
         }
