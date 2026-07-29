@@ -139,8 +139,8 @@ includes engine load, peak RSS is the process high-water mark.
 | backend | en WER | zh-TW CER | wall en / zh | peak RSS | prefill | generation |
 |---|---:|---:|---:|---:|---:|---:|
 | **MOSS-TD** | **4.6%** | **6.3%** | 109 s / 157 s | 1.7 GB | ~790 tok/s | 18.7 tok/s |
-| **X-ASR** | 14.4% | 14.0% | 7 s / 8 s | 0.5 GB | — | — |
-| **Nemotron** | 22.7% | 20.7% | 16 s / 24 s | 1.1 GB | — | — |
+| **X-ASR** | 11.3% | 16.0% | 7 s / 8 s | 0.5 GB | — | — |
+| **Nemotron** | 17.3% | 19.0% | 16 s / 24 s | 1.1 GB | — | — |
 
 Prefill/generation apply only to MOSS-TD — the one autoregressive backend;
 X-ASR and Nemotron emit tokens from a single forward pass. RTF: X-ASR ≈ 0.02,
@@ -167,10 +167,12 @@ archipelago, …”*
 | Nemotron | 最佳也可以刷卡 外交與全球信義 我們的人口結構急速老話 新店端 則正確的說明了星球的大小… |
 
 MOSS-TD is the accuracy pick and the only diarizing backend; X-ASR is the fast
-default; Nemotron trades accuracy for language breadth; two decode-path bugs were
-fixed against these clips (VAD tail amputation; missing trailing context for
-its strided encoder — zh CER 32.5 → 20.7 combined), and its residual subword
-drift on rare words is pending an encoder-precision re-export. Clips are single runs on one machine;
+default; Nemotron trades accuracy for language breadth; three decode-path bugs were
+fixed against these clips (VAD tail amputation and missing pre-roll; missing
+head/tail silence context for its strided encoder — en 26.2 → 17.3, zh 32.5 →
+19.0 combined), and its residual subword drift on rare words is pending an
+encoder-precision re-export. The same VAD pre-roll took X-ASR en 14.4 → 11.3
+(zh 14.0 → 16.0 — a small regression left as-is pending pre-roll tuning). Clips are single runs on one machine;
 treat rows as relative, not absolute.
 
 ## Build & run (development)
