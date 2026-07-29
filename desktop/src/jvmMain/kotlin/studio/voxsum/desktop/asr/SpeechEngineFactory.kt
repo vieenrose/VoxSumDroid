@@ -34,28 +34,6 @@ object SpeechEngineFactory {
         config: TranscriptionConfig,
         numThreads: Int = 2,
     ): SpeechEngine {
-        if (backend == AsrBackend.VIBE) {
-            // Subprocess, not JNI: VibeASR's LM runs on a llama.cpp fork carrying the
-            // I2_S ternary kernels, and this process already links a different, newer
-            // llama.cpp for the summarizer. A process boundary sidesteps the SONAME
-            // collision entirely. VIBEASR_BIN overrides the default location.
-            val bin = File(System.getenv("VIBEASR_BIN") ?: "")
-                .takeIf { it.canExecute() }
-                ?: File(appDataDir, "bin/asr_infer").takeIf { it.canExecute() }
-                ?: error(
-                    "VibeVoice-ASR needs the asr_infer binary. Build it from " +
-                        "vieenrose/VibeASR.cpp with -DVIBEASR_LITERT=ON and put it at " +
-                        "${File(appDataDir, "bin/asr_infer").absolutePath}, or set VIBEASR_BIN."
-                )
-            val f = models.asrFiles(backend)
-            return VibeSubprocessEngine(
-                binary = bin,
-                vaeModel = File(f.vibeVae),
-                lmModel = File(f.vibeLm),
-                numThreads = numThreads.coerceAtLeast(4),
-                weightCache = File(xnnCacheDir, "vibe_front_10s_q8.xnncache"),
-            )
-        }
         if (backend == AsrBackend.NEMOTRON) {
             check(NativeLibs.liteRtAvailable()) {
                 "The Nemotron backend needs libvoxsum-mosslite.so — run desktop/scripts/build-native.sh"
