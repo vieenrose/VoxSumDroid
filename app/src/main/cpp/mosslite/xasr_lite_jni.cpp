@@ -17,6 +17,7 @@
 #endif
 #include <algorithm>
 #include <cstring>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -174,6 +175,20 @@ Java_studio_voxsum_core_asr_XasrLiteEngine_nativeDecode(
   mosslite::Component::read_buf(enc.out[oLen], &validT, sizeof(validT));
   const int rowsAll = (int)(encBytes / 4 / kJoinerDim);
   const int T = std::min<int>(validT, rowsAll);
+  if (getenv("XASR_DEBUG")) {
+    // Mean |x| of the first and last VALID encoder rows: a broken signature shows
+    // up as zeros or NaNs here long before the joiner ever votes blank.
+    auto row_mag = [&](int r) {
+      double a = 0;
+      for (int i = 0; i < kJoinerDim; ++i) a += std::fabs(encOut[(size_t)r * kJoinerDim + i]);
+      return a / kJoinerDim;
+    };
+    XALOGE("XASR-JNI bucket=%d nFrames=%d validT=%d rowsAll=%d row0=%.4f rowT=%.4f "
+           "v[0..5]=%.3f %.3f %.3f %.3f %.3f %.3f",
+           (int)bucket, (int)nFrames, validT, rowsAll,
+           T > 0 ? row_mag(0) : -1.0, T > 0 ? row_mag(T - 1) : -1.0,
+           encOut[0], encOut[1], encOut[2], encOut[3], encOut[4], encOut[5]);
+  }
 
   // --- greedy transducer search ---
   const int iDecY = 0;  // decoder has a single int32[1,2] input

@@ -35,8 +35,12 @@ class XasrLiteEngine private constructor(
     fun decode(pcm: FloatArray): Result {
         if (pcm.size < MIN_SAMPLES) return Result("", emptyList(), emptyList())
         val nFrames = if (pcm.size < FRAME_LEN) 1 else 1 + (pcm.size - FRAME_LEN) / HOP
-        val bucket = buckets.firstOrNull { it >= nFrames } ?: buckets.last()
+        val forced = System.getenv("XASR_FORCE_BUCKET")?.toIntOrNull()
+        val bucket = forced ?: (buckets.firstOrNull { it >= nFrames } ?: buckets.last())
         val clipped = nFrames.coerceAtMost(bucket)
+        if (System.getenv("XASR_DEBUG") != null)
+            System.err.println("XASR piece=%.1fs nFrames=%d bucket=%d clipped=%d buckets=%s"
+                .format(pcm.size / 16000.0, nFrames, bucket, clipped, buckets.contentToString()))
         val feats = fbank(pcm, clipped, bucket)
         val pairs = nativeDecode(ptr, bucket, feats, clipped)
         val toks = ArrayList<String>(pairs.size / 2)
