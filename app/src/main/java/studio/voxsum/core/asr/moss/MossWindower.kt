@@ -28,28 +28,6 @@ object MossWindower {
 
     fun isSilent(piece: FloatArray): Boolean = rms(piece) < SILENCE_RMS
 
-    /** -40 dBFS peak. Below this nothing audible is present at any gain. */
-    const val SILENCE_PEAK = 0.01
-
-    /**
-     * Conservative silence test: RMS *and* peak must both be low.
-     *
-     * [isSilent] alone is an absolute RMS threshold, which suits consistently-levelled
-     * podcast audio but drops quiet speech outright when levels vary. Measured on a
-     * FLEURS clip whose recordings differ ~30x in level: a window of real speech read
-     * RMS 0.0011 — under SILENCE_RMS — while peaking at 0.0121 with 26% of its frames
-     * voiced. Skipping it silently removed a whole sentence from the transcript.
-     *
-     * Speech has a high crest factor even when quiet, so requiring a low peak as well
-     * costs almost nothing in skipped dead air and stops the gate from eating content.
-     */
-    fun isSilentStrict(piece: FloatArray): Boolean {
-        if (piece.isEmpty()) return true
-        if (rms(piece) >= SILENCE_RMS) return false
-        var peak = 0f
-        for (v in piece) { val a = if (v < 0) -v else v; if (a > peak) peak = a }
-        return peak < SILENCE_PEAK
-    }
 
     /**
      * Seconds from the piece start at which to cut this window: the centre of the
@@ -61,15 +39,10 @@ object MossWindower {
         piece: FloatArray,
         windowS: Int,
         sr: Int = MOSS_SR,
-        /** Tail span to search for a pause. Defaults to [snapS]; VibeVoice passes a
-         *  smaller value because its encoder window is a fixed 10 s, so a 5 s search
-         *  span would let windows shrink to half the graph the model already paid
-         *  for. */
-        snapSeconds: Double = snapS(windowS),
     ): Double {
         val n = piece.size
         if (n < windowS * sr) return n.toDouble() / sr          // final window: keep all
-        val snap = snapSeconds
+        val snap = snapS(windowS)
         val from = max(0, n - (snap * sr).toInt())
         val win = round(0.4 * sr).toInt()
         val hop = round(0.1 * sr).toInt()

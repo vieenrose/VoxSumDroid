@@ -98,27 +98,6 @@ class ModelManager(context: Context) {
         mossLiteEmbedder.length() == MOSSLITE_EMB_BYTES &&
         mossLiteDecoder.length() == MOSSLITE_DEC_BYTES &&
         mossLiteVocab.length() == MOSSLITE_VOCAB_BYTES
-    // --- VibeVoice-ASR-BitNet, fully on LiteRT (no ggml) ---------------------
-    // Four graphs plus loose weight/embedding files, so it sits outside asrSpecs
-    // alongside MOSS-TD. No VAD entry: the model windows the audio itself.
-    val vibeDir: File get() = File(modelsDir, "vibe")
-    val vibeEncoder: File get() = File(vibeDir, "vibe_front_10s_q8.tflite")
-    val vibeDecoder: File get() = File(vibeDir, "decoder_28L_512_c.tflite")
-    val vibePrefill: File get() = File(vibeDir, "prefill_512_t16_c.tflite")
-    val vibeHead: File get() = File(vibeDir, "head_q8.tflite")
-    val vibeManifest: File get() = File(vibeDir, "dec_28L_manifest.txt")
-    val vibeEmbedding: File get() = File(vibeDir, "embd_table.bin")
-    val vibeVocab: File get() = File(vibeDir, "vocab.json")
-    val vibeWeightsDir: File get() = File(vibeDir, "weights")
-
-    /** Readiness is a file-count check on the packed weights plus the four graphs:
-     *  a partial download leaves the graphs present but the weight set short, and
-     *  that fails deep inside the engine rather than at load. */
-    fun vibeReady(): Boolean =
-        vibeEncoder.exists() && vibeDecoder.exists() && vibeHead.exists() &&
-        vibeManifest.exists() && vibeEmbedding.exists() && vibeVocab.exists() &&
-        (vibeWeightsDir.listFiles()?.count { it.name.endsWith(".bin") } ?: 0) >= VIBE_WEIGHT_FILES
-
     fun mossSpeakerReady(): Boolean = mossSpeakerModel.length() == MOSS_SPK_BYTES
 
     // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
@@ -238,7 +217,6 @@ class ModelManager(context: Context) {
         // needed (the model windows internally), so keep it out of the sentinel/VAD path.
         if (backend == AsrBackend.MOSS) return mossReady()
         // Like MOSS: loose files, and no VAD because the model windows internally.
-        if (backend == AsrBackend.VIBE) return vibeReady()
         val spec = asrSpecs.getValue(backend)
         val d = specDir(spec)
         // The revision marker is part of "ready". Callers gate provisioning on this
@@ -263,15 +241,6 @@ class ModelManager(context: Context) {
             mossModel = mossLiteDecoder.absolutePath,
             speakerEmbedModel = mossSpeakerModel.takeIf { mossSpeakerReady() }?.absolutePath ?: "",
         )
-        else if (backend == AsrBackend.VIBE) AsrModelFiles(
-            vibeEncoder = vibeEncoder.absolutePath,
-            vibeDecoder = vibeDecoder.absolutePath,
-            vibePrefill = vibePrefill.absolutePath,
-            vibeHead = vibeHead.absolutePath,
-            vibeWeightsDir = vibeWeightsDir.absolutePath,
-            vibeEmbedding = vibeEmbedding.absolutePath,
-            vibeVocab = vibeVocab.absolutePath,
-        )
         else asrSpecs.getValue(backend).let { it.buildFiles(specDir(it)) }
 
     /**
@@ -285,14 +254,12 @@ class ModelManager(context: Context) {
                 .forEach { it.takeIf(File::exists)?.delete() }
             return
         }
-        if (backend == AsrBackend.VIBE) { vibeDir.takeIf(File::exists)?.deleteRecursively(); return }
         specDir(asrSpecs.getValue(backend)).takeIf(File::exists)?.deleteRecursively()
     }
 
     /** Download + extract the model for [backend] if missing (VAD shared across backends). */
     suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
         if (backend == AsrBackend.MOSS) ensureMossModels(onProgress)
-        else if (backend == AsrBackend.VIBE) ensureVibeModels(onProgress)
         else
         withContext(Dispatchers.IO) {
             ensureVadLite { onProgress(it * 0.1f) }
@@ -473,45 +440,6 @@ class ModelManager(context: Context) {
      * — a failure there still leaves a working (per-window-tagged) MOSS backend, so it never
      * fails the call. The superseded RapidSpeech GGUF is reclaimed once LiteRT is provisioned.
      */
-    /**
-     * Fetch the VibeVoice LiteRT export (~1.5 GB) from Hugging Face.
-     *
-     * 398 files rather than an archive: the decoder's ternary weights must be
-     * runtime INPUTS (LiteRT will not hand constants to a custom kernel), so they
-     * ship as one file per tensor and are mmap'd individually. Progress is weighted
-     * by size — the four graphs and the embedding table are ~70% of the bytes but
-     * six of the files, so counting files would make the bar lie.
-     */
-    suspend fun ensureVibeModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        vibeDir.mkdirs()
-        vibeWeightsDir.mkdirs()
-        val base = "https://huggingface.co/$VIBE_HF_REPO/resolve/main"
-        val big = listOf(
-            vibeEncoder to "vibe_front_10s_q8.tflite",
-            vibeDecoder to "decoder_28L_512_c.tflite",
-            vibePrefill to "prefill_512_t16_c.tflite",
-            vibeHead to "head_q8.tflite",
-            vibeEmbedding to "embd_table.bin",
-            vibeVocab to "vocab.json",
-            vibeManifest to "dec_28L_manifest.txt",
-        )
-        // Weight files are small and numerous; the big files dominate the bytes.
-        val bigShare = 0.85f
-        big.forEachIndexed { i, (dest, name) ->
-            if (!dest.exists()) download("$base/$name", dest, null) {
-                onProgress((i + it) / big.size * bigShare)
-            }
-        }
-        val names = vibeManifest.readLines().map { it.trim() }.filter { it.endsWith(".bin") }
-            .filter { it.startsWith("dec_w") }.distinct()
-        names.forEachIndexed { i, name ->
-            val dest = File(vibeWeightsDir, name)
-            if (!dest.exists()) download("$base/weights/$name", dest, null) { }
-            onProgress(bigShare + (i + 1).toFloat() / names.size * (1f - bigShare))
-        }
-        check(vibeReady()) { "VibeVoice model files missing after provisioning" }
-        onProgress(1f)
-    }
 
     suspend fun ensureMossModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         // (file, url, sha, bytes, progress weight ~ proportional to size)
@@ -837,12 +765,6 @@ class ModelManager(context: Context) {
             "https://huggingface.co/Luigi/campplus-litert/resolve/985721e598976ac8f4433e25bf41f61bec1e16df/campplus_cn_common_500f.tflite"
         private const val MOSS_SPK_SHA = "e7aeb9312b17a8c76af38cb772d0e291b30dd377f3dd5aeb6648383ae7da87d9"
         private const val MOSS_SPK_BYTES = 28_730_020L
-
-        // VibeVoice-ASR-BitNet LiteRT export. 392 packed-ternary weight files plus
-        // per-row scales; the count is the readiness signal because a truncated
-        // download otherwise fails deep inside the engine instead of at load.
-        private const val VIBE_WEIGHT_FILES = 392
-        private const val VIBE_HF_REPO = "Luigi/VibeVoice-ASR-BitNet-LiteRT"
 
         // MOSS-TD on LiteRT: the three-component split (q8 encoder + q8 embedder + int4-b32 v2
         // decoder, ekv2560) + tokenizer vocab, from Luigi/moss-transcribe-diarize-litert,

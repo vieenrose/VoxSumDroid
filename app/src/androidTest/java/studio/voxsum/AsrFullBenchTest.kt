@@ -12,10 +12,8 @@ import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.MossLiteEngine
 import studio.voxsum.core.asr.NemotronLiteAsr
 import studio.voxsum.core.asr.SpeechEngine
-import studio.voxsum.core.asr.VibeLiteEngine
 import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.asr.moss.MossPipeline
-import studio.voxsum.core.asr.moss.MossWindower
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.models.ModelManager
 import java.io.File
@@ -97,8 +95,7 @@ class AsrFullBenchTest {
             // lmkd at cell 5 under system-wide memory pressure, and cells 1-4 with it.
             val only = InstrumentationRegistry.getArguments().getString("only")
                 ?.split(',')?.map { it.trim() }
-            for (backend in listOf(AsrBackend.XASR, AsrBackend.NEMOTRON,
-                                   AsrBackend.VIBE, AsrBackend.MOSS)) {
+            for (backend in listOf(AsrBackend.XASR, AsrBackend.NEMOTRON, AsrBackend.MOSS)) {
                 if (only != null && backend.id !in only) continue
                 val r = runCatching { measure(backend, lang, models, app, dir, pcm, audioSec, ref) }
                     .getOrElse { Log.w(TAG, "${backend.id}/$lang failed: ${it.message}"); null }
@@ -123,17 +120,13 @@ class AsrFullBenchTest {
         backend: AsrBackend, lang: String, models: ModelManager, app: android.content.Context,
         dir: File, pcm: FloatArray, audioSec: Double, ref: String,
     ): Row {
-        // VIBE reads a staged export under /data/local/tmp by default, to avoid
-        // re-downloading 1.5 GB per run; ensureVibeModels() can fetch it from
-        // Hugging Face instead when the staged copy is absent.
-        if (backend != AsrBackend.VIBE && !models.asrReady(backend)) {
+        if (!models.asrReady(backend)) {
             Log.i(TAG, "${backend.id}: provisioning…")
             models.ensureAsrModels(backend) { }
         }
         val anon = AnonPeak().start()
         val t0 = System.nanoTime()
         val text = when (backend) {
-            AsrBackend.VIBE -> transcribeVibe(models, app, dir, pcm)
             AsrBackend.MOSS -> transcribeMoss(models, app, pcm)
             else -> transcribeVad(backend, models, app, pcm)
         }
@@ -181,42 +174,6 @@ class AsrFullBenchTest {
         }
     }
 
-    private fun transcribeVibe(
-        models: ModelManager, app: android.content.Context, dir: File, pcm: FloatArray,
-    ): String {
-        val vd = File(InstrumentationRegistry.getArguments().getString("vibeDir")
-            ?: "/data/local/tmp/vibe_engine")
-        val e = VibeLiteEngine.create(
-            encoder = File(vd, "vibe_front_10s_q8.tflite"),
-            decoder = File(vd, "decoder_28L_512_c.tflite"),
-            head = File(vd, "head_q8.tflite"),
-            weightsDir = File(vd, "weights"),
-            manifest = File(vd, "dec_28L_manifest.txt"),
-            embeddingTable = File(vd, "embd_table.bin"),
-            vocabJson = File(vd, "vocab.json"),
-            prefill = File(vd, "prefill_512_t16_c.tflite").takeIf { it.exists() },
-            xnnCacheDir = File(app.cacheDir, "xnnpack"), threads = 4,
-        ) ?: error("Vibe engine failed to load")
-        // Same windowing the service uses: cut at a pause rather than a fixed
-        // boundary, and skip dead air, which otherwise costs a full
-        // encode+prefill+decode and returns nothing.
-        return e.use {
-            val win = 10 * 16000
-            val sb = StringBuilder()
-            var s = 0
-            while (s < pcm.size) {
-                val piece = pcm.copyOfRange(s, minOf(s + win, pcm.size))
-                val cut = (MossWindower.pauseCut(piece, 10, 16000, snapSeconds = 2.0) * 16000)
-                    .toInt().coerceIn(1, piece.size)
-                val used = if (cut < piece.size) piece.copyOfRange(0, cut) else piece
-                if (!MossWindower.isSilentStrict(used)) {
-                    sb.append(it.transcribeWindow(used).trim()).append(' ')
-                }
-                s += used.size
-            }
-            sb.toString().trim()
-        }
-    }
 
     /**
      * CER for Chinese, WER for English — a word rate is meaningless for a script

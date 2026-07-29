@@ -24,15 +24,3 @@ target_link_libraries(voxsum-mosslite
     "${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libLiteRt.so"
     android log)
 
-# --- VibeVoice-ASR-BitNet, fully on LiteRT ----------------------------------
-# The decoder's ternary projections run through a CUSTOM OP backed by
-# ternary_gemm.cc; LiteRT/XNNPACK has no ternary kernel, and the packing is the
-# performance (2 bits vs 8 is 4x the bytes per token on a bandwidth-bound decode).
-# Registration needs no LiteRT fork — LiteRtAddCustomOpKernelOption is exported by
-# the prebuilt libLiteRt.so this project already ships.
-target_sources(voxsum-mosslite PRIVATE
-    vibe/vibe_lite_engine.cc
-    vibe/vibe_lite_jni.cpp
-    vibe/ternary_gemm.cc
-    vibe/q6k.c)
-target_include_directories(voxsum-mosslite PRIVATE vibe)

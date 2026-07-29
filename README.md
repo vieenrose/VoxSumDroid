@@ -219,58 +219,6 @@ Generation dominates because autoregressive decode is a sequence of batch-1 matm
 XNNPACK — tuned for feed-forward throughput — handles poorly. That is also why the two
 non-autoregressive backends are one to two orders of magnitude faster here.
 
-### VibeVoice-ASR-BitNet (VIBE)
-
-VIBE is not in the table above — it is measured on a different clip, so the rows would not be
-comparable. Its own history is worth recording, because almost all of it was recovering speed the
-implementation was giving away rather than reducing work. 60 s of English in 10 s windows, each
-pair measured back to back on one device:
-
-| | RTF | wall |
-|---|---:|---:|
-| first working version | 6.28 | 377 s |
-| + big-core pinning moved before graph compile | 4.95 | 297 s |
-| + idle ternary workers park instead of spinning | 3.42 | 205 s |
-| + wide encoder mask, batched prompt remainder | 3.23 | 194 s |
-| + chat-prefix KV reused across windows | 2.93 | 176 s |
-| + pause-snapped windows and a silence gate | **2.24** | **134 s** |
-
-**2.8x, transcript byte-identical at every step.** Only the last row processes less audio; the rest
-is the same work done properly. Two traps, both worth knowing for any backend here:
-
-- **A thread inherits its affinity mask when it is created.** Pinning inside the inference call
-  cannot move a pool built during graph compilation, so every XNNPACK phase ran unpinned while the
-  ternary pool — a lazy static, first built inside the inference call — was pinned. Compile under
-  the mask you want.
-- **A spin-wait pool must eventually block.** VIBE's workers spun and then called `sched_yield` in
-  an unbounded loop, which returns immediately when nothing else is ready, so they burned every
-  pinned core for the engine's whole life. It was invisible in the phases the pool serves and
-  surfaced in the encoder, which merely had to share cores with it.
-
-Where the time goes now, per 10 s window — each of these was chased and is bounded for a reason:
-
-| phase | time | why it is not lower |
-|---|---:|---|
-| encode | 14.6 s | two tokenizer encoders, 344 M parameters each |
-| prefill | 10.3 s | batching is worth only 1.2x here; the prefix is already cached |
-| decode | 7.7 s | 212-249 ms/token against a ~124 ms weight-streaming floor |
-
-The audio front end — **not** the BitNet part — is the largest single cost and sets an RTF floor
-near 1.6 on this device. Dropping one of its two encoders would halve it, and does not work: the
-acoustic and semantic branches are nearly orthogonal (cos 0.0435) and comparable in magnitude, so
-each carries a large share of the summed features the decoder was trained on.
-
-Two other leads that measured out flat: swapping the ctx=512 decoder graphs for ctx=128 bought 2%
-(per-token cost tracks position, which is ordinary attention scaling, not O(ctx) work in the
-graph), and the 233 MB LM head turned out to be 42-46 ms/token rather than the ~117 ms its size
-suggested, so quantizing it further was never worth the accuracy risk.
-
-A wider encoder window was tried and rejected. The chat template costs a fixed 50 tokens per
-window against 7.5 audio frames per second, so 30 s windows cut prompt tokens 25% exactly as
-predicted, and the encoder is linear in window length. But its activations are not free — peak
-RssAnon went 937 MB to 1739 MB and the lowmemorykiller took the process mid-decode. Roughly 10%
-less prefill work is not worth 1.9x the unevictable memory.
-
 Thread count matters more than it looks: XNNPACK defaults to a **single** thread, so
 `TranscriptionService.bigCoreThreads` sets it explicitly from the big-core count (clamped 2..4).
 Leaving it unset roughly halves throughput — Nemotron measures RTF 4.78 single-threaded versus
