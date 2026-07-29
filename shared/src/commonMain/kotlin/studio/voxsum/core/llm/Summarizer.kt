@@ -69,10 +69,19 @@ class Summarizer(
 
         // One pass over the whole transcript.
         val finalSb = StringBuilder()
-        llm.generate(
-            SummaryText.wrap(template, SINGLE_TEMPLATE.format(instr, reduceInstruction, transcript)),
-            maxTokens = reduceMax,
-        ) { finalSb.append(it) }
+        try {
+            llm.generate(
+                SummaryText.wrap(template, SINGLE_TEMPLATE.format(instr, reduceInstruction, transcript)),
+                maxTokens = reduceMax,
+            ) { finalSb.append(it) }
+        } catch (t: Exception) {
+            // The estimate gate errs toward refusing, but if the real tokenizer still
+            // overflows (or the engine fails), surface a clean event instead of crashing.
+            emit(TranscriptEvent.Failed(
+                "Summarization failed: ${'$'}{t.message ?: t::class.simpleName}. " +
+                    "If the transcript is near the context limit, split the recording."))
+            return@flow
+        }
         llmCalls++
         emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
         var finalText = SummaryText.cleanSummary(finalSb.toString())
