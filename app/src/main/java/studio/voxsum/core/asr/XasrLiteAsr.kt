@@ -42,7 +42,12 @@ class XasrLiteAsr(
         val fresh = ArrayList<TranscriptEvent.Utterance>()
         while (segmenter.segments.isNotEmpty()) {
             val seg = segmenter.segments.removeFirst()
-            for ((offset, piece) in AsrEngine.splitLongSegment(seg.samples)) {
+            // 3 s ceiling, NOT the 30 s default: the xasr_q8_octav export's larger
+            // encoder buckets (enc_750/1500/3000) return input-INDEPENDENT vectors,
+            // so any piece over ~3.75 s decodes to zero tokens. Measured through the
+            // desktop's identical pipeline: en WER 70.7% -> 13.7% with this cap; the
+            // on-device 63.8% WER was the same defect. Fix the export, then revert.
+            for ((offset, piece) in AsrEngine.splitLongSegment(seg.samples, maxSec = 3)) {
                 decodePiece(piece, seg.startSample + offset)?.let { fresh += it }
             }
         }
