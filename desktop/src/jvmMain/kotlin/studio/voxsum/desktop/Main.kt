@@ -100,7 +100,11 @@ import studio.voxsum.ui.theme.LocalVoxSumPalette
 import studio.voxsum.ui.theme.VoxSumPalette
 import java.util.concurrent.atomic.AtomicBoolean
 
-fun main() {
+fun main(args: Array<String>) {
+    // Headless full-pipeline bench — no window, no Compose. Everything after this
+    // branch is the GUI app, untouched.
+    if (args.firstOrNull() == "--bench") { runBenchCli(args); return }
+
     // Stock OpenJDK's Linux X11 toolkit doesn't reliably auto-detect HiDPI outside GNOME (KDE/XFCE
     // don't publish the same XSETTINGS key), so on a 2K/4K screen the app renders at 1x — tiny text
     // and icons. Must run before any AWT/Skiko initialization (the first Window { } call), which is

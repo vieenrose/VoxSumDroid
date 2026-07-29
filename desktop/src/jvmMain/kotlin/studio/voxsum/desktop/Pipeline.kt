@@ -317,6 +317,47 @@ private suspend fun ensureAsrAndDiarizationModels(
  * speaker-linking) over the subprocess engine — no sherpa ASR, no separate diarization pass.
  * [pcm] is the already-decoded, normalized 16 kHz buffer.
  */
+
+/** Headless re-validation entry: the EXACT transcription path [runPipeline] takes —
+ *  same decode+normalize, same per-backend branch, same diarization with its
+ *  re-decode of fused segments, same script conversion — minus the UI. Lives in
+ *  this file so it can call the private pieces instead of copying them; a copy
+ *  would silently drift from the shipping pipeline, which is the one thing a
+ *  re-validation must never do. */
+suspend fun benchTranscribe(
+    file: File,
+    config: TranscriptionConfig,
+): List<TranscriptEvent.Utterance> {
+    val models = ModelManager(appDataDir)
+    val backend = AsrBackend.fromId(config.asrBackend)
+    val update: Update = { }
+    val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(file, normalize = true) }
+    val utterances = ArrayList<TranscriptEvent.Utterance>()
+    val convert: (String) -> String = transcriptConvert(config, backend)
+    val (tagged, _) = if (backend == AsrBackend.MOSS) {
+        runMossTranscription(models, config, pcm, update, utterances)
+    } else {
+        ensureAsrAndDiarizationModels(models, backend, config.diarizationEnabled, update)
+        withContext(Dispatchers.Default) {
+            SpeechEngineFactory.create(backend, models, config).use { asr ->
+                collectTranscribeEvents(asr.transcribe(pcm), utterances, update, convert)
+                if (config.diarizationEnabled) {
+                    try {
+                        diarize(models, config, pcm, utterances, update) { s, e ->
+                            convert(asr.decodeSlice(pcmSlice(pcm, s, e)))
+                        }
+                    } catch (t: Throwable) {
+                        utterances.toList() to 0
+                    }
+                } else {
+                    utterances.toList() to 0
+                }
+            }
+        }
+    }
+    return tagged
+}
+
 private suspend fun runMossTranscription(
     models: ModelManager, config: TranscriptionConfig, pcm: FloatArray,
     update: Update, utterances: MutableList<TranscriptEvent.Utterance>,
