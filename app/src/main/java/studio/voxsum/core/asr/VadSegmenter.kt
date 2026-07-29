@@ -39,7 +39,7 @@ class VadSegmenter(
     private var silRun = 0               // consecutive cold windows while in speech
     private val pending = ArrayList<FloatArray>()   // windows of the open segment
     private var pendingStartWin = 0
-    private var preRoll: FloatArray? = null         // one window before the segment
+    private val preRollBuf = ArrayDeque<FloatArray>()         // one window before the segment
 
     fun accept(chunk: FloatArray) {
         var off = 0
@@ -64,7 +64,7 @@ class VadSegmenter(
             carryLen = 0
         }
         if (inSpeech || hotRun >= minSpeechWin) closeSegment()
-        pending.clear(); preRoll = null
+        pending.clear(); preRollBuf.clear()
         inSpeech = false; hotRun = 0; silRun = 0
         vad.reset()
         absWindow = 0
@@ -82,7 +82,12 @@ class VadSegmenter(
             } else {
                 hotRun = 0
                 pending.clear()
-                preRoll = win               // last cold window = pre-roll candidate
+                // Rolling pre-roll: keep the last few cold windows so the segment
+                // starts with REAL leading audio. One 32 ms window starved the
+                // encoder's leading context the same way the tail was starved
+                // ("在家"→"最佳" on the first word of nearly every zh segment).
+                preRollBuf.addLast(win)
+                if (preRollBuf.size > PRE_ROLL_WIN) preRollBuf.removeFirst()
             }
         } else {
             pending.add(win)
@@ -107,22 +112,24 @@ class VadSegmenter(
 
     private fun closeSegment() {
         if (pending.isNotEmpty()) {
-            val pre = preRoll
-            val n = pending.size * WINDOW + (if (pre != null) WINDOW else 0)
+            val pre = preRollBuf.toList()
+            val n = pending.size * WINDOW + pre.size * WINDOW
             val out = FloatArray(n)
             var o = 0
-            if (pre != null) { pre.copyInto(out, 0); o = WINDOW }
+            for (w in pre) { w.copyInto(out, o); o += WINDOW }
             for (w in pending) { w.copyInto(out, o); o += WINDOW }
-            val startWin = pendingStartWin - (if (pre != null) 1 else 0)
+            val startWin = pendingStartWin - pre.size
             segments.addLast(Segment(startWin.coerceAtLeast(0) * WINDOW, out))
         }
-        pending.clear(); preRoll = null
+        pending.clear(); preRollBuf.clear()
         inSpeech = false; hotRun = 0; silRun = 0
     }
 
     companion object {
         /** Closing-audio windows kept per segment (~0.26 s at 512/16 kHz). */
         private const val TAIL_PAD_WIN = 8
+        /** Leading cold windows kept per segment (~0.26 s of real audio). */
+        private const val PRE_ROLL_WIN = 8
 
         const val SAMPLE_RATE = 16_000
         const val WINDOW = 512

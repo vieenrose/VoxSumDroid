@@ -83,10 +83,14 @@ class AsrFullBenchTest {
             out.writeText("VoxSum ASR benchmark — 5 min per language, four backends\n\n")
 
         val rows = ArrayList<Row>()
+        val langFilter = InstrumentationRegistry.getArguments().getString("langs")
+            ?.split(',')?.map { it.trim() }
+        val capSec = InstrumentationRegistry.getArguments().getString("seconds")?.toInt()
         for (lang in listOf("en", "zhtw")) {
+            if (langFilter != null && lang !in langFilter) continue
             val wav = File(dir, "${lang}_5min.wav")
             val ref = File(dir, "${lang}_5min.ref.txt").readText()
-            val pcm = readWav16k(wav)
+            val pcm = readWav16k(wav).let { if (capSec != null) it.copyOf(minOf(it.size, capSec * 16000)) else it }
             val audioSec = pcm.size / 16000.0
             Log.i(TAG, "=== $lang: ${"%.1f".format(audioSec)}s ===")
 

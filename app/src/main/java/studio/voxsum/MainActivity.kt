@@ -1666,7 +1666,8 @@ private fun TranscribeScreen(
         if (regenerateTitle) { title = null; titleEdited = false }
         running = true; progress = 0f; status = context.getString(R.string.status_starting)   // transcript persists
         // Transcript rides the holder, not an Intent extra (Binder 1 MB limit → crash on long meetings).
-        TranscriptionService.pendingText = utterances.joinToString("\n") { it.text }
+        TranscriptionService.pendingText = studio.voxsum.core.llm.TranscriptFormat.format(
+            utterances, speakerNames.mapValues { it.value.name })
         val intent = Intent(context, TranscriptionService::class.java)
             .setAction(TranscriptionService.ACTION_SUMMARIZE)
             .putExtra(TranscriptionService.EXTRA_WITH_TITLE, regenerateTitle)
@@ -1693,7 +1694,8 @@ private fun TranscribeScreen(
         if (running || utterances.isEmpty()) return
         TranscriptionConfig.Holder.config = config
         running = true; progress = 0f; status = context.getString(R.string.status_starting)   // transcript persists
-        TranscriptionService.pendingText = utterances.joinToString("\n") { it.text }
+        TranscriptionService.pendingText = studio.voxsum.core.llm.TranscriptFormat.format(
+            utterances, speakerNames.mapValues { it.value.name })
         val intent = Intent(context, TranscriptionService::class.java)
             .setAction(TranscriptionService.ACTION_EXTRACT_ACTIONS)
             .putExtra(TranscriptionService.EXTRA_RUN_GEN, sessionGen)

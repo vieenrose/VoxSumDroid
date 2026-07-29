@@ -160,13 +160,27 @@ internal object SummaryText {
         val sz = size.coerceAtLeast(1)
         val ov = overlap.coerceIn(0, sz - 1)
         if (text.length <= sz) return listOf(text)
+        // LINE-AWARE windows. The transcript format is one utterance per line
+        // ("[M:SS] S1: text"), and a raw character cut lands mid-utterance —
+        // even mid-timestamp — handing the map model a broken record at both
+        // edges of every chunk. Cut at the last newline inside the budget
+        // instead, and overlap in WHOLE lines, so no record is ever split and
+        // the duplicated region is well-formed. Falls back to a hard cut only
+        // for a single line longer than the whole budget.
         val out = ArrayList<String>()
         var start = 0
         while (start < text.length) {
-            val end = minOf(start + sz, text.length)
+            var end = minOf(start + sz, text.length)
+            if (end < text.length) {
+                val nl = text.lastIndexOf('\n', end - 1)
+                if (nl > start) end = nl + 1
+            }
             out += text.substring(start, end)
             if (end == text.length) break
-            start = end - ov
+            var back = maxOf(start, end - ov)
+            val bnl = text.indexOf('\n', back)
+            if (bnl in back until end - 1) back = bnl + 1
+            start = if (back > start) back else end
         }
         return out
     }

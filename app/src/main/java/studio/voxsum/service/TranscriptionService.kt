@@ -1018,7 +1018,7 @@ class TranscriptionService : LifecycleService() {
                     updateNotification(getString(R.string.svc_processing_queue, entry.title ?: SessionLibrary.defaultTitle(entry.createdAt), ProcessingQueue.size(this)))
                     try {
                         val converter = outputConverter(cfgAll)
-                        val transcript = utterances.joinToString("\n") { it.text }
+                        val transcript = studio.voxsum.core.llm.TranscriptFormat.format(utterances)
                         val summary = if (transcript.isBlank()) SummaryResult(null, null)
                         else summarizeWith(llm, spec, transcript, cfgAll, converter)
                         // The user may have DELETED this entry while it summarized. attachResults →
@@ -1592,7 +1592,12 @@ class TranscriptionService : LifecycleService() {
         val tagged = diarized?.first ?: utterances
         emitEvent(TranscriptEvent.Complete(tagged, diarized?.second))
 
-        return tagged to summarize(tagged.joinToString("\n") { it.text }, cfg, models, converter)
+        // The unified summarizer interface — same "[M:SS] S1: text" format on every
+        // platform and every ASR backend, and the target format of the upcoming
+        // summarizer fine-tune. Speaker names are not known yet at this stage of
+        // the pipeline; S-tags degrade to none when diarization did not run.
+        return tagged to summarize(
+            studio.voxsum.core.llm.TranscriptFormat.format(tagged), cfg, models, converter)
     }
 
     /** What the summary phase produced — captured so the recording pipeline can auto-save the
