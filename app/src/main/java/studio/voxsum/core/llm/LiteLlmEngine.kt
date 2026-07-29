@@ -140,7 +140,9 @@ class LiteLlmEngine private constructor(
          */
         fun load(
             context: Context, modelPath: String, sampler: SamplerProfile,
-            nCtx: Int = 4096, backend: String = "cpu",
+            // 16384 covers ~80 min of speech in one pass (~195 tok/min zh) and costs only
+            // ~84 MB extra KV on Gemma 4 E2B (28 of 35 layers are 512-token sliding-window).
+            nCtx: Int = 16384, backend: String = "cpu",
         ): LiteLlmEngine? {
             val config = EngineConfig(
                 modelPath = modelPath,
