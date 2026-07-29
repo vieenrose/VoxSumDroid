@@ -67,22 +67,28 @@ class VibeSubprocessEngine(
 
     override fun close() {}
 
-    private fun runBinary(pcm: FloatArray): String {
+    private fun runBinary(pcm: FloatArray, windowed: Boolean = true): String {
         val wav = File.createTempFile("vibeasr-", ".wav", workDir)
         try {
             writeWav16kMono(wav, pcm)
-            val cmd = listOf(
-                binary.absolutePath,
-                "--vae-model", vaeModel.absolutePath,
-                "--lm-model", lmModel.absolutePath,
-                "--audio", wav.absolutePath,
-                "-t", numThreads.toString(),
-                "--greedy",
+            val cmd = buildList {
+                add(binary.absolutePath)
+                addAll(listOf("--vae-model", vaeModel.absolutePath))
+                addAll(listOf("--lm-model", lmModel.absolutePath))
+                addAll(listOf("--audio", wav.absolutePath))
+                addAll(listOf("-t", numThreads.toString()))
+                add("--greedy")
                 // 512 covers ~42 s of audio at ~12 tokens/s and costs 14 MB of KV;
                 // asr_infer's own default of 16384 costs 448 MB for headroom that a
                 // windowed pipeline can never use.
-                "-c", "512",
-            )
+                addAll(listOf("-c", "512"))
+                // NOT an optimization — a correctness requirement. The whole-file
+                // pass measured 79.7% WER on a 5-minute clip: the i8_s VAE's
+                // features decay past ~10-20 s of input (cosine vs f32 drops
+                // 0.92 -> 0.78 across one 60 s clip) and the LM transcribes the
+                // rot fluently. asr_infer re-normalizes each window itself.
+                if (windowed) addAll(listOf("--window-secs", "10"))
+            }
             val pb = ProcessBuilder(cmd).directory(workDir)
             // The binary needs libllama/libggml (its own fork) and libLiteRt, which
             // are staged beside it. Its build-tree RPATH does not survive being
@@ -106,6 +112,11 @@ class VibeSubprocessEngine(
             val err = proc.errorStream.bufferedReader().use { it.readText() }
             val rc = proc.waitFor()
             if (rc != 0) {
+                // A binary from before --window-secs rejects the flag; fall back to
+                // the whole-file pass rather than failing outright. Long audio will
+                // be degraded, but the user asked for a transcript, not an error.
+                if (windowed && err.contains("Unknown argument"))
+                    return runBinary(pcm, windowed = false)
                 error("asr_infer exited $rc: ${err.lines().takeLast(3).joinToString(" | ")}")
             }
             return out.trim()
