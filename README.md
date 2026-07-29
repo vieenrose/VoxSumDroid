@@ -126,6 +126,52 @@ from the dev tree. Every item below was actually executed and observed:
 Every item above was independently verified end-to-end (not just compiled) during development —
 see the branch's commit history for the specific verification each one got.
 
+## ASR benchmark (x86-64)
+
+Every number below comes from the **byte-identical production pipeline** (the
+`--bench` headless entry drives the same `Pipeline.kt` path the app runs,
+diarization included) on two 5-minute clips — English and Taiwan-accented
+Mandarin — against human references. Machine: AMD Ryzen 9 9950X3D (32 threads).
+Error rates are normalized the standard way (Whisper `EnglishTextNormalizer`
+for en; OpenCC script fold + digit→numeral, CJK-only for zh), wall clock
+includes engine load, peak RSS is the process high-water mark.
+
+| backend | en WER | zh-TW CER | wall en / zh | peak RSS | prefill | generation |
+|---|---:|---:|---:|---:|---:|---:|
+| **MOSS-TD** | **4.6%** | **6.3%** | 109 s / 157 s | 1.7 GB | ~790 tok/s | 18.7 tok/s |
+| **X-ASR** | 14.4% | 14.0% | 7 s / 8 s | 0.5 GB | — | — |
+| **Nemotron** | 25.3% | 29.2% | 16 s / 24 s | 1.1 GB | — | — |
+
+Prefill/generation apply only to MOSS-TD — the one autoregressive backend;
+X-ASR and Nemotron emit tokens from a single forward pass. RTF: X-ASR ≈ 0.02,
+Nemotron ≈ 0.06, MOSS-TD ≈ 0.35.
+
+### Sample output (first seconds of each clip)
+
+**English** — reference: *“When you call someone who is thousands of miles
+away, you are using a satellite. Now widely available throughout the
+archipelago, …”*
+
+| backend | output |
+|---|---|
+| MOSS-TD | When you call someone who is thousands of miles away, you're using a satellite. Now widely available throughout the archipelago, … |
+| X-ASR | When you call someone who is thousands of miles away. You're using a satellite. Now widely available throughout the Archipal ago. |
+| Nemotron | when you call someone who is thousands of miles away you are using a satel now widely available throughout the arch pla … |
+
+**zh-TW** — reference: *「在家也可以刷卡 外交與全球性議題 我們的人口結構急速老化 新店端 則正確…」*
+
+| backend | output |
+|---|---|
+| MOSS-TD | 在家也可以刷卡。外交與全球性議題。我們的人口結構急速老化。新店端。則正確的說明了… |
+| X-ASR | 在家也可以刷卡。外交與全球性議題 我們的人口結構急速老化。心電端。則正確地說明了… |
+| Nemotron | 最佳也可以刷 外交與全球信義 我們的人口結構急速老 新店端 則正確的說明了星球的大… |
+
+MOSS-TD is the accuracy pick and the only diarizing backend; X-ASR is the fast
+default; Nemotron trades accuracy for language breadth — its residual errors
+(word tails still clipped on zh, subword drift on rare words) are under
+investigation against its encoder export. Clips are single runs on one machine;
+treat rows as relative, not absolute.
+
 ## Build & run (development)
 
 Requires a JDK (21 tested), `ffmpeg` on `PATH` for audio decoding, and `patchelf` (native-lib
