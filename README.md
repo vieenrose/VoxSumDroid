@@ -139,8 +139,8 @@ includes engine load, peak RSS is the process high-water mark.
 | backend | en WER | zh-TW CER | wall en / zh | peak RSS | prefill | generation |
 |---|---:|---:|---:|---:|---:|---:|
 | **MOSS-TD** | **4.6%** | **6.3%** | 109 s / 157 s | 1.7 GB | ~790 tok/s | 18.7 tok/s |
-| **X-ASR** | 11.3% | 16.0% | 7 s / 8 s | 0.5 GB | — | — |
-| **Nemotron** | 17.3% | 19.0% | 16 s / 24 s | 1.1 GB | — | — |
+| **X-ASR** | 11.4% | 15.3% | 7 s / 8 s | 0.5 GB | — | — |
+| **Nemotron** | 11.9% | 17.5% | 16 s / 24 s | 1.1 GB | — | — |
 
 Prefill/generation apply only to MOSS-TD — the one autoregressive backend;
 X-ASR and Nemotron emit tokens from a single forward pass. RTF: X-ASR ≈ 0.02,
@@ -156,7 +156,7 @@ archipelago, …”*
 |---|---|
 | MOSS-TD | When you call someone who is thousands of miles away, you're using a satellite. Now widely available throughout the archipelago, … |
 | X-ASR | When you call someone who is thousands of miles away. You're using a satellite. Now widely available throughout the Archipal ago. |
-| Nemotron | when you call someone who is thousands of miles away you are using a satellite now widely available throughout the arch pla … |
+| Nemotron | when you call someone who is thousands of miles away. you're using a satellite. now widely available throughout the archipelago. … |
 
 **zh-TW** — reference: *「在家也可以刷卡 外交與全球性議題 我們的人口結構急速老化 新店端 則正確…」*
 
@@ -164,16 +164,20 @@ archipelago, …”*
 |---|---|
 | MOSS-TD | 在家也可以刷卡。外交與全球性議題。我們的人口結構急速老化。新店端。則正確的說明了… |
 | X-ASR | 在家也可以刷卡。外交與全球性議題 我們的人口結構急速老化。心電端。則正確地說明了… |
-| Nemotron | 最佳也可以刷卡 外交與全球信義 我們的人口結構急速老話 新店端 則正確的說明了星球的大小… |
+| Nemotron | 這家也可以刷卡 外交與全球信議題 我們的人口結構急速老化 新電端 則正確的說明了星球的大小… |
 
 MOSS-TD is the accuracy pick and the only diarizing backend; X-ASR is the fast
-default; Nemotron trades accuracy for language breadth; three decode-path bugs were
-fixed against these clips (VAD tail amputation and missing pre-roll; missing
-head/tail silence context for its strided encoder — en 26.2 → 17.3, zh 32.5 →
-19.0 combined), and its residual subword drift on rare words is pending an
-encoder-precision re-export. The same VAD pre-roll took X-ASR en 14.4 → 11.3
-(zh 14.0 → 16.0 — a small regression left as-is pending pre-roll tuning). Clips are single runs on one machine;
-treat rows as relative, not absolute.
+default; Nemotron trades some accuracy for language breadth (25 languages).
+Four fixes were landed against these clips: VAD tail amputation and pre-roll
+(both backends), head/tail silence context for Nemotron's strided encoder
+(en 26.2 → 17.3, zh 32.5 → 19.0 combined), a per-backend pre-roll sweep
+(X-ASR pr=2: zh 16.0 → 15.3; Nemotron pr=8), and a q8 encoder re-export for
+Nemotron replacing the q4-mix at the same 599 MB — the q4 quantization alone
+was costing ~6 en WER (en 17.3 → 11.9, zh 19.0 → 17.5). X-ASR additionally
+needs the XNNPACK weight cache disabled: caching packs weights by tensor data,
+so its four shared-weight bucketed encoder signatures collide and the larger
+buckets decode to nothing. Clips are single runs on one machine; treat rows as
+relative, not absolute.
 
 ## Build & run (development)
 
