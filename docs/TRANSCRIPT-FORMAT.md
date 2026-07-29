@@ -41,13 +41,39 @@ One utterance per line:
 and `app/src/main/java/studio/voxsum/core/llm/TranscriptFormat.kt` (Android) —
 keep byte-identical.
 
-## Fine-tune guidance
+## Fine-tune guidance — the SINGLE-PASS contract
+
+The summarizer fine-tune is **one task**:
+
+    input : the whole formatted transcript (this format, up to ~13k tokens)
+    output: the summary (title as a small secondary task)
+
+Rationale: Gemma 4's hybrid attention makes 16k context cost only ~+84 MB of
+KV, and a single pass does strictly LESS total compute than map-reduce over
+the same transcript (map prefills every token once anyway, then reduce adds
+passes). The runtime routes any transcript that fits into a single pass;
+map-reduce survives only as the overflow path for multi-hour meetings.
+
+Overflow handling reuses the SAME trained ability recursively: summarize the
+halves, then single-pass over the concatenated summaries. No separately
+trained map/reduce/shrink heads.
 
 - Generate training inputs with `TranscriptFormat.format()` over real
   `Utterance` lists; do not hand-write examples in a "similar" format.
-- Include all three variants (S-tags, names, no-speaker) in training data.
+- Include all three variants (S-tags, names, no-speaker) and both languages.
+- Salt ~5-10% of examples whose "transcript" is two concatenated summaries —
+  the recursive overflow case.
 - Keep summaries free of timestamps/tags unless the task explicitly asks for
   moment references — the runtime prompts say "output only the summary".
 
 Validated 2026-07-29 against Gemma 4 E2B/E4B (transformers, GPU) with VoxSum's
 production prompt templates on real 5-minute en/zh transcripts.
+
+Map-reduce lab (same date, E2B, 5-min en transcript, 4 arms): current
+char-chunks, line-aware chunks, line-aware + synthesis-style reduce, and
+iterative refine all produce comparable finals; refine was fastest (34 s vs
+58-72 s for 8-chunk map-reduce) and the only arm that kept every topic. All
+arms truncate the final list at the output-token cap — the reduce step, not
+the map prompts, is the bottleneck. Conclusion: fine-tune for **single-pass**
+(nCtx 16384 covers ~80 min of zh speech at ~195 tok/min); when a transcript
+still overflows, prefer iterative refine over map-reduce as the fallback.
