@@ -12,8 +12,15 @@ import kotlin.math.sqrt
  */
 object MossWindower {
 
-    /** −54 dBFS RMS: far below any real speech, incl. quiet off-mic chatter. */
+    /** −54 dBFS RMS: far below normally-recorded speech — but NOT below quiet
+     *  un-normalized speech (a real 5-min bench clip's last minute sits at RMS
+     *  0.0008 yet transcribes fine), so RMS alone must not gate a window. */
     const val SILENCE_RMS = 0.002
+
+    /** Peak gate that separates quiet speech from true silence: that same quiet
+     *  minute peaks at 0.022; digital near-silence peaks at ~0.0002. A window is
+     *  skipped only when BOTH the RMS and the peak say there is nothing there. */
+    const val SILENCE_PEAK = 0.01
 
     /** Pause-snap search span at the tail of a window: 12 s for ≥90 s windows, else 5 s. */
     fun snapS(windowS: Int): Double = if (windowS >= 90) 12.0 else 5.0
@@ -26,7 +33,12 @@ object MossWindower {
         return sqrt(sum / piece.size)
     }
 
-    fun isSilent(piece: FloatArray): Boolean = rms(piece) < SILENCE_RMS
+    fun isSilent(piece: FloatArray): Boolean {
+        if (rms(piece) >= SILENCE_RMS) return false
+        var peak = 0f
+        for (v in piece) { val a = if (v < 0) -v else v; if (a > peak) peak = a }
+        return peak < SILENCE_PEAK
+    }
 
 
     /**
