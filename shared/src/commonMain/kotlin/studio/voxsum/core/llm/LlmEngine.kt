@@ -78,7 +78,10 @@ class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : A
         /** @param nThreads keep small on mobile — big-core count, not all cores.
          *  @param sampler per-model llama.cpp sampler chain (see [SamplerProfile]). */
         fun load(
-            modelPath: String, nThreads: Int, nCtx: Int = 4096,
+            modelPath: String, nThreads: Int,
+            // 16384 covers ~80 min of speech in one pass (~195 tok/min zh); Gemma 4's
+            // mostly-sliding-window attention keeps the KV cost small.
+            nCtx: Int = 16384,
             sampler: SamplerProfile = SamplerProfile.LEGACY,
         ): LlmEngine {
             val h = nativeLoad(

@@ -6,17 +6,18 @@ import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.models.ChatTemplate
 
 /**
- * Map-reduce summarization — Android port of src/summarization.py::summarize_transcript.
+ * Single-pass summarization.
  *
- * Python uses LangChain only for chunking + prompt templates and llama_cpp directly for
- * inference. On-device we drop LangChain entirely: chunking is a few lines of Kotlin and
- * prompts are string templates. Inference goes through [LlmEngine].
+ * The whole (formatted) transcript goes to the model in ONE prompt through [LlmEngine].
+ * Map-reduce was removed after the 2026-07-29 lab: its reduce step is a uniform lossy
+ * bottleneck and the model never sees the document whole; a single pass at nCtx 16384
+ * covers ~80 min of speech (~195 tok/min zh). A transcript that exceeds the context
+ * budget is an explicit [TranscriptEvent.Failed] — no silent fallback (see
+ * docs/TRANSCRIPT-FORMAT.md: the fine-tuned summarizer contract is single-task,
+ * single-pass).
  *
- * Flow:
- *   1. split transcript into ~chunk-sized windows with overlap (RecursiveCharacterTextSplitter equiv)
- *   2. summarize each chunk -> emit Partial as tokens stream
- *   3. reduce the chunk summaries into one final summary -> emit SummaryComplete
- *   4. generate_title equivalent -> emit Title
+ * Flow: one summary call -> optional shrink pass when the result overruns ->
+ * SummaryComplete -> optional Title.
  */
 class Summarizer(
     private val llm: LlmEngine,
@@ -52,61 +53,30 @@ class Summarizer(
 
     fun summarize(transcript: String, userPrompt: String, withTitle: Boolean = true): Flow<TranscriptEvent> = flow {
         val instr = userPrompt + langClause
-        // Budget every prompt in CHARS so it fits n_ctx for ANY script. CJK is the densest (~1.55
-        // tokens/char), so cap at ~0.6 chars/token (*3/5); English (~4 chars/token) just gets smaller,
-        // more granular chunks — safe. Without this, a long OR Chinese transcript makes a map chunk
-        // (and the joined reduce prompt) exceed n_ctx, the native decode guard returns nothing, and the
-        // summary comes back silently EMPTY. (zh-Hant transcripts longer than a few minutes hit this.)
         val reduceMax = reduceMaxTokens
-        val mapBudget = ((llm.nCtx - mapMaxTokens - 96) * 3 / 5).coerceIn(512, 3500)
-        val reduceBudget = ((llm.nCtx - reduceMax - 96) * 3 / 5).coerceAtLeast(512)
-        val chunks = SummaryText.chunk(transcript, size = mapBudget)
-        // Status is set (localized) by the caller in the service; here we only drive the bar.
-        // Progress covers EVERY LLM call (map + hierarchical reduce + final + title), not just
-        // the map phase — map-only progress used to hit 100% and stall while the reduce/title
-        // passes were still minutes away on long meetings, which also made the caller's
-        // time-to-finish extrapolation impossible. The reduce-call count is an estimate (fold
-        // grouping depends on the partials' actual lengths); the 0.97 clamp absorbs an estimate
-        // that's off by a call or two.
-        val estimatedCalls = chunks.size +
-            (if (chunks.size > 1) (chunks.size + 5) / 6 + 1 else 0) +
-            (if (withTitle) 1 else 0)
-        var llmCalls = 0
+        // Hard context gate — single pass only. Token estimate is per-script (measured on
+        // Gemma 4 against real transcripts: zh ≈ 0.75 tok/char, en ≈ 0.30; the gate uses
+        // 0.8 / 0.35 so it errs toward refusing, never toward a silently-truncated prefill).
+        val budget = llm.nCtx - reduceMax - 192
+        val estTokens = SummaryText.estimateTokens(transcript)
+        if (estTokens > budget) {
+            emit(TranscriptEvent.Failed(
+                "Transcript too long to summarize in one pass: ~$estTokens tokens, " +
+                    "budget $budget (nCtx ${llm.nCtx}). Split the recording or use a larger-context model."))
+            return@flow
+        }
         emit(TranscriptEvent.Progress(0f))   // restart the bar for the summary phase
+        val estimatedCalls = 1 + (if (withTitle) 1 else 0)
+        var llmCalls = 0
 
-        val partials = ArrayList<String>(chunks.size)
-        for (c in chunks) {
-            val sb = StringBuilder()
-            llm.generate(SummaryText.wrap(template, MAP_TEMPLATE.format(instr, mapInstruction, c)), maxTokens = mapMaxTokens) { sb.append(it) }
-            partials += sb.toString().trim()
-            emit(TranscriptEvent.Partial(sb.toString().trim()))   // partials stay raw (intermediate)
-            llmCalls++
-            emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
-        }
-
-        // Reduce HIERARCHICALLY so the joined prompt never overflows the context window: fold the
-        // partials in budget-sized groups, re-summarizing each round until a single prompt fits. (A long
-        // meeting's ~16+ partials would otherwise join into one over-n_ctx reduce prompt -> empty summary.)
-        val level = SummaryText.foldToFit(partials, reduceBudget, "\n\n") { group ->
-            val sb = StringBuilder()
-            llm.generate(SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, reduceInstruction, group.joinToString("\n\n"))), reduceMax) { sb.append(it) }
-            llmCalls++
-            emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
-            sb.toString().trim()
-        }
-
-        // One chunk (or a single folded summary) IS the final summary — skip a redundant pass.
+        // One pass over the whole transcript.
         val finalSb = StringBuilder()
-        if (level.size == 1) {
-            finalSb.append(level[0])
-        } else {
-            llm.generate(
-                SummaryText.wrap(template, REDUCE_TEMPLATE.format(instr, reduceInstruction, level.joinToString("\n\n"))),
-                maxTokens = reduceMax,
-            ) { finalSb.append(it) }
-            llmCalls++
-            emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
-        }
+        llm.generate(
+            SummaryText.wrap(template, SINGLE_TEMPLATE.format(instr, reduceInstruction, transcript)),
+            maxTokens = reduceMax,
+        ) { finalSb.append(it) }
+        llmCalls++
+        emit(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
         var finalText = SummaryText.cleanSummary(finalSb.toString())
         // Guaranteed length bound: even with an explicit count in the prompt, a small model fed a
         // dense hour-long reduce input can still overrun (it fills its token budget rather than
@@ -146,6 +116,13 @@ class Summarizer(
         // headers / preamble (verbose models like Gemma 4 otherwise emit "Short Summary:",
         // "Detailed Summary:", etc.). The format itself comes from the style directive, not hard-coded.
         // %s = user instruction, %s = the style's format directive, %s = the text.
+        // Single-pass template: the whole transcript, one summary. %s = user instruction,
+        // %s = the style's reduce directive (the "at most 7 bullets" class), %s = the transcript.
+        const val SINGLE_TEMPLATE =
+            "%s\nWrite the summary of the transcript below %s. " +
+                "Output only the summary itself — no headings, no multiple versions, no preamble.\n\n" +
+                "Transcript:\n%s"
+
         const val MAP_TEMPLATE =
             "%s\nWrite the summary of the transcript section below %s. " +
                 "Output only the summary itself — no headings, no multiple versions, no preamble.\n\n" +

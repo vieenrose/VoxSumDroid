@@ -44,6 +44,21 @@ internal object SummaryText {
     }
 
     /**
+     * Conservative Gemma-4 token estimate for the single-pass context gate. Measured on
+     * real transcripts: zh ≈ 0.75 tok/char, en ≈ 0.30 tok/char; 0.8/0.35 here so the gate
+     * errs toward refusing, never toward a silently truncated prefill.
+     */
+    fun estimateTokens(text: String): Int {
+        var cjk = 0
+        for (ch in text) {
+            val c = ch.code
+            if ((c in 0x2E80..0x9FFF) || (c in 0xF900..0xFAFF) || (c in 0xFF00..0xFFEF)) cjk++
+        }
+        val other = text.length - cjk
+        return (cjk * 0.8 + other * 0.35).toInt()
+    }
+
+    /**
      * A final summary that clearly overran its style's intent (an hour-long meeting's reduce can
      * fill the whole token budget with ~30 bullets). Triggers the Summarizer's one-shot shrink
      * pass. Thresholds sit well above every style's asked-for size (≤7 bullets / ≤6 sentences)
