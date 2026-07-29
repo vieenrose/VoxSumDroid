@@ -80,8 +80,6 @@ class SummarizerTextTest {
             SummaryText.wrap(ChatTemplate.GEMMA, "hi"))
         assertTrue(SummaryText.wrap(ChatTemplate.CHATML, "hi").startsWith("<|im_start|>system"))
         assertTrue(SummaryText.wrap(ChatTemplate.CHATML, "hi").endsWith("<|im_start|>assistant\n"))
-        // Qwen3 non-thinking mode appends an empty think block so the model answers directly.
-        assertTrue(SummaryText.wrap(ChatTemplate.QWEN3, "hi").endsWith("<think>\n\n</think>\n\n"))
     }
 
     // --- chunk --------------------------------------------------------------------------------

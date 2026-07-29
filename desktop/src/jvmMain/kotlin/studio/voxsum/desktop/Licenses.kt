@@ -8,7 +8,7 @@ object Licenses {
         "sherpa-onnx (ASR & diarization) — Apache-2.0",
         "ONNX Runtime — MIT",
         "llama.cpp / ggml (summarization) — MIT",
-        "Qwen3.5 & Qwen3-ASR models — Apache-2.0",
+        "Qwen tokenizer (MOSS-TD detok) — Apache-2.0",
         "Gemma models — Gemma Terms",
         "SenseVoice & Zipformer ASR models — Apache-2.0",
         "pyannote segmentation-3.0 (speaker boundaries) — MIT",

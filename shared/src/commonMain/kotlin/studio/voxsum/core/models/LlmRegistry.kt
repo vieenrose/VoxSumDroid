@@ -13,7 +13,7 @@ data class LlmSpec(
     val sampler: SamplerProfile = SamplerProfile.LEGACY,  // per-model llama.cpp sampler chain
 )
 
-enum class ChatTemplate { CHATML, GEMMA, GEMMA4, QWEN3 }
+enum class ChatTemplate { CHATML, GEMMA, GEMMA4 }
 
 /**
  * llama.cpp sampler settings, chosen per model. The chain itself lives in native code
@@ -32,10 +32,6 @@ data class SamplerProfile(
          *  "say the same sentence forever" loops those models fall into on summarization. */
         val LEGACY = SamplerProfile(topK = 40, topP = 0.9f, temp = 0.7f, repeatPenalty = 1.3f, presencePenalty = 0.0f)
 
-        /** Qwen3.5 non-thinking spec (unsloth). A high repeat penalty makes Qwen3.5 drop punctuation
-         *  and structure into a run-on wall-of-text on long inputs, so repeat is OFF (1.0) and a flat
-         *  presence penalty guards repetition instead; top_k 20 / top_p 0.8 per the model card. */
-        val QWEN35 = SamplerProfile(topK = 20, topP = 0.8f, temp = 0.7f, repeatPenalty = 1.0f, presencePenalty = 1.0f)
     }
 }
 
@@ -43,9 +39,7 @@ data class SamplerProfile(
  * On-device summarization models.
  *
  * Templates ([ChatTemplate]): GEMMA = `<start_of_turn>…<end_of_turn>`; GEMMA4 = the newer
- * `<|turn>…<turn|>` form; CHATML = `<|im_start|>…<|im_end|>`; QWEN3 = ChatML for the Qwen3/Qwen3.5
- * family, with the empty `<think>\n\n</think>` block their template emits for **non-thinking** mode
- * — so summaries come out directly, without a reasoning preamble. We apply the turn format here
+ * `<|turn>…<turn|>` form; CHATML = `<|im_start|>…<|im_end|>`. We apply the turn format here
  * rather than via the GGUF's embedded template.
  */
 object LlmRegistry {

@@ -38,12 +38,10 @@ class Summarizer(
     // language even when a target is set — the weak " Write it in X." was ignored cross-lingually. So when
     // a target is picked we force it emphatically (repeat the name, demand translation).
     //
-    // Verified cross-lingual behavior on Qwen3.5 (host, 0.8B + 2B), target = Chinese:
-    //   • en → 繁中 : WORKS via this clause.
-    //   • ja → 繁中 : NOT achievable, even on the 2B — Qwen3.5 keeps Japanese (too much shared kanji makes
-    //                 it treat ja as "already Chinese"). Model size does not help; this is a known limit.
-    //   • ko → 繁中 : the model leaves Korean here; a dedicated translate pass CAN convert it, but that was
-    //                 evaluated and skipped (narrow value — only ko benefits). So ko output stays Korean.
+    // Verified cross-lingual behavior (2026-06 model eval, target = Chinese): en → 繁中 works via
+    // this clause; ja → 繁中 is unreliable on small CJK models (shared kanji makes them treat ja as
+    // "already Chinese"); ko → 繁中 needs a dedicated translate pass, evaluated and skipped
+    // (narrow value). So residual ja/ko output can stay in the source language.
     // The OpenCcConverter guard keeps that residual ja/ko output CLEAN (it skips s2tw on kana/hangul) rather
     // than mangling it. (OpenCC only does Simplified↔Traditional — it can't translate; language is the model's.)
     private val langClause: String = if (targetLanguage != null)
