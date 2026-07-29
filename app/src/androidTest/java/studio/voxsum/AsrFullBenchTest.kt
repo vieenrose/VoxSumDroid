@@ -187,13 +187,33 @@ class AsrFullBenchTest {
      * information the models agree on, and the references have neither
      * consistently.
      */
+    // zh normalization mirrors the offline scorer (OpenCC s2t + digits→汉字 + CJK-only):
+    // without it the device CER runs ~30 points hot on simplified-script output and the
+    // report's numbers can't be compared against the README or the desktop bench.
+    private val zhConv by lazy {
+        studio.voxsum.core.text.OpenCcConverter.getTranscriptTraditional(
+            InstrumentationRegistry.getInstrumentation().targetContext)
+    }
+    private val zhDigits = "零一二三四五六七八九"
+
+    private fun zhNorm(s: String): String {
+        val t = zhConv.convert(s)
+        val sb = StringBuilder(t.length)
+        for (c in t) {
+            if (c in '0'..'9') sb.append(zhDigits[c - '0'])          // per-digit, cn2an "direct" mode
+            else if (c.code in 0x4E00..0x9FFF || c.code in 0xF900..0xFAFF) sb.append(c)
+        }
+        return sb.toString()
+    }
+
     private fun errorRate(ref: String, hyp: String, lang: String): Double {
         val norm = { s: String -> s.lowercase().filter { it.isLetterOrDigit() || it.isWhitespace() }
             .replace(Regex("\\s+"), " ").trim() }
-        val r = norm(ref); val h = norm(hyp)
-        val a = if (lang == "zhtw") r.filter { !it.isWhitespace() }.map { it.toString() }
+        val r = if (lang == "zhtw") zhNorm(ref) else norm(ref)
+        val h = if (lang == "zhtw") zhNorm(hyp) else norm(hyp)
+        val a = if (lang == "zhtw") r.map { it.toString() }
                 else r.split(" ").filter { it.isNotEmpty() }
-        val b = if (lang == "zhtw") h.filter { !it.isWhitespace() }.map { it.toString() }
+        val b = if (lang == "zhtw") h.map { it.toString() }
                 else h.split(" ").filter { it.isNotEmpty() }
         if (a.isEmpty()) return if (b.isEmpty()) 0.0 else 1.0
         var prev = IntArray(b.size + 1) { it }
