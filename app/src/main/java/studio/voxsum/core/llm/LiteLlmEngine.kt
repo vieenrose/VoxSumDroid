@@ -138,16 +138,35 @@ class LiteLlmEngine private constructor(
          * call off the main thread). Returns null on engine init failure so callers
          * can fall back to the GGUF/llama.cpp path.
          */
+        /** RAM-adaptive context. 16k covers ~80 min of speech in one pass; the clamp
+         *  bounds KV+activation growth on mid-RAM devices. Field data (Boox Tab
+         *  Mini C, 3.7 GB): the lowmemorykiller kills this engine at CRITICAL
+         *  pressure regardless of nCtx (16k, and 4k with a warm cache, VmHWM
+         *  ~1.7 GB) — Gemma 4 E2B on the stock LiteRT-LM runtime does not fit a
+         *  3.7 GB device at all; the clamp cannot fix that tier, only the
+         *  TurboQuant 3-bit KV engine can. The Summarizer's context-gate message
+         *  adapts via llm.nCtx automatically. */
+        fun defaultCtx(context: Context): Int {
+            val mi = android.app.ActivityManager.MemoryInfo()
+            (context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager)
+                .getMemoryInfo(mi)
+            val totalGb = mi.totalMem / (1024.0 * 1024.0 * 1024.0)
+            return when {
+                totalGb >= 5.5 -> 16384
+                totalGb >= 4.5 -> 8192
+                else -> 4096
+            }
+        }
+
         fun load(
             context: Context, modelPath: String, sampler: SamplerProfile,
-            // 16384 covers ~80 min of speech in one pass (~195 tok/min zh) and costs only
-            // ~84 MB extra KV on Gemma 4 E2B (28 of 35 layers are 512-token sliding-window).
-            nCtx: Int = 16384, backend: String = "cpu",
+            nCtx: Int = 0, backend: String = "cpu",
         ): LiteLlmEngine? {
+            val ctx = if (nCtx > 0) nCtx else defaultCtx(context)
             val config = EngineConfig(
                 modelPath = modelPath,
                 backend = if (backend == "gpu") Backend.GPU() else Backend.CPU(),
-                maxNumTokens = nCtx,
+                maxNumTokens = ctx,
                 cacheDir = context.cacheDir.absolutePath,
             )
             // MTP/speculative decoding: NOT enabled. Measured on-device with this
@@ -159,7 +178,7 @@ class LiteLlmEngine private constructor(
                 val engine = Engine(config)
                 engine.initialize()
                 Log.i("voxsum-litellm", "engine ready (backend=$backend)")
-                LiteLlmEngine(engine, sampler, nCtx)
+                LiteLlmEngine(engine, sampler, ctx)
             } catch (t: Throwable) {
                 Log.e("voxsum-litellm", "engine init failed", t)
                 null
