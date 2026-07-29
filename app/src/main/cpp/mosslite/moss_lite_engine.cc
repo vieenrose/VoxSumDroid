@@ -9,6 +9,7 @@
 #include <chrono>
 #include <memory>
 #include <sched.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <algorithm>
 
@@ -130,6 +131,21 @@ const CpuTopology& cpu_topology() {
     return r;
   }();
   return t;
+}
+
+/** Did XNNPACK actually produce the weight cache we asked for? When the path is
+ *  not writable it does not fail the compile, does not warn, and quietly packs
+ *  the weights into ANONYMOUS memory instead — measured elsewhere in this app
+ *  as a silent 646 MB swing in peak RssAnon, the number that decides whether
+ *  Android kills the process. A cache path that silently does nothing is worse
+ *  than none. */
+void warn_if_cache_missing(const std::string& path) {
+  if (path.empty()) return;
+  struct stat st{};
+  if (stat(path.c_str(), &st) != 0 || st.st_size == 0)
+    LOGE("XNNPACK weight cache %s was not written — weights will be packed into "
+         "anonymous memory. Is the directory writable by this process?",
+         path.c_str());
 }
 
 void set_affinity(bool wide) {
@@ -353,6 +369,7 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
                                           cache_path(encoder_path_), false);
     }
     if (!enc_p->ok()) { LOGE("encoder load failed"); return out; }
+    warn_if_cache_missing(cache_path(encoder_path_));
     Component& enc = *enc_p;
     auto& io = const_cast<SigIO&>(enc.sigs().begin()->second);
     std::vector<float> mel((size_t)kMelBins * kMelFrames);
@@ -379,6 +396,15 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
   // host-created TensorBuffers aliased across signatures; if the GPU-compiled
   // decoder can't share them (or the q4 weights don't lower), construction or
   // the first run fails and we rebuild CPU-only with a sticky flag.
+  // BIG cores BEFORE these two compile, not after. XNNPACK builds its worker
+  // pool inside Component construction, and a pthread inherits its creator's
+  // affinity mask at creation — the set_affinity(false) that used to sit just
+  // before the greedy loop pinned only the CALLING thread, so the pools kept
+  // scheduling work onto little cores through decode, which is ~76% of this
+  // engine's wall time on device. The identical ordering bug cost the (since
+  // removed) VibeVoice engine 1.6x; the encoder above stays wide-compiled on
+  // purpose — it runs alone and wants every core.
+  set_affinity(/*wide=*/false);
   auto emb_p = std::make_unique<Component>(env_, embedder_path_, nullptr,
                                            dec_threads_,
                                            cache_path(embedder_path_), gpu_);
@@ -398,6 +424,8 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
   Component& emb = *emb_p;
   Component& dec = *dec_p;
   if (!emb.ok() || !dec.ok()) { LOGE("embedder/decoder load failed"); return out; }
+  warn_if_cache_missing(cache_path(embedder_path_));
+  warn_if_cache_missing(cache_path(decoder_path_));
 
   std::map<int, std::string> embed_sizes, prefills;
   for (auto& kvp : emb.sigs())
@@ -496,8 +524,9 @@ std::vector<int32_t> MossLiteEngine::transcribe(const float* pcm, int n_samples,
   std::vector<float>().swap(fused);  // ~5 MB, dead weight through decode
   last_prefill_s = now_s() - t0;
 
-  // ---- greedy decode (big cores only: one token at a time) ----
-  set_affinity(/*wide=*/false);
+  // ---- greedy decode (big cores only — the pools were COMPILED under the
+  // narrow mask above, which is what actually keeps their workers off the
+  // little cores; the calling thread has been narrow since then too) ----
   std::vector<float> logits(vocab);
   Component::write_buf(lsig.in[0], last_hidden.data(), kHidden * 4);
   emb.run(lsig);
