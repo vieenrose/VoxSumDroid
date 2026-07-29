@@ -30,7 +30,14 @@ class NemotronLiteEngine private constructor(
     /** Decode one ≤11 s window (16 kHz mono floats) with the given [slot]. */
     fun decode(pcm: FloatArray, slot: Int): Result {
         if (pcm.size < MIN_SAMPLES) return Result("", emptyList(), emptyList())
-        val pairs = nativeDecode(ptr, pcm, slot)
+        // Append 300 ms of silence before decoding. The encoder subsamples 8x
+        // through strided convolutions, and a hard piece-end starves the final
+        // frames of trailing context — the last word's tail simply never emits.
+        // Measured on the 5-minute pipeline bench: zh-TW CER 29.2 -> 20.7,
+        // en WER 25.3 -> 22.7, with the missing finals ("刷卡", "談判課",
+        // "satellite") restored. Costs 4,800 zero samples per piece.
+        val fed = pcm.copyOf(pcm.size + TAIL_SILENCE_SAMPLES)
+        val pairs = nativeDecode(ptr, fed, slot)
         val ids = ArrayList<Int>(pairs.size / 2)
         val toks = ArrayList<String>(pairs.size / 2)
         val times = ArrayList<Double>(pairs.size / 2)
@@ -53,6 +60,9 @@ class NemotronLiteEngine private constructor(
     }
 
     companion object {
+        /** 300 ms at 16 kHz — trailing context for the strided encoder. */
+        private const val TAIL_SILENCE_SAMPLES = 300 * 16
+
         const val SAMPLE_RATE = 16_000
         const val MAX_DECODE_SEC = 11           // encoder fixed T=1101 frames
         private const val FRAME_SEC = 0.08       // one encoder output frame

@@ -34,6 +34,15 @@ class XasrLiteEngine private constructor(
     /** Decode one ≤30 s speech segment (16 kHz mono floats). */
     fun decode(pcm: FloatArray): Result {
         if (pcm.size < MIN_SAMPLES) return Result("", emptyList(), emptyList())
+        @Suppress("NAME_SHADOWING") val pcm = run {
+            // Trailing-context pad, DEFAULT OFF for this engine: the same
+            // 300 ms that buys Nemotron's fastconformer -8.5 CER on zh measured
+            // WORSE here (en 14.4 -> 16.0) — the streaming zipformer handles
+            // its own tail and the appended silence only invites junk tokens.
+            // XASR_TAIL_PAD_MS stays as an experiment hook.
+            val padMs = System.getenv("XASR_TAIL_PAD_MS")?.toIntOrNull() ?: 0
+            if (padMs > 0) pcm.copyOf(pcm.size + padMs * 16) else pcm
+        }
         val nFrames = if (pcm.size < FRAME_LEN) 1 else 1 + (pcm.size - FRAME_LEN) / HOP
         val forced = System.getenv("XASR_FORCE_BUCKET")?.toIntOrNull()
         val bucket = forced ?: (buckets.firstOrNull { it >= nFrames } ?: buckets.last())
