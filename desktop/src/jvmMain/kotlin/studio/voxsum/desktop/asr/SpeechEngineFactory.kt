@@ -60,7 +60,11 @@ object SpeechEngineFactory {
             vadModelFile = models.vadLiteModel,
             numThreads = numThreads,
             vadThreshold = config.vadThreshold,
-            cacheDir = xnnCacheDir,
+            // XNNPACK weight cache MUST stay off for x-asr: the cache keys packed
+            // weights by tensor data, so the four bucketed enc signatures (which
+            // share weights) collide — enc_375 packs first and wins, and the
+            // bigger buckets then emit input-independent vectors (zero tokens).
+            cacheDir = "",
         )
     }
 }

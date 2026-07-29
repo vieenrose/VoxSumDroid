@@ -42,14 +42,7 @@ class XasrLiteAsr(
         val fresh = ArrayList<TranscriptEvent.Utterance>()
         while (segmenter.segments.isNotEmpty()) {
             val seg = segmenter.segments.removeFirst()
-            // 3 s ceiling, NOT the 30 s default: the xasr_q8_octav export's larger
-            // encoder buckets (enc_750/1500/3000) return input-INDEPENDENT vectors —
-            // near-identical outputs for different audio — so every piece that lands
-            // in them decodes to zero tokens. Measured on the 5-min en clip: pieces
-            // <= 3.7 s (bucket 375) transcribe correctly, pieces >= 4.0 s vanish,
-            // and 27 of 36 reference sentences were deleted (WER 71%). Until the
-            // export is fixed, keep every piece inside the one bucket that works.
-            for ((offset, piece) in AsrEngine.splitLongSegment(seg.samples, maxSec = 3)) {
+            for ((offset, piece) in AsrEngine.splitLongSegment(seg.samples)) {
                 decodePiece(piece, seg.startSample + offset)?.let { fresh += it }
             }
         }
