@@ -140,12 +140,14 @@ class ModelManager(context: Context) {
                 "tokens.txt" to "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c",
             ),
         ),
-        // Nemotron-3.5-ASR 3.5 (q4-mix LiteRT port, vieenrose/LiteRT `nemotron`):
+        // Nemotron-3.5-ASR 3.5 (q8 LiteRT port, vieenrose/LiteRT `nemotron`):
         // multilingual (25 languages via a 128-slot prompt), four graphs
-        // (encoder INT4 596 MB + prompt-fuse fp32 + decoder/joint fp16). INT4 FC
-        // needs the CompiledModel path (same libLiteRt.so as MOSS). HF-only,
-        // revision-pinned to Luigi/nemotron-asr-litert-zhtw@bbc906fe (v2, zh-TW FINE-TUNED —
-        // Common Voice zh-TW CER 38.43 -> 13.90 on this q4-mix build, ~2.7x, same 663 MB).
+        // (encoder q8 dynamic_wi8_afp32 599 MB + prompt-fuse fp32 + decoder/joint
+        // fp16). q8 replaced the q4-mix at the same size: the q4 quantization was
+        // costing ~6 en WER (ws A/B pr8: en 17.31 -> 11.87, zh 19.00 -> 17.46;
+        // within ~0.7 of fp16 at half its size). HF-only, revision-pinned to
+        // Luigi/nemotron-asr-litert-zhtw@855f287b (v3 = v2 zh-TW fine-tune weights,
+        // encoder requantized; Common Voice zh-TW fine-tune gain retained).
         // The slot mapping is UNCHANGED: on v2 auto/zh-CN/zh-TW land within ~0.7 CER and the
         // ranking flips between fp32 and quantized, so they are equivalent — and slot 4 (which
         // zh-TW and zh-CN already share, keeping the instant script switch) is the best of the
@@ -156,27 +158,27 @@ class ModelManager(context: Context) {
             dir = "nemotron-litert",
             url = "", sha256 = "",
             sentinels = listOf(
-                "nemotron_encoder_q4.tflite", "nemotron_prompt_fuse_fp32.tflite",
+                "nemotron_encoder_q8.tflite", "nemotron_prompt_fuse_fp32.tflite",
                 "nemotron_decoder_fp16.tflite", "nemotron_joint_fp16.tflite",
                 "tokenizer.json",
             ),
             buildFiles = { d ->
                 AsrModelFiles(
-                    encoder = File(d, "nemotron_encoder_q4.tflite").path,
+                    encoder = File(d, "nemotron_encoder_q8.tflite").path,
                     promptFuse = File(d, "nemotron_prompt_fuse_fp32.tflite").path,
                     decoder = File(d, "nemotron_decoder_fp16.tflite").path,
                     joiner = File(d, "nemotron_joint_fp16.tflite").path,
                     tokens = File(d, "tokenizer.json").path,
                 )
             },
-            hfBase = "https://huggingface.co/Luigi/nemotron-asr-litert-zhtw/resolve/bbc906fe254b8c1b84d53fc64b9204efd3d08b57",
+            hfBase = "https://huggingface.co/Luigi/nemotron-asr-litert-zhtw/resolve/855f287bc281f85e2ceac2931077157296d70251",
             hfFiles = listOf(
-                "nemotron_encoder_q4.tflite", "nemotron_prompt_fuse_fp32.tflite",
+                "nemotron_encoder_q8.tflite", "nemotron_prompt_fuse_fp32.tflite",
                 "nemotron_decoder_fp16.tflite", "nemotron_joint_fp16.tflite",
                 "tokenizer.json",
             ),
             hfShas = mapOf(
-                "nemotron_encoder_q4.tflite" to "b1b3c93add91ee2253c8d6d24172614a83f6572720dea0150fb34285be53a0c2",
+                "nemotron_encoder_q8.tflite" to "e3c567ba6829be1d70ef44fc44a6e1317b16fcb6e085f7914d1f529767856e2c",
                 "nemotron_prompt_fuse_fp32.tflite" to "21c59326f8633c3824f9e92dcaded6148978dcd53591846c85c9b1ac982a1bba",
                 "nemotron_decoder_fp16.tflite" to "e92dfa900ebd9d7cd87429c9bb7c304b7e3fa61dc233c74f2e074fbb4342222b",
                 "nemotron_joint_fp16.tflite" to "d728fb09aa034b85b1549772fef6cfc4f85d7df0faf59c6db4ad2e7fbbfdc848",
@@ -726,6 +728,8 @@ class ModelManager(context: Context) {
             "campplus-cn-common.gguf", "campplus_zh_en.onnx", "campplus_zh_en_fp16.onnx",
             "pyannote_segmentation_3_0.onnx", "wespeaker_emb_fp16.tflite",
             "speaker_embedding.onnx",
+            // q4-mix nemotron encoder superseded by q8 (same size, -5.4 en WER).
+            "nemotron-litert/nemotron_encoder_q4.tflite",
         )
 
         // Superseded ASR model dirs to reclaim on upgrade. The old x-asr zipformer (~160 MB)
