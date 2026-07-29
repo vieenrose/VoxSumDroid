@@ -44,18 +44,24 @@ internal object SummaryText {
     }
 
     /**
-     * Conservative Gemma-4 token estimate for the single-pass context gate. Measured on
-     * real transcripts: zh ≈ 0.75 tok/char, en ≈ 0.30 tok/char; 0.8/0.35 here so the gate
-     * errs toward refusing, never toward a silently truncated prefill.
+     * Conservative Gemma-4 token estimate for the single-pass context gate. Three classes,
+     * calibrated against the real tokenizer: CJK ≈ 0.69 tok/char, English letters/spaces
+     * ≈ 0.17 — but digits/punctuation/brackets ≈ 0.9-1.0, and the unified format's
+     * "[M:SS] Sx: " prefix costs ~10 tokens PER LINE. A flat 0.35 "other" rate undercounted
+     * that by thousands (validated on-device: est 12.0k vs real 19.3k → engine overflow).
+     * Coefficients sit above the measured rates so the gate errs toward refusing.
      */
     fun estimateTokens(text: String): Int {
-        var cjk = 0
+        var est = 0.0
         for (ch in text) {
             val c = ch.code
-            if ((c in 0x2E80..0x9FFF) || (c in 0xF900..0xFAFF) || (c in 0xFF00..0xFFEF)) cjk++
+            est += when {
+                (c in 0x2E80..0x9FFF) || (c in 0xF900..0xFAFF) || (c in 0xFF00..0xFFEF) -> 0.8
+                (c in 'a'.code..'z'.code) || (c in 'A'.code..'Z'.code) || c == ' '.code -> 0.35
+                else -> 1.0   // digits, punctuation, brackets, newlines
+            }
         }
-        val other = text.length - cjk
-        return (cjk * 0.8 + other * 0.35).toInt()
+        return est.toInt()
     }
 
     /**

@@ -59,10 +59,10 @@ class Summarizer(
         kotlinx.coroutines.flow.channelFlow {
         val instr = userPrompt + langClause
         val reduceMax = reduceMaxTokens
-        // Hard context gate. Token estimate is per-script (measured on Gemma 4 against real
-        // transcripts: zh ≈ 0.75 tok/char, en ≈ 0.30; we use 0.8 / 0.35 so the gate errs
-        // toward refusing, never toward a silently-truncated prefill). The prompt template,
-        // chat wrapping and generation budget come off the top.
+        // Hard context gate. Token estimate is per-character-class (see
+        // SummaryText.estimateTokens — timestamps/punctuation cost ~1 tok/char, so a flat
+        // per-script rate undercounts the unified format's line prefixes). The prompt
+        // template, chat wrapping and generation budget come off the top.
         val budget = llm.nCtx - reduceMax - 192
         val estTokens = SummaryText.estimateTokens(transcript)
         if (estTokens > budget) {
@@ -80,8 +80,18 @@ class Summarizer(
         val prompt = if (zhTarget) SINGLE_TEMPLATE_ZH.format(transcript)
                      else SINGLE_TEMPLATE.format(instr, reduceInstruction, transcript)
         trySend(TranscriptEvent.Partial("", reset = true))
-        llm.generate(SummaryText.wrap(template, prompt), maxTokens = reduceMax) {
-            finalSb.append(it); trySend(TranscriptEvent.Partial(it))
+        try {
+            llm.generate(SummaryText.wrap(template, prompt), maxTokens = reduceMax) {
+                finalSb.append(it); trySend(TranscriptEvent.Partial(it))
+            }
+        } catch (t: Exception) {
+            // The estimate gate errs toward refusing, but if the real tokenizer still
+            // overflows (or the engine fails for any reason), surface a clean event —
+            // an uncaught JNI exception here kills the whole process.
+            send(TranscriptEvent.Failed(
+                "Summarization failed: ${t.message ?: t.javaClass.simpleName}. " +
+                    "If the transcript is near the context limit, split the recording."))
+            return@channelFlow
         }
         llmCalls++
         send(TranscriptEvent.Progress((llmCalls.toFloat() / estimatedCalls).coerceAtMost(0.97f)))
