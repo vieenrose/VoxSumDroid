@@ -150,7 +150,10 @@ class AsrFullBenchTest {
             vadModelFile = models.vadLiteModel, numThreads = 4, languageId = "auto", cacheDir = cache,
         ) else XasrLiteAsr(
             modelFile = File(f.encoder), tokensFile = File(f.tokens),
-            vadModelFile = models.vadLiteModel, numThreads = 4, cacheDir = cache,
+            // NO weight cache for x-asr (mirror TranscriptionService): the cache keys
+            // packed weights by data, so the shared-weight bucketed enc signatures
+            // collide and the big buckets decode to nothing (device en WER 68%).
+            vadModelFile = models.vadLiteModel, numThreads = 4, cacheDir = "",
         )
         return e.use {
             it.transcribe(pcm).toList().filterIsInstance<TranscriptEvent.Utterance>()

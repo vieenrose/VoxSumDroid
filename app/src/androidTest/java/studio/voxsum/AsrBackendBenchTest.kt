@@ -162,7 +162,8 @@ class AsrBackendBenchTest {
         } else {
             XasrLiteAsr(
                 modelFile = File(f.encoder), tokensFile = File(f.tokens),
-                vadModelFile = models.vadLiteModel, numThreads = bigCoreThreads, cacheDir = cache,
+                // NO weight cache for x-asr (bucketed shared-weight signatures collide).
+                vadModelFile = models.vadLiteModel, numThreads = bigCoreThreads, cacheDir = "",
             )
         }
         val loadS = (System.nanoTime() - tLoad) / 1e9
