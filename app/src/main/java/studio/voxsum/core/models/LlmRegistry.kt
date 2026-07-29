@@ -17,7 +17,7 @@ data class LlmSpec(
  *  carry it in metadata — verified: raw prompts get properly templated answers).
  *  The other variants are retained for potential future runtimes that need
  *  app-side templating. */
-enum class ChatTemplate { CHATML, GEMMA, GEMMA4, QWEN3, NONE }
+enum class ChatTemplate { CHATML, GEMMA, GEMMA4, NONE }
 
 /**
  * Session sampler settings, chosen per model (passed into the LiteRT-LM
@@ -33,9 +33,6 @@ data class SamplerProfile(
 ) {
     companion object {
         val LEGACY = SamplerProfile(topK = 40, topP = 0.9f, temp = 0.7f, repeatPenalty = 1.3f, presencePenalty = 0.0f)
-
-        /** Qwen3.5 non-thinking spec (unsloth) — kept for reference/tests. */
-        val QWEN35 = SamplerProfile(topK = 20, topP = 0.8f, temp = 0.7f, repeatPenalty = 1.0f, presencePenalty = 1.0f)
     }
 }
 

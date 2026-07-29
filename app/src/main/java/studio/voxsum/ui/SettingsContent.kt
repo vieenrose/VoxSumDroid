@@ -499,7 +499,6 @@ private val COMPONENT_LICENSES = listOf(
     "LiteRT-LM (summarization runtime)" to "Apache-2.0",
     "ONNX Runtime" to "MIT",
     "llama.cpp (summarization)" to "MIT",
-    "Qwen3-ASR models" to "Apache-2.0",
     "Gemma models" to "Gemma Terms",
     "SenseVoice · Zipformer ASR models" to "Apache-2.0",
     "pyannote segmentation-3.0 (speaker boundaries)" to "MIT",

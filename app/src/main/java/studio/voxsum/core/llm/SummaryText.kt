@@ -11,7 +11,7 @@ import studio.voxsum.core.models.ChatTemplate
 internal object SummaryText {
 
     /**
-     * Drop a <think>…</think> reasoning block a thinking-capable model (e.g. Qwen3.5) might emit. Handles
+     * Drop a <think>…</think> reasoning block a thinking-capable model might emit. Handles
      * BOTH a normal closed block AND an UNTERMINATED <think> (runaway reasoning that hit the token cap
      * before closing) — the latter is dropped along with everything after it, so a half-emitted trace
      * never leaks into the title/summary (the literal "<think" leak seen when reasoning ran away).
@@ -101,10 +101,6 @@ internal object SummaryText {
         // Gemma 4 uses a different turn format (per its chat_template.jinja): a plain user
         // turn with no system/thinking block. <bos> is auto-added by the tokenizer.
         ChatTemplate.GEMMA4 -> "<|turn>user\n$user<turn|>\n<|turn>model\n"
-        // Qwen3/Qwen3.5 ChatML. Append the empty <think></think> block their template emits for
-        // non-thinking mode, so the model answers directly (a summary, not a reasoning trace).
-        ChatTemplate.QWEN3 -> "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
-            "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
         // The runtime applies the bundle's own template (LiteRT-LM) — pass the prompt through.
         ChatTemplate.NONE -> user
     }
