@@ -36,7 +36,13 @@ class NemotronLiteEngine private constructor(
         // Measured on the 5-minute pipeline bench: zh-TW CER 29.2 -> 20.7,
         // en WER 25.3 -> 22.7, with the missing finals ("刷卡", "談判課",
         // "satellite") restored. Costs 4,800 zero samples per piece.
-        val fed = pcm.copyOf(pcm.size + TAIL_SILENCE_SAMPLES)
+        // Head silence is ALSO required (300 ms): the leading frames starve the
+        // same way the tail did. Real leading audio (VAD pre-roll) measured
+        // slightly WORSE than silence for this engine (19.1 vs 18.2 CER) — the
+        // previous utterance's bleed misleads it — so silence it is.
+        val head = HEAD_SILENCE_SAMPLES
+        val fed = FloatArray(head + pcm.size + TAIL_SILENCE_SAMPLES)
+        pcm.copyInto(fed, head)
         val pairs = nativeDecode(ptr, fed, slot)
         val ids = ArrayList<Int>(pairs.size / 2)
         val toks = ArrayList<String>(pairs.size / 2)
@@ -62,6 +68,8 @@ class NemotronLiteEngine private constructor(
     companion object {
         /** 300 ms at 16 kHz — trailing context for the strided encoder. */
         private const val TAIL_SILENCE_SAMPLES = 300 * 16
+        /** 300 ms leading silence — same starvation at the piece head. */
+        private const val HEAD_SILENCE_SAMPLES = 300 * 16
 
         const val SAMPLE_RATE = 16_000
         const val MAX_DECODE_SEC = 11           // encoder fixed T=1101 frames

@@ -281,7 +281,7 @@ suspend fun extractActionItems(state: AppState, update: Update) {
         val targetName = TargetLanguage.fromId(state.config.targetLanguage).promptName
         val script = TargetLanguage.scriptFor(state.config.targetLanguage)
         val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
-        val text = state.utterances.joinToString("\n") { u -> "${speakerLabel(u.speaker, state.speakerNames) ?: ""}: ${u.text}" }
+        val text = studio.voxsum.core.llm.TranscriptFormat.format(state.utterances, state.speakerNames.mapValues { it.value.name })
         val result = withContext(Dispatchers.Default) {
             val llm = LlmEngine.load(models.llmFile(llmSpec).absolutePath, nThreads = 4, sampler = llmSpec.sampler)
             try {
@@ -549,7 +549,7 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
     val targetName = TargetLanguage.fromId(config.targetLanguage).promptName
     val script = TargetLanguage.scriptFor(config.targetLanguage)
     val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
-    val transcriptText = tagged.joinToString("\n") { u -> "${speakerLabel(u.speaker, emptyMap()) ?: ""}: ${u.text}" }
+    val transcriptText = studio.voxsum.core.llm.TranscriptFormat.format(tagged)
     withContext(Dispatchers.Default) {
         val llm = LlmEngine.load(models.llmFile(llmSpec).absolutePath, nThreads = 4, sampler = llmSpec.sampler)
         try {
