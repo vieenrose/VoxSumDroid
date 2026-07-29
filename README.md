@@ -183,49 +183,70 @@ See [`SPIKE.md`](SPIKE.md) for the proven recipe and [`RELEASING.md`](RELEASING.
 ### ASR backend performance
 
 Measured on a **Boox Tab Mini C** (Snapdragon 662, 4×Cortex-A73 2.0 GHz + 4×A53 1.8 GHz, 3.7 GB
-RAM, Android 11) over a 45 s Mandarin/English code-switching clip, CPU only, 4 threads. Reproduce
-with:
+RAM, Android 11) over two **5-minute** clips — English and Taiwan-accented Mandarin — against
+human references, CPU only, 4 threads, full production pipeline (`AsrFullBenchTest`, the same
+engine classes the app runs). Error rates are normalized the standard way offline (Whisper
+`EnglishTextNormalizer` for en; OpenCC script fold + digit→漢字 + CJK-only for zh). Reproduce with:
 
 ```bash
-scripts/test-on-device.sh <serial> -- -e class studio.voxsum.AsrBackendBenchTest -e bench 1
+scripts/test-on-device.sh <serial> -- -e class studio.voxsum.AsrFullBenchTest -e bench 1
 ```
 
-| backend | architecture | RTF | inference | peak RssAnon |
-|---|---|---:|---:|---:|
-| **X-ASR** (Zipformer) | encoder + transducer | **0.29** | 13.2 s | 425 MB |
-| **Nemotron** | encoder + joint | **1.47** | 66.2 s | 414 MB |
-| **MOSS-TD** | encoder + autoregressive LM | 8.37 | 376.6 s | 986 MB |
+| backend | en WER | zh-TW CER | RTF en / zh | peak RssAnon |
+|---|---:|---:|---:|---:|
+| **MOSS-TD** | **4.2%** | **10.6%** | 8.7 / 10.5 | 1072 MB |
+| **X-ASR** (Zipformer) | 14.7% | 14.5% | 0.94 / 2.27 | ~1.0 GB |
+| **Nemotron** (q8) | 16.7% | 17.5% | 0.98 / 1.60 | 375 MB |
 
-**RTF** is inference wall-clock ÷ audio duration; below 1.0 is faster than real time. Model loading
-is excluded (reported separately: 3.3 s for X-ASR, 6.4 s for Nemotron), and a warm pass runs first
-so XNNPACK's one-off weight repacking is not charged to inference.
+**RTF** is wall-clock ÷ audio duration; below 1.0 is faster than real time. **Peak RssAnon, not
+total RSS**: model weights are mmap'd, so anonymous memory is what the app must keep resident and
+what gets it killed — total RSS would overstate every row by roughly a gigabyte. X-ASR's ~1 GB
+reflects running its bucketed encoder with the XNNPACK weight cache **off**, which is mandatory
+for correctness: the cache keys packed weights by tensor data, so the four shared-weight encoder
+signatures collide and the larger buckets decode to nothing.
 
-**Peak RssAnon, not total RSS.** Model weights are mmap'd, so most of RSS is clean file-backed pages
-the kernel evicts under pressure. Anonymous memory is what the app must actually keep resident and
-what gets it killed — total RSS would overstate every row here by roughly a gigabyte.
+**Accuracy vs speed:** MOSS-TD is in a different accuracy class (and the only backend that
+diarizes while it transcribes) but runs ~9–10× slower than real time on this SoC. X-ASR is the
+fast default; Nemotron trades a little accuracy for language breadth (25 languages). The
+Nemotron row uses the q8 encoder that replaced the original q4-mix at the same 599 MB — the q4
+quantization alone cost ~6 en WER — plus its retuned VAD pre-roll.
 
-**Prefill and generation rates apply only to autoregressive backends.** X-ASR and Nemotron emit
-tokens from a single forward pass with no prompt-ingest phase, so those columns would be
-meaningless for them. MOSS-TD is the one autoregressive backend, and its phase split is the
-interesting part:
+**Prefill and generation apply only to MOSS-TD**, the one autoregressive backend
+(per ~90 s window, zh clip):
 
-| MOSS-TD phase | time | share |
-|---|---:|---:|
-| encoder | 42.4 s | 11% |
-| prefill | 38.1 s | 10% |
-| **generation** | **286.1 s** | **76%** |
+| MOSS-TD phase | rate |
+|---|---:|
+| encoder | ~0.7× audio duration |
+| prefill | ~18.8 tok/s |
+| **generation** | **0.96 tok/s** |
 
-Generation dominates because autoregressive decode is a sequence of batch-1 matmuls, which
-XNNPACK — tuned for feed-forward throughput — handles poorly. That is also why the two
-non-autoregressive backends are one to two orders of magnitude faster here.
+Generation dominates (~75% of wall time) because autoregressive decode is a sequence of batch-1
+matmuls, which XNNPACK — tuned for feed-forward throughput — handles poorly. Session peak
+`rss_hwm` for MOSS stays ≈1.4 GB, safely inside this device's budget.
 
-Thread count matters more than it looks: XNNPACK defaults to a **single** thread, so
-`TranscriptionService.bigCoreThreads` sets it explicitly from the big-core count (clamped 2..4).
-Leaving it unset roughly halves throughput — Nemotron measures RTF 4.78 single-threaded versus
-1.47 on four cores.
+### Sample output (start of each clip)
 
-> Numbers are one clip on one device and move with thermal state; treat them as relative, not
-> absolute. Thread sweeps on this SoC are non-monotonic under load.
+**English** — reference: *“When you call someone who is thousands of miles away, you are using a
+satellite. Now widely available throughout the archipelago, …”*
+
+| backend | output |
+|---|---|
+| MOSS-TD | When you call someone who is thousands of miles away, you're using a satellite. Now widely available throughout the archipelago, … |
+| X-ASR | When you call someone who is thousands of miles away. You're using a satellite. Now widely available throughout the Archipelago. |
+| Nemotron | when you call someone who is thousands of miles away you're using a satellite now widely available throughout the archipelago |
+
+**zh-TW** — reference: *「在家也可以刷卡 外交與全球性議題 我們的人口結構急速老化 新店端 則正確…」*
+
+| backend | output |
+|---|---|
+| MOSS-TD | 在家也可以刷卡。外交與全球性議題。我們的人口結構急速老化。新店端。則正確的說明了… |
+| X-ASR | 大家也可以刷卡。外交與全球性議題。我們的人口結構急速老化。心電端。則正確的說明了… |
+| Nemotron | 這家也可以刷卡 外交與全球信議題 我們的人口結構急速老化 新電端 則正確的說明了… |
+
+> Numbers are one clip per language on one device and move with thermal state; treat them as
+> relative, not absolute. A quiet-speech bug that silently dropped MOSS-TD's final window (en
+> WER 26.7% → 4.2% after the fix) was found with exactly this bench — reproduce it before
+> trusting changes to the windowing or VAD code.
 
 ## License
 
