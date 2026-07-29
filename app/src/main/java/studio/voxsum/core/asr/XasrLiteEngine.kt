@@ -34,6 +34,9 @@ class XasrLiteEngine private constructor(
     /** Decode one ≤30 s speech segment (16 kHz mono floats). */
     fun decode(pcm: FloatArray): Result {
         if (pcm.size < MIN_SAMPLES) return Result("", emptyList(), emptyList())
+        // No trailing-context pad here, deliberately: the 300 ms that buys
+        // Nemotron's fastconformer -8.5 CER on zh measured WORSE on this
+        // streaming zipformer (en 14.4 -> 16.0) — it handles its own tail.
         val nFrames = if (pcm.size < FRAME_LEN) 1 else 1 + (pcm.size - FRAME_LEN) / HOP
         val bucket = buckets.firstOrNull { it >= nFrames } ?: buckets.last()
         val clipped = nFrames.coerceAtMost(bucket)
