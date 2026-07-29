@@ -89,8 +89,16 @@ class VadSegmenter(
             if (hot) {
                 silRun = 0
             } else if (++silRun >= minSilenceWin) {
-                // Drop the accumulated closing silence beyond one tail window.
-                repeat(silRun - 1) { pending.removeAt(pending.size - 1) }
+                // Keep a TAIL PAD of the closing audio, not just one window. The
+                // probability dips below threshold on word-final fricatives and
+                // stops while they are still sounding, so trimming to one 32 ms
+                // window amputated the last phonemes of nearly every segment —
+                // the 5-minute bench read "using a sat", "the arch pla",
+                // "simply seasoned di" on BOTH VAD-fed backends, while MOSS-TD
+                // (no VAD) was clean. ~0.25 s keeps the consonant and costs a
+                // few silent frames the recognizers ignore.
+                val keep = minOf(silRun, TAIL_PAD_WIN)
+                repeat(silRun - keep) { pending.removeAt(pending.size - 1) }
                 closeSegment()
             }
         }
@@ -113,6 +121,9 @@ class VadSegmenter(
     }
 
     companion object {
+        /** Closing-audio windows kept per segment (~0.26 s at 512/16 kHz). */
+        private const val TAIL_PAD_WIN = 8
+
         const val SAMPLE_RATE = 16_000
         const val WINDOW = 512
     }
