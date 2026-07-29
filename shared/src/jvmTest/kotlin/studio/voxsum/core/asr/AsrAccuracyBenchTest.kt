@@ -123,7 +123,7 @@ class AsrAccuracyBenchTest {
         val xasr = XasrLiteEngine.load(File(xasrDir!!, "xasr_q8_octav.tflite"), File(xasrDir, "tokens.txt"), threads = 8)
         requireNotNull(xasr) { "X-ASR failed to load" }
         val nem = NemotronLiteEngine.load(
-            File(nemDir!!, "nemotron_encoder_q4.tflite"), File(nemDir, "nemotron_prompt_fuse_fp32.tflite"),
+            File(nemDir!!, "nemotron_encoder_q8.tflite"), File(nemDir, "nemotron_prompt_fuse_fp32.tflite"),
             File(nemDir, "nemotron_decoder_fp16.tflite"), File(nemDir, "nemotron_joint_fp16.tflite"),
             File(nemDir, "tokenizer.json"), threads = 8,
         )

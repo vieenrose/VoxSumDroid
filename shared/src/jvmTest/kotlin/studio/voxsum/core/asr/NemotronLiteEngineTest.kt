@@ -34,7 +34,7 @@ class NemotronLiteEngineTest {
         System.load(soFile.absolutePath)
 
         val engine = NemotronLiteEngine.load(
-            encoder = File(modelDir!!, "nemotron_encoder_q4.tflite"),
+            encoder = File(modelDir!!, "nemotron_encoder_q8.tflite"),
             promptFuse = File(modelDir, "nemotron_prompt_fuse_fp32.tflite"),
             decoder = File(modelDir, "nemotron_decoder_fp16.tflite"),
             joint = File(modelDir, "nemotron_joint_fp16.tflite"),
