@@ -195,8 +195,8 @@ scripts/test-on-device.sh <serial> -- -e class studio.voxsum.AsrFullBenchTest -e
 | backend | en WER | zh-TW CER | RTF en / zh | peak RssAnon |
 |---|---:|---:|---:|---:|
 | **MOSS-TD** | **4.2%** | **10.6%** | 8.7 / 10.5 | 1072 MB |
-| **X-ASR** (Zipformer) | 14.7% | 14.5% | 0.94 / 2.27 | ~1.0 GB |
-| **Nemotron** (q8) | 16.7% | 17.5% | 0.98 / 1.60 | 375 MB |
+| **X-ASR** (Zipformer) | 8.6% | 14.5% | 0.29 / 2.27 | ~1.0 GB |
+| **Nemotron** (q8) | 12.2% | 17.5% | 0.86 / 1.60 | 381 MB |
 
 **RTF** is wall-clock ÷ audio duration; below 1.0 is faster than real time. **Peak RssAnon, not
 total RSS**: model weights are mmap'd, so anonymous memory is what the app must keep resident and
@@ -244,9 +244,11 @@ satellite. Now widely available throughout the archipelago, …”*
 | Nemotron | 這家也可以刷卡 外交與全球信議題 我們的人口結構急速老化 新電端 則正確的說明了… |
 
 > Numbers are one clip per language on one device and move with thermal state; treat them as
-> relative, not absolute. A quiet-speech bug that silently dropped MOSS-TD's final window (en
-> WER 26.7% → 4.2% after the fix) was found with exactly this bench — reproduce it before
-> trusting changes to the windowing or VAD code.
+> relative, not absolute. Two quiet-speech bugs were found with exactly this bench: one
+> silently dropped MOSS-TD's final window (en WER 26.7% → 4.2% after the fix), and a stale
+> GainNormalizer left the −29.5 dBFS en clip un-boosted so VAD-segmented backends lost
+> utterance-initial words (x-asr en 14.7% → 8.6% once the adaptive gain landed). Reproduce
+> this bench before trusting changes to the windowing, gain, or VAD code.
 
 ## License
 
