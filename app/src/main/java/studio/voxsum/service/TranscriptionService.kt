@@ -1627,13 +1627,32 @@ class TranscriptionService : LifecycleService() {
         }
     }
 
-    /** Download the LLM if needed (progress → notification/UI, tagged with the current run gen). */
-    private suspend fun ensureLlm(spec: LlmSpec, models: ModelManager) {
+    /** Provision whichever summarizer this device will actually use: on low-RAM (< 4.5 GB)
+     *  devices with backend "auto" (or forced "tq3") that is the TurboQuant TQ3 model set
+     *  (Luigi/gemma-4-e2b-tq3-litert, ~6.9 GiB — model/PLE/weight-cache stay on flash, not RAM);
+     *  otherwise the LiteRT-LM bundle for [spec]. Progress → notification/UI. */
+    private suspend fun ensureSummarizerModels(spec: LlmSpec, models: ModelManager) {
+        val cfg = TranscriptionConfig.Holder.config
+        val wantTq3 = cfg.llmBackend == "tq3" ||
+            (cfg.llmBackend == "auto" && studio.voxsum.core.llm.Tq3LlmEngine.lowRamDevice(this))
+        if (wantTq3) {
+            if (!models.tq3Ready()) {
+                emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, "TurboQuant Gemma 4 E2B")))
+                val gen = currentGen()
+                models.ensureTq3Model { frac -> reportDownload(gen, R.string.svc_summarization_model_pct, frac) }
+            }
+            return
+        }
         if (!models.llmReady(spec)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
             val gen = currentGen()
             models.ensureLlmModel(spec) { frac -> reportDownload(gen, R.string.svc_summarization_model_pct, frac) }
         }
+    }
+
+    /** Download the LLM if needed (progress → notification/UI, tagged with the current run gen). */
+    private suspend fun ensureLlm(spec: LlmSpec, models: ModelManager) {
+        ensureSummarizerModels(spec, models)
     }
 
     /** [summarize]'s generation body over an ALREADY-LOADED engine — the batch drain holds one
@@ -1711,11 +1730,7 @@ class TranscriptionService : LifecycleService() {
         val cfg = TranscriptionConfig.Holder.config
         val models = ModelManager(this)
         val spec = LlmRegistry.byId(cfg.llmModelId)
-        if (!models.llmReady(spec)) {
-            emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
-            val gen = currentGen()
-            models.ensureLlmModel(spec) { frac -> reportDownload(gen, R.string.svc_summarization_model_pct, frac) }
-        }
+        ensureSummarizerModels(spec, models)
         updateNotification(getString(R.string.svc_summarizing))
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_summarizing)))
         emitEvent(TranscriptEvent.Progress(0f))
@@ -1747,11 +1762,7 @@ class TranscriptionService : LifecycleService() {
         val cfg = TranscriptionConfig.Holder.config
         val models = ModelManager(this)
         val spec = LlmRegistry.byId(cfg.llmModelId)
-        if (!models.llmReady(spec)) {
-            emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
-            val gen = currentGen()
-            models.ensureLlmModel(spec) { frac -> reportDownload(gen, R.string.svc_summarization_model_pct, frac) }
-        }
+        ensureSummarizerModels(spec, models)
         updateNotification(getString(R.string.svc_extracting_actions))
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_extracting_actions)))
         emitEvent(TranscriptEvent.Progress(0f))   // restart the bar for the action-items phase

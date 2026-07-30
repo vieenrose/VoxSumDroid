@@ -350,6 +350,38 @@ class ModelManager(context: Context) {
     val llmModel: File get() = llmFile(LlmRegistry.byId(LlmRegistry.DEFAULT_ID))
     fun llmReady(): Boolean = llmReady(LlmRegistry.byId(LlmRegistry.DEFAULT_ID))
 
+    // --- TurboQuant TQ3 summarizer (low-RAM Gemma 4 E2B; Tq3LlmEngine). -----------------------
+    // Revision-pinned like nemotron-litert. wcache.bin is the PRE-PACKED XNNPACK weight cache,
+    // bound to the exact app-shipped libLiteRt.so build (jniLibs, md5 0563b6bc...) -- repack and
+    // re-pin whenever that lib is upgraded, or the engine falls back to a multi-minute (and on
+    // 3.7 GB devices livelock-prone) on-device pack.
+    val tq3Dir: File get() = File(modelsDir, TQ3_DIR)
+
+    fun tq3Ready(): Boolean =
+        TQ3_FILES.keys.all { File(tq3Dir, it).exists() } &&
+            runCatching { File(tq3Dir, REVISION_MARKER).readText().trim() }.getOrNull() == TQ3_HF_BASE
+
+    /** Download the TQ3 model set (~6.9 GiB) if missing or from a different pinned revision. */
+    suspend fun ensureTq3Model(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
+        if (tq3Ready()) { onProgress(1f); return@withContext }
+        tq3Dir.mkdirs()
+        val marked = runCatching { File(tq3Dir, REVISION_MARKER).readText().trim() }.getOrNull() == TQ3_HF_BASE
+        var done = 0L
+        TQ3_FILES.forEach { (rel, meta) ->
+            val (bytes, sha) = meta
+            val dest = File(tq3Dir, rel).apply { parentFile?.mkdirs() }
+            if (dest.length() != bytes || !marked) {
+                download("$TQ3_HF_BASE/$rel", dest, sha) { frac ->
+                    onProgress((done + (frac * bytes).toLong()).toFloat() / TQ3_TOTAL_BYTES)
+                }
+            }
+            done += bytes
+            onProgress(done.toFloat() / TQ3_TOTAL_BYTES)
+        }
+        runCatching { File(tq3Dir, REVISION_MARKER).writeText(TQ3_HF_BASE) }
+        check(tq3Ready()) { "TQ3 model files missing after provisioning" }
+    }
+
     // --- Storage manager: enumerate + delete downloaded models (each re-downloads on next use). ---
 
     enum class ModelKind { VAD, SPEAKER, ASR, LLM, OTHER }
@@ -393,7 +425,7 @@ class ModelManager(context: Context) {
             // MOSS-TD is an ASR model that happens to ship as a .gguf — classify it before the
             // generic gguf→LLM rule below, or Settings lists it as a summary model.
             n.startsWith("moss-td") || n.startsWith("moss-transcribe") || n.startsWith("moss_td") -> ModelKind.ASR
-            n.endsWith(".gguf") || n.contains("gemma") -> ModelKind.LLM
+            n.endsWith(".gguf") || n.contains("gemma") || n.startsWith("tq3") -> ModelKind.LLM
             n.contains("asr") || n.contains("sense-voice") || n.contains("sensevoice") || n.contains("qwen") || n.startsWith("sherpa") -> ModelKind.ASR
             else -> ModelKind.OTHER
         }
@@ -664,6 +696,25 @@ class ModelManager(context: Context) {
     companion object {
         /** Written next to a spec's files, recording the pinned revision they came from. */
         const val REVISION_MARKER = ".revision"
+
+        // TurboQuant TQ3 summarizer artifacts (Tq3LlmEngine). Revision-pinned; per-file
+        // sha256 + exact byte sizes (sizes drive the download progress UI weighting).
+        const val TQ3_DIR = "tq3-litert"
+        const val TQ3_HF_BASE =
+            "https://huggingface.co/Luigi/gemma-4-e2b-tq3-litert/resolve/04eccf9168cf650becd73a21144bf4b4db3d12d4"
+        val TQ3_FILES: Map<String, Pair<Long, String>> = mapOf(
+            "model_tq3_4k.tflite" to (2302225920L to "003a15e577fd2244c945c9051276da1259549a774225b7406001470bf9c9a31e"),
+            "ple_table_int8.bin" to (2348846112L to "b5ee269b6bc8f2bff0f280f30529927a6122b33e0bd39dabe38108e8aac0e007"),
+            "embedder_quantized.tflite" to (408950144L to "2e685c0946a0c8636bb2b0b238fe072ebe8eab7736547a614c3066f861b21c87"),
+            "auxiliary.tflite" to (90188L to "2b5a8f609bf0252556f2406004c0dfb42d7a12b7bc90a54a2d41ff79a5bf12f8"),
+            "tokenizer.bin" to (9019471L to "af9f60081b228fdfca73f8067cd43f2baa1d32dfbb73d787eb8048687b98d876"),
+            "wcache.bin" to (2294036776L to "1b1e5526b6575e304d5caabc6c4acd8ae507bfbc9ade839f1f7bfd979b295251"),
+            "assets/rot_d256.bin" to (262144L to "1ca1e50ccd910effd4fc4246840f43fcfa2cc6a444cd74bd8d9e6165bb61ccb9"),
+            "assets/rot_d512.bin" to (1048576L to "3de334de3a946691933488771cf4fb0c84a53b8aef6a8a4e50f11423d41e9679"),
+            "assets/cb_d256_b3.bin" to (60L to "0e6357a76e092f7703e03d89544c6f7baea2783636e947ea102b3a159dd9bf91"),
+            "assets/cb_d512_b3.bin" to (60L to "45f123058a88d70f3f228570a305b18dc4535298812ae69e234cfcaf4c76fcf3"),
+        )
+        val TQ3_TOTAL_BYTES: Long = TQ3_FILES.values.sumOf { it.first }
 
         // Per-destination download locks, shared across ALL ModelManager instances (the UI's
         // detect-names path constructs its own ModelManager), so concurrent first-run downloads of the
