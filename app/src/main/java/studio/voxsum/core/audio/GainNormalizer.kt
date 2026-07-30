@@ -8,9 +8,9 @@ import kotlin.math.sqrt
  *
  * Far-field / distant-microphone recordings can sit 20+ dB below normal speech level
  * (AISHELL-4-style room mics measure ≈ −44 dBFS); at that level the Silero VAD barely fires
- * and transcription coverage collapses. This stage estimates the speech level from the first
- * [DECIDE_SEC] seconds (or the whole stream if shorter) and applies ONE constant gain —
- * no dynamics, no pumping, deterministic — and it is a no-op for healthy recordings:
+ * and transcription coverage collapses. This stage estimates the speech level from the lead
+ * of the stream and applies ONE constant gain — no dynamics, no pumping, deterministic —
+ * and it is a no-op for healthy recordings:
  *
  *  - level = 95th-percentile RMS of 100 ms frames above the silence floor, an active-speech
  *    proxy that long pauses can't drag down (integrated RMS would).
@@ -22,9 +22,13 @@ import kotlin.math.sqrt
  *    the boost a whole quiet recording needs — rare stragglers are simply hard-clamped to ±1,
  *    as is any tail louder than the lead.
  *
- * Samples are buffered until the decision point, so downstream output starts after ≤30 s of
- * input has been seen but carries a single consistent gain from the very first sample.
- * Memory is bounded by the lead buffer (~1.9 MB). Call [finish] after the last sample.
+ * The decision point is ADAPTIVE: it fires once [MIN_VOICED_FRAMES] frames of actual audio
+ * have been seen (≈10 s of speech), not after a fixed lead — real meetings can open with a
+ * minute of near-silent room tone, and a fixed 30 s window would decide on nothing. A hard
+ * cap ([MAX_LEAD_SEC], ~11 MB of buffer) bounds memory; at the cap or at end-of-stream the
+ * decision is made with whatever was seen. Samples are buffered until the decision, then
+ * everything carries one consistent gain from the very first sample. Call [finish] after
+ * the last sample.
  */
 class GainNormalizer(private val out: (Float) -> Unit) {
 
@@ -33,22 +37,29 @@ class GainNormalizer(private val out: (Float) -> Unit) {
         private set
 
     private var decided = false
-    private var lead = FloatArray(DECIDE_SEC * WavIo.SAMPLE_RATE)
+    private var lead = FloatArray(30 * WavIo.SAMPLE_RATE)
     private var n = 0
-    private val frameRms = FloatArray(DECIDE_SEC * 1000 / FRAME_MS + 1)
+    private val frameRms = FloatArray(MAX_LEAD_SEC * 1000 / FRAME_MS + 1)
     private var frames = 0
+    private var voicedFrames = 0
     private var sumSq = 0.0
     private var inFrame = 0
 
     fun add(v: Float) {
         if (decided) { emit(v); return }
+        if (n == lead.size) {
+            if (n >= MAX_LEAD_SEC * WavIo.SAMPLE_RATE) { decideAndFlush(); emit(v); return }
+            lead = lead.copyOf((lead.size * 2).coerceAtMost(MAX_LEAD_SEC * WavIo.SAMPLE_RATE))
+        }
         lead[n++] = v
         sumSq += v.toDouble() * v
-        if (++inFrame == FRAME_SAMPLES) pushFrame()
-        if (n == lead.size) decideAndFlush()
+        if (++inFrame == FRAME_SAMPLES) {
+            pushFrame()
+            if (voicedFrames >= MIN_VOICED_FRAMES) decideAndFlush()
+        }
     }
 
-    /** Decide (if the stream ended inside the lead window) and flush buffered samples. */
+    /** Decide (if the stream ended before the decision point) and flush buffered samples. */
     fun finish() {
         if (!decided) {
             // Count a partial trailing frame if it holds enough audio to be meaningful.
@@ -58,7 +69,9 @@ class GainNormalizer(private val out: (Float) -> Unit) {
     }
 
     private fun pushFrame() {
-        frameRms[frames++] = sqrt(sumSq / inFrame).toFloat()
+        val r = sqrt(sumSq / inFrame).toFloat()
+        frameRms[frames++] = r
+        if (r > SILENCE_RMS) voicedFrames++
         sumSq = 0.0
         inFrame = 0
     }
@@ -77,10 +90,18 @@ class GainNormalizer(private val out: (Float) -> Unit) {
     }
 
     private fun decide(buf: FloatArray, count: Int): Float {
+        if (count == 0) return 1f
         val voiced = FloatArray(frames)
         var v = 0
         for (i in 0 until frames) if (frameRms[i] > SILENCE_RMS) voiced[v++] = frameRms[i]
-        if (v == 0 || count == 0) return 1f
+        if (v == 0) {
+            // Nothing above the silence floor at all — an ULTRA-quiet recording. Retry with a
+            // lower floor (−74 dBFS) before giving up: real speech can sit under −60 on the
+            // worst far-field rigs, and "no voiced frames → no boost" would strand exactly the
+            // files that need help most. True digital silence still returns 1.
+            for (i in 0 until frames) if (frameRms[i] > SILENCE_RMS / 5) voiced[v++] = frameRms[i]
+            if (v == 0) return 1f
+        }
         val sorted = voiced.copyOf(v).apply { sort() }
         val level = sorted[((v * 95 + 99) / 100 - 1).coerceIn(0, v - 1)]
         if (level >= GATE_RMS) return 1f
@@ -100,8 +121,11 @@ class GainNormalizer(private val out: (Float) -> Unit) {
         const val FRAME_MS = 100
         const val FRAME_SAMPLES = WavIo.SAMPLE_RATE * FRAME_MS / 1000
 
-        /** Lead window the speech level is estimated from. */
-        const val DECIDE_SEC = 30
+        /** Decide once this many non-silent frames (≈10 s of audio content) have been seen. */
+        const val MIN_VOICED_FRAMES = 100
+
+        /** Hard cap on the lead buffer — decide with whatever we have at this point. */
+        const val MAX_LEAD_SEC = 180
 
         /** Active-speech target level: −20 dBFS frame RMS. */
         const val TARGET_RMS = 0.1f

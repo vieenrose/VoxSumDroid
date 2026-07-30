@@ -247,15 +247,29 @@ class AsrFullBenchTest {
                 ((bytes[p+6].toInt() and 0xff) shl 16) or ((bytes[p+7].toInt() and 0xff) shl 24)
             if (id == "data") {
                 val n = sz / 2
-                return FloatArray(n) { i ->
+                return normalize(FloatArray(n) { i ->
                     val lo = bytes[p+8+i*2].toInt() and 0xff
                     val hi = bytes[p+9+i*2].toInt()
                     ((hi shl 8) or lo).toShort() / 32768f
-                }
+                })
             }
             p += 8 + sz + (sz and 1)
         }
         error("no data chunk")
+    }
+
+    /** Match the desktop bench (benchTranscribe normalize=true) and the app's import
+     *  path: quiet clips get the GainNormalizer boost before VAD/ASR — without it the
+     *  quiet en clip's onsets sit under the VAD threshold and utterance heads are lost
+     *  (measured: en WER 14.7 -> ~11.4 expected once boosted). */
+    private fun normalize(pcm: FloatArray): FloatArray {
+        val out = FloatArray(pcm.size)
+        var w = 0
+        val gn = studio.voxsum.core.audio.GainNormalizer { v -> out[w++] = v }
+        for (v in pcm) gn.add(v)
+        gn.finish()
+        android.util.Log.i(TAG, "bench input gain x${gn.gain}")
+        return out
     }
 
     private companion object { const val TAG = "AsrFullBench" }
