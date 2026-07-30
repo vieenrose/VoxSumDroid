@@ -1,0 +1,10 @@
+Substantially more accurate speech recognition, from four defects found with an on-device benchmark on 5-minute English and Mandarin recordings.
+
+• Quiet speech is no longer discarded: the silence check judged loudness by average level alone and skipped a whole quiet minute. English error rate 26.7% → 4.2% (MOSS-TD)
+• Quiet recordings are now gain-corrected on Android as they already were on desktop — utterance openings were falling below the voice detector, losing the first words. X-ASR English 14.7% → 8.6%, and ~3x faster on such files
+• Fixed a model-cache collision that silently broke the X-ASR encoder on longer speech segments
+• New 8-bit Nemotron encoder at the same size: English 17.3% → 11.9%; per-backend tuning of pre-utterance audio
+
+Summarization: single pass over the whole transcript, timestamped and speaker-tagged; over-long transcripts now report a clear error instead of being silently truncated; engine failures no longer stop the app.
+
+Note: on devices with about 4 GB of RAM or less, summarization still cannot complete — the system stops it for memory. A smaller summarizer for these devices is in progress.
