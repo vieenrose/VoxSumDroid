@@ -157,8 +157,18 @@ VoxSum is an on-device port of [VoxSum Studio](https://huggingface.co/spaces/Lui
 model runs locally on [LiteRT](https://ai.google.dev/edge/litert) (ASR backends, VAD, speaker
 diarization) and [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) (Gemma summarization) —
 sherpa-onnx, ONNX Runtime and llama.cpp were fully removed in 2026-07. The only native code built
-from source is the small in-repo LiteRT engine (`app/src/main/cpp/mosslite`); the LiteRT runtime
-itself ships as the official prebuilt from Google's Maven AAR (see `mosslite/PROVENANCE.md`).
+from source is the small in-repo LiteRT engine (`app/src/main/cpp/mosslite`) and the TurboQuant TQ3
+summarizer (`app/src/main/cpp/tq3lite`); the LiteRT runtime itself ships as the official prebuilt
+from Google's Maven AAR (see `mosslite/PROVENANCE.md`).
+
+**Low-RAM devices get a bigger summarizer, not a smaller one.** On devices with < 4.5 GB RAM the
+LiteRT-LM Gemma bundle cannot even load, so VoxSum switches to the **TurboQuant TQ3 engine**:
+Gemma 4 E2B with a 3-bit packed KV cache and fused custom attention ops, running on the same
+LiteRT runtime. With its pre-packed weight cache the warm path peaks at **~294 MB of anonymous
+RSS** end-to-end (measured on a 3.7 GB Boox Tab Mini C; load itself adds ~73 MB in ~1 s) — the 7 GB of model/PLE/cache files stay
+evictable file-backed pages on flash. The trade is speed (~1 token/s decode; a few minutes to first
+summary token), which suits the batch "process pending" flow. Model set:
+[`Luigi/gemma-4-e2b-tq3-litert`](https://huggingface.co/Luigi/gemma-4-e2b-tq3-litert).
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the module map.
 
 ### Build from source
