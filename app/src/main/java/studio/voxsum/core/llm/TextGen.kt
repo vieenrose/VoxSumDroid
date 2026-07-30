@@ -33,15 +33,18 @@ interface TextGen : AutoCloseable {
          *  interface stability (the engine manages its own threading). */
         fun load(context: Context, modelPath: String, spec: LlmSpec, nThreads: Int, backend: String = "auto"): TextGen {
             android.util.Log.i("voxsum-textgen", "load spec=${spec.id} path=$modelPath backend=$backend")
-            // TurboQuant TQ3 path for low-RAM devices (< 4.5 GB): Gemma 4 E2B with a
-            // 3-bit packed KV cache; ~120 MB anonymous RSS warm vs. an OOM-killed
-            // .litertlm load. Selected automatically when the TQ3 model set is
-            // provisioned, or forced with backend == "tq3" (debug/test override;
-            // backend == "litertlm" forces the LiteRT-LM path on any device).
+            // TurboQuant TQ3 path (Gemma 4 E2B, 3-bit packed KV): OPT-IN ONLY —
+            // backend == "tq3". It is deliberately NOT auto-selected on low-RAM
+            // devices: field-validated on a 3.7 GB Boox Tab Mini C, the engine loads
+            // and generates (~294 MB anonymous RSS) but the app is lowmemorykiller-ed
+            // mid-generation while FOREGROUND, because ~2.2 GB of file-backed weight
+            // pages make it the fattest LMK target. Auto-selecting it would cost such
+            // users a 6.9 GB download for the same failure the .litertlm path already
+            // has there. See docs + PHASE4-ANDROID.md; the fix is a smaller model, not
+            // a smaller KV cache (weights, not KV, set the floor).
             val tq3Dir = java.io.File(context.filesDir, "models/${Tq3LlmEngine.DIR_NAME}")
             val tq3Provisioned = Tq3LlmEngine.filesReady(tq3Dir)
-            val wantTq3 = backend == "tq3" ||
-                (backend == "auto" && Tq3LlmEngine.lowRamDevice(context) && tq3Provisioned)
+            val wantTq3 = backend == "tq3"
             if (wantTq3) {
                 val eng = if (tq3Provisioned) Tq3LlmEngine.load(tq3Dir) else null
                 if (eng != null) {

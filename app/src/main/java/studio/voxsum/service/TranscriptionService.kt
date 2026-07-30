@@ -1627,14 +1627,15 @@ class TranscriptionService : LifecycleService() {
         }
     }
 
-    /** Provision whichever summarizer this device will actually use: on low-RAM (< 4.5 GB)
-     *  devices with backend "auto" (or forced "tq3") that is the TurboQuant TQ3 model set
-     *  (Luigi/gemma-4-e2b-tq3-litert, ~6.9 GiB — model/PLE/weight-cache stay on flash, not RAM);
-     *  otherwise the LiteRT-LM bundle for [spec]. Progress → notification/UI. */
+    /** Provision whichever summarizer this device will actually use: the TurboQuant TQ3
+     *  model set (Luigi/gemma-4-e2b-tq3-litert, ~6.9 GiB) ONLY when explicitly opted in
+     *  with backend "tq3"; otherwise the LiteRT-LM bundle for [spec]. TQ3 is not
+     *  auto-selected on low-RAM devices — see TextGen.load: it runs but gets
+     *  lowmemorykiller-ed mid-generation on a 3.7 GB device, so auto-selecting it would
+     *  only cost those users a 6.9 GiB download. Progress → notification/UI. */
     private suspend fun ensureSummarizerModels(spec: LlmSpec, models: ModelManager) {
         val cfg = TranscriptionConfig.Holder.config
-        val wantTq3 = cfg.llmBackend == "tq3" ||
-            (cfg.llmBackend == "auto" && studio.voxsum.core.llm.Tq3LlmEngine.lowRamDevice(this))
+        val wantTq3 = cfg.llmBackend == "tq3"
         if (wantTq3) {
             if (!models.tq3Ready()) {
                 emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, "TurboQuant Gemma 4 E2B")))
