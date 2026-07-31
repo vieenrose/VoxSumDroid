@@ -64,6 +64,16 @@ jobs:
           yes | sdkmanager "platform-tools" "platforms;android-35" \
             "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.2.12479018"
 
+      # Gate the release on the host test suite. v0.36.0 shipped with an instrumented suite that
+      # did not even COMPILE (it still referenced the LiteRT engine deleted in the migration),
+      # because this workflow only ever built the APK. Unit tests are seconds; the release APK is
+      # minutes — failing here is far cheaper than shipping.
+      #
+      # Host (JVM) tests only. The instrumented suite needs a device and multi-hundred-MB models,
+      # so it stays a manual on-device step (see TextGenTest / SummarizerQualityTest).
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
       - name: Decode release keystore
         if: env.HAS_KEYSTORE == 'true'
         env:
