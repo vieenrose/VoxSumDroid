@@ -82,11 +82,14 @@ class SummarizerTextTest {
     // --- wrap ---------------------------------------------------------------------------------
 
     @Test fun wrapAppliesTheRightTurnFormatPerTemplate() {
-        assertEquals("<|turn>user\nhi<turn|>\n<|turn>model\n", SummaryText.wrap(ChatTemplate.GEMMA4, "hi"))
-        assertEquals("<start_of_turn>user\nhi<end_of_turn>\n<start_of_turn>model\n",
-            SummaryText.wrap(ChatTemplate.GEMMA, "hi"))
         assertTrue(SummaryText.wrap(ChatTemplate.CHATML, "hi").startsWith("<|im_start|>system"))
         assertTrue(SummaryText.wrap(ChatTemplate.CHATML, "hi").endsWith("<|im_start|>assistant\n"))
+        // Qwen3.5 is a thinking model and VoxSum wants the non-thinking path, which its
+        // template expresses as an empty think block prefilled on the assistant turn —
+        // without it the model burns its whole budget reasoning and no summary lands.
+        assertTrue(SummaryText.wrap(ChatTemplate.QWEN3, "hi").endsWith("<think>\n\n</think>\n\n"))
+        // NONE = the bundle applies its own template; the prompt passes through untouched.
+        assertEquals("hi", SummaryText.wrap(ChatTemplate.NONE, "hi"))
     }
 
     // --- chunk --------------------------------------------------------------------------------
