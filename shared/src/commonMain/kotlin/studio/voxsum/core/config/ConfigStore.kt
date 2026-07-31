@@ -34,6 +34,7 @@ object ConfigStore {
             language = p.getString("language", d.language) ?: d.language,
             useItn = p.getBoolean("useItn", d.useItn),
             vadThreshold = p.getFloat("vadThreshold", d.vadThreshold),
+            asrContext = p.getString("asrContext", d.asrContext) ?: d.asrContext,
             diarizationEnabled = p.getBoolean("diarizationEnabled", d.diarizationEnabled),
             numSpeakers = p.getInt("numSpeakers", d.numSpeakers),
             preciseDiarization = p.getBoolean("preciseDiarization", d.preciseDiarization),
@@ -50,6 +51,7 @@ object ConfigStore {
         store.putString("language", c.language)
         store.putBoolean("useItn", c.useItn)
         store.putFloat("vadThreshold", c.vadThreshold)
+        store.putString("asrContext", c.asrContext)
         store.putBoolean("diarizationEnabled", c.diarizationEnabled)
         store.putInt("numSpeakers", c.numSpeakers)
         store.putBoolean("preciseDiarization", c.preciseDiarization)

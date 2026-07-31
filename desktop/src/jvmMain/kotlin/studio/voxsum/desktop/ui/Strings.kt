@@ -181,6 +181,12 @@ object Strings {
     val auto: String get() = t("Auto", "Auto", "自動")
     val summaryStyle: String get() = t("Summary style", "Style du résumé", "摘要風格")
     val customSummaryPrompt: String get() = t("Custom summary prompt", "Invite de résumé personnalisée", "自訂摘要提示詞")
+    val asrContext: String get() = t("Names and terms to recognise", "Noms et termes à reconnaître", "需要辨識的名稱與術語")
+    val asrContextHint: String get() = t(
+        "People, companies or jargon in this recording, separated by commas. MOSS-TD only.",
+        "Personnes, entreprises ou jargon présents dans cet enregistrement, séparés par des virgules. MOSS-TD uniquement.",
+        "這段錄音中的人名、公司名或專業術語，以逗號分隔。僅適用於 MOSS-TD。",
+    )
     val about: String get() = t("About", "À propos", "關於")
     val aboutLicense: String get() = t("Free & open source · GPL-3.0", "Libre et open source · GPL-3.0", "自由開放原始碼 · GPL-3.0")
     val openSourceComponents: String get() = t("Open-source components", "Composants open source", "開放原始碼元件")

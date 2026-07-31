@@ -17,11 +17,16 @@ import java.io.File
 class MossLiteEngine private constructor(
     private var ctx: Long,
     private val detok: MossLiteDetokenizer,
+    /** Hotword/context ids spliced into every window's prompt; empty = un-biased,
+     *  in which case the prompt is byte-identical to the pre-biasing one. Encoded
+     *  once at load (see [create]) rather than per window — the BPE tables cost
+     *  ~1 s and ~30 MB to build, and the context does not change mid-session. */
+    private val contextIds: IntArray = IntArray(0),
 ) : AutoCloseable {
 
     /** Decode one window → the raw `[start][Sxx]text` transcript (window-local seconds). */
     fun transcribeWindow(pcm: FloatArray, maxNewTokens: Int): String {
-        val ids = MossLitePrompt.buildIds(pcm.size)
+        val ids = MossLitePrompt.buildIds(pcm.size, contextIds)
         val tokens = nativeTranscribe(ctx, pcm, ids, maxNewTokens)
         return detok.decode(tokens)
     }
@@ -55,16 +60,48 @@ class MossLiteEngine private constructor(
             encThreads: Int = 0,
             decThreads: Int = 0,
             gpu: Boolean = false,
+            /** User's hotword/context text (names, jargon). Needs [mergesTxt] to encode;
+             *  blank or unencodable ⇒ un-biased prompt, which is the shipped default. */
+            context: String = "",
+            /** BPE merges for the encoder. Optional artifact — when absent, context
+             *  biasing is silently unavailable rather than a transcription failure. */
+            mergesTxt: File? = null,
+            /** Optional Traditional→Simplified fold for the hotwords ONLY (`t2s`), matching
+             *  upstream's Simplified `热词提示` convention. Left null by the app: whether the fold
+             *  helps is CONTESTED between two independent runs on the same 10-clip zh-TW set
+             *  (~/zhtw-bench) and the same normalizer (~/preroll-sweep/score.py), re-scored with
+             *  one identical micro-CER method, so the disagreement is not an aggregation artifact:
+             *
+             *    excl. fs4        un-biased   Traditional   Simplified   irrelevant list
+             *    desktop --bench       7.74          4.69         4.41              7.60
+             *    fixed 90 s splits     8.74          4.55         5.20              8.13
+             *
+             *  Each run's own hotword lists differ, and the two disagree on the sign of a ~0.3-0.6
+             *  point effect that is small next to the ~4 point biasing gain both agree on. Passing
+             *  the terms AS TYPED is therefore the default: it needs no OpenCC dependency and does
+             *  not risk pulling Simplified orthography toward the output. Kept as a hook because
+             *  the better choice is evidently corpus- and list-dependent. */
+            hotwordToSimplified: ((String) -> String)? = null,
         ): MossLiteEngine? {
             ensureLib()
             val detok = runCatching { MossLiteDetokenizer.load(vocabJson) }.getOrNull() ?: return null
+            // Encode ONCE per session, not per window. Best-effort by design: a missing or
+            // malformed merges file costs biasing, never the transcription.
+            val ctxIds = if (context.isBlank() || mergesTxt == null || !mergesTxt.exists()) {
+                IntArray(0)
+            } else {
+                runCatching {
+                    val terms = hotwordToSimplified?.invoke(context) ?: context
+                    MossLiteContext.encode(MossLiteTokenizer.load(vocabJson, mergesTxt), terms)
+                }.getOrDefault(IntArray(0))
+            }
             cacheDir?.mkdirs()
             val c = nativeInit(
                 encoder.absolutePath, embedder.absolutePath, decoder.absolutePath,
                 cacheDir?.absolutePath ?: "", encThreads, decThreads, gpu,
             )
             if (c == 0L) return null
-            return MossLiteEngine(c, detok)
+            return MossLiteEngine(c, detok, ctxIds)
         }
 
         @JvmStatic private external fun nativeInit(
@@ -94,7 +131,28 @@ object MossLitePrompt {
 
     // <|im_start|>system…user\n<|audio_start|>  /  <|audio_end|>\n<prompt><|im_end|>…assistant\n
     private val BEFORE = intArrayOf(151644, 8948, 198, 2610, 525, 264, 10950, 17847, 13, 151645, 198, 151644, 872, 198, 151669)
-    private val AFTER = intArrayOf(151670, 198, 14880, 44063, 111268, 46670, 61443, 17714, 108704, 3837, 73157, 104383, 58362, 23031, 71618, 26606, 20450, 111420, 33108, 104283, 17340, 72640, 9909, 58, 50, 15, 16, 60, 5373, 58, 50, 15, 17, 60, 5373, 58, 50, 15, 18, 60, 1940, 7552, 111749, 3837, 110644, 17714, 110019, 105761, 43815, 90395, 18493, 37474, 100072, 111066, 80565, 20450, 111420, 3837, 23031, 104542, 117932, 75882, 37474, 105761, 101121, 1773, 151645, 198, 151644, 77091, 198)
+    // AFTER, split where upstream appends its hotword hint (see [buildIds]):
+    // INSTRUCTION is `<|audio_end|>\n` + the transcribe/diarize instruction up to its
+    // final `。`; TAIL closes the user turn and opens the assistant's. Concatenated with
+    // nothing between them they are id-identical to the single AFTER array this was
+    // ported with -- [MossLitePromptTest] pins that.
+    private val INSTRUCTION = intArrayOf(151670, 198, 14880, 44063, 111268, 46670, 61443, 17714, 108704, 3837, 73157, 104383, 58362, 23031, 71618, 26606, 20450, 111420, 33108, 104283, 17340, 72640, 9909, 58, 50, 15, 16, 60, 5373, 58, 50, 15, 17, 60, 5373, 58, 50, 15, 18, 60, 1940, 7552, 111749, 3837, 110644, 17714, 110019, 105761, 43815, 90395, 18493, 37474, 100072, 111066, 80565, 20450, 111420, 3837, 23031, 104542, 117932, 75882, 37474, 105761, 101121, 1773)
+    private val TAIL = intArrayOf(151645, 198, 151644, 77091, 198)
+
+    /**
+     * Hard cap on context (hotword) tokens spliced into one prompt. The decoder ships
+     * with a 2560-slot external KV cache and a 90 s [studio.voxsum.core.asr.moss.MossPipeline]
+     * window already spends ~1230 of them on the audio span + instruction, leaving ~1300
+     * for generation. 192 tokens (~150 Han characters, i.e. 25-40 names) is the slice we
+     * are willing to take out of that. Measured 2026-07-31: an over-long context silently
+     * truncates the tail of a window's transcript, so longer input is cut here instead.
+     */
+    const val MAX_CONTEXT_TOKENS = 192
+
+    /** The `热词提示：` ("hotword hint:") lead-in, as ids. Upstream's documented
+     *  contextual-biasing form is the default instruction with this + a comma-separated
+     *  list appended (examples/prompts.md in OpenMOSS-Team/MOSS-Transcribe-Diarize). */
+    val HOTWORD_LEAD_IN = intArrayOf(99259, 99689, 45139, 5122)
     private val DIGITS = intArrayOf(15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
 
     /** Per-30s-chunk audio-token counts for an [nSamples]-sample window. */
@@ -128,16 +186,37 @@ object MossLitePrompt {
         return out
     }
 
-    /** Full prompt ids for one PCM window. */
-    fun buildIds(nSamples: Int): IntArray {
+    /**
+     * Full prompt ids for one PCM window.
+     *
+     * [contextIds] is an optional hotword/context hint (already tokenized -- see
+     * [MossLiteContext.encode]). It is appended AFTER the instruction and before the
+     * closing `<|im_end|>`, which is the form upstream documents in
+     * `examples/prompts.md`; prepending it instead changes what the instruction is
+     * modifying and was not what the model was trained on. It is truncated to
+     * [MAX_CONTEXT_TOKENS].
+     *
+     * With an empty [contextIds] the output is byte-identical to the pre-biasing
+     * implementation -- [MossLitePromptTest.contextFreeIdsAreUnchanged] pins that.
+     */
+    @JvmOverloads
+    fun buildIds(nSamples: Int, contextIds: IntArray = EMPTY): IntArray {
         val nAudio = chunkTokenLengths(nSamples).sum()
         val span = audioSpanIds(nAudio)
-        val out = IntArray(BEFORE.size + span.size + AFTER.size)
-        BEFORE.copyInto(out, 0)
-        for (i in span.indices) out[BEFORE.size + i] = span[i]
-        AFTER.copyInto(out, BEFORE.size + span.size)
+        val ctx = if (contextIds.size <= MAX_CONTEXT_TOKENS) contextIds
+                  else contextIds.copyOf(MAX_CONTEXT_TOKENS)
+        val out = IntArray(BEFORE.size + span.size + INSTRUCTION.size + ctx.size + TAIL.size)
+        var at = 0
+        BEFORE.copyInto(out, at); at += BEFORE.size
+        for (i in span.indices) out[at + i] = span[i]
+        at += span.size
+        INSTRUCTION.copyInto(out, at); at += INSTRUCTION.size
+        ctx.copyInto(out, at); at += ctx.size
+        TAIL.copyInto(out, at)
         return out
     }
+
+    private val EMPTY = IntArray(0)
 }
 
 /**

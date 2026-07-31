@@ -409,6 +409,10 @@ private suspend fun runMossTranscription(
         cacheDir = File(appDataDir, "xnnpack-cache").apply { mkdirs() },
         encThreads = cores,
         decThreads = cores,
+        // Hotword/context biasing — MOSS-TD only; the other backends have no prompt to
+        // bias. Blank (the default) leaves the prompt byte-identical to before.
+        context = config.asrContext,
+        mergesTxt = models.mossLiteMerges,
     ) ?: throw IllegalStateException("MOSS-TD LiteRT engine failed to load")
     val speakerEmbedder = models.mossSpeakerModel
         .takeIf { models.mossSpeakerReady() }

@@ -61,6 +61,7 @@ fun SettingsDialog(
     var useItn by remember { mutableStateOf(config.useItn) }
     var vadThreshold by remember { mutableStateOf(config.vadThreshold) }
     var summaryPrompt by remember { mutableStateOf(config.summaryPrompt) }
+    var asrContext by remember { mutableStateOf(config.asrContext) }
 
     // Window size must follow the content scale (see hiDpiDialogScale) or the dialog crops.
     val dialogScale = studio.voxsum.desktop.ui.hiDpiDialogScale()
@@ -112,8 +113,22 @@ fun SettingsDialog(
                     val selected = opts.firstOrNull { it.first == language } ?: opts.first()
                     ChipRow(pal, opts, selected, { language = it.first }) { it.second }
                 }
-                Text(Strings.vadSensitivity("%.1f".format(java.util.Locale.US, vadThreshold)), color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
-                Slider(value = vadThreshold, onValueChange = { vadThreshold = it }, valueRange = 0.1f..0.9f)
+                // Hotword biasing is MOSS-only: it is an autoregressive LLM ASR, so the terms
+                // are appended to its prompt (upstream's `热词提示：a, b, c` form). The other
+                // backends have no prompt to bias.
+                if (asrBackend == AsrBackend.MOSS) {
+                    OutlinedTextField(
+                        value = asrContext,
+                        onValueChange = { asrContext = it },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        label = { Text(Strings.asrContext) },
+                        minLines = 2,
+                    )
+                    Text(Strings.asrContextHint, color = pal.Slate400, style = MaterialTheme.typography.labelMedium)
+                } else {
+                    Text(Strings.vadSensitivity("%.1f".format(java.util.Locale.US, vadThreshold)), color = pal.Slate400, modifier = Modifier.padding(top = 4.dp))
+                    Slider(value = vadThreshold, onValueChange = { vadThreshold = it }, valueRange = 0.1f..0.9f)
+                }
             }
 
             SettingsSection(Strings.summaryModel) {
@@ -208,6 +223,7 @@ fun SettingsDialog(
                             language = language,
                             useItn = useItn,
                             vadThreshold = vadThreshold,
+                            asrContext = asrContext,
                             summaryPrompt = summaryPrompt,
                         ),
                         style,

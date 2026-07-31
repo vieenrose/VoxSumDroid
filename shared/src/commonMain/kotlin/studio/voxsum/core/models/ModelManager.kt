@@ -70,6 +70,10 @@ class ModelManager(appFilesDir: File) {
     val mossLiteEmbedder: File get() = File(modelsDir, "moss_td_embedder_q8.tflite")
     val mossLiteDecoder: File get() = File(modelsDir, "moss_td_decoder_v2_q4b32_ekv2560.tflite")
     val mossLiteVocab: File get() = File(modelsDir, "moss_td_vocab.json")
+    /** BPE merges, needed only to ENCODE text (hotword/context biasing). Optional: without it
+     *  MOSS-TD transcribes exactly as before, it just can't be given a term list. Kept out of
+     *  [mossReady] so already-provisioned installs are not invalidated by the added file. */
+    val mossLiteMerges: File get() = File(modelsDir, "moss_td_merges.txt")
     // Older embeddings to reclaim on upgrade: eres2net_base, the interim CAM++ fp32, and the
     // abandoned fine-tuned MOSS-TD lineage (replaced by the base q4mix weights — the fine-tunes
     // had speaker-diarization and timestamp-accuracy regressions).
@@ -92,6 +96,8 @@ class ModelManager(appFilesDir: File) {
         mossLiteDecoder.length() == MOSSLITE_DEC_BYTES &&
         mossLiteVocab.length() == MOSSLITE_VOCAB_BYTES
     fun mossSpeakerReady(): Boolean = mossSpeakerModel.length() == MOSS_SPK_BYTES
+    /** Whether hotword/context biasing can be offered (see [mossLiteMerges]). */
+    fun mossContextReady(): Boolean = mossLiteMerges.length() == MOSSLITE_MERGES_BYTES
 
 
     // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
@@ -244,7 +250,7 @@ class ModelManager(appFilesDir: File) {
      */
     fun deleteAsr(backend: AsrBackend) {
         if (backend == AsrBackend.MOSS) {
-            listOf(mossLiteEncoder, mossLiteEmbedder, mossLiteDecoder, mossLiteVocab)
+            listOf(mossLiteEncoder, mossLiteEmbedder, mossLiteDecoder, mossLiteVocab, mossLiteMerges)
                 .forEach { it.takeIf(File::exists)?.delete() }
             return
         }
@@ -450,6 +456,14 @@ class ModelManager(appFilesDir: File) {
                 download(p.url, p.file, p.sha) { f -> onProgress(((done + f * p.bytes) / total).toFloat() * 0.97f) }
             }
             done += p.bytes
+        }
+        // Optional BPE merges (1.6 MB) — enables hotword/context biasing. Best-effort for the
+        // same reason as the speaker model: its absence costs a feature, not the backend.
+        if (mossLiteMerges.length() != MOSSLITE_MERGES_BYTES) {
+            runCatching {
+                if (mossLiteMerges.exists()) mossLiteMerges.delete()
+                download(MOSSLITE_MERGES_URL, mossLiteMerges, MOSSLITE_MERGES_SHA) {}
+            }
         }
         // Optional speaker embedder — never fail the run if it can't be fetched.
         if (mossSpeakerModel.length() != MOSS_SPK_BYTES) {
@@ -714,6 +728,15 @@ class ModelManager(appFilesDir: File) {
         private const val MOSSLITE_VOCAB_URL = "$MOSSLITE_REV/tokenizer/vocab.json"
         private const val MOSSLITE_VOCAB_SHA = "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
         private const val MOSSLITE_VOCAB_BYTES = 2_776_833L
+        // BPE merges come straight from the upstream model repo (commit-pinned) rather than
+        // the LiteRT mirror — it is the same file, and re-hosting it would only add a second
+        // thing to keep in sync. Used only by MossLiteTokenizer (hotword/context biasing).
+        private const val MOSSLITE_MERGES_URL =
+            "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/" +
+                "e5118b411bf5a77d7a90c4941066bec93c967312/merges.txt"
+        private const val MOSSLITE_MERGES_SHA =
+            "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+        private const val MOSSLITE_MERGES_BYTES = 1_671_853L
 
         // CAM++ zh+en fp16 (custom conversion, benchmarked best on-device) hosted on HF.
         private const val EMB_URL =
