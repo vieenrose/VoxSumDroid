@@ -30,13 +30,17 @@ target_link_libraries(voxsum-mosslite
 # export, 6 full-attention + 18 linear-attention layers, all cache state as
 # explicit graph I/O). Library refactor of ~/turboquant/qwen35/qwen35_bench.cc
 # on ai-workstation -- see qwen35lite/PROVENANCE.md.
-# No custom ops and no OpenMP: this one is pure stock XNNPACK on the SAME
-# app-shipped libLiteRt.so. The default arm64 -march is armv8-a, which the
-# Boox (ARMv8.0, no dotprod) requires -- do not add dotprod/fp16 arch flags.
+# The shipped bundle is the STOCK export, which uses no custom ops -- pure
+# XNNPACK on the SAME app-shipped libLiteRt.so. q35_int8kv.cc registers the
+# fused int8-KV attention ops used by the EXPERIMENTAL 32k rewrite; the codes
+# simply never appear in a stock graph, so it is inert here (see the header
+# for why 32k is not shipped yet). The default arm64 -march is armv8-a, which
+# the Boox (ARMv8.0, no dotprod) requires -- do not add dotprod/fp16 flags.
 # ---------------------------------------------------------------------------
 add_library(voxsum-qwen35 SHARED
     qwen35lite/qwen35_jni.cpp
     qwen35lite/qwen35_engine.cc
+    qwen35lite/q35_int8kv.cc
     qwen35lite/qwen35_tokenizer.cc)
 target_include_directories(voxsum-qwen35 PRIVATE qwen35lite mosslite)
 target_compile_options(voxsum-qwen35 PRIVATE -O3)

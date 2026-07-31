@@ -1,0 +1,7 @@
+A new summarizer that actually fits on small devices.
+
+• Qwen3.5-0.8B replaces Gemma 4. The summarizer download drops from about 2.6 GB to about 835 MB, and it now runs on devices with around 4 GB of RAM, where Gemma 4 could not run at all — previously those devices had the summary stopped by the system for memory every time.
+• Summaries no longer slow down as the transcript gets longer. The new model's speed is flat with input length; the old one fell to about a quarter of its speed on a long transcript.
+• Old Gemma and TurboQuant model files are deleted automatically when you upgrade, reclaiming up to about 7 GB.
+
+Please be aware: this is the base model, not yet fine-tuned for meeting summaries. Summary quality is uneven and can be repetitive or drift off the transcript, and it is not as good as Gemma 4 was on the devices that could run Gemma 4. A fine-tuned version is being trained and will follow. Transcription is unaffected.

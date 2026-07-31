@@ -22,7 +22,10 @@
 #include "litert/c/litert_options.h"
 #include "litert/c/litert_tensor_buffer.h"
 #include "litert/c/litert_tensor_buffer_requirements.h"
+#include "litert/c/litert_custom_op_kernel.h"
 #include "litert/c/litert_tensor_buffer_types.h"
+
+#include "q35_int8kv.h"
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -111,8 +114,16 @@ void drop_model_page_cache() {
   Q35_LOG("dropped %.0f MB of .tflite page cache from RSS", n / 1048576.0);
 }
 
+// Tensors that must be ONE buffer shared by the prefill and decode signatures
+// and by each signature's matching output slot. `packed_*` are the int8 KV
+// side-caches of the rewritten export (input-only: the fused custom op updates
+// them in place, so they have no output slot at all).
 inline bool is_cache_tensor(const char* nm) {
-  return !strncmp(nm, "kv_cache_", 9);
+  return !strncmp(nm, "kv_cache_", 9) || !strncmp(nm, "packed_", 7);
+}
+inline bool is_kv_tensor(const char* nm) {
+  return !strncmp(nm, "kv_cache_k_", 11) || !strncmp(nm, "kv_cache_v_", 11) ||
+         !strncmp(nm, "packed_k_", 9) || !strncmp(nm, "packed_v_", 9);
 }
 
 }  // namespace
@@ -146,7 +157,7 @@ class Component {
   size_t kv_bytes_ = 0, rec_bytes_ = 0;
 
   Component(LiteRtEnvironment env, const std::string& path, int threads,
-            const std::string& weight_cache)
+            const std::string& weight_cache, q35_int8kv_core* attn)
       : env_(env) {
     ENSURE(LiteRtCreateModelFromFile(env, path.c_str(), &model_));
     LiteRtOptions opts;
@@ -154,6 +165,17 @@ class Component {
     ENSURE(LiteRtSetOptionsHardwareAccelerators(opts, kLiteRtHwAcceleratorCpu));
     if (LiteRtOpaqueOptions oo = make_cpu_options(threads, weight_cache))
       ENSURE(LiteRtAddOpaqueOptions(opts, oo));
+    if (attn) {
+      // Fused int8-KV attention, registered against the STOCK app-shipped
+      // libLiteRt.so. Harmless on a stock export -- the codes simply never
+      // appear in the graph.
+      LiteRtCustomOpKernel k;
+      void* ud = nullptr;
+      q35_int8kv_kernel(attn, 0, &k, &ud);
+      ENSURE(LiteRtAddCustomOpKernelOption(opts, "voxsum.q35_int8kv", 1, &k, ud));
+      q35_int8kv_kernel(attn, 1, &k, &ud);
+      ENSURE(LiteRtAddCustomOpKernelOption(opts, "voxsum.q35_int8kv_w", 1, &k, ud));
+    }
     ENSURE(LiteRtCreateCompiledModel(env, model_, opts, &cm_));
 
     LiteRtParamIndex nsigs = 0;
@@ -184,7 +206,7 @@ class Component {
             alias_[nm] = b;
             zero_buf(b);
             size_t n = buf_bytes(b);
-            if (nm[9] == 'k' || nm[9] == 'v') kv_bytes_ += n;
+            if (is_kv_tensor(nm)) kv_bytes_ += n;
             else rec_bytes_ += n;
           }
         }
@@ -285,7 +307,8 @@ Qwen35Engine::Qwen35Engine(const std::string& model_path,
   double t0 = now_s();
   if (!tokenizer_path.empty()) tok_.reset(new Tokenizer(tokenizer_path));
   ENSURE(LiteRtCreateEnvironment(0, nullptr, &env_));
-  model_ = new Component(env_, model_path, threads, weight_cache);
+  attn_ = q35_int8kv_create(threads);
+  model_ = new Component(env_, model_path, threads, weight_cache, attn_);
 
   // Discover the prefill signature: the export bakes the chunk size into the
   // name (prefill_128, prefill_32, ...). Never hardcode it.
@@ -328,6 +351,7 @@ Qwen35Engine::Qwen35Engine(const std::string& model_path,
 
 Qwen35Engine::~Qwen35Engine() {
   delete model_;
+  if (attn_) q35_int8kv_destroy(attn_);
   if (env_) LiteRtDestroyEnvironment(env_);
 }
 

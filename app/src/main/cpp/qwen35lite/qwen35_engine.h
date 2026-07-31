@@ -37,6 +37,7 @@
 #include "qwen35_tokenizer.h"
 
 typedef struct LiteRtEnvironmentT* LiteRtEnvironment;
+typedef struct q35_int8kv_core q35_int8kv_core;
 
 namespace qwen35lite {
 
@@ -99,6 +100,8 @@ class Qwen35Engine {
   int prefill_chunk() const { return prefill_chunk_; }
   const std::string& prefill_sig() const { return prefill_sig_; }
   int n_vocab() const { return tok_ ? tok_->n_vocab() : 0; }
+  // Logits of the most recent decode step (validation / A-B harnesses).
+  const std::vector<float>& last_logits() const { return logits_; }
 
  private:
   void reset_cache();
@@ -110,6 +113,7 @@ class Qwen35Engine {
   int prefill_chunk_ = 0;
   std::string prefill_sig_;
   LiteRtEnvironment env_ = nullptr;
+  q35_int8kv_core* attn_ = nullptr;  // fused int8-KV kernel state (rewritten export)
   Component* model_ = nullptr;
   std::unique_ptr<Tokenizer> tok_;
   std::atomic<bool> cancelled_{false};
