@@ -26,23 +26,20 @@ target_link_libraries(voxsum-mosslite
 
 
 # ---------------------------------------------------------------------------
-# TurboQuant TQ3 summarizer engine (Gemma 4 E2B, 3-bit packed KV, fused
-# voxsum.tq3_attention custom ops on the SAME app-shipped libLiteRt.so).
-# Kernel sources are verbatim from vieenrose/LiteRT branch turboquant-tq3
-# (litert/samples/llm/turboquant/cpp/, see tq3lite/PROVENANCE.md).
-# OpenMP is linked statically (-static-openmp) per the Phase 4 NDK recipe;
-# the default arm64 -march is armv8-a, which the Boox (ARMv8.0, no dotprod)
-# requires — do not add dotprod/fp16 arch flags here.
+# Qwen3.5-0.8B hybrid-attention summarizer engine (int4 BLOCKWISE_32 LiteRT
+# export, 6 full-attention + 18 linear-attention layers, all cache state as
+# explicit graph I/O). Library refactor of ~/turboquant/qwen35/qwen35_bench.cc
+# on ai-workstation -- see qwen35lite/PROVENANCE.md.
+# No custom ops and no OpenMP: this one is pure stock XNNPACK on the SAME
+# app-shipped libLiteRt.so. The default arm64 -march is armv8-a, which the
+# Boox (ARMv8.0, no dotprod) requires -- do not add dotprod/fp16 arch flags.
 # ---------------------------------------------------------------------------
-add_library(voxsum-tq3 SHARED
-    tq3lite/tq3_jni.cpp
-    tq3lite/tq3_engine.cc
-    tq3lite/tq3_tokenizer.cc
-    tq3lite/tq3_attn.cc
-    tq3lite/tq3.c)
-target_include_directories(voxsum-tq3 PRIVATE tq3lite mosslite)
-target_compile_options(voxsum-tq3 PRIVATE -O3 -fopenmp)
-target_link_options(voxsum-tq3 PRIVATE -fopenmp -static-openmp)
-target_link_libraries(voxsum-tq3
+add_library(voxsum-qwen35 SHARED
+    qwen35lite/qwen35_jni.cpp
+    qwen35lite/qwen35_engine.cc
+    qwen35lite/qwen35_tokenizer.cc)
+target_include_directories(voxsum-qwen35 PRIVATE qwen35lite mosslite)
+target_compile_options(voxsum-qwen35 PRIVATE -O3)
+target_link_libraries(voxsum-qwen35
     "${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libLiteRt.so"
     android log)

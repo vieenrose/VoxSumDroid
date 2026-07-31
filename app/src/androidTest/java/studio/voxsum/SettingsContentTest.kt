@@ -64,11 +64,15 @@ class SettingsContentTest {
         assertEquals(AsrBackend.XASR.id, changed?.asrBackend)
     }
 
+    /** There is exactly ONE summarizer now (Qwen3.5-0.8B replaced Gemma 4 E2B/E4B and the
+     *  TQ3 engine), so "selecting a different model" is no longer expressible. Assert instead
+     *  that clicking the single card reports that model — which also guards the case where a
+     *  stored id from a removed model must normalize to DEFAULT_ID. */
     @Test fun selectingLlmReportsIt() {
         var changed: TranscriptionConfig? = null
-        host(baseCfg.copy(llmModelId = LlmRegistry.ALL[0].id), onChange = { changed = it })
-        compose.onNodeWithText(LlmRegistry.ALL[1].displayName).performScrollTo().performClick()
-        assertEquals(LlmRegistry.ALL[1].id, changed?.llmModelId)
+        host(baseCfg.copy(llmModelId = "gemma-4-e2b-litertlm"), onChange = { changed = it })
+        compose.onNodeWithText(LlmRegistry.ALL[0].displayName).performScrollTo().performClick()
+        assertEquals(LlmRegistry.ALL[0].id, changed?.llmModelId)
     }
 
     @Test fun togglingDiarizationReportsIt() {

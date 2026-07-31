@@ -98,15 +98,17 @@ android {
     packaging {
         // c++_shared is provided once; avoid duplicate libc++_shared.so clashes.
         jniLibs.pickFirsts += "**/libc++_shared.so"
-        // litertlm-android's engine needs its native libs as REAL extracted files
-        // (verified on-device: without extraction, Engine init hangs at 0% CPU).
+        // The app dlopen()s libLiteRt.so from jniLibs, so it must be a REAL extracted
+        // file rather than a compressed APK entry.
         jniLibs.useLegacyPackaging = true
     }
 }
 
 dependencies {
-    // LiteRT-LM in-process engine (official Kotlin API; loads .litertlm bundles).
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.14.0")
+    // NOTE: the com.google.ai.edge.litertlm:litertlm-android AAR was removed with Gemma 4.
+    // The summarizer now runs on the app's own qwen35lite engine over the libLiteRt.so in
+    // jniLibs; the LiteRT-LM runtime cannot supply a pre-packed XNNPACK weight cache and
+    // cannot run a hybrid linear-attention graph, and it carried ~90 MB of native libs.
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.service)

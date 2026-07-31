@@ -1627,23 +1627,12 @@ class TranscriptionService : LifecycleService() {
         }
     }
 
-    /** Provision whichever summarizer this device will actually use: the TurboQuant TQ3
-     *  model set (Luigi/gemma-4-e2b-tq3-litert, ~6.9 GiB) ONLY when explicitly opted in
-     *  with backend "tq3"; otherwise the LiteRT-LM bundle for [spec]. TQ3 is not
-     *  auto-selected on low-RAM devices — see TextGen.load: it runs but gets
-     *  lowmemorykiller-ed mid-generation on a 3.7 GB device, so auto-selecting it would
-     *  only cost those users a 6.9 GiB download. Progress → notification/UI. */
+    /** Provision the summarizer artifact set for [spec] — graph + pre-packed XNNPACK weight
+     *  cache + tokenizer, revision-pinned and sha256-verified file by file. Progress →
+     *  notification/UI. (The TQ3 opt-in path went away with Gemma 4: its engine existed only to
+     *  run Gemma 4 E2B on low-RAM devices and cost those users a 6.9 GiB download to get
+     *  lowmemorykiller-ed anyway. Qwen3.5-0.8B replaces it at 874 MB and actually completes.) */
     private suspend fun ensureSummarizerModels(spec: LlmSpec, models: ModelManager) {
-        val cfg = TranscriptionConfig.Holder.config
-        val wantTq3 = cfg.llmBackend == "tq3"
-        if (wantTq3) {
-            if (!models.tq3Ready()) {
-                emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, "TurboQuant Gemma 4 E2B")))
-                val gen = currentGen()
-                models.ensureTq3Model { frac -> reportDownload(gen, R.string.svc_summarization_model_pct, frac) }
-            }
-            return
-        }
         if (!models.llmReady(spec)) {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
             val gen = currentGen()

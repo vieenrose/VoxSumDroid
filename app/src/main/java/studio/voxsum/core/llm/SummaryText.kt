@@ -103,11 +103,12 @@ internal object SummaryText {
     fun wrap(template: ChatTemplate, user: String): String = when (template) {
         ChatTemplate.CHATML -> "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
             "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n"
-        ChatTemplate.GEMMA -> "<start_of_turn>user\n$user<end_of_turn>\n<start_of_turn>model\n"
-        // Gemma 4 uses a different turn format (per its chat_template.jinja): a plain user
-        // turn with no system/thinking block. <bos> is auto-added by the tokenizer.
-        ChatTemplate.GEMMA4 -> "<|turn>user\n$user<turn|>\n<|turn>model\n"
-        // The runtime applies the bundle's own template (LiteRT-LM) — pass the prompt through.
+        // Qwen3.5 is a thinking model; VoxSum wants the NON-thinking path, which its own
+        // chat template expresses as an EMPTY think block prefilled on the assistant turn.
+        // Without it the model burns the whole budget reasoning and the summary never lands.
+        ChatTemplate.QWEN3 -> "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
+            "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        // The runtime applies the bundle's own template — pass the prompt through.
         ChatTemplate.NONE -> user
     }
 

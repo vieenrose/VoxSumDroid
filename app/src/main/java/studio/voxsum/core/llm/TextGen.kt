@@ -28,49 +28,45 @@ interface TextGen : AutoCloseable {
     fun cancel()
 
     companion object {
-        /** LiteRT-LM is the only Android text-generation runtime (ggml/llama.cpp was
-         *  removed). [backend]: "cpu" (default) or "gpu". `nThreads` retained for
-         *  interface stability (the engine manages its own threading). */
+        /**
+         * The qwen35lite LiteRT engine is the only Android text-generation runtime.
+         *
+         * It replaced BOTH predecessors at once. The stock LiteRT-LM `.litertlm` path went with
+         * Gemma 4: it cannot run this export (a hybrid linear-attention graph whose recurrent and
+         * conv state is explicit graph I/O) and, more decisively, it offers no way to supply a
+         * pre-packed XNNPACK weight cache or to alias the cache buffers — the two things that make
+         * the model fit a 3.7 GB device. The TurboQuant TQ3 engine went with it: it existed only
+         * to squeeze Gemma 4 E2B onto low-RAM devices and is now strictly dominated (3.4 vs
+         * ~1 tok/s, 874 MB of artifacts vs 6.9 GB, and it is not LMK-killed).
+         *
+         * [backend] is accepted for interface stability and ignored: there is no GPU path. On Mali
+         * devices without OpenCL the GL backend fails shader compile and the WebGPU backend HANGS
+         * engine init at 0% CPU — a native stall runCatching cannot intercept (SM-A5360,
+         * 2026-07-24). [nThreads] <= 0 selects the validated default.
+         */
         fun load(context: Context, modelPath: String, spec: LlmSpec, nThreads: Int, backend: String = "auto"): TextGen {
-            android.util.Log.i("voxsum-textgen", "load spec=${spec.id} path=$modelPath backend=$backend")
-            // TurboQuant TQ3 path (Gemma 4 E2B, 3-bit packed KV): OPT-IN ONLY —
-            // backend == "tq3". It is deliberately NOT auto-selected on low-RAM
-            // devices: field-validated on a 3.7 GB Boox Tab Mini C, the engine loads
-            // and generates (~294 MB anonymous RSS) but the app is lowmemorykiller-ed
-            // mid-generation while FOREGROUND, because ~2.2 GB of file-backed weight
-            // pages make it the fattest LMK target. Auto-selecting it would cost such
-            // users a 6.9 GB download for the same failure the .litertlm path already
-            // has there. See docs + PHASE4-ANDROID.md; the fix is a smaller model, not
-            // a smaller KV cache (weights, not KV, set the floor).
-            val tq3Dir = java.io.File(context.filesDir, "models/${Tq3LlmEngine.DIR_NAME}")
-            val tq3Provisioned = Tq3LlmEngine.filesReady(tq3Dir)
-            val wantTq3 = backend == "tq3"
-            if (wantTq3) {
-                val eng = if (tq3Provisioned) Tq3LlmEngine.load(tq3Dir) else null
-                if (eng != null) {
-                    android.util.Log.i("voxsum-textgen", "using TQ3 engine (dir=$tq3Dir)")
-                    return eng
-                }
-                if (backend == "tq3") error("TQ3 engine failed to initialize (dir=$tq3Dir, provisioned=$tq3Provisioned)")
-                android.util.Log.w("voxsum-textgen", "TQ3 init failed; falling back to LiteRT-LM")
+            val dir = java.io.File(modelPath).parentFile
+                ?: error("summarizer model path has no parent dir: $modelPath")
+            val wcache = spec.weightCacheFile.takeIf { it.isNotBlank() }
+                ?.let { java.io.File(dir, it).absolutePath }.orEmpty()
+            val tokenizer = java.io.File(dir, spec.tokenizerFile).absolutePath
+            android.util.Log.i(
+                "voxsum-textgen",
+                "load spec=${spec.id} path=$modelPath wcache=${wcache.isNotEmpty()} backend=$backend(ignored)",
+            )
+            if (wcache.isEmpty() || !java.io.File(wcache).exists()) {
+                // Not fatal, but the user is about to wait ~40 s and XNNPACK is about to allocate
+                // ~800 MiB of UNRECLAIMABLE anonymous memory instead of file-backed pages, which is
+                // what gets the app killed on a low-RAM device. Loud on purpose.
+                android.util.Log.w("voxsum-textgen", "no pre-packed weight cache at '$wcache' — on-device repack ahead")
             }
-            // "auto" (default) = CPU. GPU-first was tried and REVERTED: on Mali
-            // devices without OpenCL the ML Drift GL backend fails shader compile
-            // and the WebGPU backend HANGS the engine init at 0%% CPU — a native
-            // stall runCatching cannot intercept (verified on SM-A5360, 2026-07-24).
-            // Explicit "gpu" remains available for devices where it works.
-            if (backend == "gpu") {
-                val gpuTry = runCatching {
-                    LiteLlmEngine.load(context, modelPath, spec.sampler, backend = "gpu")
-                }.getOrNull()
-                if (gpuTry != null) return gpuTry
-                if (backend == "gpu")
-                    android.util.Log.w("voxsum-textgen", "GPU engine init failed; using CPU")
-                else
-                    android.util.Log.i("voxsum-textgen", "auto: GPU unavailable, using CPU")
-            }
-            return LiteLlmEngine.load(context, modelPath, spec.sampler, backend = "cpu")
-                ?: error("LiteRT-LM engine failed to initialize for $modelPath")
+            return Qwen35LlmEngine.load(
+                modelPath = modelPath,
+                weightCachePath = wcache,
+                tokenizerPath = tokenizer,
+                threads = if (nThreads > 0) nThreads else 4,
+                sampler = spec.sampler,
+            ) ?: error("qwen35 engine failed to initialize for $modelPath")
         }
     }
 }

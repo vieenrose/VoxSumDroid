@@ -119,10 +119,10 @@ fun SettingsContent(
         Section(stringResource(R.string.settings_summary_model))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             LlmRegistry.ALL.forEach { spec ->
-                val mb = spec.sizeBytes / 1_000_000
+                val mb = spec.totalBytes / 1_000_000
                 val ram = when {
-                    spec.sizeBytes < 1_500_000_000L -> stringResource(R.string.settings_low_ram)
-                    spec.sizeBytes < 3_500_000_000L -> stringResource(R.string.settings_needs_4gb)
+                    spec.totalBytes < 1_500_000_000L -> stringResource(R.string.settings_low_ram)
+                    spec.totalBytes < 3_500_000_000L -> stringResource(R.string.settings_needs_4gb)
                     else -> stringResource(R.string.settings_needs_6gb)
                 }
                 ModelOptionCard(
@@ -137,46 +137,10 @@ fun SettingsContent(
                     onClick = { onChange(config.copy(llmModelId = spec.id)) },
                 )
             }
-            // Inference hardware — LiteRT-LM models only (llama.cpp GGUFs and the ASR/MOSS
-            // engines are CPU-only). There is NO auto-"best": LiteRT compiles for the
-            // REQUESTED accelerator (internal CPU fallback per-op); NPU needs per-SoC model
-            // builds that don't exist for these models, so it isn't offered. CPU is default.
-            if (LlmRegistry.byId(config.llmModelId).fileName.endsWith(".litertlm")) {
-                LabeledRow(stringResource(R.string.settings_llm_backend)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("auto" to R.string.settings_auto, "cpu" to R.string.settings_backend_cpu, "gpu" to R.string.settings_backend_gpu).forEach { (id, res) ->
-                            FilterChip(
-                                selected = (config.llmBackend == id) || (id == "auto" && config.llmBackend !in listOf("cpu", "gpu")),
-                                enabled = enabled,
-                                onClick = { onChange(config.copy(llmBackend = id)) },
-                                label = { Text(stringResource(res)) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
-                                    selectedLabelColor = pal.Sky,
-                                    labelColor = pal.Slate400,
-                                ),
-                            )
-                        }
-                    }
-                }
-                LabeledRow(stringResource(R.string.settings_asr_hw)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("auto" to R.string.settings_auto, "cpu" to R.string.settings_backend_cpu, "gpu" to R.string.settings_backend_gpu).forEach { (id, res) ->
-                            FilterChip(
-                                selected = (config.asrHardware == id) || (id == "auto" && config.asrHardware !in listOf("cpu", "gpu")),
-                                enabled = enabled,
-                                onClick = { onChange(config.copy(asrHardware = id)) },
-                                label = { Text(stringResource(res)) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
-                                    selectedLabelColor = pal.Sky,
-                                    labelColor = pal.Slate400,
-                                ),
-                            )
-                        }
-                    }
-                }
-            }
+            // No inference-hardware picker: the qwen35lite engine is CPU/XNNPACK only.
+            // GPU was tried and reverted — on Mali devices without OpenCL the GL backend fails
+            // shader compile and the WebGPU backend HANGS init at 0% CPU (SM-A5360, 2026-07-24) —
+            // and NPU would need per-SoC model builds that do not exist for this export.
         }
 
         // (3) Recognition detail — VAD.
