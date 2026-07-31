@@ -306,6 +306,35 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
     std::vector<llama_token> tokens = tokenize(vocab, std::string(prompt), /*addSpecial=*/true);
     env->ReleaseStringUTFChars(jPrompt, prompt);
 
+    // Over-context is a TERMINAL ERROR, never a silently empty summary.
+    //
+    // The decode loop's `nPos + batch.n_tokens > nCtx` guard breaks BEFORE the first decode when
+    // the prompt alone exceeds the context, so generate() returned "" after ~45 ms and the caller
+    // surfaced an empty summary as if it had succeeded. That is the one failure mode this project
+    // forbids across all three codebases (the Python side raises TranscriptTooLongError and
+    // deliberately does not catch it) — a degraded-but-plausible summary is worse than an error,
+    // because the user cannot tell it happened.
+    //
+    // Reachable in the real app, not just here: Summarizer.contextFor COERCES its result into
+    // [min, spec.maxCtx], so a transcript needing more than maxCtx is clamped rather than
+    // rejected — a ~3-hour zh meeting is ~58k tokens against a 32768 ceiling.
+    //
+    // The gate is exactly the empty case (prompt > nCtx) and no wider: a prompt that fits but
+    // leaves less than maxTokens of room still decodes and streams a genuine partial summary,
+    // which stays working.
+    if ((int) tokens.size() > h->nCtx) {
+        LOGE("prompt %zu tokens > n_ctx %d", tokens.size(), h->nCtx);
+        jclass ise = env->FindClass("java/lang/IllegalStateException");
+        if (ise) {
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                     "transcript too long: %zu prompt tokens exceed the %d-token context",
+                     tokens.size(), h->nCtx);
+            env->ThrowNew(ise, msg);
+        }
+        return nullptr;
+    }
+
     // Sampler chain, per-model (see SamplerProfile / LlmRegistry). Some models need a repeat penalty
     // to avoid "say the same sentence forever" loops; others (Qwen3.5) run on into a wall-of-text under
     // one, so they pass repeat 1.0 + a flat presence penalty instead. Fixed seed = reproducible.

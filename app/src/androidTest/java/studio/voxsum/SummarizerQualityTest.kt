@@ -40,8 +40,19 @@ class SummarizerQualityTest {
             args.getString("model") ?: studio.voxsum.core.models.LlmRegistry.DEFAULT_ID,
         )
         val cc = OpenCcConverter.get(ctx, ChineseScript.TRADITIONAL)   // app converts output to zh-TW
-        val llm = TextGen.load(ctx, gguf, spec, nThreads = 4)
+        // Size the context to THIS transcript, exactly as TranscriptionService does. Loading at
+        // the fixed default instead made every fixture past ~15k estimated tokens trip
+        // Summarizer's context gate, which answers with a Failed event — and because the collector
+        // below used to drop Failed on the floor, that surfaced as the useless "non-empty summary"
+        // assertion rather than the real reason.
+        val nCtx = Summarizer.contextFor(
+            transcript,
+            outputTokens = studio.voxsum.core.config.SummaryStyle.fromId(null).reduceTokens,
+            max = TextGen.CTX_MAX,
+        )
+        val llm = TextGen.load(ctx, gguf, spec, nThreads = 4, nCtx = nCtx)
         val summary = StringBuilder(); val title = StringBuilder(); var mapChunks = 0
+        var failure: String? = null
         val t0 = System.nanoTime()
         Summarizer(llm, template = spec.chatTemplate, targetLanguage = "Traditional Chinese (繁體中文)",
                    convert = { cc.convert(it) })
@@ -51,15 +62,18 @@ class SummarizerQualityTest {
                     is TranscriptEvent.SummaryComplete -> summary.append(e.summary)
                     is TranscriptEvent.Title -> title.append(e.title)
                     is TranscriptEvent.Partial -> mapChunks++
+                    // A refusal is a real, reportable outcome — never silently an empty summary.
+                    is TranscriptEvent.Failed -> failure = e.error
                     else -> {}
                 }
             }
         val ms = (System.nanoTime() - t0) / 1_000_000
         llm.close()
         Log.i(TAG, "===== $label =====")
-        Log.i(TAG, "transcript=${transcript.length} chars  mapChunks=$mapChunks  summarize=${ms}ms")
+        Log.i(TAG, "transcript=${transcript.length} chars  nCtx=$nCtx  mapChunks=$mapChunks  summarize=${ms}ms")
         Log.i(TAG, "TITLE: $title")
         Log.i(TAG, "SUMMARY: ${summary.toString().replace("\n", " / ")}")
+        failure?.let { org.junit.Assert.fail("summarizer refused: $it") }
         assertTrue("non-empty summary", summary.isNotBlank())
     }
 
