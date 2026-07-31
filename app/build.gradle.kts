@@ -128,6 +128,9 @@ dependencies {
     implementation(libs.commons.compress) // tar.bz2 model extraction (Apache-2.0)
 
     testImplementation("junit:junit:4.13.2")
+    // The platform's org.json is a throw-on-call stub in local unit tests, and the MOSS
+    // tokenizer/detokenizer parse the model's vocab.json with it.
+    testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")

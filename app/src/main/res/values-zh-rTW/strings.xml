@@ -73,6 +73,8 @@
     <string name="settings_summary_language">目標語言</string>
     <string name="summary_language_auto">與逐字稿相同</string>
     <string name="settings_summary_prompt">摘要提示詞</string>
+    <string name="settings_asr_context">需要辨識的名稱與術語</string>
+    <string name="settings_asr_context_hint">這段錄音中的人名、公司名或專業術語，以逗號分隔。僅適用於 MOSS-TD。</string>
     <string name="settings_storage">儲存空間</string>
     <string name="storage_total">裝置上的模型：%1$s</string>
     <string name="storage_none">尚未下載任何模型</string>

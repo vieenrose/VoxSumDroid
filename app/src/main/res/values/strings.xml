@@ -74,6 +74,10 @@
     <string name="settings_summary_language">Target language</string>
     <string name="summary_language_auto">Match transcript</string>
     <string name="settings_summary_prompt">Summary prompt</string>
+    <!-- Hotword/context biasing. MOSS-TD only: it is an LLM ASR, so terms are appended
+         to its prompt. Blank (default) leaves the prompt byte-identical to un-biased. -->
+    <string name="settings_asr_context">Names and terms to recognise</string>
+    <string name="settings_asr_context_hint">People, companies or jargon in this recording, separated by commas. MOSS-TD only.</string>
     <string name="settings_storage">Storage</string>
     <string name="storage_total">Models on device: %1$s</string>
     <string name="storage_none">No models downloaded yet</string>

@@ -152,6 +152,20 @@ fun SettingsContent(
             SliderRow(stringResource(R.string.settings_vad_threshold), config.vadThreshold, 0.1f, 0.9f, enabled) {
                 onChange(config.copy(vadThreshold = it))
             }
+        } else {
+            // Hotword biasing is MOSS-only: it is an autoregressive LLM ASR, so the terms
+            // are appended to its prompt (upstream's `热词提示：a, b, c` form). The other
+            // backends have no prompt to bias, hence this lives inside the MOSS branch.
+            Section(stringResource(R.string.settings_recognition))
+            OutlinedTextField(
+                value = config.asrContext,
+                onValueChange = { onChange(config.copy(asrContext = it)) },
+                label = { Text(stringResource(R.string.settings_asr_context)) },
+                supportingText = { Text(stringResource(R.string.settings_asr_context_hint)) },
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                minLines = 2,
+            )
         }
 
         // (4) Diarization — not shown for MOSS (it diarizes in the same pass as transcription).

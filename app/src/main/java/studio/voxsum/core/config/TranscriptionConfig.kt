@@ -17,6 +17,12 @@ data class TranscriptionConfig(
     val language: String = "",
     val useItn: Boolean = true,               // inverse text normalization
     val vadThreshold: Float = 0.5f,           // 0.1..0.9
+    // Hotword / context biasing: names, jargon and terms the recording is likely to contain.
+    // MOSS-TD ONLY — it is an autoregressive LLM ASR, so biasing is just text appended to its
+    // prompt in upstream's documented `热词提示：a, b, c` form (see MossLitePrompt.buildIds).
+    // The other backends have no equivalent and ignore this. Empty = the prompt is byte-identical
+    // to the un-biased one, so the default costs nothing.
+    val asrContext: String = "",
 
     // --- Diarization ---
     val diarizationEnabled: Boolean = true,

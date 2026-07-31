@@ -1320,6 +1320,10 @@ class TranscriptionService : LifecycleService() {
             vocabJson = models.mossLiteVocab,
             cacheDir = File(cacheDir, "xnnpack"),
             gpu = asrGpu(cfg, AsrBackend.MOSS),
+            // Hotword/context biasing — MOSS-TD only; the other backends have no prompt
+            // to bias. Blank (the default) leaves the prompt byte-identical to before.
+            context = cfg.asrContext,
+            mergesTxt = models.mossLiteMerges,
         )
         if (engine == null) {
             runCatching { models.deleteAsr(AsrBackend.MOSS) }

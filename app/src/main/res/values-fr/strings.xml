@@ -73,6 +73,8 @@
     <string name="settings_summary_language">Langue cible</string>
     <string name="summary_language_auto">Comme la transcription</string>
     <string name="settings_summary_prompt">Invite de résumé</string>
+    <string name="settings_asr_context">Noms et termes à reconnaître</string>
+    <string name="settings_asr_context_hint">Personnes, entreprises ou jargon présents dans cet enregistrement, séparés par des virgules. MOSS-TD uniquement.</string>
     <string name="settings_storage">Stockage</string>
     <string name="storage_total">Modèles sur l\'appareil : %1$s</string>
     <string name="storage_none">Aucun modèle téléchargé</string>
