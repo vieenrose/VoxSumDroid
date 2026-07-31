@@ -120,6 +120,13 @@ object Strings {
     val noActionItems: String get() = t("No action items", "Aucune action", "無行動項目")
     val untitled: String get() = t("Untitled", "Sans titre", "未命名")
     val noSummaryYet: String get() = t("No summary yet", "Pas encore de résumé", "尚無摘要")
+    /** Placeholder-model caution: the shipped summarizer runs un-fine-tuned base weights and can
+     *  state facts backwards. Revisit (soften or drop) once the fine-tuned model ships. */
+    val summaryAiCaution: String get() = t(
+        "AI summary — may contain errors; check against the transcript.",
+        "Résumé IA — peut contenir des erreurs ; vérifiez avec la transcription.",
+        "AI 摘要，可能有誤，請對照逐字稿確認。",
+    )
     val sessionCover: String get() = t("Session cover", "Couverture de la session", "工作階段封面")
     val asrLabel: String get() = t("ASR:", "ASR :", "辨識：")
     val llmLabel: String get() = t("LLM:", "LLM :", "摘要：")
