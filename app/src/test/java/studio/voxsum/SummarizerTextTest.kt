@@ -92,6 +92,42 @@ class SummarizerTextTest {
         assertEquals("hi", SummaryText.wrap(ChatTemplate.NONE, "hi"))
     }
 
+    // --- loop backstop (restored after the Gemma-removal regression) ------------------------
+
+    @Test fun dropsRepeatedBulletsAnywhereInTheSummary() {
+        // The measured on-device failure: 7 bullets, 5 of them duplicates of 2 sentences.
+        val looped = """
+            1. 資深職涯經驗來自多領域專業領域。
+            2. 不同行業與政府機構提供多樣性薪資。
+            3. 資深職涯經驗提供多層面專業建議。
+            4. 不同行業與政府機構提供多樣性薪資。
+            5. 資深職涯經驗提供多層面專業建議。
+            6. 資深職涯經驗提供多層面專業建議。
+        """.trimIndent()
+        val out = SummaryText.dropRepeatedLines(looped).lines().filter { it.isNotBlank() }
+        assertEquals(3, out.size)
+    }
+
+    @Test fun repeatedLinesAreMatchedIgnoringBulletAndNumbering() {
+        val looped = "• 同一句話。\n1. 同一句話。\n- 同一句話。"
+        assertEquals(1, SummaryText.dropRepeatedLines(looped).lines().filter { it.isNotBlank() }.size)
+    }
+
+    @Test fun distinctLinesSurviveDeduplication() {
+        val text = "• 第一點。\n• 第二點。\n• 第三點。"
+        assertEquals(3, SummaryText.dropRepeatedLines(text).lines().filter { it.isNotBlank() }.size)
+    }
+
+    @Test fun collapsesImmediatelyRepeatedSentences() {
+        val looped = "我們會針對產品加速。我們會針對產品加速。結論如下。"
+        assertEquals("我們會針對產品加速。結論如下。", SummaryText.dedupeAdjacentSentences(looped))
+    }
+
+    @Test fun leavesNonRepeatingTextAlone() {
+        val text = "第一句。第二句。第三句。"
+        assertEquals(text, SummaryText.dedupeAdjacentSentences(text))
+    }
+
     // --- chunk --------------------------------------------------------------------------------
 
     @Test fun chunkReturnsSingleChunkWhenShort() {

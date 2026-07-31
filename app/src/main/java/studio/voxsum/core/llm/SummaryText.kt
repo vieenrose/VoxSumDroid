@@ -97,6 +97,54 @@ internal object SummaryText {
                 .replace(Regex("^\\s{0,3}#{1,6}\\s*"), "")    // ## heading -> text
                 .replace(Regex("^(\\s*)[*\\-–•]\\s+"), "$1• ") // bullets -> "• "
         }.replace(Regex("\n{3,}"), "\n\n").trim()
+            // Loop backstop, applied PER LINE: dedupeAdjacentSentences drops blank
+            // segments, so running it across the whole summary would eat the blank
+            // lines between paragraphs.
+            .lines().joinToString("\n") { dedupeAdjacentSentences(it) }
+            .let(::dropRepeatedLines)
+    }
+
+    /**
+     * LOOP BACKSTOP, part 1 — drop lines the model has already emitted, anywhere in the
+     * summary (not just adjacently). A summary must never contain the same bullet twice,
+     * and small models fed a long transcript fall into exactly that: a measured on-device
+     * run produced seven bullets of which five were duplicates of two sentences.
+     *
+     * This lived in LiteLlmEngine and was deleted with it in the Gemma removal; nothing
+     * replaced it, and the LiteRT-LM sampler exposes NO repeat/presence penalty
+     * (SamplerConfig is topK/topP/temperature/seed only), so post-processing is the only
+     * lever available. Keep it until a runtime with penalties or a fine-tune that does not
+     * loop replaces the placeholder model.
+     */
+    internal fun dropRepeatedLines(text: String): String {
+        val seen = HashSet<String>()
+        val out = ArrayList<String>()
+        for (line in text.lines()) {
+            // Compare on content only: bullets/numbering differ while the sentence repeats.
+            val key = line.trim().lowercase()
+                .replace(Regex("^[•\\-*–]\\s*"), "")
+                .replace(Regex("^\\d+[.)、]\\s*"), "")
+            if (key.isEmpty() || seen.add(key)) out.add(line)
+        }
+        return out.joinToString("\n")
+    }
+
+    /**
+     * LOOP BACKSTOP, part 2 — collapse immediately repeated sentences within a line.
+     * Restored verbatim from LiteLlmEngine (deleted in the Gemma removal); catches
+     * intra-line looping that [dropRepeatedLines] cannot see.
+     */
+    internal fun dedupeAdjacentSentences(text: String): String {
+        val parts = Regex("(?<=[。！？.!?；;\\n])").split(text).filter { it.isNotBlank() }
+        if (parts.size < 2) return text
+        val out = StringBuilder()
+        var prevKey = ""
+        for (p in parts) {
+            val key = p.trim().lowercase()
+            if (key != prevKey) out.append(p)
+            prevKey = key
+        }
+        return out.toString().trim()
     }
 
     /** Wrap a user instruction in the model's chat template so it behaves and stops at its EOG. */
