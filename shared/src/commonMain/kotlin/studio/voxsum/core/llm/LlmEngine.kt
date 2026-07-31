@@ -80,13 +80,19 @@ class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : A
         fun load(
             modelPath: String, nThreads: Int,
             // 16384 covers ~80 min of speech in one pass (~195 tok/min zh); Qwen3.5's
-            // mostly-sliding-window attention keeps the KV cost small.
+            // mostly-sliding-window attention keeps the KV cost small. Desktop raises this to
+            // 32768 together with [kvQ8] (see Pipeline.kt).
             nCtx: Int = 16384,
             sampler: SamplerProfile = SamplerProfile.LEGACY,
+            /** q8_0-quantized K and V cache. Quantized V requires flash-attention, which the
+             *  native side turns on with it; it falls back to f16 if the backend refuses.
+             *  Halves KV RAM — desktop uses it to afford nCtx 32768. */
+            kvQ8: Boolean = false,
         ): LlmEngine {
             val h = nativeLoad(
                 modelPath, nThreads, nCtx,
                 sampler.topK, sampler.topP, sampler.temp, sampler.repeatPenalty, sampler.presencePenalty,
+                kvQ8,
             )
             check(h != 0L) { "Failed to load GGUF model: $modelPath" }
             return LlmEngine(h, nCtx)
@@ -95,6 +101,7 @@ class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : A
         @JvmStatic private external fun nativeLoad(
             path: String, nThreads: Int, nCtx: Int,
             topK: Int, topP: Float, temp: Float, repeatPenalty: Float, presencePenalty: Float,
+            kvQ8: Boolean,
         ): Long
     }
 }

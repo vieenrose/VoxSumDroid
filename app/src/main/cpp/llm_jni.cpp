@@ -133,7 +133,8 @@ extern "C" {
 JNIEXPORT jlong JNICALL
 Java_studio_voxsum_core_llm_LlmEngine_nativeLoad(
         JNIEnv* env, jobject /*thiz*/, jstring jPath, jint nThreads, jint nCtx,
-        jint topK, jfloat topP, jfloat temp, jfloat repeatPenalty, jfloat presencePenalty) {
+        jint topK, jfloat topP, jfloat temp, jfloat repeatPenalty, jfloat presencePenalty,
+        jboolean kvQ8) {
     llama_backend_init();
 
     const char* path = env->GetStringUTFChars(jPath, nullptr);
@@ -160,11 +161,29 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeLoad(
     cp.n_batch         = (uint32_t) nCtx;
     cp.n_threads       = nThreads;
     cp.n_threads_batch = nThreads;
+    // Optional q8_0-quantized KV cache (desktop, where the context is 32768). Halves the KV
+    // footprint at ~no quality cost. llama.cpp can only run a quantized *V* cache under Flash
+    // Attention (the non-FA path needs a contiguous fp V for the ggml_mul_mat), so FA is forced
+    // ON together with it — AUTO would silently fall back to disabled on some builds and then
+    // context creation fails. If FA/quant KV is unsupported by the backend, llama_init_from_model
+    // returns null and we retry once with the plain fp16 cache rather than failing the load.
+    if (kvQ8) {
+        cp.type_k          = GGML_TYPE_Q8_0;
+        cp.type_v          = GGML_TYPE_Q8_0;
+        cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    }
     h->ctx  = llama_init_from_model(h->model, cp);
+    if (!h->ctx && kvQ8) {
+        LOGE("ctx init with q8_0 KV + flash-attn failed; retrying with the default f16 KV cache");
+        cp.type_k          = GGML_TYPE_F16;
+        cp.type_v          = GGML_TYPE_F16;
+        cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+        h->ctx = llama_init_from_model(h->model, cp);
+    }
     h->nCtx = nCtx;
     if (!h->ctx) { LOGE("ctx init failed"); llama_model_free(h->model); delete h; return 0; }
 
-    LOGI("loaded model, n_ctx=%d threads=%d", nCtx, nThreads);
+    LOGI("loaded model, n_ctx=%d threads=%d kv=%s", nCtx, nThreads, kvQ8 ? "q8_0" : "f16");
     return reinterpret_cast<jlong>(h);
 }
 

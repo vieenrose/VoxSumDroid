@@ -138,15 +138,28 @@ includes engine load, peak RSS is the process high-water mark.
 
 | backend | en WER | zh-TW CER | wall en / zh | peak RSS | prefill | generation |
 |---|---:|---:|---:|---:|---:|---:|
-| **MOSS-TD** | **4.6%** | **6.3%** | 109 s / 157 s | 1.7 GB | ~790 tok/s | 18.7 tok/s |
-| **X-ASR** | 11.4% | 15.3% | 7 s / 8 s | 0.5 GB | — | — |
-| **Nemotron** | 11.9% | 17.5% | 16 s / 24 s | 1.1 GB | — | — |
+| **MOSS-TD** | **4.6%** | **6.71%** | 109 s / 157 s | 1.7 GB | ~790 tok/s | 18.7 tok/s |
+| **X-ASR** | 11.4% | 11.53% | 7 s / 8 s | 0.5 GB | — | — |
+| **Nemotron** | 11.9% | 22.70% | 16 s / 24 s | 1.1 GB | — | — |
+
+The **zh-TW CER column is measured on held-out audio**: a 9-clip / 16.6-minute
+FormosaSpeech set, scored with the usual normalizer (OpenCC s2t + per-digit
+漢字 fold via cn2an + CJK-only filter, character CER). The figures above are the
+common-subset scores; over all 9 clips they are MOSS-TD 7.74, X-ASR 12.25,
+Nemotron 21.39. **All previously published zh-TW numbers are withdrawn and must
+not be cited** — they came from a Common Voice 19.0 *test* concatenation, which
+is in-domain for Nemotron (itself a Common-Voice-zh-TW fine-tune) and so
+unlabelled in-domain for every zh figure we ever printed. The en column is
+unaffected: it was measured on independent audio.
 
 Prefill/generation apply only to MOSS-TD — the one autoregressive backend;
 X-ASR and Nemotron emit tokens from a single forward pass. RTF: X-ASR ≈ 0.02,
 Nemotron ≈ 0.06, MOSS-TD ≈ 0.35.
 
 ### Sample output (first seconds of each clip)
+
+(The transcripts and the wall-clock/RSS columns still come from the original
+two 5-minute clips; only the zh-TW CER column was re-measured on held-out audio.)
 
 **English** — reference: *“When you call someone who is thousands of miles
 away, you are using a satellite. Now widely available throughout the
@@ -167,13 +180,17 @@ archipelago, …”*
 | Nemotron | 這家也可以刷卡 外交與全球信議題 我們的人口結構急速老化 新電端 則正確的說明了星球的大小… |
 
 MOSS-TD is the accuracy pick and the only diarizing backend; X-ASR is the fast
-default; Nemotron trades some accuracy for language breadth (25 languages).
+default; Nemotron is there for **language breadth (25 languages), not Chinese
+accuracy** — on held-out Taiwanese Mandarin it is ~2x worse than X-ASR and ~3x
+worse than MOSS-TD, and it collapses on classical text (44.8 CER on 三國演義
+against MOSS-TD's 2.2).
 Four fixes were landed against these clips: VAD tail amputation and pre-roll
 (both backends), head/tail silence context for Nemotron's strided encoder
-(en 26.2 → 17.3, zh 32.5 → 19.0 combined), a per-backend pre-roll sweep
-(X-ASR pr=2: zh 16.0 → 15.3; Nemotron pr=8), and a q8 encoder re-export for
+(en 26.2 → 17.3 combined; the zh half of that measurement is withdrawn), a
+per-backend pre-roll sweep (X-ASR pr=2, Nemotron pr=8), and a q8 encoder re-export for
 Nemotron replacing the q4-mix at the same 599 MB — the q4 quantization alone
-was costing ~6 en WER (en 17.3 → 11.9, zh 19.0 → 17.5). X-ASR additionally
+was costing ~6 en WER (en 17.3 → 11.9; the paired zh figure is withdrawn with
+the rest of the old in-domain zh set). X-ASR additionally
 needs the XNNPACK weight cache disabled: caching packs weights by tensor data,
 so its four shared-weight bucketed encoder signatures collide and the larger
 buckets decode to nothing. Clips are single runs on one machine; treat rows as

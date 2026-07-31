@@ -11,7 +11,8 @@ import studio.voxsum.core.models.ChatTemplate
  * The whole (formatted) transcript goes to the model in ONE prompt through [LlmEngine].
  * Map-reduce was removed after the 2026-07-29 lab: its reduce step is a uniform lossy
  * bottleneck and the model never sees the document whole; a single pass at nCtx 16384
- * covers ~80 min of speech (~195 tok/min zh). A transcript that exceeds the context
+ * covers ~80 min of speech (~195 tok/min zh); desktop doubles that to nCtx 32768
+ * (~160 min) with a q8_0 KV cache. A transcript that exceeds the context
  * budget is an explicit [TranscriptEvent.Failed] — no silent fallback (see
  * docs/TRANSCRIPT-FORMAT.md: the fine-tuned summarizer contract is single-task,
  * single-pass).
@@ -119,6 +120,24 @@ class Summarizer(
     }
 
     companion object {
+        /**
+         * Smallest context that fits [text] plus [outputTokens] of generation, rounded up to a
+         * 4096 step and clamped to [min, max]. llama.cpp's per-token cost tracks the ALLOCATED
+         * context, not the used part, so a desktop that can afford a 32768 ceiling still should
+         * not pay for it on a ten-minute meeting; the engine is constructed per summarization
+         * anyway, so sizing it here is free. Uses the same per-script estimate as the context
+         * gate above, so a transcript this sizes for is a transcript that gate accepts.
+         *
+         * Desktop-only by nature: on Android LiteRT-LM bakes the KV geometry into the bundle's
+         * `ekv`, so context there is a build-time property of the bundle, not a load parameter.
+         */
+        fun contextFor(text: String, outputTokens: Int, min: Int = 4096, max: Int = 32768): Int {
+            val need = SummaryText.estimateTokens(text) + outputTokens + 192
+            val step = 4096
+            val rounded = ((need + step - 1) / step) * step
+            return rounded.coerceIn(min, max)
+        }
+
         // Directive prompts: one concise bullet-point summary, no multiple versions / section
         // headers / preamble (verbose small models otherwise emit "Short Summary:",
         // "Detailed Summary:", etc.). The format itself comes from the style directive, not hard-coded.

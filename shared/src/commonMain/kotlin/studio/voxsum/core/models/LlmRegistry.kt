@@ -55,7 +55,7 @@ object LlmRegistry {
 
     val ALL: List<LlmSpec> = listOf(
         // Qwen3.5 0.8B (unsloth Q4_K_M) is the ONLY summarizer: Gemma 4 was removed so the desktop
-        // matches the sub-1B tier — ~533 MB on disk, ~1.5 GB RAM at n_ctx 16384, instead of a 2.2 GB
+        // matches the sub-1B tier — ~533 MB on disk, ~1.5 GB RAM at n_ctx 16384 (desktop: n_ctx 32768 with a q8_0 KV cache), instead of a 2.2 GB
         // download needing ~4 GB. Qwen3.5 is a hybrid linear-attention model (arch "qwen35" — 18
         // gated-delta layers + 6 full-attention); the vendored llama.cpp (LLM_ARCH_QWEN35,
         // src/models/qwen35.cpp) supports it, and the shipped libllama.so exports the arch name.

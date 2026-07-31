@@ -20,6 +20,7 @@ import studio.voxsum.core.llm.ActionItemExtractor
 import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.Summarizer
 import studio.voxsum.core.models.LlmRegistry
+import studio.voxsum.core.models.LlmSpec
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.data.SpeakerName
 import studio.voxsum.data.speakerLabel
@@ -27,6 +28,33 @@ import studio.voxsum.desktop.audio.AudioDecoder
 import studio.voxsum.desktop.audio.AudioRecorder
 import studio.voxsum.desktop.ui.Strings
 import java.io.File
+
+/** Desktop context ceiling for the summarizer. 32768 tokens covers ~160 min of speech in one
+ *  single pass (~195 tok/min zh) — double the mobile 16384 — and is affordable because
+ *  [DESKTOP_LLM_KV_Q8] halves the KV cache. It is a CEILING, not the size actually allocated:
+ *  see [loadDesktopLlm]. */
+const val DESKTOP_LLM_CTX_MAX = 32768
+
+/** Context for the action-item pass: enough for its 3500-char chunk cap, and no more. */
+private const val ACTION_ITEM_CTX = 8192
+
+/** q8_0 K/V cache (flash-attention forced on natively, f16 fallback if the backend refuses). */
+const val DESKTOP_LLM_KV_Q8 = true
+
+/**
+ * Load the summarizer sized for [text]. llama.cpp charges per-token decode against the
+ * ALLOCATED context, so a fixed 32768 would slow every short meeting down by ~25% to buy a
+ * headroom only long ones use. The engine is built fresh per summarization ([LlmEngine] is
+ * `.use{}`-scoped here), so picking the size from the transcript costs nothing. Summarizer's
+ * context gate then budgets off the resulting `llm.nCtx` as usual.
+ */
+private fun loadDesktopLlm(models: ModelManager, spec: LlmSpec, text: String, outputTokens: Int): LlmEngine =
+    LlmEngine.load(
+        models.llmFile(spec).absolutePath, nThreads = 4,
+        nCtx = Summarizer.contextFor(text, outputTokens, max = DESKTOP_LLM_CTX_MAX),
+        sampler = spec.sampler, kvQ8 = DESKTOP_LLM_KV_Q8,
+    )
+
 
 /** Per-user app-private storage, XDG Base Directory-compliant: $XDG_DATA_HOME/VoxSum, falling
  *  back to ~/.local/share/VoxSum — the same role app/'s Context.filesDir plays on Android.
@@ -249,7 +277,7 @@ suspend fun reTitle(state: AppState, update: Update) {
         val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
         val style = state.summaryStyle
         withContext(Dispatchers.Default) {
-            val llm = LlmEngine.load(models.llmFile(llmSpec).absolutePath, nThreads = 4, sampler = llmSpec.sampler)
+            val llm = loadDesktopLlm(models, llmSpec, state.summary, outputTokens = 64)
             try {
                 Summarizer(
                     llm, llmSpec.chatTemplate, targetName, convert, style.mapInstruction,
@@ -283,7 +311,10 @@ suspend fun extractActionItems(state: AppState, update: Update) {
         val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
         val text = studio.voxsum.core.llm.TranscriptFormat.format(state.utterances, state.speakerNames.mapValues { it.value.name })
         val result = withContext(Dispatchers.Default) {
-            val llm = LlmEngine.load(models.llmFile(llmSpec).absolutePath, nThreads = 4, sampler = llmSpec.sampler)
+            // ActionItemExtractor chunks internally against llm.nCtx (its per-chunk budget caps
+            // at 3500 chars), so it never needs the big window — a fixed modest context keeps
+            // decode fast. ACTION_ITEM_CTX is what that cap works out to with headroom.
+            val llm = loadDesktopLlm(models, llmSpec, text = "", outputTokens = ACTION_ITEM_CTX)
             try {
                 ActionItemExtractor(llm, llmSpec.chatTemplate, targetName, convert)
                     .extract(text) { p -> update { it.copy(progress = p) } }
@@ -551,7 +582,7 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
     val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
     val transcriptText = studio.voxsum.core.llm.TranscriptFormat.format(tagged)
     withContext(Dispatchers.Default) {
-        val llm = LlmEngine.load(models.llmFile(llmSpec).absolutePath, nThreads = 4, sampler = llmSpec.sampler)
+        val llm = loadDesktopLlm(models, llmSpec, transcriptText, outputTokens = style.reduceTokens)
         try {
             // ETA like the diarization phase: the summary pass runs minutes on long meetings
             // (map chunks + hierarchical reduce), so extrapolate a time-to-finish from the
