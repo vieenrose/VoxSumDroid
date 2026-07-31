@@ -112,6 +112,7 @@
 
     <!-- Transcript / cards / speaker stats -->
     <string name="card_summary">摘要</string>
+    <string name="summary_ai_caution">AI 摘要，可能有誤，請對照逐字稿確認。</string>
     <string name="card_title">標題</string>
     <string name="speaker_n">語者 %d</string>
     <string name="detect_speaker_names">偵測語者名稱</string>

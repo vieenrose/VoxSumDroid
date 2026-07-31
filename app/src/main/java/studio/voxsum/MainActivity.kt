@@ -2503,6 +2503,16 @@ private fun SummaryCard(
         } else {
             CollapsibleMarkdown(summary, collapsedMaxLines = 12, onBeginEdit = onBeginEdit)
         }
+        // Faithfulness caution — UI chrome only, never part of the exported summary text.
+        // The shipped summarizer is a PLACEHOLDER running un-fine-tuned base weights, which can
+        // state facts backwards (e.g. "revenue dropped 11%" for "11% above forecast"). Revisit
+        // (soften or remove) once the fine-tuned model ships and its faithfulness is measured.
+        Spacer(Modifier.height(6.dp))
+        Text(
+            stringResource(R.string.summary_ai_caution),
+            style = MaterialTheme.typography.labelSmall,
+            color = pal.Slate400,
+        )
     }
 }
 

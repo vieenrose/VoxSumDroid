@@ -112,6 +112,7 @@
 
     <!-- Transcript / cards / speaker stats -->
     <string name="card_summary">Résumé</string>
+    <string name="summary_ai_caution">Résumé IA — peut contenir des erreurs ; vérifiez avec la transcription.</string>
     <string name="card_title">Titre</string>
     <string name="speaker_n">Locuteur %d</string>
     <string name="detect_speaker_names">Détecter les noms des locuteurs</string>

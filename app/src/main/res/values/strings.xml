@@ -113,6 +113,9 @@
 
     <!-- Transcript / cards / speaker stats -->
     <string name="card_summary">Summary</string>
+    <!-- Placeholder-model caution: the shipped summarizer runs un-fine-tuned base weights and can
+         state facts backwards. Revisit (soften or drop) once the fine-tuned model ships. -->
+    <string name="summary_ai_caution">AI summary — may contain errors; check against the transcript.</string>
     <string name="card_title">Title</string>
     <string name="speaker_n">Speaker %d</string>
     <string name="detect_speaker_names">Detect speaker names</string>
