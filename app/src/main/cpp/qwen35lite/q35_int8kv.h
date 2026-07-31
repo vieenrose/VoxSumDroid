@@ -42,8 +42,27 @@
 //
 // i.e. -554 MiB peak / -702 MiB anon and 2.6x faster decode, because the
 // kernel skips masked columns while the unfused graph always scans the whole
-// baked cache. Applied to the Boox's cached-weight 32k figures (1903 peak /
-// 1415 anon) that is comfortably under the ~2.05 GB lowmemorykiller ceiling.
+// baked cache.
+//
+// Measured on the Boox Tab Mini C itself (standalone runner, 4 threads, warm
+// XNNPACK weight cache, 417-token prompt, 32k bundle):
+//
+//   peak RSS 717 MiB, anon 386 MiB, prefill 3.42 tok/s, decode 0.63 tok/s
+//
+// The MEMORY gate passes with enormous margin -- against the ~2.05 GB
+// lowmemorykiller ceiling and the app's ~417 MiB floor that is ~1.1 GB in-app,
+// nearly a gigabyte of headroom, and it beats the SHIPPED 16k fp32-KV
+// configuration (1115 peak / 765 anon) on both axes while holding twice the
+// context. int8 KV at 32k is 195 MiB where fp32 KV at 16k is 384 MiB.
+//
+// The SPEED gate fails badly. 0.63 tok/s decode against the shipped 16k's
+// 3.40 is unusable -- a 300-token summary would take eight minutes of
+// generation. Note the platform gap: the same kernel decodes at 8.93 tok/s on
+// x86 (faster than the unfused graph) and 0.63 on the Boox. The scalar
+// int8->float widening in dequant_dot auto-vectorises on AVX and does not on
+// baseline armv8-a, which has no dotprod. Making 32k real needs a NEON int8
+// path (smull/sadalp, or an int8-quantized q for integer dot products) before
+// anything else -- not more memory work.
 //
 // It is not shipped because the numerical gate was not met. Against the
 // unfused fp32-KV export, greedy argmax agrees at every prompt length tested
@@ -61,8 +80,8 @@
 // So the gate as written cannot be met by ANY reimplementation of this graph's
 // attention, and the remaining work is to agree on a gate that measures the
 // codec rather than the rounding (e.g. attention-context error, or
-// teacher-forced token agreement over a long transcript) and then validate the
-// real app flow on the device. Diagnostics kept for that: Q35_KV_FP32 (exact
+// teacher-forced token agreement over a long transcript), write the NEON path,
+// and then validate the real app flow on the device. Diagnostics: Q35_KV_FP32 (exact
 // fp32 cache), Q35_KV_NAIVE (serial reference path -- bit-identical to the
 // tiled/threaded fast path), Q35_KV_PROBE (shadow-copy cache-corruption check).
 #ifndef Q35_INT8KV_H
