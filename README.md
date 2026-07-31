@@ -204,9 +204,17 @@ scripts/test-on-device.sh <serial> -- -e class studio.voxsum.AsrFullBenchTest -e
 
 | backend | en WER | zh-TW CER | RTF en / zh | peak RssAnon |
 |---|---:|---:|---:|---:|
-| **MOSS-TD** | **4.2%** | **10.6%** | 8.7 / 10.5 | 1072 MB |
-| **X-ASR** (Zipformer) | 8.6% | 14.5% | 0.29 / 2.27 | ~1.0 GB |
-| **Nemotron** (q8) | 12.2% | 17.5% | 0.86 / 1.60 | 381 MB |
+| **MOSS-TD** | **4.2%** | **6.7%** | 8.7 / 10.5 | 1072 MB |
+| **X-ASR** (Zipformer) | 8.6% | 11.5% | 0.29 / 2.27 | ~1.0 GB |
+| **Nemotron** (q8) | 12.2% | 22.7% | 0.86 / 1.60 | 381 MB |
+
+**The zh-TW column is held-out**, measured on FormosaSpeech clips from a 9-clip / 16.6-minute set
+and scored as character CER after OpenCC s2t, a per-digit 漢字 fold via cn2an, and a CJK-only
+filter. Across all 9 clips of that set the same run gives MOSS-TD 7.7, X-ASR 12.3, Nemotron 21.4.
+Earlier versions of this table published zh numbers (MOSS-TD 10.6, X-ASR 14.5, Nemotron 17.5)
+measured on 120 concatenated Common Voice 19.0 **test** utterances — in-domain for Nemotron, which
+is itself a Common-Voice-zh-TW fine-tune, and so flattering to it. Those numbers are withdrawn;
+**do not cite the old 17.5**. The en column is unchanged — it was measured on independent audio.
 
 **RTF** is wall-clock ÷ audio duration; below 1.0 is faster than real time. **Peak RssAnon, not
 total RSS**: model weights are mmap'd, so anonymous memory is what the app must keep resident and
@@ -217,9 +225,11 @@ signatures collide and the larger buckets decode to nothing.
 
 **Accuracy vs speed:** MOSS-TD is in a different accuracy class (and the only backend that
 diarizes while it transcribes) but runs ~9–10× slower than real time on this SoC. X-ASR is the
-fast default; Nemotron trades a little accuracy for language breadth (25 languages). The
-Nemotron row uses the q8 encoder that replaced the original q4-mix at the same 599 MB — the q4
-quantization alone cost ~6 en WER — plus its retuned VAD pre-roll.
+fast default. **Nemotron's case is language coverage — 25 languages — not accuracy**: on Taiwanese
+Mandarin it is roughly 2× worse than X-ASR and 3× worse than MOSS-TD, and it collapses on
+classical text (44.8 CER on 三國演義 against MOSS-TD's 2.2). Pick it when you need a language the
+other two do not cover. The Nemotron row uses the q8 encoder that replaced the original q4-mix at
+the same 599 MB — the q4 quantization alone cost ~6 en WER — plus its retuned VAD pre-roll.
 
 **Prefill and generation apply only to MOSS-TD**, the one autoregressive backend
 (per ~90 s window, zh clip):
