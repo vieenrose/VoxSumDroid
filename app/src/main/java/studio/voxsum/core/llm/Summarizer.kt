@@ -135,6 +135,28 @@ class Summarizer(
     }
 
     companion object {
+        /**
+         * Smallest context that fits [text] plus [outputTokens] of generation, rounded up to a
+         * 4096 step and clamped to [[min], [max]].
+         *
+         * llama.cpp charges per-token decode against the ALLOCATED context, so always asking for
+         * the ceiling would slow every short meeting down to buy headroom only long ones use.
+         * The engine is `.use{}`-scoped per summarization, so sizing it from the transcript is
+         * free. This is possible at all only because n_ctx is a runtime parameter here — the
+         * LiteRT bundles it replaced baked the window in at export time, one bundle per size.
+         *
+         * The estimate is [SummaryText.estimateTokens] (per-character-class: timestamps and
+         * punctuation cost ~1 tok/char, so a flat per-script rate undercounts the unified
+         * transcript format's line prefixes); +192 covers the prompt template and chat wrapping.
+         * Ported verbatim from the desktop implementation on branch `linux` — keep them equal.
+         */
+        fun contextFor(text: String, outputTokens: Int, min: Int = 4096, max: Int = 32768): Int {
+            val need = SummaryText.estimateTokens(text) + outputTokens + 192
+            val step = 4096
+            val rounded = ((need + step - 1) / step) * step
+            return rounded.coerceIn(min, max)
+        }
+
         // Directive prompts: one concise bullet-point summary, no multiple versions / section
         // headers / preamble (verbose models like Gemma 4 otherwise emit "Short Summary:",
         // "Detailed Summary:", etc.). The format itself comes from the style directive, not hard-coded.

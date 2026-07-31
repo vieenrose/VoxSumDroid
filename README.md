@@ -153,22 +153,34 @@ timestamps visible.)
 
 ## For developers
 
-VoxSum is an on-device port of [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak). Every
-model runs locally on [LiteRT](https://ai.google.dev/edge/litert) (ASR backends, VAD, speaker
-diarization) and [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) (Gemma summarization) —
-sherpa-onnx, ONNX Runtime and llama.cpp were fully removed in 2026-07. The only native code built
-from source is the small in-repo LiteRT engine (`app/src/main/cpp/mosslite`) and the TurboQuant TQ3
-summarizer (`app/src/main/cpp/tq3lite`); the LiteRT runtime itself ships as the official prebuilt
-from Google's Maven AAR (see `mosslite/PROVENANCE.md`).
+VoxSum is an on-device port of [VoxSum Studio](https://huggingface.co/spaces/Luigi/VoxSum-bak).
+Every model runs locally, on one of two runtimes:
 
-**Low-RAM devices get a bigger summarizer, not a smaller one.** On devices with < 4.5 GB RAM the
-LiteRT-LM Gemma bundle cannot even load, so VoxSum switches to the **TurboQuant TQ3 engine**:
-Gemma 4 E2B with a 3-bit packed KV cache and fused custom attention ops, running on the same
-LiteRT runtime. With its pre-packed weight cache the warm path peaks at **~294 MB of anonymous
-RSS** end-to-end (measured on a 3.7 GB Boox Tab Mini C; load itself adds ~73 MB in ~1 s) — the 7 GB of model/PLE/cache files stay
-evictable file-backed pages on flash. The trade is speed (~1 token/s decode; a few minutes to first
-summary token), which suits the batch "process pending" flow. Model set:
-[`Luigi/gemma-4-e2b-tq3-litert`](https://huggingface.co/Luigi/gemma-4-e2b-tq3-litert).
+- **ASR, VAD and speaker diarization** — [LiteRT](https://ai.google.dev/edge/litert). The runtime
+  ships as the official prebuilt from Google's Maven AAR; the engine around it
+  (`app/src/main/cpp/mosslite`) is built from source (see `mosslite/PROVENANCE.md`).
+- **Summarization** — [llama.cpp](https://github.com/ggml-org/llama.cpp), built from source out of
+  the `native/llama.cpp` submodule, over a single GGUF.
+
+sherpa-onnx and ONNX Runtime were removed in 2026-07. LiteRT-LM was removed in 2026-07 too: it had
+been adopted for Gemma 4's speed, and once Gemma 4 was dropped nothing was left to pay its costs —
+a context length baked into the bundle (so one export could not serve two window sizes), no
+runtime KV quantization, no 3-bit weights, no SSM support, and published arm64 prebuilts that
+SIGILL on ARMv8.0. llama.cpp answers each of those with a flag.
+
+**The summarizer.** [Qwen3.5-0.8B Q4_K_M](https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF)
+(~533 MB, commit-pinned and sha256-verified) — the same artifact the desktop build uses. It is a
+hybrid-attention model (18 gated-delta linear-attention layers, 6 full-attention), so its KV cache
+is small for its size; with a `q8_0` K/V cache the context can run up to 32768 tokens, about
+160 minutes of speech in a single pass. `n_ctx` is sized per transcript
+(`Summarizer.contextFor`), so a short meeting allocates a short window and decodes faster —
+something the baked-in LiteRT bundles could not do.
+
+The arm64 build is deliberately pinned to `-march=armv8-a`: the Cortex-A73/A72 targets have no
+dotprod and no fp16 arithmetic extension, and anything above the baseline SIGILLs there. The
+engine also pins itself to the big CPU cluster before the ggml thread pool is created —
+placement, not clock, is what makes throughput on these devices bimodal.
+
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the module map.
 
 ### Build from source

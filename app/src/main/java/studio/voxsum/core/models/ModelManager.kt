@@ -752,6 +752,13 @@ class ModelManager(context: Context) {
             // the single biggest reclaim in the app's history — existing installs that ever opted
             // in are carrying ~6.9 GiB of dead weight.
             "tq3-litert",
+            // LiteRT summarizer artifact set (graph + pre-packed XNNPACK weight cache +
+            // tokenizer, ~874 MB), retired when the summarizer moved back to llama.cpp/GGUF.
+            // Gemma 4 was the only reason LiteRT-LM was worth its costs and Gemma 4 is gone;
+            // with it go the baked-in context length, the hand-written NEON int8-KV kernel and
+            // the weight cache that had to exist because XNNPACK materialised ~800 MiB of
+            // unreclaimable anonymous memory. llama.cpp mmaps a single 533 MB GGUF instead.
+            "qwen35-litert",
         )
 
         /** Single files from removed engines, reclaimed at construction — the whole

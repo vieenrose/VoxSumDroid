@@ -68,6 +68,9 @@ import studio.voxsum.MainActivity
 import studio.voxsum.R
 import java.io.File
 
+/** Context for the action-item pass: enough for its 3500-char chunk cap, and no more. */
+private const val ACTION_ITEM_CTX = 8192
+
 /**
  * Long-running pipeline host. Transcription + diarization + summarization can take
  * minutes on-device, so they run in a foreground service (survives screen-off / app
@@ -996,7 +999,14 @@ class TranscriptionService : LifecycleService() {
             val models = ModelManager(this)
             ensureLlm(spec, models)
             val llm = try {
-                studio.voxsum.core.llm.TextGen.load(this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(), backend = cfgAll.llmBackend)
+                // The drain holds ONE engine across every queued item, so it cannot size the
+                // context from a single transcript the way summarize() does — it takes the
+                // ceiling and lets short items pay the long ones' decode cost. Sizing per item
+                // would mean a model load per item, which is the cost this pass exists to avoid.
+                studio.voxsum.core.llm.TextGen.load(
+                    this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(),
+                    backend = cfgAll.llmBackend, nCtx = studio.voxsum.core.llm.TextGen.CTX_MAX,
+                )
             } catch (ce: CancellationException) {
                 throw ce
             } catch (t: Throwable) {
@@ -1626,7 +1636,18 @@ class TranscriptionService : LifecycleService() {
     ): SummaryResult {
         val spec = LlmRegistry.byId(cfg.llmModelId)
         ensureLlm(spec, models)
-        studio.voxsum.core.llm.TextGen.load(this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(), backend = cfg.llmBackend).use { llm ->
+        // Size the context to THIS transcript. llama.cpp charges per-token decode against the
+        // allocated context, so a fixed ceiling would slow every short meeting down to buy
+        // headroom only long ones use; the engine is .use{}-scoped here, so it costs nothing.
+        val nCtx = Summarizer.contextFor(
+            transcript,
+            outputTokens = SummaryStyle.fromId(cfg.summaryStyle).reduceTokens,
+            max = studio.voxsum.core.llm.TextGen.CTX_MAX,
+        )
+        studio.voxsum.core.llm.TextGen.load(
+            this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(),
+            backend = cfg.llmBackend, nCtx = nCtx,
+        ).use { llm ->
             return summarizeWith(llm, spec, transcript, cfg, converter, withTitle)
         }
     }
@@ -1729,7 +1750,12 @@ class TranscriptionService : LifecycleService() {
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_summarizing)))
         emitEvent(TranscriptEvent.Progress(0f))
         val converter = outputConverter(cfg)
-        studio.voxsum.core.llm.TextGen.load(this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(), backend = cfg.llmBackend).use { llm ->
+        // Re-title reads an existing SUMMARY, not the transcript — a few hundred tokens in, 24
+        // out. contextFor's 4096 floor already covers that; nothing here needs a big window.
+        studio.voxsum.core.llm.TextGen.load(
+            this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(),
+            backend = cfg.llmBackend, nCtx = Summarizer.contextFor(summary, outputTokens = 24),
+        ).use { llm ->
             activeLlm = llm
             try {
                 Summarizer(
@@ -1762,7 +1788,14 @@ class TranscriptionService : LifecycleService() {
         emitEvent(TranscriptEvent.Progress(0f))   // restart the bar for the action-items phase
         val converter = outputConverter(cfg)
         val gen = currentGen()   // tag the non-suspend progress callback below with this run's gen
-        studio.voxsum.core.llm.TextGen.load(this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(), backend = cfg.llmBackend).use { llm ->
+        // ActionItemExtractor chunks the transcript internally against a 3500-char cap, so the
+        // engine never sees more than one chunk at a time — 8192 is generous for that and much
+        // cheaper to decode against than the summarizer's ceiling. (Matches ACTION_ITEM_CTX on
+        // the desktop build.)
+        studio.voxsum.core.llm.TextGen.load(
+            this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(),
+            backend = cfg.llmBackend, nCtx = ACTION_ITEM_CTX,
+        ).use { llm ->
             activeLlm = llm
             try {
                 val text = ActionItemExtractor(

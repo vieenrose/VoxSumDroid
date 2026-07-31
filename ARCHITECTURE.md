@@ -28,7 +28,8 @@ as a `Flow` from a **foreground service** and collected by Compose. Incremental 
 ## What changes and why
 
 - **LangChain is dropped.** It was used only for chunking + prompt templates; both are a
-  few lines of Kotlin. LLM inference runs on LiteRT-LM (`LiteLlmEngine`).
+  few lines of Kotlin. LLM inference runs on llama.cpp (`core/llm/LlmEngine.kt` over
+  `cpp/llm_jni.cpp`) — the same runtime, and the same pinned GGUF, as the desktop build.
 - **ffmpeg is dropped.** `ffmpeg-kit` was archived in 2025; MediaCodec covers decode and
   removes a native dep + license question for F-Droid.
 - **Podcast/YouTube are optional.** Network ingestion can't be offline anyway; gating it

@@ -1,8 +1,17 @@
 # Keep JNI entry points reachable from native code.
-# (studio.voxsum.core.llm.LlmEngine and the sherpa-onnx API are gone since the LiteRT migration;
-#  their rules were removed. The MOSS/X-ASR/Nemotron JNI binds by class+method name — those classes
-#  are referenced from Kotlin so R8 keeps them, and the release dex is checked in CI.)
+# (The MOSS/X-ASR/Nemotron JNI binds by class+method name — those classes are referenced from
+#  Kotlin so R8 keeps them, and the release dex is checked in CI.)
 -keep class studio.voxsum.core.llm.TextGen$TokenCallback { *; }
+
+# llama.cpp bridge: llm_jni.cpp exports Java_studio_voxsum_core_llm_LlmEngine_native*, so the
+# class name, its package and the native method names must all survive R8 — otherwise the symbols
+# stop matching and every load/generate throws UnsatisfiedLinkError in RELEASE builds only, which
+# is exactly the class of failure -PminifyDebug exists to catch. The bridge also calls back into
+# TextGen$TokenCallback.onToken by name (kept above).
+-keep class studio.voxsum.core.llm.LlmEngine { *; }
+-keepclasseswithmembernames class studio.voxsum.core.llm.LlmEngine {
+    native <methods>;
+}
 
 # Same JNI-reflection story as TokenCallback: offline-speaker-diarization.cc resolves the
 # diarization progress callback by EXACT name+signature — GetMethodID("invoke",
@@ -25,14 +34,9 @@
 -dontwarn org.w3c.dom.**
 -dontwarn org.xml.sax.**
 
-# LiteRT-LM: its NATIVE code reads the Kotlin config objects back through JNI. Verified on-device:
-# nativeCreateConversation does CallIntMethodV on SamplerConfig.getTopK(), so R8 renaming the
-# getters makes GetMethodID return null and ART aborts the process ("JNI DETECTED ERROR IN
-# APPLICATION: mid == null") the moment a conversation is created — i.e. on EVERY summarize/title
-# in a minified build, while debug builds are fine. Keep the whole surface: the JNI reads several
-# of these types by name and there is no upstream consumer rule shipped with the AAR.
--keep class com.google.ai.edge.litertlm.** { *; }
--keepclassmembers class com.google.ai.edge.litertlm.** { *; }
+# (The com.google.ai.edge.litertlm keep rules went with the LiteRT-LM summarizer — the AAR is no
+#  longer a dependency. llama.cpp's JNI reads no Kotlin objects reflectively: the sampler settings
+#  cross the boundary as primitives, so there is no equivalent of the SamplerConfig.getTopK abort.)
 
 # Nicer crash traces in release.
 -keepattributes SourceFile,LineNumberTable

@@ -1,5 +1,5 @@
 {
-  "_comment": "On-device model registry — Android. Backends (all LiteRT): X-ASR zipformer (default — 7x real-time, zh-en), MOSS-TD (one-pass ASR + diarization + timestamps, zh/en/ja/ko/yue). Summarization: LiteRT-LM. sherpa-onnx/ONNX Runtime/llama.cpp removed 2026-07. SHA-256 pins verified after download.",
+  "_comment": "On-device model registry — Android. ASR backends (all LiteRT): X-ASR zipformer (default — 7x real-time, zh-en), MOSS-TD (one-pass ASR + diarization + timestamps, zh/en/ja/ko/yue). Summarization: llama.cpp / GGUF (built from source out of the native/llama.cpp submodule). sherpa-onnx / ONNX Runtime removed 2026-07; LiteRT-LM removed 2026-07-31 when Gemma 4's departure took away the only reason for its costs. SHA-256 pins verified after download.",
   "asr": [
     {
       "id": "moss_td_encoder_q8",
@@ -96,6 +96,18 @@
       "url": "https://huggingface.co/soniqo/Silero-VAD-v5-LiteRT/resolve/655bff6b9a748de98c17a10f6c5d7ee3c0b53cbc/silero-vad.tflite",
       "sha256": "4559669e3423afaa11b3716d01d1421c0bf52add8b6891846ca73cc9bae875d2",
       "license": "MIT"
+    }
+  ],
+  "llm": [
+    {
+      "id": "qwen3.5-0.8b",
+      "kind": "LLM",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/6ab461498e2023f6e3c1baea90a8f0fe38ab64d0/Qwen3.5-0.8B-Q4_K_M.gguf",
+      "sha256": "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
+      "bytes": 532517120,
+      "license": "apache-2.0",
+      "default": true,
+      "_comment": "Same artifact and same pin as the desktop build. Commit-pinned, not `main`: on main the blob can be re-published under us and the sha256 would stop matching."
     }
   ]
 }

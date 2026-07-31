@@ -3,10 +3,12 @@ package studio.voxsum.core.models
 /**
  * A selectable on-device summarization model.
  *
- * Unlike the retired `.litertlm` single-file bundles, the shipping summarizer is a
- * MULTI-FILE artifact set (graph + pre-packed XNNPACK weight cache + tokenizer), so a
- * spec names a directory plus a revision-pinned, per-file sha256 manifest — the same
- * shape [ModelManager] already uses for the ASR model sets.
+ * The shape is [ModelManager]'s revision-pinned, multi-file artifact set (the same one the ASR
+ * model sets use). A GGUF is a SINGLE self-contained file — weights, tokenizer and chat template
+ * all live inside it — so a GGUF spec simply has one entry in [files] and leaves
+ * [weightCacheFile] / [tokenizerFile] empty. The multi-file machinery is kept rather than
+ * special-cased because it is what gives us per-file sha256 verification and resumable,
+ * revision-pinned downloads for free.
  */
 data class LlmSpec(
     val id: String,
@@ -17,37 +19,41 @@ data class LlmSpec(
     val revision: String,
     /** relative path -> (sizeBytes, sha256). Downloaded and verified file by file. */
     val files: Map<String, Pair<Long, String>>,
-    /** Relative path of the graph inside [dirName]. */
+    /** Relative path of the model inside [dirName]. */
     val mainFile: String,
-    /** Relative path of the pre-packed XNNPACK weight cache, or "" if none. */
-    val weightCacheFile: String,
-    /** Relative path of the tokenizer blob. */
-    val tokenizerFile: String,
+    /** Relative path of a pre-packed weight cache, or "" — GGUF needs none. llama.cpp mmaps the
+     *  file, so the weights are file-backed and evictable from the start; the ~800 MiB of
+     *  UNRECLAIMABLE anonymous memory XNNPACK materialised (and the pre-packed cache built to
+     *  avoid it) has no analogue here. */
+    val weightCacheFile: String = "",
+    /** Relative path of a separate tokenizer blob, or "" — a GGUF embeds its own. */
+    val tokenizerFile: String = "",
     val chatTemplate: ChatTemplate,
     val shortName: String = "",
     val sampler: SamplerProfile = SamplerProfile.LEGACY,
     /**
-     * The context window BAKED into the graph at export time.
+     * Largest context this model may be asked for, in tokens.
      *
-     * This is not a tunable. The exported LiteRT graph allocates its KV cache from the
-     * `cache_length` it was exported with, and it scans the whole allocation every step,
-     * so the baked value fixes BOTH memory and decode speed. A runtime `nCtx` cannot
-     * resize it and cannot make it cheaper — one bundle per context, or nothing.
-     * (Measured: the 32k bundle decodes at 1.5 tok/s and the 16k bundle at 3.4 tok/s on
-     * the same device with the same prompt.) The RAM-tiered `CtxTier` table that shipped
-     * through v0.35.0 was therefore meaningless here and is gone.
+     * A CEILING, not an allocation, and — unlike the LiteRT export it replaces — a genuine
+     * runtime knob. The `.litertlm`/`.tflite` bundles baked `cache_length` in at export time:
+     * the graph allocated its KV from that value and rescanned the whole allocation every step,
+     * so a 32k bundle decoded at 1.5 tok/s where the 16k one did 3.4, and serving two window
+     * sizes meant shipping two multi-hundred-MB bundles. llama.cpp takes `n_ctx` at
+     * `llama_init_from_model`, so one file serves every size and [Summarizer.contextFor] picks
+     * the smallest that fits the transcript.
      */
-    val nCtx: Int,
+    val maxCtx: Int,
 ) {
     val totalBytes: Long get() = files.values.sumOf { it.first }
 }
 
-/** NONE = the runtime applies the model's own chat template. QWEN3 = ChatML, applied
- *  app-side by the qwen35lite engine (its tokenizer knows the special ids). */
+/** NONE = the runtime applies the model's own chat template. QWEN3 = ChatML with the empty
+ *  `<think></think>` block Qwen3.5 wants for non-thinking mode, applied app-side. */
 enum class ChatTemplate { CHATML, QWEN3, NONE }
 
 /**
- * Session sampler settings, chosen per model.
+ * llama.cpp sampler settings, chosen per model. The chain itself is built in native code
+ * (llm_jni.cpp); the values are picked here so each model family gets what it expects.
  */
 data class SamplerProfile(
     val topK: Int,
@@ -57,8 +63,13 @@ data class SamplerProfile(
     val presencePenalty: Float,
 ) {
     companion object {
+        /** Legacy small-instruct chain: a heavy repeat penalty stops the "say the same sentence
+         *  forever" loops older sub-2B instruct models fall into on summarization. */
         val LEGACY = SamplerProfile(topK = 40, topP = 0.9f, temp = 0.7f, repeatPenalty = 1.3f, presencePenalty = 0.0f)
-        /** Qwen's own recommended non-thinking sampler. */
+
+        /** Qwen's own recommended non-thinking sampler. A high repeat penalty makes Qwen3.5 drop
+         *  punctuation and structure into a run-on wall-of-text on long inputs, so repeat is OFF
+         *  (1.0) and a flat presence penalty guards repetition instead. */
         val QWEN35 = SamplerProfile(topK = 20, topP = 0.8f, temp = 0.7f, repeatPenalty = 1.0f, presencePenalty = 1.0f)
     }
 }
@@ -66,54 +77,34 @@ data class SamplerProfile(
 /**
  * The on-device summarizer. Exactly one model.
  *
- * Qwen3.5-0.8B (text-only) replaced Gemma 4 E2B/E4B and the TurboQuant TQ3 engine. It is
- * a HYBRID-attention model — 18 gated-delta `linear_attention` layers with a constant
- * 19.27 MiB recurrent state, plus only 6 `full_attention` layers — so its KV costs
- * 24,576 B/token, 9.33x less than Qwen3-0.6B, and a 16k window is only 384 MiB. That,
- * plus the pre-packed XNNPACK weight cache (without which XNNPACK materialises ~800 MiB
- * of UNRECLAIMABLE anonymous memory and the lowmemorykiller wins), is what finally fits
- * a real summarizer on a 3.7 GB device:
+ * Qwen3.5-0.8B Q4_K_M, at the SAME pin the desktop build verified — one artifact, one set of
+ * numbers, two platforms. It is a hybrid-attention model (18 gated-delta linear-attention layers
+ * plus only 6 full-attention layers), so its KV is small for its size; with a q8_0 KV cache a
+ * 32768-token window is affordable on a 3.7 GB device, where the LiteRT export could only ever
+ * offer whichever single window it had been exported with.
  *
- *   Boox Tab Mini C, 4 threads, 2048-token prompt, warm weight cache:
- *   peak RSS 1115 MiB, RssAnon 765 MiB, prefill 13.25 tok/s, decode 3.38 tok/s
- *   — versus Gemma 4 E2B, which could not load there at any nCtx.
- *
- * Decode speed is FLAT with input position (the graph scans the whole baked cache every
- * step either way), so unlike Gemma 3 1B there is no collapse on long transcripts.
- *
- * This is the un-fine-tuned base model; the VoxSum meeting fine-tune lands separately and
- * drops into this same slot (same export recipe, same files, new revision).
+ * This is the un-fine-tuned base model; the VoxSum meeting fine-tune drops into this same slot
+ * (same quant recipe, new revision + sha256).
  */
 object LlmRegistry {
-    const val DEFAULT_ID = "qwen35-0.8b-litert"
+    const val DEFAULT_ID = "qwen3.5-0.8b"
 
     val ALL: List<LlmSpec> = listOf(
         LlmSpec(
-            id = "qwen35-0.8b-litert",
+            id = "qwen3.5-0.8b",
             displayName = "Qwen3.5 0.8B (on-device summarizer)",
             shortName = "Qwen3.5 0.8B",
-            dirName = "qwen35-litert",
-            revision = "https://huggingface.co/Luigi/qwen35-0.8b-litert/resolve/" +
-                "4a3340d50c0c43a806b36e1222a6186320c9c319",
+            dirName = "qwen35-gguf",
+            revision = "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/" +
+                "6ab461498e2023f6e3c1baea90a8f0fe38ab64d0",
             files = mapOf(
-                // int4 blockwise-32, cache_length 16384, prefill chunk 128.
-                "qwen35-0.8b_q4b32_ekv16384.tflite" to
-                    (437_707_408L to "1d27ded81cd564eb8e74eb7b31b9a91581a1edde1cfcda453fb6673aabac11a8"),
-                // Pre-packed XNNPACK weight cache. Bound to the exact libLiteRt.so in
-                // app/src/main/jniLibs/arm64-v8a (armv8.0 baseline dispatch); regenerate
-                // it off-device if that library is ever upgraded. Shared by every context
-                // length: the bundles' weights are byte-identical.
-                "wcache_armv8a.bin" to
-                    (430_349_456L to "f66cfe2abef2415942548364d250c7715231b0cbb65e485c1275c9abb4368bef"),
-                "qwen35_tokenizer.bin" to
-                    (6_337_983L to "24d47d9a264329479393b00e73d89643c5038bfa03510329f88d65a55c2e8e29"),
+                "Qwen3.5-0.8B-Q4_K_M.gguf" to
+                    (532_517_120L to "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517"),
             ),
-            mainFile = "qwen35-0.8b_q4b32_ekv16384.tflite",
-            weightCacheFile = "wcache_armv8a.bin",
-            tokenizerFile = "qwen35_tokenizer.bin",
+            mainFile = "Qwen3.5-0.8B-Q4_K_M.gguf",
             chatTemplate = ChatTemplate.QWEN3,
             sampler = SamplerProfile.QWEN35,
-            nCtx = 16384,
+            maxCtx = 32768,
         ),
     )
 
