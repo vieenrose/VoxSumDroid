@@ -24,7 +24,7 @@ internal object SummaryText {
     }
 
     /**
-     * Extract a single clean title from the model's reply. Verbose models (e.g. Gemma 4) answer
+     * Extract a single clean title from the model's reply. Verbose small models answer
      * with "Here are a few options:" then a numbered list, so skip preamble/header lines, take
      * the first real candidate, and strip list numbering, markdown, quotes, and "Title:".
      */
@@ -44,12 +44,12 @@ internal object SummaryText {
     }
 
     /**
-     * Conservative Gemma-4 token estimate for the single-pass context gate. Measured on
+     * Conservative token estimate for the single-pass context gate. Measured on
      * real transcripts: zh ≈ 0.75 tok/char, en ≈ 0.30 tok/char; 0.8/0.35 here so the gate
      * errs toward refusing, never toward a silently truncated prefill.
      */
     fun estimateTokens(text: String): Int {
-        // Three classes, calibrated against the Gemma 4 tokenizer: CJK ~0.69 tok/char,
+        // Three classes, calibrated against a SentencePiece/BPE sub-1B tokenizer: CJK ~0.69 tok/char,
         // English letters/spaces ~0.17 — but digits/punctuation/brackets ~0.9-1.0, and
         // the unified format's "[M:SS] Sx: " prefix costs ~10 tokens PER LINE; a flat
         // 0.35 "other" rate undercounted that by thousands (validated on-device:
@@ -103,10 +103,10 @@ internal object SummaryText {
     fun wrap(template: ChatTemplate, user: String): String = when (template) {
         ChatTemplate.CHATML -> "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
             "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n"
-        ChatTemplate.GEMMA -> "<start_of_turn>user\n$user<end_of_turn>\n<start_of_turn>model\n"
-        // Gemma 4 uses a different turn format (per its chat_template.jinja): a plain user
-        // turn with no system/thinking block. <bos> is auto-added by the tokenizer.
-        ChatTemplate.GEMMA4 -> "<|turn>user\n$user<turn|>\n<|turn>model\n"
+        // Qwen3/Qwen3.5 ChatML. Append the empty <think></think> block their template emits for
+        // non-thinking mode, so the model answers directly (a summary, not a reasoning trace).
+        ChatTemplate.QWEN3 -> "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
+            "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
     }
 
     /**

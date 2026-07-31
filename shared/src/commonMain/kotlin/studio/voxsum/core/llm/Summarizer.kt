@@ -53,7 +53,7 @@ class Summarizer(
         val instr = userPrompt + langClause
         val reduceMax = reduceMaxTokens
         // Hard context gate — single pass only. Token estimate is per-script (measured on
-        // Gemma 4 against real transcripts: zh ≈ 0.75 tok/char, en ≈ 0.30; the gate uses
+        // real transcripts: zh ≈ 0.75 tok/char, en ≈ 0.30; the gate uses
         // 0.8 / 0.35 so it errs toward refusing, never toward a silently-truncated prefill).
         val budget = llm.nCtx - reduceMax - 192
         val estTokens = SummaryText.estimateTokens(transcript)
@@ -120,7 +120,7 @@ class Summarizer(
 
     companion object {
         // Directive prompts: one concise bullet-point summary, no multiple versions / section
-        // headers / preamble (verbose models like Gemma 4 otherwise emit "Short Summary:",
+        // headers / preamble (verbose small models otherwise emit "Short Summary:",
         // "Detailed Summary:", etc.). The format itself comes from the style directive, not hard-coded.
         // %s = user instruction, %s = the style's format directive, %s = the text.
         // Single-pass template: the whole transcript, one summary. %s = user instruction,

@@ -382,7 +382,7 @@ class ModelManager(appFilesDir: File) {
         return when {
             n.startsWith("silero_vad") || n.contains("vad") -> ModelKind.VAD
             n.contains("campplus") || n.contains("speaker_embedding") -> ModelKind.SPEAKER
-            n.endsWith(".gguf") || n.contains("gemma") -> ModelKind.LLM
+            n.endsWith(".gguf") -> ModelKind.LLM
             n.contains("asr") || n.contains("sense-voice") || n.contains("sensevoice") || n.contains("qwen") || n.startsWith("sherpa") -> ModelKind.ASR
             else -> ModelKind.OTHER
         }

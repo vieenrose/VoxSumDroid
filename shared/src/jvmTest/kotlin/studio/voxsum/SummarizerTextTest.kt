@@ -75,11 +75,10 @@ class SummarizerTextTest {
     // --- wrap ---------------------------------------------------------------------------------
 
     @Test fun wrapAppliesTheRightTurnFormatPerTemplate() {
-        assertEquals("<|turn>user\nhi<turn|>\n<|turn>model\n", SummaryText.wrap(ChatTemplate.GEMMA4, "hi"))
-        assertEquals("<start_of_turn>user\nhi<end_of_turn>\n<start_of_turn>model\n",
-            SummaryText.wrap(ChatTemplate.GEMMA, "hi"))
         assertTrue(SummaryText.wrap(ChatTemplate.CHATML, "hi").startsWith("<|im_start|>system"))
         assertTrue(SummaryText.wrap(ChatTemplate.CHATML, "hi").endsWith("<|im_start|>assistant\n"))
+        // Qwen3 non-thinking mode appends an empty think block so the model answers directly.
+        assertTrue(SummaryText.wrap(ChatTemplate.QWEN3, "hi").endsWith("<think>\n\n</think>\n\n"))
     }
 
     // --- chunk --------------------------------------------------------------------------------

@@ -221,5 +221,6 @@ no-install-needed alternative.)
 
 ## License
 
-[GPL-3.0-or-later](LICENSE), same as the Android app. The bundled summarization model is
-distributed under the [Gemma Terms](https://ai.google.dev/gemma/terms).
+[GPL-3.0-or-later](LICENSE), same as the Android app. The summarization model
+(Qwen3.5 0.8B) is distributed under
+[Apache-2.0](https://huggingface.co/Qwen/Qwen3.5-0.8B/blob/main/LICENSE).

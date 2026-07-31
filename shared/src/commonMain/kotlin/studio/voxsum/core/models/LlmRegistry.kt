@@ -13,7 +13,7 @@ data class LlmSpec(
     val sampler: SamplerProfile = SamplerProfile.LEGACY,  // per-model llama.cpp sampler chain
 )
 
-enum class ChatTemplate { CHATML, GEMMA, GEMMA4 }
+enum class ChatTemplate { CHATML, QWEN3 }
 
 /**
  * llama.cpp sampler settings, chosen per model. The chain itself lives in native code
@@ -28,48 +28,49 @@ data class SamplerProfile(
     val presencePenalty: Float,
 ) {
     companion object {
-        /** Legacy small-instruct chain (Gemma, older Qwen3): a heavy repeat penalty stops the
-         *  "say the same sentence forever" loops those models fall into on summarization. */
+        /** Legacy small-instruct chain: a heavy repeat penalty stops the "say the same sentence
+         *  forever" loops older sub-2B instruct models fall into on summarization. Kept as the
+         *  data-class default for any future spec that wants it. */
         val LEGACY = SamplerProfile(topK = 40, topP = 0.9f, temp = 0.7f, repeatPenalty = 1.3f, presencePenalty = 0.0f)
 
+        /** Qwen3.5 non-thinking spec (unsloth). A high repeat penalty makes Qwen3.5 drop punctuation
+         *  and structure into a run-on wall-of-text on long inputs, so repeat is OFF (1.0) and a flat
+         *  presence penalty guards repetition instead; top_k 20 / top_p 0.8 / temp 0.7 per the model card. */
+        val QWEN35 = SamplerProfile(topK = 20, topP = 0.8f, temp = 0.7f, repeatPenalty = 1.0f, presencePenalty = 1.0f)
     }
 }
 
 /**
  * On-device summarization models.
  *
- * Templates ([ChatTemplate]): GEMMA = `<start_of_turn>…<end_of_turn>`; GEMMA4 = the newer
- * `<|turn>…<turn|>` form; CHATML = `<|im_start|>…<|im_end|>`. We apply the turn format here
- * rather than via the GGUF's embedded template.
+ * Templates ([ChatTemplate]): CHATML = plain `<|im_start|>…<|im_end|>`; QWEN3 = ChatML for the
+ * Qwen3/Qwen3.5 family, with the empty `<think>\n\n</think>` block their template emits for
+ * **non-thinking** mode — so summaries come out directly, without a reasoning preamble. We apply
+ * the turn format here rather than via the GGUF's embedded template.
  */
 object LlmRegistry {
-    const val DEFAULT_ID = "gemma-4-e2b-it-qat"
+    const val DEFAULT_ID = "qwen3.5-0.8b"
 
     private const val HF = "https://huggingface.co"
 
     val ALL: List<LlmSpec> = listOf(
-        // Gemma 4 E2B is the default: Qwen3.5 0.8B was dropped because its summaries were not good
-        // enough in practice, and the sub-1B tier has no adequate replacement — so the floor is now
-        // a ~2.2 GB model needing ~4 GB RAM. E4B is the heavier, higher-fidelity option.
+        // Qwen3.5 0.8B (unsloth Q4_K_M) is the ONLY summarizer: Gemma 4 was removed so the desktop
+        // matches the sub-1B tier — ~533 MB on disk, ~1.5 GB RAM at n_ctx 16384, instead of a 2.2 GB
+        // download needing ~4 GB. Qwen3.5 is a hybrid linear-attention model (arch "qwen35" — 18
+        // gated-delta layers + 6 full-attention); the vendored llama.cpp (LLM_ARCH_QWEN35,
+        // src/models/qwen35.cpp) supports it, and the shipped libllama.so exports the arch name.
+        // It needs its OWN sampler ([SamplerProfile.QWEN35]) — the legacy heavy repeat penalty makes
+        // Qwen3.5 collapse long output into a run-on wall-of-text. unsloth's GGUF carries the
+        // universal chat-template fix + imatrix quant. Pinned to a commit (not main) so the sha256
+        // stays valid: on main the blob can be re-published under us.
         LlmSpec(
-            id = "gemma-4-e2b-it-qat",
-            displayName = "Gemma 4 E2B (recommended)",
-            // Pinned to the 2026-07-17 revision ("Added Gemma official chat template update"),
-            // which re-published the GGUF off Google's 2026-07-15 checkpoint refresh. Pinning the
-            // commit (not main) keeps the download reproducible AND lets us verify a real sha256 —
-            // on main the blob mutates under us and the checksum has to be left blank.
-            url = "$HF/unsloth/gemma-4-E2B-it-qat-mobile-GGUF/resolve/46af839dc23aceb4b965ab640dae7fc1bea39bba/gemma-4-E2B-it-qat-UD-Q2_K_XL.gguf",
-            sha256 = "0a5bbc20f91f92da96ab4870fa71b356c45b8500a7b8b9c3e0eb48359b72da28",
-            sizeBytes = 2_186_186_784L,
-            fileName = "gemma-4-e2b-it-qat.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E2B",
-        ),
-        LlmSpec(
-            id = "gemma-4-e4b-it-qat",
-            displayName = "Gemma 4 E4B (QAT)",
-            url = "$HF/unsloth/gemma-4-E4B-it-qat-mobile-GGUF/resolve/6a6e7121b977cefd85daa8fbc538fa485e7e8b1b/gemma-4-E4B-it-qat-UD-Q2_K_XL.gguf",
-            sha256 = "79dde517866cfbb5c00230b530de17910fc7fc78f8827554d0e14281ce5faf03",
-            sizeBytes = 3_219_532_192L,
-            fileName = "gemma-4-e4b-it-qat.gguf", chatTemplate = ChatTemplate.GEMMA4, shortName = "Gemma 4 E4B",
+            id = "qwen3.5-0.8b",
+            displayName = "Qwen3.5 0.8B (recommended)",
+            url = "$HF/unsloth/Qwen3.5-0.8B-GGUF/resolve/6ab461498e2023f6e3c1baea90a8f0fe38ab64d0/Qwen3.5-0.8B-Q4_K_M.gguf",
+            sha256 = "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
+            sizeBytes = 532_517_120L,
+            fileName = "qwen3.5-0.8b-q4_k_m.gguf", chatTemplate = ChatTemplate.QWEN3, shortName = "Qwen3.5 0.8B",
+            sampler = SamplerProfile.QWEN35,
         ),
     )
 

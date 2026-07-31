@@ -33,7 +33,7 @@ data class TranscriptionConfig(
 
     // --- Summarization ---
     // The actually-used summary model. MUST track LlmRegistry.DEFAULT_ID — hardcoding it here (it was
-    // pinned to gemma) silently kept new installs on the old default even after the registry's default
+    // pinned to a specific model id) silently kept new installs on the old default even after the registry's default
     // changed, so the "recommended" model in Settings and the model that actually ran disagreed.
     val llmModelId: String = LlmRegistry.DEFAULT_ID,
     val summaryPrompt: String = "Summarize the key points of this transcript.",
