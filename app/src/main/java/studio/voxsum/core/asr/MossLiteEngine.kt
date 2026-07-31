@@ -83,11 +83,20 @@ class MossLiteEngine private constructor(
              *  biasing is silently unavailable rather than a transcription failure. */
             mergesTxt: File? = null,
             /** Optional Traditional→Simplified fold for the hotwords ONLY (`t2s`), matching
-             *  upstream's Simplified `热词提示` convention. Left null by the app: on the 10-clip
-             *  zh-TW set (~/zhtw-bench, 90 s windows, ~/preroll-sweep/score.py) terms passed AS
-             *  TYPED in Traditional scored better than the t2s fold of the same terms — micro-CER
-             *  4.55 vs 5.20 excluding fs4, Traditional ahead on 7 of 10 clips — against a 8.74
-             *  un-biased baseline. Provided as a hook because that gap is corpus-dependent. */
+             *  upstream's Simplified `热词提示` convention. Left null by the app: whether the fold
+             *  helps is CONTESTED between two independent runs on the same 10-clip zh-TW set
+             *  (~/zhtw-bench) and the same normalizer (~/preroll-sweep/score.py), re-scored with
+             *  one identical micro-CER method, so the disagreement is not an aggregation artifact:
+             *
+             *    excl. fs4        un-biased   Traditional   Simplified   irrelevant list
+             *    desktop --bench       7.74          4.69         4.41              7.60
+             *    fixed 90 s splits     8.74          4.55         5.20              8.13
+             *
+             *  Each run's own hotword lists differ, and the two disagree on the sign of a ~0.3-0.6
+             *  point effect that is small next to the ~4 point biasing gain both agree on. Passing
+             *  the terms AS TYPED is therefore the default: it needs no OpenCC dependency and does
+             *  not risk pulling Simplified orthography toward the output. Kept as a hook because
+             *  the better choice is evidently corpus- and list-dependent. */
             hotwordToSimplified: ((String) -> String)? = null,
         ): MossLiteEngine? {
             ensureLib()
