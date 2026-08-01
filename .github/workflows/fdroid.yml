@@ -37,9 +37,13 @@ jobs:
 
       # Everything native is LiteRT: libLiteRt/accelerator prebuilts live in jniLibs and
       # voxsum-mosslite builds from in-repo sources — no submodules, no ORT-from-source.
+      # llama.cpp is a submodule (native/llama.cpp) and CMakeLists.txt add_subdirectory()s it, so
+      # the native build cannot configure without it. This was `false` from before the summarizer
+      # moved back to llama.cpp, which broke every release build from that migration onward — the
+      # failure only surfaced at v0.37.0 because nothing had cut a release in between.
       - uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: recursive
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@main
