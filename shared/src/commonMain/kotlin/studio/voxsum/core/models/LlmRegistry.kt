@@ -49,27 +49,34 @@ data class SamplerProfile(
  * the turn format here rather than via the GGUF's embedded template.
  */
 object LlmRegistry {
-    const val DEFAULT_ID = "qwen3.5-0.8b"
+    const val DEFAULT_ID = "voxsum-qwen3.5-0.8b"
 
     private const val HF = "https://huggingface.co"
 
     val ALL: List<LlmSpec> = listOf(
-        // Qwen3.5 0.8B (unsloth Q4_K_M) is the ONLY summarizer: Gemma 4 was removed so the desktop
-        // matches the sub-1B tier — ~533 MB on disk, ~1.5 GB RAM at n_ctx 16384 (desktop: n_ctx 32768 with a q8_0 KV cache), instead of a 2.2 GB
-        // download needing ~4 GB. Qwen3.5 is a hybrid linear-attention model (arch "qwen35" — 18
-        // gated-delta layers + 6 full-attention); the vendored llama.cpp (LLM_ARCH_QWEN35,
-        // src/models/qwen35.cpp) supports it, and the shipped libllama.so exports the arch name.
-        // It needs its OWN sampler ([SamplerProfile.QWEN35]) — the legacy heavy repeat penalty makes
-        // Qwen3.5 collapse long output into a run-on wall-of-text. unsloth's GGUF carries the
-        // universal chat-template fix + imatrix quant. Pinned to a commit (not main) so the sha256
-        // stays valid: on main the blob can be re-published under us.
+        // The VoxSum meeting fine-tune of Qwen3.5 0.8B (Q4_K_M) is the ONLY summarizer, and is the
+        // SAME artifact the Android build ships — one GGUF, one set of numbers, two platforms.
+        // Qwen3.5 is a hybrid linear-attention model (arch "qwen35" — 18 gated-delta layers + 6
+        // full-attention); the vendored llama.cpp (LLM_ARCH_QWEN35, src/models/qwen35.cpp) supports
+        // it. It needs its OWN sampler ([SamplerProfile.QWEN35]) — the legacy heavy repeat penalty
+        // makes Qwen3.5 collapse long output into a run-on wall-of-text.
+        //
+        // Built from Luigi/voxsum-qwen35-0.8b (safetensors) with convert_hf_to_gguf.py --outtype
+        // f16 then llama-quantize Q4_K_M; the checkpoint stores tensors in the multimodal
+        // `model.language_model.*` layout, so it is remapped to text-only Qwen3_5ForCausalLM first.
+        // Pinned to a commit (not main) so the sha256 stays valid.
+        //
+        // Chunk at ~10-12k tokens: the fine-tune's own evaluation measures faithfulness collapsing
+        // past that, independent of how much context the runtime can hold.
         LlmSpec(
-            id = "qwen3.5-0.8b",
-            displayName = "Qwen3.5 0.8B (recommended)",
-            url = "$HF/unsloth/Qwen3.5-0.8B-GGUF/resolve/6ab461498e2023f6e3c1baea90a8f0fe38ab64d0/Qwen3.5-0.8B-Q4_K_M.gguf",
-            sha256 = "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
-            sizeBytes = 532_517_120L,
-            fileName = "qwen3.5-0.8b-q4_k_m.gguf", chatTemplate = ChatTemplate.QWEN3, shortName = "Qwen3.5 0.8B",
+            id = "voxsum-qwen3.5-0.8b",
+            displayName = "VoxSum Qwen3.5 0.8B (meeting fine-tune)",
+            url = "$HF/Luigi/voxsum-qwen35-0.8b-GGUF/resolve/" +
+                "18b86a131eba8c6587ecc6421290c6b4c7a409b4/voxsum-qwen35-0.8b-Q4_K_M.gguf",
+            sha256 = "477df973bac078e8b6e6cc39261082727a7f108cbdafbf8c419c5f874f14c319",
+            sizeBytes = 529_296_768L,
+            fileName = "voxsum-qwen3.5-0.8b-q4_k_m.gguf", chatTemplate = ChatTemplate.QWEN3,
+            shortName = "VoxSum 0.8B",
             sampler = SamplerProfile.QWEN35,
         ),
     )
