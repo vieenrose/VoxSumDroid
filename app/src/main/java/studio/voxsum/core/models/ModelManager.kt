@@ -780,6 +780,10 @@ class ModelManager(context: Context) {
             "speaker_embedding.onnx",
             // q4-mix nemotron encoder superseded by q8 (same size, -5.4 en WER).
             "nemotron-litert/nemotron_encoder_q4.tflite",
+            // Base Qwen3.5-0.8B, superseded by the VoxSum meeting fine-tune. Same dirName and the
+            // same Q4_K_M recipe, but a different FILENAME, so provisioning writes the new GGUF
+            // beside the old one instead of over it — 508 MB stranded on every existing install.
+            "qwen35-gguf/Qwen3.5-0.8B-Q4_K_M.gguf",
         )
 
         // Superseded ASR model dirs to reclaim on upgrade. The old x-asr zipformer (~160 MB)

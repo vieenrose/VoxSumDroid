@@ -83,25 +83,31 @@ data class SamplerProfile(
  * 32768-token window is affordable on a 3.7 GB device, where the LiteRT export could only ever
  * offer whichever single window it had been exported with.
  *
- * This is the un-fine-tuned base model; the VoxSum meeting fine-tune drops into this same slot
- * (same quant recipe, new revision + sha256).
+ * This is the VoxSum meeting fine-tune, which replaced the base model in the slot the previous
+ * comment reserved for it — same quant recipe, new revision + sha256, no other change. It is
+ * markedly more faithful on real transcripts: where the base invented topics absent from the
+ * input, the fine-tune reports only what was said.
+ *
+ * **Chunk at ~10-12k tokens even though [maxCtx] is larger.** The fine-tune's own evaluation
+ * measures faithfulness collapsing past that (25% inversion rate), so the ceiling here is a
+ * hard cap for the engine, NOT a target for the summarizer to fill.
  */
 object LlmRegistry {
-    const val DEFAULT_ID = "qwen3.5-0.8b"
+    const val DEFAULT_ID = "voxsum-qwen3.5-0.8b"
 
     val ALL: List<LlmSpec> = listOf(
         LlmSpec(
-            id = "qwen3.5-0.8b",
-            displayName = "Qwen3.5 0.8B (on-device summarizer)",
-            shortName = "Qwen3.5 0.8B",
+            id = "voxsum-qwen3.5-0.8b",
+            displayName = "VoxSum Qwen3.5 0.8B (meeting fine-tune)",
+            shortName = "VoxSum 0.8B",
             dirName = "qwen35-gguf",
-            revision = "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/" +
-                "6ab461498e2023f6e3c1baea90a8f0fe38ab64d0",
+            revision = "https://huggingface.co/Luigi/voxsum-qwen35-0.8b-GGUF/resolve/" +
+                "18b86a131eba8c6587ecc6421290c6b4c7a409b4",
             files = mapOf(
-                "Qwen3.5-0.8B-Q4_K_M.gguf" to
-                    (532_517_120L to "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517"),
+                "voxsum-qwen35-0.8b-Q4_K_M.gguf" to
+                    (529_296_768L to "477df973bac078e8b6e6cc39261082727a7f108cbdafbf8c419c5f874f14c319"),
             ),
-            mainFile = "Qwen3.5-0.8B-Q4_K_M.gguf",
+            mainFile = "voxsum-qwen35-0.8b-Q4_K_M.gguf",
             chatTemplate = ChatTemplate.QWEN3,
             sampler = SamplerProfile.QWEN35,
             maxCtx = 32768,
