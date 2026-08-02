@@ -44,6 +44,11 @@ object VoxsumSession {
         val summary: String?,
         val title: String?,
         val asrModelId: String?,
+        /** ASR backend id ([AsrBackend.id]) that produced these utterances. Distinct from
+         *  [asrModelId], which names a weights directory and cannot identify the backend on its
+         *  own. Null for sessions written before this field existed, and for sessions written by
+         *  an older build of either app. Kept byte-compatible with the Android writer. */
+        val asrBackend: String?,
         val llmModelId: String?,
         val recovered: Boolean,
         val coverJpeg: ByteArray? = null,
@@ -71,6 +76,7 @@ object VoxsumSession {
         actionItems: String?,
         title: String?,
         asrModelId: String?,
+        asrBackend: String?,
         llmModelId: String?,
         coverEnabled: Boolean = true,
         fileName: String = "session.$EXT",
@@ -99,7 +105,7 @@ object VoxsumSession {
             coverJpeg = CoverGenerator.toJpeg(img); coverW = img.width; coverH = img.height
         }
 
-        val blob = encodeSession(utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId)
+        val blob = encodeSession(utterances, speakerNames, summary, actionItems, title, asrModelId, asrBackend, llmModelId)
         val cleanTitle = title?.replace('\n', ' ')?.trim()?.ifBlank { null }
         val cleanSummary = summary?.trim()?.ifBlank { null }
         val lyrics = buildString {
@@ -142,12 +148,13 @@ object VoxsumSession {
     fun save(
         dest: File, source: File?,
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
-        summary: String?, actionItems: String?, title: String?, asrModelId: String?, llmModelId: String?,
+        summary: String?, actionItems: String?, title: String?, asrModelId: String?, asrBackend: String?,
+        llmModelId: String?,
         coverEnabled: Boolean = true, format: Format = Format.M4A,
     ): SaveOutcome {
         val dir = File(dest.parentFile, ".voxsum_save_tmp").apply { mkdirs() }
         try {
-            val built = buildSessionFile(dir, source, utterances, speakerNames, summary, actionItems, title, asrModelId, llmModelId, coverEnabled, dest.name, format)
+            val built = buildSessionFile(dir, source, utterances, speakerNames, summary, actionItems, title, asrModelId, asrBackend, llmModelId, coverEnabled, dest.name, format)
                 ?: return SaveOutcome.FAILED
             built.file.copyTo(dest, overwrite = true)
             return if (built.transcriptEmbedded) SaveOutcome.FULL else SaveOutcome.PARTIAL
@@ -162,7 +169,7 @@ object VoxsumSession {
         val coverJpeg = if (isM4a) Mp4Tags.readCover(src) else OggOpusTags.read(src, CoverArt.FIELD)?.let { CoverArt.decode(it) }
         val blob = if (isM4a) Mp4Tags.readVoxsum(src) else OggOpusTags.read(src, FIELD)
         if (blob == null || blob.length > MAX_BLOB_CHARS) {
-            return Loaded(src, emptyList(), emptyMap(), null, null, null, null, recovered = false, coverJpeg = coverJpeg)
+            return Loaded(src, emptyList(), emptyMap(), null, null, null, null, null, recovered = false, coverJpeg = coverJpeg)
         }
         val json = runCatching { parseJsonObject(gunzip(Base64.getDecoder().decode(blob)).toString(Charsets.UTF_8)) }
             .getOrElse { error("Session metadata is corrupt") }
@@ -188,7 +195,8 @@ object VoxsumSession {
 
     private fun encodeSession(
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
-        summary: String?, actionItems: String?, title: String?, asrModelId: String?, llmModelId: String?,
+        summary: String?, actionItems: String?, title: String?, asrModelId: String?, asrBackend: String?,
+        llmModelId: String?,
     ): String {
         val sb = StringBuilder("{")
         sb.append("\"voxsum_version\":").append(VERSION)
@@ -196,6 +204,7 @@ object VoxsumSession {
         summary?.let { sb.append(",\"summary\":").append(jsonString(it)) }
         actionItems?.let { sb.append(",\"action_items\":").append(jsonString(it)) }
         asrModelId?.let { sb.append(",\"asr_model\":").append(jsonString(it)) }
+        asrBackend?.let { sb.append(",\"asr_backend\":").append(jsonString(it)) }
         llmModelId?.let { sb.append(",\"llm_model\":").append(jsonString(it)) }
         sb.append(",\"speaker_names\":{")
         speakerNames.entries.forEachIndexed { i, (id, n) ->
@@ -240,7 +249,9 @@ object VoxsumSession {
         return Loaded(
             audio = audio, utterances = utts, speakerNames = names,
             summary = m["summary"] as? String, title = m["title"] as? String,
-            asrModelId = m["asr_model"] as? String, llmModelId = m["llm_model"] as? String,
+            asrModelId = m["asr_model"] as? String,
+            asrBackend = m["asr_backend"] as? String,
+            llmModelId = m["llm_model"] as? String,
             recovered = true, coverJpeg = coverJpeg, actionItems = m["action_items"] as? String,
         )
     }

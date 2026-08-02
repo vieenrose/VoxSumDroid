@@ -181,6 +181,26 @@ object Strings {
     val auto: String get() = t("Auto", "Auto", "自動")
     val summaryStyle: String get() = t("Summary style", "Style du résumé", "摘要風格")
     val customSummaryPrompt: String get() = t("Custom summary prompt", "Invite de résumé personnalisée", "自訂摘要提示詞")
+    /** Provenance for the TRANSCRIPT half of the pipeline — the counterpart to the summary's
+     *  "via <model>" attribution. %1$s = ASR backend, %2$s = how speakers were derived. */
+    fun pipelineTranscriptVia(asr: String, diar: String): String = t(
+        "via $asr · $diar · timestamps per utterance",
+        "via $asr · $diar · horodatage par énoncé",
+        "使用 $asr · $diar · 每句附時間軸",
+    )
+    val pipelineDiarNative: String get() = t(
+        "speakers from the same model, linked across windows by CAM++",
+        "locuteurs identifiés par le même modèle, reliés entre fenêtres par CAM++",
+        "語者由同一個模型標註，跨視窗以 CAM++ 串接",
+    )
+    val pipelineDiarPyannote: String get() = t(
+        "speakers via pyannote + CAM++",
+        "locuteurs via pyannote + CAM++",
+        "語者由 pyannote + CAM++ 分離",
+    )
+    val pipelineDiarOff: String get() = t(
+        "no speaker separation", "pas de séparation des locuteurs", "未區分語者",
+    )
     val asrContext: String get() = t("Names and terms to recognise", "Noms et termes à reconnaître", "需要辨識的名稱與術語")
     val asrContextHint: String get() = t(
         "People, companies or jargon in this recording, separated by commas. MOSS-TD only.",

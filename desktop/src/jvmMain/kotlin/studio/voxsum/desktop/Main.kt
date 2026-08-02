@@ -214,7 +214,11 @@ private fun mainApplication() = application {
                             studio.voxsum.desktop.session.VoxsumSession.save(
                                 dest, source, state.utterances, state.speakerNames,
                                 state.summary, state.actionItems, state.title,
-                                state.config.asrBackend, state.config.llmModelId,
+                                // asr_model is the WEIGHTS id and asr_backend the engine id; this
+                                // used to pass the backend as the model, so desktop-written
+                                // sessions disagreed with Android's about what asr_model means.
+                                state.config.asrModelId, state.config.asrBackend,
+                                state.config.llmModelId,
                             )
                         }
                         RecentSessions.add(dest.absolutePath, state.title.ifBlank { dest.name }, System.currentTimeMillis())
@@ -704,6 +708,27 @@ private fun mainApplication() = application {
                                     if (!onScreen) transcriptListState.animateScrollToItem(activeIndex)
                                 }
                                 LazyColumn(state = transcriptListState, modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
+                                    // Which pipeline produced this transcript, its speakers and its
+                                    // timestamps — the counterpart to the summary's "via <model>".
+                                    // Reads config, which the session-load path patches with the ids
+                                    // that ACTUALLY produced the transcript, so an old session is not
+                                    // relabelled with today's default backend.
+                                    if (visibleUtterances.isNotEmpty()) {
+                                        item(key = "pipeline-note") {
+                                            val be = studio.voxsum.core.asr.AsrBackend.fromId(state.config.asrBackend)
+                                            val diar = when {
+                                                !state.config.diarizationEnabled -> Strings.pipelineDiarOff
+                                                be.diarizesNatively -> Strings.pipelineDiarNative
+                                                else -> Strings.pipelineDiarPyannote
+                                            }
+                                            Text(
+                                                Strings.pipelineTranscriptVia(be.displayName, diar),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = pal.Slate400,
+                                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                            )
+                                        }
+                                    }
                                     items(visibleUtterances, key = { it.index }) { u ->
                                         val isActive = playerReady && playerPositionSec >= u.startSec && playerPositionSec < u.endSec
                                         UtteranceRow(u, state, speakerIds, pal, update, isActive = isActive) {
