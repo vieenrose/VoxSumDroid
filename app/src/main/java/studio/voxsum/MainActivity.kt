@@ -1230,7 +1230,42 @@ private fun TranscribeScreen(
     // --- Transcript text exports (portable TXT / SRT / VTT / Markdown + copy & share). The .ogg is
     //     the archive; these get the words into other apps. Pure local serialisation, no network. ---
     val speakerLabel: (Int) -> String = { sid -> speakerNames[sid]?.name ?: context.getString(R.string.speaker_n, sid + 1) }
-    fun transcriptText(): String = TranscriptExport.plainText(utterances.toList(), speakerLabel, title, summary)
+    /**
+     * Everything below the summary that an export should carry: action items plus the v2 NOTES
+     * sections that have no other home (decisions, open questions, topics, and any unknown key a
+     * future model adds).
+     *
+     * Exists because the two export paths had drifted: exportText() passed actionItems for TEXT
+     * and MARKDOWN, while the direct SAF savers (.md, .pdf) and transcriptText() did not — so the
+     * SAME session exported as .md through the save dialog silently lost the action items it kept
+     * when shared. Both paths now build their body here.
+     *
+     * Headings are localized and embedded, so callers pass this as the single "extras" block with
+     * no separate heading of its own.
+     */
+    fun exportExtras(markdown: Boolean): String? {
+        val h: (String) -> String = { if (markdown) "## $it" else it }
+        val out = StringBuilder()
+        // "-" is the extractor's own "nothing found" marker, not content.
+        actionItems?.trim()?.takeIf { it.isNotEmpty() && it != "-" }?.let {
+            out.append(h(context.getString(R.string.export_heading_actions))).append("\n").append(it).append("\n\n")
+        }
+        meetingNotes?.let { n ->
+            fun section(heading: String, items: List<String>) {
+                if (items.isEmpty()) return
+                out.append(h(heading)).append("\n")
+                items.forEach { out.append("- ").append(it).append("\n") }
+                out.append("\n")
+            }
+            section(context.getString(R.string.notes_decisions), n.decisions)
+            section(context.getString(R.string.notes_open), n.open)
+            section(context.getString(R.string.notes_topics), n.topics)
+            n.extra.forEach { (k, v) -> section(k, v) }
+        }
+        return out.toString().trim().ifEmpty { null }
+    }
+
+    fun transcriptText(): String = TranscriptExport.plainText(utterances.toList(), speakerLabel, title, summary, exportExtras(markdown = false), null)
     fun exportBaseName(): String =
         title?.take(48)?.replace(Regex("[^\\p{L}\\p{N} _-]"), "_")?.trim()?.ifEmpty { null } ?: "transcript"
     fun writeDoc(uri: Uri?, content: String) {
@@ -1251,18 +1286,20 @@ private fun TranscribeScreen(
     val lrcSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { writeDoc(it, TranscriptExport.lrc(utterances.toList(), speakerLabel, title)) }
     val mdSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) {
         writeDoc(it, TranscriptExport.markdown(utterances.toList(), speakerLabel, title, summary,
-            context.getString(R.string.export_heading_summary), context.getString(R.string.export_heading_transcript)))
+            context.getString(R.string.export_heading_summary), context.getString(R.string.export_heading_transcript),
+            exportExtras(markdown = true), null))
     }
     // PDF is binary, so it bypasses writeDoc() and streams from PdfExport directly to the SAF document.
     val pdfSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val utts = utterances.toList(); val t = title; val s = summary
         val sumH = context.getString(R.string.export_heading_summary); val txH = context.getString(R.string.export_heading_transcript)
+        val extras = exportExtras(markdown = false)
         scope.launch {
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
                     context.contentResolver.openOutputStream(uri)?.use { os ->
-                        studio.voxsum.core.export.PdfExport.write(os, utts, speakerLabel, t, s, sumH, txH)
+                        studio.voxsum.core.export.PdfExport.write(os, utts, speakerLabel, t, s, sumH, txH, extras, null)
                     } != null
                 }.getOrDefault(false)
             }
@@ -1277,14 +1314,13 @@ private fun TranscribeScreen(
     // while a picker/chooser was open are captured.
     fun exportText(f: ExportFormat): String {
         val utts = utterances.toList()
-        val actionsHeading = context.getString(R.string.export_heading_actions)
         return when (f) {
-            ExportFormat.TEXT -> TranscriptExport.plainText(utts, speakerLabel, title, summary, actionItems, actionsHeading)
+            ExportFormat.TEXT -> TranscriptExport.plainText(utts, speakerLabel, title, summary, exportExtras(markdown = false), null)
             ExportFormat.MARKDOWN -> TranscriptExport.markdown(
                 utts, speakerLabel, title, summary,
                 context.getString(R.string.export_heading_summary),
                 context.getString(R.string.export_heading_transcript),
-                actionItems, actionsHeading,
+                exportExtras(markdown = true), null,
             )
             ExportFormat.SRT -> TranscriptExport.srt(utts, speakerLabel)
             ExportFormat.VTT -> TranscriptExport.vtt(utts, speakerLabel)
