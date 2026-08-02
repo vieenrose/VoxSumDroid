@@ -31,7 +31,7 @@ class SpeakerNameRoundTripTest {
         val built = VoxsumSession.buildSession(
             ctx, dir, Uri.fromFile(wav), utts, map,
             summary = null, actionItems = null, title = "spk",
-            asrModelId = "x-asr", llmModelId = "gemma", coverEnabled = false,
+            asrModelId = "x-asr", asrBackend = "x-asr", llmModelId = "gemma", coverEnabled = false,
             fileName = "spk.m4a", format = VoxsumSession.Format.M4A,
         )
         val loaded = VoxsumSession.open(ctx, Uri.fromFile(built!!.file))

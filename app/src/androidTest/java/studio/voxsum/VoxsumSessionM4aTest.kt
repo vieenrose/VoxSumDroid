@@ -37,7 +37,7 @@ class VoxsumSessionM4aTest {
         val built = VoxsumSession.buildSession(
             ctx, dir, Uri.fromFile(wav), utts, names,
             summary = "• a key point", actionItems = "- Alice to follow up", title = "規劃會議 Q3",
-            asrModelId = "x-asr", llmModelId = "gemma", coverEnabled = true,
+            asrModelId = "x-asr", asrBackend = "x-asr", llmModelId = "gemma", coverEnabled = true,
             fileName = "round.m4a", format = VoxsumSession.Format.M4A,
         )
         assertNotNull("build should produce a file", built)

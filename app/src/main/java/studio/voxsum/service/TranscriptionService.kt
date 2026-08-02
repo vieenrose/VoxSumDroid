@@ -211,6 +211,7 @@ class TranscriptionService : LifecycleService() {
         val actionItems: String?,
         val title: String?,
         val asrModelId: String?,
+        val asrBackend: String?,
         val llmModelId: String?,
     )
 
@@ -224,6 +225,7 @@ class TranscriptionService : LifecycleService() {
         val actionItems: String?,
         val title: String?,
         val asrModelId: String?,
+        val asrBackend: String?,
         val llmModelId: String?,
         val coverEnabled: Boolean,
         val fileName: String,
@@ -561,7 +563,7 @@ class TranscriptionService : LifecycleService() {
                 val audio = if (entry.wavFile.exists()) Uri.fromFile(entry.wavFile) else req.audioUri
                 val updated = SessionLibrary.attachResults(
                     this@TranscriptionService, entry, req.utterances, req.speakerNames,
-                    req.summary, req.actionItems, req.title, req.asrModelId, req.llmModelId,
+                    req.summary, req.actionItems, req.title, req.asrModelId, req.asrBackend, req.llmModelId,
                     audio = audio,
                 )
                 if (updated != null) {
@@ -601,7 +603,8 @@ class TranscriptionService : LifecycleService() {
                     dir.listFiles()?.forEach { it.delete() }
                     val built = VoxsumSession.buildSession(
                         this@TranscriptionService, dir, req.audioUri, req.utterances, req.speakerNames,
-                        req.summary, req.actionItems, req.title, req.asrModelId, req.llmModelId, req.coverEnabled, req.fileName, req.format,
+                        req.summary, req.actionItems, req.title, req.asrModelId, req.asrBackend, req.llmModelId,
+                        req.coverEnabled, req.fileName, req.format,
                     )
                     if (built != null)
                         TranscriptEvent.ExportDone(true, if (built.transcriptEmbedded) "FULL" else "PARTIAL", built.file.absolutePath)
@@ -613,7 +616,8 @@ class TranscriptionService : LifecycleService() {
                         contentResolver.openOutputStream(uri, "wt")?.let { os ->
                             VoxsumSession.save(
                                 this@TranscriptionService, os, req.audioUri, req.utterances, req.speakerNames,
-                                req.summary, req.actionItems, req.title, req.asrModelId, req.llmModelId, req.coverEnabled, req.format,
+                                req.summary, req.actionItems, req.title, req.asrModelId, req.asrBackend, req.llmModelId,
+                                req.coverEnabled, req.format,
                             )
                         }
                     } ?: VoxsumSession.SaveOutcome.FAILED
@@ -904,7 +908,7 @@ class TranscriptionService : LifecycleService() {
             runCatching {
                 val updated = SessionLibrary.attachResults(
                     this, entry, result.first, emptyMap(), result.second.summary, null,
-                    result.second.title, cfg.asrModelId, cfg.llmModelId,
+                    result.second.title, cfg.asrModelId, cfg.asrBackend, cfg.llmModelId,
                 )
                 if (updated != null) {
                     emitEvent(TranscriptEvent.LibrarySaved(Uri.fromFile(updated.sessionFile).toString(), updated.title))
@@ -1040,7 +1044,7 @@ class TranscriptionService : LifecycleService() {
                         }
                         val updated = SessionLibrary.attachResults(
                             this, entry, utterances, emptyMap(), summary.summary, null,
-                            summary.title, cfgAll.asrModelId, cfgAll.llmModelId,
+                            summary.title, cfgAll.asrModelId, cfgAll.asrBackend, cfgAll.llmModelId,
                         )
                         if (updated != null) {
                             SessionLibrary.clearPendingTranscript(entry)
@@ -1294,7 +1298,7 @@ class TranscriptionService : LifecycleService() {
             val updated = runCatching {
                 SessionLibrary.attachResults(
                     this, entry, tagged, emptyMap(), result.summary, null, result.title,
-                    cfg.asrModelId, cfg.llmModelId,
+                    cfg.asrModelId, cfg.asrBackend, cfg.llmModelId,
                 )
             }.getOrNull()
             if (updated != null) {

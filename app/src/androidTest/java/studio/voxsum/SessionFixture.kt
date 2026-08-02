@@ -75,7 +75,7 @@ object SessionFixture {
                 ctx, entry, SEEDED,
                 speakerNames = mapOf(0 to SpeakerName("Alice", "user", ""), 1 to SpeakerName("Bob", "user", "")),
                 summary = "• seeded summary", actionItems = "- seeded action",
-                title = TITLE, asrModelId = "x-asr", llmModelId = "gemma",
+                title = TITLE, asrModelId = "x-asr", asrBackend = "x-asr", llmModelId = "gemma",
             ),
         ) { "could not embed the fixture session" }
     }

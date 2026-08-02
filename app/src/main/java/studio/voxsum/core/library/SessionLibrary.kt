@@ -132,6 +132,7 @@ object SessionLibrary {
         actionItems: String?,
         title: String?,
         asrModelId: String?,
+        asrBackend: String?,
         llmModelId: String?,
         // Audio to embed. Defaults to the raw capture; the edits-persist path passes the open
         // session's audio instead when the WAV was already pruned (session.m4a-only entries).
@@ -139,7 +140,7 @@ object SessionLibrary {
     ): Entry? {
         val built = VoxsumSession.buildSession(
             context, entry.dir, audio ?: Uri.fromFile(entry.wavFile), utterances, speakerNames,
-            summary, actionItems, title, asrModelId, llmModelId,
+            summary, actionItems, title, asrModelId, asrBackend, llmModelId,
             coverEnabled = true, fileName = SESSION_NAME, format = VoxsumSession.Format.M4A,
         ) ?: return null
         // A user-given name (set at capture time or via rename) outranks the LLM title — batch

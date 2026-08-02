@@ -30,7 +30,7 @@ class SessionCoverMp4Test {
             context = ctx, dir = dir, audioUri = Uri.fromFile(wav),
             utterances = emptyList(), speakerNames = emptyMap(),
             summary = "a short summary", actionItems = null,
-            title = "識別圖測試 Session", asrModelId = "asr", llmModelId = "llm",
+            title = "識別圖測試 Session", asrModelId = "asr", asrBackend = "x-asr", llmModelId = "llm",
             coverEnabled = true, fileName = "session.m4a", format = VoxsumSession.Format.M4A,
         )
         assertTrue("session built", built != null)

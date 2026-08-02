@@ -334,4 +334,8 @@
     <string name="cd_status_done">Terminée</string>
     <string name="storage_compile_cache">%1$s (cache de compilation)</string>
     <string name="settings_asr_hw">Matériel de transcription</string>
+    <string name="pipeline_transcript_via">via %1$s · %2$s · horodatage par énoncé</string>
+    <string name="pipeline_diar_native">locuteurs identifiés par le même modèle, reliés entre fenêtres par CAM++</string>
+    <string name="pipeline_diar_pyannote">locuteurs via pyannote + CAM++</string>
+    <string name="pipeline_diar_off">pas de séparation des locuteurs</string>
 </resources>

@@ -877,7 +877,7 @@ private fun TranscribeScreen(
             entryId = id, audioUri = audioUri,
             utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
             summary = summary, actionItems = actionItems, title = title,
-            asrModelId = config.asrModelId, llmModelId = config.llmModelId,
+            asrModelId = config.asrModelId, asrBackend = config.asrBackend, llmModelId = config.llmModelId,
         )
         sessionDirty = false
         ContextCompat.startForegroundService(
@@ -1093,7 +1093,8 @@ private fun TranscribeScreen(
         TranscriptionService.pendingExport = TranscriptionService.ExportRequest(
             share = share, saveUri = uri, audioUri = audioUri,
             utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
-            summary = summary, actionItems = actionItems, title = title, asrModelId = config.asrModelId, llmModelId = config.llmModelId,
+            summary = summary, actionItems = actionItems, title = title, asrModelId = config.asrModelId,
+            asrBackend = config.asrBackend, llmModelId = config.llmModelId,
             coverEnabled = coverEnabled,
             fileName = VoxsumSession.suggestFileName(title, format.ext), format = format,
         )
@@ -1164,6 +1165,7 @@ private fun TranscribeScreen(
             config = config.copy(
                 llmModelId = loaded.llmModelId ?: config.llmModelId,
                 asrModelId = loaded.asrModelId ?: config.asrModelId,
+                asrBackend = loaded.asrBackend ?: config.asrBackend,
             )
             // Restore the EMBEDDED cover. Bounded decode: an opened session is an untrusted file, and
             // a cover declaring huge pixel dimensions would OOM-crash an unbounded decodeByteArray.
@@ -1778,10 +1780,25 @@ private fun TranscribeScreen(
 
     // Active-model summary for the summary/title cards' attribution chip.
     val llmDisplay = LlmRegistry.byId(config.llmModelId).displayName
+    // Provenance for the TRANSCRIPT half of the pipeline, mirroring the summary's "via ..." line.
+    // Reads config, which the session-load path has already patched with the ids that ACTUALLY
+    // produced this transcript — so reopening an old session does not mislabel it with today's
+    // default backend.
+    val asrDisplay = AsrBackend.fromId(config.asrBackend).displayName
+    val diarizationDisplay = when {
+        !config.diarizationEnabled -> stringResource(R.string.pipeline_diar_off)
+        AsrBackend.fromId(config.asrBackend).diarizesNatively -> stringResource(R.string.pipeline_diar_native)
+        else -> stringResource(R.string.pipeline_diar_pyannote)
+    }
 
     // The utterance list — shared by the portrait (single column) and landscape (right pane) layouts.
     val speakerIds = utterances.mapNotNull { it.speaker }.distinct().sorted()
     val transcriptItems: LazyListScope.() -> Unit = {
+        if (utterances.isNotEmpty()) {
+            item(key = "pipeline-note") {
+                TranscriptPipelineNote(asr = asrDisplay, diarization = diarizationDisplay)
+            }
+        }
         items(count = utterances.size, key = { utterances[it].index }) { idx ->
             val u = utterances[idx]
             // Consecutive utterances from the same speaker read as one turn: only the
@@ -2416,6 +2433,20 @@ private fun OpeningOverlay() {
             }
         }
     }
+}
+
+/** Which ASR pipeline produced the transcript, diarization and timestamps — the counterpart to the
+ *  "via <model>" line on the title and summary cards. Sits above the first utterance in BOTH
+ *  layouts because it is emitted from the shared [LazyListScope] builder. */
+@Composable
+private fun TranscriptPipelineNote(asr: String, diarization: String) {
+    val pal = LocalVoxSumPalette.current
+    Text(
+        stringResource(R.string.pipeline_transcript_via, asr, diarization),
+        style = MaterialTheme.typography.labelSmall,
+        color = pal.Slate400,
+        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+    )
 }
 
 /** Generated-title card with model attribution. */

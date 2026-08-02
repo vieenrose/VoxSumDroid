@@ -14,7 +14,14 @@ enum class AsrBackend(
     NEMOTRON("nemotron", "Nemotron multilingual", "Nemotron", "25 languages");
 
     /** Backends whose output already carries speaker tags — the separate
-     *  pyannote/eres2net diarization stage is skipped for these. */
+     *  pyannote/eres2net diarization stage is skipped for these.
+     *
+     *  MOSS-TD is ONE model doing transcription and diarization together, not an ASR with a
+     *  diarizer bolted on, so it needs no pyannote segmentation stage. It is NOT diarizer-free
+     *  though: its [Sxx] tags are per-WINDOW, and CAM++ speaker embeddings still link those tags
+     *  across windows so one person keeps one id for the whole recording. (That linking is
+     *  best-effort — without the CAM++ model the per-window tags still work, only the stitching
+     *  is lost.) The UI says as much rather than implying a single model does everything. */
     val diarizesNatively: Boolean get() = this == MOSS
 
     companion object {

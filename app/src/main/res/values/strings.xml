@@ -353,4 +353,8 @@
     <string name="cd_status_done">Done</string>
     <string name="storage_compile_cache">%1$s (compile cache)</string>
     <string name="settings_asr_hw">Transcription hardware</string>
+    <string name="pipeline_transcript_via">via %1$s · %2$s · timestamps per utterance</string>
+    <string name="pipeline_diar_native">speakers from the same model, linked across windows by CAM++</string>
+    <string name="pipeline_diar_pyannote">speakers via pyannote + CAM++</string>
+    <string name="pipeline_diar_off">no speaker separation</string>
 </resources>
