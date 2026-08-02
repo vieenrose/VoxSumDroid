@@ -32,6 +32,11 @@ class Summarizer(
         "important points, merge overlapping ones, drop minor detail (each bullet under 20 words)",
     private val mapMaxTokens: Int = 224,
     private val reduceMaxTokens: Int = 288,
+    /** Generation budget for the NOTES pass. NOT reduceMaxTokens: that sizes ONE bullet list,
+     *  while NOTES must fit a title plus five of them. Reusing it truncated the model mid-format,
+     *  and a cut-off response still parses — the missing sections just look like the model had
+     *  nothing to say, which is indistinguishable from a real empty section. */
+    private val notesMaxTokens: Int = NOTES_MAX_TOKENS,
     /** Ask for the v2 structured NOTES format ([MeetingNotes]) in ONE pass instead of running
      *  summary -> title -> action items as three generations. Falls back automatically when the
      *  model ignores the format, so it is safe to leave on for a model that was not tuned for it. */
@@ -66,8 +71,12 @@ class Summarizer(
         // Hard context gate. Token estimate is per-character-class (see
         // SummaryText.estimateTokens — timestamps/punctuation cost ~1 tok/char, so a flat
         // per-script rate undercounts the unified format's line prefixes). The prompt
-        // template, chat wrapping and generation budget come off the top.
-        val budget = llm.nCtx - reduceMax - 192
+        // template, chat wrapping and generation budget come off the top. Reserve whichever
+        // generation is actually going to run: the NOTES pass needs notesMaxTokens, and
+        // budgeting for the smaller reduceMax would let a transcript that "just fits" overflow
+        // partway through generation instead of being refused up front.
+        val genBudget = if (structuredNotes) maxOf(reduceMax, notesMaxTokens) else reduceMax
+        val budget = llm.nCtx - genBudget - 192
         val estTokens = SummaryText.estimateTokens(transcript)
         if (estTokens > budget) {
             send(TranscriptEvent.Failed(
@@ -90,7 +99,7 @@ class Summarizer(
                           else NOTES_TEMPLATE.format(langClause, transcript)
             trySend(TranscriptEvent.Partial("", reset = true))
             val notes = try {
-                llm.generate(SummaryText.wrap(template, nPrompt), maxTokens = reduceMax) {
+                llm.generate(SummaryText.wrap(template, nPrompt), maxTokens = notesMaxTokens) {
                     nSb.append(it); trySend(TranscriptEvent.Partial(it))
                 }
                 MeetingNotes.parse(nSb.toString())
@@ -204,6 +213,10 @@ class Summarizer(
     }
 
     companion object {
+        /** Generation budget for the v2 NOTES pass — a title plus five bullet lists. Public so
+         *  the caller sizing n_ctx reserves the same amount this class's context gate does. */
+        const val NOTES_MAX_TOKENS = 640
+
         /**
          * Smallest context that fits [text] plus [outputTokens] of generation, rounded up to a
          * 4096 step and clamped to [[min], [max]].

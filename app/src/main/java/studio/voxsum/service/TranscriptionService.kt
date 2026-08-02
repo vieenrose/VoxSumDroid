@@ -1643,9 +1643,16 @@ class TranscriptionService : LifecycleService() {
         // Size the context to THIS transcript. llama.cpp charges per-token decode against the
         // allocated context, so a fixed ceiling would slow every short meeting down to buy
         // headroom only long ones use; the engine is .use{}-scoped here, so it costs nothing.
+        // Reserve the LARGER of the two possible generations. The v2 NOTES pass emits a title
+        // plus five bullet lists and is budgeted well above a single style's reduceTokens; sizing
+        // the window for the smaller one would make Summarizer's gate refuse transcripts that
+        // actually fit, since that gate reserves whichever generation will really run.
         val nCtx = Summarizer.contextFor(
             transcript,
-            outputTokens = SummaryStyle.fromId(cfg.summaryStyle).reduceTokens,
+            outputTokens = maxOf(
+                SummaryStyle.fromId(cfg.summaryStyle).reduceTokens,
+                Summarizer.NOTES_MAX_TOKENS,
+            ),
             max = studio.voxsum.core.llm.TextGen.CTX_MAX,
         )
         studio.voxsum.core.llm.TextGen.load(

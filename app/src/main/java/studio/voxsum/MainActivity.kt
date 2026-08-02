@@ -907,7 +907,8 @@ private fun TranscribeScreen(
         // Studio keeps a red "recording" banner + ticking timer over an import. beginRecording
         // re-sets isRecording=true right after its clearSession call.
         isRecording = false; micLevel = 0f
-        title = null; summary = null; actionItems = null; isPlaying = false; searchActive = false; searchQuery = ""
+        title = null; summary = null; actionItems = null; meetingNotes = null
+        isPlaying = false; searchActive = false; searchQuery = ""
         sessionDirty = false; statusIsError = false
         coverEnabled = true
         showPodcastSheet = false; showConfigSheet = false
@@ -1071,7 +1072,7 @@ private fun TranscribeScreen(
         speakerNames.clear(); editingIndex = -1; editingSpeakerId = null
         diarizeOnlyRun = false
         editingTitle = false; editingSummary = false; editingActions = false
-        title = queueTitle; summary = queueSummary; actionItems = null
+        title = queueTitle; summary = queueSummary; actionItems = null; meetingNotes = null
         isPlaying = false; searchActive = false; searchQuery = ""
         coverEnabled = true; coverBitmap = null; coverFromSession = false; lastSaveUri = null
         summaryStale = false; transcriptStale = false; transcriptDirty = false; titleEdited = false; pendingReextract = false
@@ -1161,6 +1162,10 @@ private fun TranscribeScreen(
                 withContext(Dispatchers.IO) { SessionLibrary.byId(context, dir.name)?.title }
             }
             title = metaTitle ?: loaded.title; summary = loaded.summary; actionItems = loaded.actionItems
+            // The structured sections are NOT persisted in the session file, so an opened session
+            // has none. Clearing is what stops the PREVIOUS session's decisions/open/topics cards
+            // from staying on screen and being read as belonging to this meeting.
+            meetingNotes = null
             // A saved title is intentional (the user finalized it) → treat it as a sticky edit so
             // re-summarize won't silently overwrite it (they can still ↻ Re-title for a fresh one).
             titleEdited = !title.isNullOrBlank()
@@ -1669,6 +1674,10 @@ private fun TranscribeScreen(
         if (running || utterances.isEmpty()) return
         TranscriptionConfig.Holder.config = config
         summary = null
+        // Drop the previous run's structured sections too. If this run falls back to prose (no
+        // NotesComplete), stale decisions/open/topics would otherwise stay on screen beside a
+        // summary they no longer describe.
+        meetingNotes = null
         if (regenerateTitle) { title = null; titleEdited = false }
         running = true; progress = 0f; status = context.getString(R.string.status_starting)   // transcript persists
         // Transcript rides the holder, not an Intent extra (Binder 1 MB limit → crash on long meetings).
