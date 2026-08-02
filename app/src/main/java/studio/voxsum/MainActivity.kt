@@ -1516,7 +1516,16 @@ private fun TranscribeScreen(
                     summary = if (e.reset) "" else (summary ?: "") + e.chunk
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false; if (libraryDir != null && !watchingQueue) sessionDirty = true; autosaveSessionNow() }
                 is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false; if (libraryDir != null && !watchingQueue) sessionDirty = true; autosaveSessionNow() }
-                is TranscriptEvent.NotesComplete -> meetingNotes = e.notes
+                is TranscriptEvent.NotesComplete -> {
+                    meetingNotes = e.notes
+                    // The NOTES pass already emitted ActionItemsComplete from its ACTIONS section,
+                    // so the chained re-extract queued by regenerateStaleChildren is now both
+                    // redundant and harmful: it is a full ActionItemExtractor map-reduce over the
+                    // whole transcript (minutes on this hardware) AND it would overwrite the
+                    // notes-derived actions, leaving the actions card and the decisions card
+                    // sourced from two different generations.
+                    pendingReextract = false
+                }
                 is TranscriptEvent.Failed -> {
                     pendingNextTalk = false   // capture wasn't saved → don't roll into a new recording
                     pendingAutoProcess = false
