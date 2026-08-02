@@ -62,6 +62,12 @@ object VoxsumSession {
         val speakerNames: Map<Int, SpeakerName>,
         val summary: String?,
         val title: String?,
+        /** v2 structured notes in their WIRE form ([MeetingNotes.render]), or null. Stored as the
+         *  format itself rather than a second schema: it round-trips through the same parser and
+         *  stays readable in the file. Without this the sections are lost the moment the session
+         *  is reopened, and never appear at all for queue-processed meetings (the event bus is
+         *  replay=0, so nothing is listening while the queue drains). */
+        val notes: String?,
         val asrModelId: String?,
         /** ASR backend id ([AsrBackend.id]) that produced these utterances. Distinct from
          *  [asrModelId], which names a weights directory and cannot identify the backend on its
@@ -122,6 +128,7 @@ object VoxsumSession {
         summary: String?,
         actionItems: String?,
         title: String?,
+        notes: String?,
         asrModelId: String?,
         asrBackend: String?,
         llmModelId: String?,
@@ -174,7 +181,7 @@ object VoxsumSession {
             val bmp = CoverGenerator.render(title, audioId)
             coverJpeg = CoverGenerator.toJpeg(bmp); coverW = bmp.width; coverH = bmp.height
         }
-        val blob = encodeSession(utterances, speakerNames, summary, actionItems, title, asrModelId, asrBackend, llmModelId)
+        val blob = encodeSession(utterances, speakerNames, summary, actionItems, title, notes, asrModelId, asrBackend, llmModelId)
         val cleanTitle = title?.replace('\n', ' ')?.trim()?.ifBlank { null }
         val cleanSummary = summary?.trim()?.ifBlank { null }
         // Player-facing lyrics (©lyr / LYRICS) = LRC-style SYNCHRONIZED lyrics: an `[mm:ss.xx]` timestamp
@@ -228,13 +235,13 @@ object VoxsumSession {
     suspend fun save(
         context: Context, out: OutputStream, audioUri: Uri?,
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
-        summary: String?, actionItems: String?, title: String?, asrModelId: String?, asrBackend: String?,
-        llmModelId: String?,
+        summary: String?, actionItems: String?, title: String?, notes: String?,
+        asrModelId: String?, asrBackend: String?, llmModelId: String?,
         coverEnabled: Boolean = true, format: Format,   // no default — see buildSession
     ): SaveOutcome = withContext(Dispatchers.IO) {
         out.use { o ->
             val dir = File(context.cacheDir, "voxsum_save").apply { mkdirs() }
-            val built = buildSession(context, dir, audioUri, utterances, speakerNames, summary, actionItems, title, asrModelId, asrBackend, llmModelId, coverEnabled, "session.${format.ext}", format)
+            val built = buildSession(context, dir, audioUri, utterances, speakerNames, summary, actionItems, title, notes, asrModelId, asrBackend, llmModelId, coverEnabled, "session.${format.ext}", format)
                 ?: return@use SaveOutcome.FAILED
             built.file.inputStream().use { it.copyTo(o) }
             built.file.delete()
@@ -260,7 +267,7 @@ object VoxsumSession {
         val blob = if (isM4a) Mp4Tags.readVoxsum(audio) else null
         if (blob == null || blob.length > MAX_BLOB_CHARS) {
             // No embedded session (or an implausibly large blob) — load as plain audio.
-            return@withContext Loaded(audio, emptyList(), emptyMap(), null, null, null, null, null, recovered = false, coverJpeg = coverJpeg)
+            return@withContext Loaded(audio, emptyList(), emptyMap(), null, null, null, null, null, null, recovered = false, coverJpeg = coverJpeg)
         }
         // Parse under one guard: 'Open session'/share-in accept arbitrary files, so a blob that is
         // valid gzip+JSON but semantically off (a future schema, a hand-edited or truncated file —
@@ -271,7 +278,7 @@ object VoxsumSession {
             parseManifest(json, audio, coverJpeg)
         }.getOrElse {
             android.util.Log.w("voxsum-session", "unreadable embedded session, opening as plain audio", it)
-            Loaded(audio, emptyList(), emptyMap(), null, null, null, null, null, recovered = false, coverJpeg = coverJpeg)
+            Loaded(audio, emptyList(), emptyMap(), null, null, null, null, null, null, recovered = false, coverJpeg = coverJpeg)
         }
     }
 
@@ -334,14 +341,15 @@ object VoxsumSession {
      *  caller embeds a session-less but playable file and reports PARTIAL instead of a false FULL). */
     private fun encodeSession(
         utterances: List<TranscriptEvent.Utterance>, speakerNames: Map<Int, SpeakerName>,
-        summary: String?, actionItems: String?, title: String?, asrModelId: String?, asrBackend: String?,
-        llmModelId: String?,
+        summary: String?, actionItems: String?, title: String?, notes: String?,
+        asrModelId: String?, asrBackend: String?, llmModelId: String?,
     ): String? {
         val root = JSONObject()
         root.put("voxsum_version", VERSION)
         title?.let { root.put("title", it) }
         summary?.let { root.put("summary", it) }
         actionItems?.let { root.put("action_items", it) }
+        notes?.let { root.put("notes", it) }
         asrModelId?.let { root.put("asr_model", it) }
         asrBackend?.let { root.put("asr_backend", it) }
         llmModelId?.let { root.put("llm_model", it) }
@@ -391,6 +399,7 @@ object VoxsumSession {
             summary = m.optString("summary", "").ifEmpty { null },
             actionItems = m.optString("action_items", "").ifEmpty { null },
             title = m.optString("title", "").ifEmpty { null },
+            notes = m.optString("notes", "").ifEmpty { null },
             asrModelId = m.optString("asr_model", "").ifEmpty { null },
             asrBackend = m.optString("asr_backend", "").ifEmpty { null },
             llmModelId = m.optString("llm_model", "").ifEmpty { null },

@@ -880,6 +880,7 @@ private fun TranscribeScreen(
             entryId = id, audioUri = audioUri,
             utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
             summary = summary, actionItems = actionItems, title = title,
+            notes = meetingNotes?.render(),
             asrModelId = config.asrModelId, asrBackend = config.asrBackend, llmModelId = config.llmModelId,
         )
         sessionDirty = false
@@ -1097,8 +1098,8 @@ private fun TranscribeScreen(
         TranscriptionService.pendingExport = TranscriptionService.ExportRequest(
             share = share, saveUri = uri, audioUri = audioUri,
             utterances = utterances.toList(), speakerNames = speakerNames.toMap(),
-            summary = summary, actionItems = actionItems, title = title, asrModelId = config.asrModelId,
-            asrBackend = config.asrBackend, llmModelId = config.llmModelId,
+            summary = summary, actionItems = actionItems, title = title, notes = meetingNotes?.render(),
+            asrModelId = config.asrModelId, asrBackend = config.asrBackend, llmModelId = config.llmModelId,
             coverEnabled = coverEnabled,
             fileName = VoxsumSession.suggestFileName(title, format.ext), format = format,
         )
@@ -1162,10 +1163,10 @@ private fun TranscribeScreen(
                 withContext(Dispatchers.IO) { SessionLibrary.byId(context, dir.name)?.title }
             }
             title = metaTitle ?: loaded.title; summary = loaded.summary; actionItems = loaded.actionItems
-            // The structured sections are NOT persisted in the session file, so an opened session
-            // has none. Clearing is what stops the PREVIOUS session's decisions/open/topics cards
-            // from staying on screen and being read as belonging to this meeting.
-            meetingNotes = null
+            // Restore the structured sections from the session, or clear them. Assigning
+            // unconditionally is what stops the PREVIOUS session's decisions/open/topics from
+            // staying on screen and being read as belonging to this meeting.
+            meetingNotes = loaded.notes?.let { studio.voxsum.core.llm.MeetingNotes.parse(it) }
             // A saved title is intentional (the user finalized it) → treat it as a sticky edit so
             // re-summarize won't silently overwrite it (they can still ↻ Re-title for a fresh one).
             titleEdited = !title.isNullOrBlank()

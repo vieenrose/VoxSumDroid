@@ -131,6 +131,8 @@ object SessionLibrary {
         summary: String?,
         actionItems: String?,
         title: String?,
+        /** v2 structured notes in wire form, or null. See VoxsumSession.Loaded.notes. */
+        notes: String?,
         asrModelId: String?,
         asrBackend: String?,
         llmModelId: String?,
@@ -140,7 +142,7 @@ object SessionLibrary {
     ): Entry? {
         val built = VoxsumSession.buildSession(
             context, entry.dir, audio ?: Uri.fromFile(entry.wavFile), utterances, speakerNames,
-            summary, actionItems, title, asrModelId, asrBackend, llmModelId,
+            summary, actionItems, title, notes, asrModelId, asrBackend, llmModelId,
             coverEnabled = true, fileName = SESSION_NAME, format = VoxsumSession.Format.M4A,
         ) ?: return null
         // A user-given name (set at capture time or via rename) outranks the LLM title — batch

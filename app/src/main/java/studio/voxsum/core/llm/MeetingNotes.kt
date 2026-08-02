@@ -50,6 +50,25 @@ data class MeetingNotes(
         get() = summary.isEmpty() && decisions.isEmpty() && actions.isEmpty() &&
             open.isEmpty() && topics.isEmpty() && extra.isEmpty()
 
+    /**
+     * Back to the wire format. Used to PERSIST the notes in a session file: the format is already
+     * the canonical representation and round-trips through [parse], so storing it needs no second
+     * schema and stays readable in the file. Empty sections keep the spec's single "-".
+     */
+    fun render(): String = buildString {
+        appendLine("TITLE: $title")
+        fun section(key: String, items: List<String>) {
+            appendLine("$key:")
+            if (items.isEmpty()) appendLine("-") else items.forEach { appendLine("- $it") }
+        }
+        section("SUMMARY", summary)
+        section("DECISIONS", decisions)
+        section("ACTIONS", actions)
+        section("OPEN", open)
+        section("TOPICS", topics)
+        extra.forEach { (k, v) -> section(k, v) }
+    }.trimEnd()
+
     companion object {
         /** A section key: uppercase ASCII (plus `_`) followed by a colon, at start of line. */
         private val KEY = Regex("^([A-Z][A-Z_]*):[ \\t]*(.*)$")

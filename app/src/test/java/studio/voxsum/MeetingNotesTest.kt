@@ -115,6 +115,29 @@ class MeetingNotesTest {
         assertEquals(listOf("a"), n.summary)
     }
 
+    /** render() is the persistence format, so it must survive a parse round-trip unchanged —
+     *  otherwise reopening a session quietly alters the notes. */
+    @Test fun renderRoundTrips() {
+        val a = MeetingNotes.parse(canonical)!!
+        val b = MeetingNotes.parse(a.render())!!
+        assertEquals(a, b)
+    }
+
+    /** Empty sections must survive as empty, not vanish or become a "-" item. */
+    @Test fun renderRoundTripsEmptySections() {
+        val a = MeetingNotes.parse("TITLE: T\nSUMMARY:\n- a\nDECISIONS:\n-\nACTIONS:\n-\nOPEN:\n-\nTOPICS:\n-")!!
+        val b = MeetingNotes.parse(a.render())!!
+        assertEquals(a, b)
+        assertTrue(b.decisions.isEmpty())
+    }
+
+    /** Unknown keys are preserved by parse; they must also survive being written back out. */
+    @Test fun renderRoundTripsUnknownSections() {
+        val a = MeetingNotes.parse("TITLE: T\nSUMMARY:\n- a\nRISKS:\n- vendor lock-in")!!
+        val b = MeetingNotes.parse(a.render())!!
+        assertEquals(listOf("vendor lock-in"), b.extra["RISKS"])
+    }
+
     @Test fun emptyInputIsNotNotes() {
         assertNull(MeetingNotes.parse(""))
         assertNull(MeetingNotes.parse("   \n  \n"))

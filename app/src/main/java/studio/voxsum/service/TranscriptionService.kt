@@ -210,6 +210,7 @@ class TranscriptionService : LifecycleService() {
         val summary: String?,
         val actionItems: String?,
         val title: String?,
+        val notes: String?,
         val asrModelId: String?,
         val asrBackend: String?,
         val llmModelId: String?,
@@ -224,6 +225,7 @@ class TranscriptionService : LifecycleService() {
         val summary: String?,
         val actionItems: String?,
         val title: String?,
+        val notes: String?,
         val asrModelId: String?,
         val asrBackend: String?,
         val llmModelId: String?,
@@ -563,7 +565,7 @@ class TranscriptionService : LifecycleService() {
                 val audio = if (entry.wavFile.exists()) Uri.fromFile(entry.wavFile) else req.audioUri
                 val updated = SessionLibrary.attachResults(
                     this@TranscriptionService, entry, req.utterances, req.speakerNames,
-                    req.summary, req.actionItems, req.title, req.asrModelId, req.asrBackend, req.llmModelId,
+                    req.summary, req.actionItems, req.title, req.notes, req.asrModelId, req.asrBackend, req.llmModelId,
                     audio = audio,
                 )
                 if (updated != null) {
@@ -603,8 +605,8 @@ class TranscriptionService : LifecycleService() {
                     dir.listFiles()?.forEach { it.delete() }
                     val built = VoxsumSession.buildSession(
                         this@TranscriptionService, dir, req.audioUri, req.utterances, req.speakerNames,
-                        req.summary, req.actionItems, req.title, req.asrModelId, req.asrBackend, req.llmModelId,
-                        req.coverEnabled, req.fileName, req.format,
+                        req.summary, req.actionItems, req.title, req.notes, req.asrModelId, req.asrBackend,
+                        req.llmModelId, req.coverEnabled, req.fileName, req.format,
                     )
                     if (built != null)
                         TranscriptEvent.ExportDone(true, if (built.transcriptEmbedded) "FULL" else "PARTIAL", built.file.absolutePath)
@@ -616,8 +618,8 @@ class TranscriptionService : LifecycleService() {
                         contentResolver.openOutputStream(uri, "wt")?.let { os ->
                             VoxsumSession.save(
                                 this@TranscriptionService, os, req.audioUri, req.utterances, req.speakerNames,
-                                req.summary, req.actionItems, req.title, req.asrModelId, req.asrBackend, req.llmModelId,
-                                req.coverEnabled, req.format,
+                                req.summary, req.actionItems, req.title, req.notes, req.asrModelId, req.asrBackend,
+                                req.llmModelId, req.coverEnabled, req.format,
                             )
                         }
                     } ?: VoxsumSession.SaveOutcome.FAILED
@@ -908,7 +910,7 @@ class TranscriptionService : LifecycleService() {
             runCatching {
                 val updated = SessionLibrary.attachResults(
                     this, entry, result.first, emptyMap(), result.second.summary, null,
-                    result.second.title, cfg.asrModelId, cfg.asrBackend, cfg.llmModelId,
+                    result.second.title, result.second.notes, cfg.asrModelId, cfg.asrBackend, cfg.llmModelId,
                 )
                 if (updated != null) {
                     emitEvent(TranscriptEvent.LibrarySaved(Uri.fromFile(updated.sessionFile).toString(), updated.title))
@@ -1044,7 +1046,7 @@ class TranscriptionService : LifecycleService() {
                         }
                         val updated = SessionLibrary.attachResults(
                             this, entry, utterances, emptyMap(), summary.summary, null,
-                            summary.title, cfgAll.asrModelId, cfgAll.asrBackend, cfgAll.llmModelId,
+                            summary.title, summary.notes, cfgAll.asrModelId, cfgAll.asrBackend, cfgAll.llmModelId,
                         )
                         if (updated != null) {
                             SessionLibrary.clearPendingTranscript(entry)
@@ -1298,7 +1300,7 @@ class TranscriptionService : LifecycleService() {
             val updated = runCatching {
                 SessionLibrary.attachResults(
                     this, entry, tagged, emptyMap(), result.summary, null, result.title,
-                    cfg.asrModelId, cfg.asrBackend, cfg.llmModelId,
+                    result.notes, cfg.asrModelId, cfg.asrBackend, cfg.llmModelId,
                 )
             }.getOrNull()
             if (updated != null) {
@@ -1624,7 +1626,7 @@ class TranscriptionService : LifecycleService() {
 
     /** What the summary phase produced — captured so the recording pipeline can auto-save the
      *  finished session into the library ([SessionLibrary.attachResults]). */
-    private data class SummaryResult(val title: String?, val summary: String?)
+    private data class SummaryResult(val title: String?, val summary: String?, val notes: String? = null)
 
     /**
      * Load the LLM and stream a title + summary for [transcript]. Shared by the full pipeline and
@@ -1694,6 +1696,7 @@ class TranscriptionService : LifecycleService() {
         updateNotification(getString(R.string.svc_summarizing))
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_summarizing)))   // localized (Summarizer no longer sets it)
         var outTitle: String? = null
+        var outNotes: String? = null
         var outSummary: String? = null
         run {
             activeLlm = llm
@@ -1727,6 +1730,10 @@ class TranscriptionService : LifecycleService() {
                         when (e) {
                             is TranscriptEvent.Title -> outTitle = e.title
                             is TranscriptEvent.SummaryComplete -> outSummary = e.summary
+                            // Capture the structured notes for PERSISTENCE. The event bus is
+                            // replay=0, so a queue drain with no UI attached would otherwise
+                            // discard them and the sections would never reach the user at all.
+                            is TranscriptEvent.NotesComplete -> outNotes = e.notes.render()
                             else -> Unit
                         }
                         emitEvent(e)
@@ -1735,7 +1742,7 @@ class TranscriptionService : LifecycleService() {
                 activeLlm = null
             }
         }
-        return SummaryResult(outTitle, outSummary)
+        return SummaryResult(outTitle, outSummary, outNotes)
     }
 
     /** Re-summarize an existing transcript with the current settings (no re-decode / re-ASR). Keeps the
