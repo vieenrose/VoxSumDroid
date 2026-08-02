@@ -463,6 +463,9 @@ private fun TranscribeScreen(
     var title by remember { mutableStateOf<String?>(null) }
     var summary by remember { mutableStateOf<String?>(null) }
     var actionItems by remember { mutableStateOf<String?>(null) }
+    // v2 structured notes, when the summarizer produced them. Holds the sections that have no
+    // card of their own (decisions / open questions / topics); summary and actions keep theirs.
+    var meetingNotes by remember { mutableStateOf<studio.voxsum.core.llm.MeetingNotes?>(null) }
     var audioUri by remember { mutableStateOf<Uri?>(null) }
     var running by remember { mutableStateOf(false) }
     // True once a final transcript exists (the Complete event, after diarization). The Re-run menu
@@ -1507,6 +1510,7 @@ private fun TranscribeScreen(
                     summary = if (e.reset) "" else (summary ?: "") + e.chunk
                 is TranscriptEvent.SummaryComplete -> { summary = e.summary; status = context.getString(R.string.status_done); running = false; if (libraryDir != null && !watchingQueue) sessionDirty = true; autosaveSessionNow() }
                 is TranscriptEvent.ActionItemsComplete -> { actionItems = e.text.ifBlank { "-" }; status = context.getString(R.string.status_done); running = false; if (libraryDir != null && !watchingQueue) sessionDirty = true; autosaveSessionNow() }
+                is TranscriptEvent.NotesComplete -> meetingNotes = e.notes
                 is TranscriptEvent.Failed -> {
                     pendingNextTalk = false   // capture wasn't saved → don't roll into a new recording
                     pendingAutoProcess = false
@@ -1857,6 +1861,17 @@ private fun TranscribeScreen(
                         cm?.setPrimaryClip(android.content.ClipData.newPlainText("VoxSum summary", s))
                         scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.summary_copied)) }
                     })
+            }
+            // Sections the v2 NOTES format adds and the older prose summary never had. Rendered
+            // only when non-empty: the format requires all six keys to be present, so a meeting
+            // with no decisions still emits "DECISIONS:\n-", and an empty card would be noise.
+            meetingNotes?.let { n ->
+                NotesSection(stringResource(R.string.notes_decisions), n.decisions)
+                NotesSection(stringResource(R.string.notes_open), n.open)
+                NotesSection(stringResource(R.string.notes_topics), n.topics)
+                // Keys a future model version adds. The spec requires them to survive parsing, so
+                // show them rather than silently dropping content the user's model produced.
+                n.extra.forEach { (key, lines) -> NotesSection(key, lines) }
             }
             if (stats.perSpeaker.isNotEmpty()) SpeakerStatsPanel(stats = stats)
             if (title == null && summary == null && stats.perSpeaker.isEmpty()) {
@@ -2430,6 +2445,25 @@ private fun OpeningOverlay() {
                 WorkingIndicator()
                 Spacer(Modifier.width(16.dp))
                 Text(stringResource(R.string.opening_session), color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
+            }
+        }
+    }
+}
+
+/** One section of the v2 structured notes — a localized header over its bullets. The section
+ *  KEYS are wire format and never shown; this renders the app's own heading. */
+@Composable
+private fun NotesSection(header: String, items: List<String>) {
+    if (items.isEmpty()) return
+    val pal = LocalVoxSumPalette.current
+    Card(colors = CardDefaults.cardColors(containerColor = pal.Slate800)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            Text(header, style = MaterialTheme.typography.titleSmall,
+                 fontWeight = FontWeight.Bold, color = pal.Slate200)
+            Spacer(Modifier.height(6.dp))
+            items.forEach {
+                Text("• $it", style = MaterialTheme.typography.bodyMedium,
+                     color = pal.Slate200, modifier = Modifier.padding(bottom = 2.dp))
             }
         }
     }

@@ -338,4 +338,7 @@
     <string name="pipeline_diar_native">locuteurs identifiés par le même modèle, reliés entre fenêtres par CAM++</string>
     <string name="pipeline_diar_pyannote">locuteurs via pyannote + CAM++</string>
     <string name="pipeline_diar_off">pas de séparation des locuteurs</string>
+    <string name="notes_decisions">Décisions</string>
+    <string name="notes_open">Questions en suspens</string>
+    <string name="notes_topics">Sujets abordés</string>
 </resources>

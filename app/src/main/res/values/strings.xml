@@ -357,4 +357,7 @@
     <string name="pipeline_diar_native">speakers from the same model, linked across windows by CAM++</string>
     <string name="pipeline_diar_pyannote">speakers via pyannote + CAM++</string>
     <string name="pipeline_diar_off">no speaker separation</string>
+    <string name="notes_decisions">Decisions</string>
+    <string name="notes_open">Open questions</string>
+    <string name="notes_topics">Topics</string>
 </resources>

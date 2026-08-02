@@ -337,4 +337,7 @@
     <string name="pipeline_diar_native">語者由同一個模型標註，跨視窗以 CAM++ 串接</string>
     <string name="pipeline_diar_pyannote">語者由 pyannote + CAM++ 分離</string>
     <string name="pipeline_diar_off">未區分語者</string>
+    <string name="notes_decisions">決議事項</string>
+    <string name="notes_open">待確認問題</string>
+    <string name="notes_topics">討論主題</string>
 </resources>
