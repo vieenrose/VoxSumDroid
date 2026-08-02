@@ -213,7 +213,7 @@ private fun mainApplication() = application {
                         val outcome = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                             studio.voxsum.desktop.session.VoxsumSession.save(
                                 dest, source, state.utterances, state.speakerNames,
-                                state.summary, state.actionItems, state.title,
+                                state.summary, state.actionItems, state.title, state.notes?.render(),
                                 // asr_model is the WEIGHTS id and asr_backend the engine id; this
                                 // used to pass the backend as the model, so desktop-written
                                 // sessions disagreed with Android's about what asr_model means.
@@ -676,6 +676,30 @@ private fun mainApplication() = application {
                                             onSave = { t -> update { it.copy(actionItems = t, editingActions = false) } },
                                             onCancel = { update { it.copy(editingActions = false) } },
                                         )
+                                    }
+                                }
+                                // Sections the v2 NOTES format adds and the prose summary never
+                                // had. Only non-empty ones render: the format requires all six
+                                // keys, so a meeting with no decisions still emits an empty one.
+                                // Unknown keys are included — the spec requires them to survive
+                                // parsing, so a future model's extra section is shown, not dropped.
+                                state.notes?.let { n ->
+                                    val sections = buildList {
+                                        add(Strings.notesDecisions to n.decisions)
+                                        add(Strings.notesOpen to n.open)
+                                        add(Strings.notesTopics to n.topics)
+                                        n.extra.forEach { (k, v) -> add(k to v) }
+                                    }
+                                    sections.forEach { (heading, items) ->
+                                        if (items.isNotEmpty()) {
+                                            studio.voxsum.desktop.ui.SectionCard(Modifier.padding(top = 12.dp)) {
+                                                Text(heading, color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
+                                                Spacer(Modifier.height(4.dp))
+                                                items.forEach {
+                                                    Text("• ${'$'}it", color = pal.Slate400, style = MaterialTheme.typography.bodyMedium)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                                 state.error?.let { Text(Strings.error(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
@@ -1146,6 +1170,9 @@ private fun loadAnySession(file: java.io.File): AppState? {
             return AppState(
                 audioFile = loaded.audio, fileName = file.name, title = loaded.title.orEmpty(),
                 summary = loaded.summary.orEmpty(), actionItems = loaded.actionItems.orEmpty(),
+                // Restore the structured sections; a fresh AppState means there is nothing stale
+                // to carry over from the previously open session.
+                notes = loaded.notes?.let { studio.voxsum.core.llm.MeetingNotes.parse(it) },
                 speakerNames = loaded.speakerNames, utterances = loaded.utterances, status = studio.voxsum.desktop.ui.Strings.stDone,
             )
         }

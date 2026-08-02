@@ -33,6 +33,14 @@ class Summarizer(
         "important points, merge overlapping ones, drop minor detail (each bullet under 20 words)",
     private val mapMaxTokens: Int = 224,
     private val reduceMaxTokens: Int = 288,
+    /** Generation budget for the v2 NOTES pass — a title plus FIVE bullet lists, so not
+     *  reduceMaxTokens, which sizes one list. Too small a budget truncates the model mid-format,
+     *  and a truncated response still parses: the missing sections then look identical to
+     *  sections the model genuinely had nothing to put in. */
+    private val notesMaxTokens: Int = NOTES_MAX_TOKENS,
+    /** Ask for the v2 structured NOTES format in ONE pass instead of summary -> title. Falls back
+     *  automatically when the model ignores the format. */
+    private val structuredNotes: Boolean = true,
 ) {
 
     // Output-language clause appended to every prompt. A small LLM otherwise replies in the transcript's
@@ -50,13 +58,25 @@ class Summarizer(
             " translate as you summarize. Do not use any language other than $targetLanguage."
     else " Write it in the same language as the transcript."
 
+    // Chinese targets get CHINESE instructions, not English ones plus a "reply in Chinese"
+    // clause. Ported from the Android build, where it was measured rather than assumed: English
+    // meta-instructions wrapped around a zh transcript read as "re-emit the transcript in
+    // Chinese" and the model echoed the input, while an instruction-first Chinese prompt is
+    // followed correctly. Only the NOTES pass uses it here so far; the prose templates below are
+    // still English-only, which is a remaining divergence from Android.
+    private val zhTarget: Boolean = targetLanguage?.contains("中文") == true
+
     fun summarize(transcript: String, userPrompt: String, withTitle: Boolean = true): Flow<TranscriptEvent> = flow {
         val instr = userPrompt + langClause
         val reduceMax = reduceMaxTokens
         // Hard context gate — single pass only. Token estimate is per-script (measured on
         // real transcripts: zh ≈ 0.75 tok/char, en ≈ 0.30; the gate uses
         // 0.8 / 0.35 so it errs toward refusing, never toward a silently-truncated prefill).
-        val budget = llm.nCtx - reduceMax - 192
+        // Reserve whichever generation will actually run: budgeting the smaller reduceMax while
+        // NOTES can generate notesMaxTokens would let a transcript that "just fits" overflow
+        // partway through instead of being refused up front.
+        val genBudget = if (structuredNotes) maxOf(reduceMax, notesMaxTokens) else reduceMax
+        val budget = llm.nCtx - genBudget - 192
         val estTokens = SummaryText.estimateTokens(transcript)
         if (estTokens > budget) {
             emit(TranscriptEvent.Failed(
@@ -67,6 +87,51 @@ class Summarizer(
         emit(TranscriptEvent.Progress(0f))   // restart the bar for the summary phase
         val estimatedCalls = 1 + (if (withTitle) 1 else 0)
         var llmCalls = 0
+
+        // --- v2 structured NOTES: title + summary + decisions + actions + open + topics in ONE
+        // generation, replacing the summary -> title pair. Falls through to the prose path below
+        // when the model ignores the format.
+        if (structuredNotes) {
+            val nSb = StringBuilder()
+            val notes = try {
+                llm.generate(
+                    SummaryText.wrap(template, if (zhTarget) NOTES_TEMPLATE_ZH.format(transcript)
+                                               else NOTES_TEMPLATE.format(langClause, transcript)),
+                    maxTokens = notesMaxTokens,
+                ) { nSb.append(it) }
+                MeetingNotes.parse(nSb.toString())
+            } catch (t: Exception) {
+                emit(TranscriptEvent.Failed(
+                    "Summarization failed: ${'$'}{t.message ?: t::class.simpleName}. " +
+                        "If the transcript is near the context limit, split the recording."))
+                return@flow
+            }
+            if (notes != null) {
+                val rendered = notes.summary.joinToString("\n") { "- ${'$'}it" }
+                    .ifBlank { notes.topics.joinToString("\n") { "- ${'$'}it" } }
+                emit(TranscriptEvent.Progress(1f))
+                emit(TranscriptEvent.SummaryComplete(convert(rendered)))
+                val actionsText = buildString {
+                    notes.actions.forEach { appendLine("- ${'$'}it") }
+                    notes.decisions.forEach { appendLine("- ${'$'}it") }
+                }.trim()
+                if (actionsText.isNotEmpty()) emit(TranscriptEvent.ActionItemsComplete(convert(actionsText)))
+                emit(TranscriptEvent.NotesComplete(convertNotes(notes)))
+                if (withTitle && notes.title.isNotBlank()) {
+                    emit(TranscriptEvent.Title(convert(SummaryText.cleanTitle(notes.title))))
+                } else if (withTitle) emit(titleEvent(convert(rendered)))
+                return@flow
+            }
+            // Fell through: keep what the model produced rather than paying for a second pass.
+            val prose = SummaryText.cleanSummary(nSb.toString())
+            if (prose.isNotBlank()) {
+                val finalProse = convert(prose)
+                emit(TranscriptEvent.Progress(1f))
+                emit(TranscriptEvent.SummaryComplete(finalProse))
+                if (withTitle) emit(titleEvent(finalProse))
+                return@flow
+            }
+        }
 
         // One pass over the whole transcript.
         val finalSb = StringBuilder()
@@ -119,7 +184,23 @@ class Summarizer(
         return TranscriptEvent.Title(convert(SummaryText.cleanTitle(sb.toString())))
     }
 
+    /** Script-convert every field (OpenCC s2tw for zh-TW), matching the rendered summary. */
+    private fun convertNotes(n: MeetingNotes) = MeetingNotes(
+        title = convert(n.title),
+        summary = n.summary.map(convert),
+        decisions = n.decisions.map(convert),
+        actions = n.actions.map(convert),
+        open = n.open.map(convert),
+        topics = n.topics.map(convert),
+        extra = n.extra.mapValues { (_, v) -> v.map(convert) },
+    )
+
     companion object {
+        /** Generation budget for the NOTES pass. Public so a caller sizing n_ctx reserves the
+         *  same amount this class's context gate does, and the two cannot disagree about which
+         *  transcripts fit. Keep equal to the Android build's value. */
+        const val NOTES_MAX_TOKENS = 640
+
         /**
          * Smallest context that fits [text] plus [outputTokens] of generation, rounded up to a
          * 4096 step and clamped to [min, max]. llama.cpp's per-token cost tracks the ALLOCATED
@@ -144,6 +225,38 @@ class Summarizer(
         // %s = user instruction, %s = the style's format directive, %s = the text.
         // Single-pass template: the whole transcript, one summary. %s = user instruction,
         // %s = the style's reduce directive (the "at most 7 bullets" class), %s = the transcript.
+        /**
+         * v2 structured NOTES — the format the VoxSum fine-tune was trained on. ONE pass yields
+         * the title, summary, decisions, actions, open questions and topics, replacing what used
+         * to be three separate LLM calls (summary -> title -> action items). On a Boox that is
+         * ~16 min saved per summarization, the largest single latency win available.
+         *
+         * The keys are the model's WIRE FORMAT and are deliberately un-localized even for the zh
+         * prompt: the fine-tune emits ASCII keys, and the UI renders its own localized headers.
+         * Only the CONTENT language changes between the two templates.
+         */
+        const val NOTES_TEMPLATE =
+            "Read the meeting transcript below and write structured notes.\n" +
+            "Reply with EXACTLY these sections, each key at the start of a line, in this order:\n" +
+            "TITLE: (one line, at most 8 words)\n" +
+            "SUMMARY:\nDECISIONS:\nACTIONS:\nOPEN:\nTOPICS:\n" +
+            "Every section except TITLE is a list of \"- \" bullets on the following lines. " +
+            "If a section has nothing, write a single \"-\".\n" +
+            "ACTIONS bullets are \"- owner: task\", adding \"(due: ...)\" only if a date was said.\n" +
+            "Use ONLY what the transcript states. Do not add facts, names or figures that are " +
+            "not there.%s\n\nTranscript:\n%s"
+
+        const val NOTES_TEMPLATE_ZH =
+            "請閱讀以下會議逐字稿，並輸出結構化會議記錄。\n" +
+            "務必依照下列順序輸出這些區段，每個標記都要在行首（標記本身保持英文大寫）：\n" +
+            "TITLE:（一行，最多十二個字）\n" +
+            "SUMMARY:\nDECISIONS:\nACTIONS:\nOPEN:\nTOPICS:\n" +
+            "除 TITLE 外，每個區段都用「- 」開頭的條列，寫在該標記的下一行。" +
+            "若該區段沒有內容，只寫一個「-」。\n" +
+            "ACTIONS 的格式是「- 負責人: 工作內容」，若逐字稿有提到期限才加上「(期限: ...)」。\n" +
+            "內容一律使用繁體中文，且只能根據逐字稿所述，不得自行補充逐字稿沒有的人名、數字或事實。\n\n" +
+            "逐字稿:\n%s"
+
         const val SINGLE_TEMPLATE =
             "%s\nWrite the summary of the transcript below %s. " +
                 "Output only the summary itself — no headings, no multiple versions, no preamble.\n\n" +

@@ -56,6 +56,12 @@ sealed interface TranscriptEvent {
     /** Extracted action items + key decisions (an editable draft, not an authoritative record). */
     data class ActionItemsComplete(val text: String) : TranscriptEvent
 
+    /** The v2 structured notes, when the summarizer produced them in one pass. Emitted IN
+     *  ADDITION to Title/SummaryComplete/ActionItemsComplete, so persistence, export and the
+     *  existing cards keep working while decisions, open questions and topics become renderable.
+     *  Absent when the model ignored the format and the prose path ran. */
+    data class NotesComplete(val notes: studio.voxsum.core.llm.MeetingNotes) : TranscriptEvent
+
     /** Live recording finished and the captured WAV was written — the UI loads it for playback. */
     data class RecordingSaved(val uri: String) : TranscriptEvent
 

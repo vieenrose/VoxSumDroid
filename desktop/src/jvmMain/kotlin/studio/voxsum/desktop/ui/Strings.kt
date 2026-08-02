@@ -201,6 +201,10 @@ object Strings {
     val pipelineDiarOff: String get() = t(
         "no speaker separation", "pas de séparation des locuteurs", "未區分語者",
     )
+    val notesDecisions: String get() = t("Decisions", "Décisions", "決議事項")
+    val notesOpen: String get() = t("Open questions", "Questions en suspens", "待確認問題")
+    val notesTopics: String get() = t("Topics", "Sujets abordés", "討論主題")
+
     val asrContext: String get() = t("Names and terms to recognise", "Noms et termes à reconnaître", "需要辨識的名稱與術語")
     val asrContextHint: String get() = t(
         "People, companies or jargon in this recording, separated by commas. MOSS-TD only.",

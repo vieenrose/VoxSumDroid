@@ -602,6 +602,7 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
                     is TranscriptEvent.Title -> if (regenerateTitle) update { it.copy(title = e.title) }
                     is TranscriptEvent.Partial -> update { it.copy(summary = it.summary + e.chunk) }
                     is TranscriptEvent.SummaryComplete -> update { it.copy(summary = e.summary) }
+                    is TranscriptEvent.NotesComplete -> update { it.copy(notes = e.notes) }
                     is TranscriptEvent.Progress -> {
                         val eta = etaText(t0, e.fraction)
                         val text = if (eta != null) "${Strings.stSummarizing} $eta" else Strings.stSummarizing

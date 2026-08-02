@@ -22,6 +22,9 @@ data class AppState(
     val title: String = "",
     val summary: String = "",
     val actionItems: String = "",
+    /** v2 structured notes, when the summarizer produced them. Holds the sections with no card of
+     *  their own (decisions / open questions / topics); summary and actions keep theirs. */
+    val notes: studio.voxsum.core.llm.MeetingNotes? = null,
     val error: String? = null,
     val config: TranscriptionConfig = TranscriptionConfig(),
     val summaryStyle: SummaryStyle = SummaryStyle.BULLET,
