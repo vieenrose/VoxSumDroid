@@ -1,5 +1,7 @@
 #include "moss_lite_engine.h"
 
+#include "../cpu_affinity.h"
+
 #ifdef __ANDROID__
 #include <android/log.h>
 #endif
@@ -108,30 +110,10 @@ int find_name(const std::vector<std::string>& names, const char* needle) {
   return -1;
 }
 
-/** Big-cluster topology (same policy as moss_jni.cpp): pin wide for batch
- *  phases, big-cores-only for the per-token decode loop. */
-struct CpuTopology { int online = 1; int big = 1; unsigned long long topFreq = 0; };
-const CpuTopology& cpu_topology() {
-  static const CpuTopology t = [] {
-    CpuTopology r;
-    r.online = std::max(1, (int)sysconf(_SC_NPROCESSORS_ONLN));
-    std::vector<unsigned long long> freqs(r.online, 0);
-    for (int c = 0; c < r.online; ++c) {
-      char p[128];
-      snprintf(p, sizeof(p), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", c);
-      if (FILE* f = fopen(p, "r")) {
-        if (fscanf(f, "%llu", &freqs[c]) != 1) freqs[c] = 0;
-        fclose(f);
-      }
-    }
-    r.topFreq = *std::max_element(freqs.begin(), freqs.end());
-    r.big = r.topFreq ? (int)std::count(freqs.begin(), freqs.end(), r.topFreq)
-                      : r.online;
-    r.big = std::max(1, r.big);
-    return r;
-  }();
-  return t;
-}
+/** Cluster discovery + affinity policy lives in ../cpu_affinity.h, shared with llm_jni.cpp so
+ *  the engines cannot drift apart. This file wraps it as a wide/narrow pair: wide for the batch
+ *  phases (memory-bound, the little cores contribute) and fast-cluster-only for the per-token
+ *  decode loop (compute-bound, the pool barriers on its slowest worker). */
 
 /** Did XNNPACK actually produce the weight cache we asked for? When the path is
  *  not writable it does not fail the compile, does not warn, and quietly packs
@@ -149,18 +131,8 @@ void warn_if_cache_missing(const std::string& path) {
 }
 
 void set_affinity(bool wide) {
-  const CpuTopology& t = cpu_topology();
-  cpu_set_t set;
-  CPU_ZERO(&set);
-  for (int c = 0; c < t.online && c < CPU_SETSIZE; ++c) {
-    if (wide) { CPU_SET(c, &set); continue; }
-    char p[128];
-    snprintf(p, sizeof(p), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", c);
-    unsigned long long f = 0;
-    if (FILE* fp = fopen(p, "r")) { if (fscanf(fp, "%llu", &f) != 1) f = 0; fclose(fp); }
-    if (f == t.topFreq || t.topFreq == 0) CPU_SET(c, &set);
-  }
-  sched_setaffinity(0, sizeof(set), &set);
+  if (wide) voxsum::unpin_to_all_cores();
+  else      voxsum::pin_to_fast_cores();
 }
 
 }  // namespace
@@ -169,6 +141,18 @@ Component::Component(LiteRtEnvironment env, const std::string& path,
                      KvStore* kv, int num_threads,
                      const std::string& weight_cache, bool gpu)
     : env_(env), kv_(kv) {
+  // Pin BEFORE the compiled model is created: LiteRT/XNNPACK spawn their worker pool here and
+  // the workers INHERIT this thread's affinity mask. Without it the pool straddles both
+  // clusters and every operator runs at little-core pace, because the pool barriers on its
+  // slowest worker. Measured on the Boox with the LiteRT ASR engines (which reached this
+  // constructor unpinned): 2.7-2.95x realtime when the scheduler happened to place the pool on
+  // the big cluster, 0.84-1.38x when it did not — same binary, byte-identical input, no thermal
+  // component. MOSS-TD widens the mask again for its batch phases via set_affinity(true).
+  voxsum::pin_to_fast_cores();
+  // Never spawn more workers than there are fast cores; the surplus lands back on the little
+  // cluster and re-creates the very barrier the pin removes.
+  if (num_threads > voxsum::fast_core_count()) num_threads = voxsum::fast_core_count();
+  if (num_threads < 1) num_threads = 1;
   ENSURE_OK(LiteRtCreateModelFromFile(env, path.c_str(), &model_));
   LiteRtOptions opts;
   ENSURE_OK(LiteRtCreateOptions(&opts));
@@ -318,16 +302,16 @@ MossLiteEngine::MossLiteEngine(std::string encoder_path,
   // penalty comes from little-core CONTENTION, which the affinity pin already
   // removes, and the extra pinned threads still win via work-stealing.
   // <=0 = auto: all online cores for both, affinity handles the rest.
-  if (dec_threads_ <= 0) dec_threads_ = cpu_topology().online;
-  if (enc_threads_ <= 0) enc_threads_ = cpu_topology().online;
+  if (dec_threads_ <= 0) dec_threads_ = voxsum::cpu_topology().online;
+  if (enc_threads_ <= 0) enc_threads_ = voxsum::cpu_topology().online;
   if (LiteRtCreateEnvironment(0, nullptr, &env_) != kLiteRtStatusOk) {
     LOGE("LiteRtCreateEnvironment failed");
     return;
   }
   LOGI("engine ready (phase-serialized): threads=%d/%d cache=%s cores "
-       "online=%d big=%d",
+       "online=%d fast=%d",
        enc_threads_, dec_threads_, cache_dir_.empty() ? "off" : "on",
-       cpu_topology().online, cpu_topology().big);
+       voxsum::cpu_topology().online, voxsum::fast_core_count());
   ok_ = true;
 }
 

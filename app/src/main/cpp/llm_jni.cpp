@@ -16,6 +16,7 @@
 #ifdef __ANDROID__
 #include <android/log.h>
 #include <sched.h>
+#include "cpu_affinity.h"
 #include <unistd.h>
 #include <algorithm>
 #else
@@ -41,65 +42,19 @@
 namespace {
 
 #ifdef __ANDROID__
-/**
- * Big-cluster topology + affinity pin. Same policy and the same frequency-based discovery as
- * mosslite/moss_lite_engine.cc (see the CpuTopology/set_affinity pair there) — kept as a local
- * copy rather than a shared header because the two engines are separately linked .so files with
- * no common target.
- *
- * WHY this matters here: on a big.LITTLE device an unpinned ggml thread pool gets its workers
- * scheduled across both clusters, and every graph node then runs at the LITTLE cores' pace
- * because the pool barriers on the slowest worker. Measured on the Boox (A73/A53) with the
- * predecessor engine, throughput was bimodal on exactly this: 0.63 tok/s unpinned vs 6.1 tok/s
- * pinned. ggml's worker threads INHERIT the affinity mask of the thread that creates the
- * context, so the pin must happen in nativeLoad BEFORE llama_init_from_model spawns the pool.
- */
-struct CpuTopology { int online = 1; int big = 1; unsigned long long topFreq = 0; };
-
-unsigned long long cpu_max_freq(int c) {
-    char p[128];
-    snprintf(p, sizeof(p), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", c);
-    unsigned long long f = 0;
-    if (FILE* fp = fopen(p, "r")) { if (fscanf(fp, "%llu", &f) != 1) f = 0; fclose(fp); }
-    return f;
-}
-
-const CpuTopology& cpu_topology() {
-    static const CpuTopology t = [] {
-        CpuTopology r;
-        r.online = std::max(1, (int) sysconf(_SC_NPROCESSORS_ONLN));
-        std::vector<unsigned long long> freqs(r.online, 0);
-        for (int c = 0; c < r.online; ++c) freqs[c] = cpu_max_freq(c);
-        r.topFreq = *std::max_element(freqs.begin(), freqs.end());
-        // No cpufreq exposed (some emulators / locked kernels) -> treat every core as "big"
-        // and pin wide, which is exactly the pre-pinning behaviour. Never pin to nothing.
-        r.big = r.topFreq ? (int) std::count(freqs.begin(), freqs.end(), r.topFreq) : r.online;
-        r.big = std::max(1, r.big);
-        return r;
-    }();
-    return t;
-}
-
-/** Restrict the CALLING thread (and hence the ggml pool it is about to spawn) to the
- *  highest-max-frequency cluster. Best-effort: a sched_setaffinity failure is not fatal. */
+// Policy lives in ../cpu_affinity.h so llama.cpp, MOSS-TD and the LiteRT ASR engines cannot
+// drift apart. ggml's workers INHERIT the affinity of the thread that creates the context, so
+// the pin must happen in nativeLoad BEFORE llama_init_from_model spawns the pool.
 void pin_to_big_cores() {
-    const CpuTopology& t = cpu_topology();
-    if (t.topFreq == 0) return;                 // nothing to distinguish — leave the mask alone
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    int n = 0;
-    for (int c = 0; c < t.online && c < CPU_SETSIZE; ++c) {
-        if (cpu_max_freq(c) == t.topFreq) { CPU_SET(c, &set); ++n; }
-    }
-    if (n == 0) return;
-    if (sched_setaffinity(0, sizeof(set), &set) != 0) {
-        LOGE("sched_setaffinity to the big cluster failed; threads stay unpinned");
+    if (voxsum::pin_to_fast_cores()) {
+        LOGI("pinned to %d fast core(s) of %d online", voxsum::fast_core_count(),
+             (int) sysconf(_SC_NPROCESSORS_ONLN));
     } else {
-        LOGI("pinned to %d big core(s) @ %llu kHz (of %d online)", n, t.topFreq, t.online);
+        LOGE("could not pin to the fast cluster; threads stay unpinned");
     }
 }
 
-int big_core_count() { return cpu_topology().big; }
+int big_core_count() { return voxsum::fast_core_count(); }
 #else
 void pin_to_big_cores() {}
 int big_core_count() { return 0; }
