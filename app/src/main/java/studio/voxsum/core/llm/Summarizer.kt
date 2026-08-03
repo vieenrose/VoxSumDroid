@@ -2,6 +2,9 @@ package studio.voxsum.core.llm
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.isActive
+import studio.voxsum.core.agentic.AgentPrompts
+import studio.voxsum.core.agentic.MeetingAgent
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.models.ChatTemplate
 
@@ -37,10 +40,31 @@ class Summarizer(
      *  and a cut-off response still parses — the missing sections just look like the model had
      *  nothing to say, which is indistinguishable from a real empty section. */
     private val notesMaxTokens: Int = NOTES_MAX_TOKENS,
-    /** Ask for the v2 structured NOTES format ([MeetingNotes]) in ONE pass instead of running
+    /** Ask for the v2 structured NOTES format ([MeetingNotes]) instead of running
      *  summary -> title -> action items as three generations. Falls back automatically when the
      *  model ignores the format, so it is safe to leave on for a model that was not tuned for it. */
     private val structuredNotes: Boolean = true,
+    /**
+     * Produce the NOTES with [MeetingAgent] (chunk -> per-section merge -> title) rather than one
+     * prompt holding the whole transcript.
+     *
+     * ON by default. What it buys, concretely, is that transcript length stops being a limit: the
+     * model sees one chunk at a time, so a 2-hour meeting no longer meets a refusal, and the
+     * window (see [agentContext]) stops growing with the recording.
+     *
+     * The published agent harness reports it also IMPROVING quality over single-pass on 16
+     * held-out long meetings (faith 4.00 -> 4.75, inversions 25.0% -> 6.2%, 8/16 -> 16/16
+     * completed). Those numbers were measured with a checkpoint trained on the harness's own
+     * per-chunk contract, which is NOT what ships here — see [AgentPrompts]. We run the same
+     * ARCHITECTURE with the prompts these weights know, which is the long-input strategy their
+     * model card prescribes, so treat the quality figures as the harness's, not as ours. The
+     * length property is the part we have verified on device.
+     */
+    private val agentic: Boolean = true,
+    /** Transcript tokens per agent call. The knob that trades wall-clock against call count:
+     *  larger chunks mean fewer calls but deeper (slower per-token) prefill, and quality is
+     *  measured to fall off well before the window is full. See [MeetingAgent]. */
+    private val chunkTokens: Int = AGENT_CHUNK_TOKENS,
 ) {
 
     // Output-language clause appended to every prompt. A small LLM otherwise replies in the transcript's
@@ -78,6 +102,15 @@ class Summarizer(
         val genBudget = if (structuredNotes) maxOf(reduceMax, notesMaxTokens) else reduceMax
         val budget = llm.nCtx - genBudget - 192
         val estTokens = SummaryText.estimateTokens(transcript)
+        // The agent chunks the transcript, so its reach is bounded by the CHUNK size, not the
+        // transcript length — the gate below (and the refusal it produces) simply does not apply.
+        // What must fit instead is one chunk plus its prompt and generation, which the caller
+        // sized the window for via [agentContext]; if it somehow does not, the native over-context
+        // guard raises and the catch around run() turns it into a clean Failed event.
+        if (structuredNotes && agentic && agentCanServe(transcript)) {
+            runAgent(transcript, withTitle)
+            return@channelFlow
+        }
         if (estTokens > budget) {
             send(TranscriptEvent.Failed(
                 "Transcript too long to summarize in one pass: ~$estTokens tokens, " +
@@ -188,6 +221,128 @@ class Summarizer(
         if (withTitle) send(titleEvent(finalSummary))
     }
 
+    /**
+     * Applies the model's chat template to every prompt on its way to the engine.
+     *
+     * REQUIRED, and its absence is silent. [MeetingAgent] hands [TextGen] a bare instruction
+     * because the reference implementation ran on LiteRT-LM, whose bundle carries its own
+     * template and applies it in the runtime. Our JNI tokenizes the string it is given and never
+     * calls `llama_chat_apply_template`, so an unwrapped prompt is not a question to the model —
+     * it is text to continue, and Qwen3.5 duly continues the transcript.
+     *
+     * Measured before this existed: all nine chunks of a 2-hour meeting generated for ~330 s each
+     * and parsed to ZERO items, so every section came back empty and the compress steps had
+     * nothing to do. Nothing threw; the only symptom was 49 minutes of work producing "-".
+     *
+     * The decorator keeps the four agentic files byte-identical to the published reference, which
+     * matters because [Prompts] is generated from the fine-tune's training contract.
+     */
+    private class ChatWrapped(
+        private val inner: TextGen,
+        private val template: ChatTemplate,
+    ) : TextGen by inner {
+        override fun generateBlocking(prompt: String, maxTokens: Int): String =
+            inner.generateBlocking(SummaryText.wrap(template, prompt), maxTokens)
+    }
+
+    /**
+     * Whether the agent can serve this request, or the single-pass path must.
+     *
+     * The harness prompts are GENERATED from the fine-tune's training contract and exist in
+     * exactly two languages, EN and ZH. Neither carries an output-language directive: the model
+     * answers in the transcript's language, which is right for the overwhelmingly common case
+     * (summarize this meeting) and cannot express the other one (translate this meeting as you
+     * summarize it). Editing the prompts to add [langClause] is not an option — they are the
+     * strings the model was tuned on, and diverging from them is exactly the failure the
+     * generated-file header warns about.
+     *
+     * So a CROSS-LINGUAL request falls back to single-pass, keeping today's behaviour for it,
+     * length limit included. That is a real limitation and not a temporary one; lifting it needs
+     * a prompt variant from the fine-tuning side, not a local edit.
+     *
+     * Everything else — no target language, or a target that agrees with the transcript's own
+     * script — goes to the agent.
+     */
+    private fun agentCanServe(transcript: String): Boolean {
+        if (targetLanguage == null) return true          // "match the transcript" — the agent's default
+        return zhTarget == isHanDominant(transcript)     // asking for what it already is
+    }
+
+    /**
+     * The agentic NOTES path: [MeetingAgent] reads the transcript chunk by chunk, merges each
+     * section with the source lines in view, and derives a title — all orchestration in Kotlin,
+     * the model only ever writing notes about text it can currently see.
+     *
+     * Emits the same event set as the single-pass path, so nothing downstream changes.
+     *
+     * Progress is REAL here, unlike the single-pass path's two-call approximation: the agent knows
+     * its total step count up front (chunks + sections + title) and reports each one, so the ETA
+     * the service derives from it is meaningful for the first time on a long meeting.
+     *
+     * No Partial events. The agent's intermediate generations are scratch work — a half-parsed
+     * per-chunk note list, a merge prompt's bullet stream — and streaming them into the summary
+     * pane would show the user the pipeline's internals and then replace them wholesale.
+     */
+    private suspend fun kotlinx.coroutines.channels.ProducerScope<TranscriptEvent>.runAgent(
+        transcript: String,
+        withTitle: Boolean,
+    ) {
+        send(TranscriptEvent.Progress(0f))
+        trySend(TranscriptEvent.Partial("", reset = true))
+        // Language comes from the TRANSCRIPT, not the target: these prompts instruct the model in
+        // the language it is reading, and [agentCanServe] has already established the two agree.
+        val agent = MeetingAgent(
+            llm = ChatWrapped(llm, template),
+            lang = if (isHanDominant(transcript)) MeetingAgent.Lang.ZH_TW else MeetingAgent.Lang.EN,
+            chunkTokens = chunkTokens,
+        )
+        val raw = try {
+            agent.run(transcript) { p ->
+                // The agent is a long BLOCKING loop over generateBlocking; without this it would
+                // keep burning chunks after the service stopped or a newer run superseded it.
+                // Throwing from the progress callback is the one cancellation point the agent
+                // offers, and it unwinds the whole run cleanly.
+                if (!isActive) throw kotlinx.coroutines.CancellationException("summarization cancelled")
+                trySend(TranscriptEvent.Progress((p.step.toFloat() / p.total).coerceIn(0f, 0.99f)))
+            }
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            throw c
+        } catch (t: Exception) {
+            send(TranscriptEvent.Failed(
+                "Summarization failed: ${t.message ?: t.javaClass.simpleName}."))
+            return
+        }
+        val notes = MeetingNotes.parse(raw)
+        if (notes == null) {
+            // The agent renders v2 NOTES itself, so a parse failure here means every section came
+            // back empty — a model that produced nothing usable on any chunk. Report it rather
+            // than showing an empty card; there is no cheaper second path to fall back to, since
+            // the single-pass alternative would re-read the same transcript for a worse result.
+            send(TranscriptEvent.Failed(
+                "The summarizer produced no usable notes for this transcript."))
+            return
+        }
+        val rendered = notes.summary.joinToString("\n") { "- $it" }
+            .ifBlank { notes.topics.joinToString("\n") { "- $it" } }
+        send(TranscriptEvent.Progress(1f))
+        send(TranscriptEvent.SummaryComplete(convert(rendered)))
+        val actionsText = buildString {
+            notes.actions.forEach { appendLine("- $it") }
+            notes.decisions.forEach { appendLine("- $it") }
+        }.trim()
+        if (actionsText.isNotEmpty()) send(TranscriptEvent.ActionItemsComplete(convert(actionsText)))
+        send(TranscriptEvent.NotesComplete(convertNotes(notes)))
+        // The agent derives the title from the FINISHED notes, so it has already paid for it; only
+        // fall back to a separate title call when it came back blank.
+        if (withTitle) {
+            if (notes.title.isNotBlank()) {
+                send(TranscriptEvent.Title(convert(SummaryText.cleanTitle(notes.title))))
+            } else {
+                send(titleEvent(convert(rendered)))
+            }
+        }
+    }
+
     /** Script-convert every field (OpenCC s2tw for zh-TW). The rendered summary is converted on
      *  its own path; this keeps the structured copy consistent with it. */
     private fun convertNotes(n: MeetingNotes) = MeetingNotes(
@@ -216,6 +371,79 @@ class Summarizer(
         /** Generation budget for the v2 NOTES pass — a title plus five bullet lists. Public so
          *  the caller sizing n_ctx reserves the same amount this class's context gate does. */
         const val NOTES_MAX_TOKENS = 640
+
+        /**
+         * Transcript tokens per agent call.
+         *
+         * 4000, and the reason is MEASURED, not reasoned — the reasoning got it backwards.
+         *
+         * The model card's guidance ("chunking at ~10-12k tokens with a hierarchical reduce keeps
+         * the model in its reliable range") is a CEILING on faithfulness, not a target, and 10k
+         * looked like the cheaper end of the trade: fewer chunks means fewer generations, and the
+         * transcript is prefilled exactly once either way. That last clause is false. Prefill cost
+         * per token GROWS with depth — this is a hybrid model, but 6 of its 24 layers are full
+         * attention and therefore quadratic — so total prefill time is not invariant to chunk size.
+         *
+         * Boox Tab Mini C (Cortex-A73, 4 big cores), 34,802-token zh meeting, read phase:
+         *
+         *   4k chunks   9 chunks x ~330 s  = ~50 min   (all nine measured)
+         *   10k chunks  4 chunks x 1064 s  = ~71 min   (first chunk measured, rest projected)
+         *
+         * The ~12 min saved on generation is swamped by the slower prefill. 4000 is also the
+         * harness contract's own value, so both prompt sets now chunk alike; a chunk that small is
+         * comfortably inside the card's reliable range, which bounds the size from above only.
+         */
+        const val AGENT_CHUNK_TOKENS = 4000
+
+        /**
+         * Whether [text] is predominantly Han script — i.e. whether the ZH prompts apply.
+         *
+         * Deliberately NARROW, mirroring `detect_cjk_language` in the Python codebase: Japanese
+         * and Korean text contains Han characters too, and misreading either as Chinese would put
+         * the model in front of Chinese instructions for a language the harness has no prompts
+         * for. So the presence of any meaningful amount of kana or hangul disqualifies the text
+         * outright, and a minimum absolute count keeps a couple of stray Han characters in an
+         * English transcript from tipping the ratio.
+         */
+        internal fun isHanDominant(text: String): Boolean {
+            var han = 0; var kana = 0; var hangul = 0; var letters = 0
+            for (c in text) {
+                val cp = c.code
+                when {
+                    cp in 0x3400..0x4DBF || cp in 0x4E00..0x9FFF -> { han++; letters++ }
+                    cp in 0x3040..0x30FF -> { kana++; letters++ }
+                    cp in 0xAC00..0xD7AF -> { hangul++; letters++ }
+                    c.isLetter() -> letters++
+                }
+            }
+            if (han < 20 || letters == 0) return false
+            if (kana * 20 > han || hangul * 20 > han) return false   // ja/ko text that contains Han
+            return han.toDouble() / letters >= 0.15
+        }
+
+        /**
+         * Context window the agentic path needs — a function of the CHUNK, not the transcript.
+         *
+         * This is the structural win over single-pass. The window no longer has to grow with the
+         * meeting, so a three-hour recording allocates the same KV cache as a ten-minute one, and
+         * a transcript longer than the model's ceiling stops being a refusal. It also makes every
+         * long meeting FASTER per token than the old path did, because llama.cpp charges decode
+         * against the allocated context.
+         *
+         * Budget: one chunk, plus the op-A prompt (the zh template with its worked example is the
+         * larger of the two, ~500 tokens), plus [Prompts.MAX_CHUNK_NOTES] of generation, plus chat
+         * wrapping. The merge op is smaller — its inputs are bounded by the per-section bullet
+         * caps and a 40-line evidence window — so op A sizes the window.
+         */
+        fun agentContext(
+            chunkTokens: Int = AGENT_CHUNK_TOKENS,
+            min: Int = 4096,
+            max: Int = 32768,
+        ): Int {
+            val need = chunkTokens + 640 + NOTES_MAX_TOKENS + 192
+            val step = 4096
+            return (((need + step - 1) / step) * step).coerceIn(min, max)
+        }
 
         /**
          * Smallest context that fits [text] plus [outputTokens] of generation, rounded up to a
@@ -266,7 +494,7 @@ class Summarizer(
             "SUMMARY:\nDECISIONS:\nACTIONS:\nOPEN:\nTOPICS:\n" +
             "Every section except TITLE is a list of \"- \" bullets on the following lines. " +
             "If a section has nothing, write a single \"-\".\n" +
-            "ACTIONS bullets are \"- owner: task\", adding \"(due: ...)\" only if a date was said.\n" +
+            "ACTIONS bullets are \"- name: task\", where the name is someone actually named in the transcript; if no one was named, write just the task and never the literal word \"owner\". Add \"(due: ...)\" only if a date was said.\n" +
             "Use ONLY what the transcript states. Do not add facts, names or figures that are " +
             "not there.%s\n\nTranscript:\n%s"
 
@@ -277,7 +505,7 @@ class Summarizer(
             "SUMMARY:\nDECISIONS:\nACTIONS:\nOPEN:\nTOPICS:\n" +
             "除 TITLE 外，每個區段都用「- 」開頭的條列，寫在該標記的下一行。" +
             "若該區段沒有內容，只寫一個「-」。\n" +
-            "ACTIONS 的格式是「- 負責人: 工作內容」，若逐字稿有提到期限才加上「(期限: ...)」。\n" +
+            "ACTIONS 每點寫「- 姓名: 工作內容」，姓名必須是逐字稿裡真的出現過的人；若逐字稿沒有指名是誰，就只寫工作內容，不要寫「負責人」這三個字。若逐字稿有提到期限才加上「(期限: ...)」。\n" +
             "內容一律使用繁體中文，且只能根據逐字稿所述，不得自行補充逐字稿沒有的人名、數字或事實。\n\n" +
             "逐字稿:\n%s"
 

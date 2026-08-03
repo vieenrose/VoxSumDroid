@@ -1642,21 +1642,17 @@ class TranscriptionService : LifecycleService() {
     ): SummaryResult {
         val spec = LlmRegistry.byId(cfg.llmModelId)
         ensureLlm(spec, models)
-        // Size the context to THIS transcript. llama.cpp charges per-token decode against the
-        // allocated context, so a fixed ceiling would slow every short meeting down to buy
-        // headroom only long ones use; the engine is .use{}-scoped here, so it costs nothing.
-        // Reserve the LARGER of the two possible generations. The v2 NOTES pass emits a title
-        // plus five bullet lists and is budgeted well above a single style's reduceTokens; sizing
-        // the window for the smaller one would make Summarizer's gate refuse transcripts that
-        // actually fit, since that gate reserves whichever generation will really run.
-        val nCtx = Summarizer.contextFor(
-            transcript,
-            outputTokens = maxOf(
-                SummaryStyle.fromId(cfg.summaryStyle).reduceTokens,
-                Summarizer.NOTES_MAX_TOKENS,
-            ),
-            max = studio.voxsum.core.llm.TextGen.CTX_MAX,
-        )
+        // Size the context to ONE AGENT CHUNK, not to the transcript.
+        //
+        // The summarizer runs the agentic NOTES path, which never puts the whole meeting in a
+        // prompt — so the window is a function of the chunk size and is the SAME for a ten-minute
+        // recording and a three-hour one. That is what removes the old "transcript too long"
+        // refusal, and because llama.cpp charges per-token decode against the ALLOCATED context,
+        // it also makes long meetings faster per token than the transcript-sized window was.
+        //
+        // The transcript-sized [Summarizer.contextFor] is still the right call for the single-pass
+        // path (and the re-title path below), which is why it stays.
+        val nCtx = Summarizer.agentContext(max = studio.voxsum.core.llm.TextGen.CTX_MAX)
         studio.voxsum.core.llm.TextGen.load(
             this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(),
             backend = cfg.llmBackend, nCtx = nCtx,

@@ -112,11 +112,23 @@ data class MeetingNotes(
                 }
                 if (current == null) continue     // preamble, or stray text after TITLE
                 if (line.isBlank()) continue      // blank lines between sections are ignored
-                // The spec's EMPTY marker is a bullet char with no content — "-" on its own
-                // line. BULLET requires trailing text, so catch it before it becomes an item.
-                if (line.trim().length == 1 && line.trim()[0] in "-*•·") continue
+                // EMPTY-section markers. The spec says a single "-", but voxsum-gemma3-270m
+                // also emits "- -" (a bullet whose content is a dash) and an en-dash; its card
+                // calls out treating those as empty rather than as an item.
+                val bare = line.trim()
+                if (bare.length == 1 && bare[0] in "-*•·–—") continue
+                if (bare in setOf("- -", "- –", "- —", "-  -")) continue
                 val b = BULLET.find(line)
-                val item = (b?.groupValues?.get(1) ?: line).trim()
+                var item = (b?.groupValues?.get(1) ?: line).trim()
+                // voxsum-gemma3-270m anchors bullets to the audio and tags provenance:
+                //   "- the team compared two vendor quotes [4:12]"        keep the anchor
+                //   "- ... [4:12] [c3]"                                    drop the [cN] tag
+                //   "- ... [7:21-17:38]"                                   drop a RANGE anchor
+                // The card is explicit that ranges are fabricated positions, so they are removed
+                // rather than shown: a timestamp the user can tap must actually be seekable.
+                item = item.replace(Regex("\\s*\\[c\\d+\\]"), "")
+                item = item.replace(Regex("\\s*\\[\\d+:\\d{2}(?::\\d{2})?\\s*[-–—]\\s*\\d+:\\d{2}(?::\\d{2})?\\]"), "")
+                item = item.trim()
                 // "-" alone is the spec's explicit EMPTY marker, not an item.
                 if (item.isEmpty()) continue
                 sections[current]!!.add(item)
