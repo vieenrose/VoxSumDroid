@@ -586,7 +586,18 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
     val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
     val transcriptText = studio.voxsum.core.llm.TranscriptFormat.format(tagged)
     withContext(Dispatchers.Default) {
-        val llm = loadDesktopLlm(models, llmSpec, transcriptText, outputTokens = style.reduceTokens)
+        // Sized for ONE AGENT CHUNK, not for the transcript. The summarizer runs the agentic
+        // NOTES path, which never puts the whole meeting in a prompt, so the window is the same
+        // for a ten-minute recording and a three-hour one. That is what removes the old
+        // "transcript too long" refusal, and because llama.cpp charges per-token decode against
+        // the ALLOCATED context it also makes long meetings faster per token than the
+        // transcript-sized window was. loadDesktopLlm still serves the re-title and action-item
+        // passes, which are genuinely sized by their input.
+        val llm = LlmEngine.load(
+            models.llmFile(llmSpec).absolutePath, nThreads = 4,
+            nCtx = Summarizer.agentContext(max = DESKTOP_LLM_CTX_MAX),
+            sampler = llmSpec.sampler, kvQ8 = DESKTOP_LLM_KV_Q8,
+        )
         try {
             // ETA like the diarization phase: the summary pass runs minutes on long meetings
             // (map chunks + hierarchical reduce), so extrapolate a time-to-finish from the

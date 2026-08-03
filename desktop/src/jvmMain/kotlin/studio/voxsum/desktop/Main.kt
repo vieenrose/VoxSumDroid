@@ -696,7 +696,7 @@ private fun mainApplication() = application {
                                                 Text(heading, color = pal.Slate200, style = MaterialTheme.typography.titleSmall)
                                                 Spacer(Modifier.height(4.dp))
                                                 items.forEach {
-                                                    Text("• ${'$'}it", color = pal.Slate400, style = MaterialTheme.typography.bodyMedium)
+                                                    Text("• $it", color = pal.Slate400, style = MaterialTheme.typography.bodyMedium)
                                                 }
                                             }
                                         }

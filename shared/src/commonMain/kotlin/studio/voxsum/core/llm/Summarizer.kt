@@ -1,7 +1,12 @@
 package studio.voxsum.core.llm
 
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
+import studio.voxsum.core.agentic.AgentPrompts
+import studio.voxsum.core.agentic.MeetingAgent
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.models.ChatTemplate
 
@@ -41,6 +46,22 @@ class Summarizer(
     /** Ask for the v2 structured NOTES format in ONE pass instead of summary -> title. Falls back
      *  automatically when the model ignores the format. */
     private val structuredNotes: Boolean = true,
+    /**
+     * Produce the NOTES with [MeetingAgent] (chunk -> per-section merge -> title) rather than one
+     * prompt holding the whole transcript. Keep in step with the Android build.
+     *
+     * ON by default, and not only for long meetings. Measured on 16 held-out long meetings
+     * (median 16.2k tokens) with these exact weights, teacher-judged:
+     *
+     *   single pass @32k   8/16 completed (rest overflowed), faith 4.00, faith<=2 25.0%, cov 4.25
+     *   agent             16/16 completed,                   faith 4.75, faith<=2  6.2%, cov 4.62
+     *
+     * So it is not a fallback trading quality for reach — it is better on every axis, and it
+     * removes the "transcript too long" refusal entirely, at ~5.2 calls and +33% prompt tokens.
+     */
+    private val agentic: Boolean = true,
+    /** Transcript tokens per agent call. See [AGENT_CHUNK_TOKENS]. */
+    private val chunkTokens: Int = AGENT_CHUNK_TOKENS,
 ) {
 
     // Output-language clause appended to every prompt. A small LLM otherwise replies in the transcript's
@@ -78,6 +99,13 @@ class Summarizer(
         val genBudget = if (structuredNotes) maxOf(reduceMax, notesMaxTokens) else reduceMax
         val budget = llm.nCtx - genBudget - 192
         val estTokens = SummaryText.estimateTokens(transcript)
+        // The agent chunks the transcript, so its reach is bounded by the CHUNK size, not the
+        // transcript length — the gate below simply does not apply. What must fit is one chunk
+        // plus its prompt and generation, which the caller sized the window for via [agentContext].
+        if (structuredNotes && agentic && agentCanServe(transcript)) {
+            runAgent(transcript, withTitle)
+            return@flow
+        }
         if (estTokens > budget) {
             emit(TranscriptEvent.Failed(
                 "Transcript too long to summarize in one pass: ~$estTokens tokens, " +
@@ -102,18 +130,18 @@ class Summarizer(
                 MeetingNotes.parse(nSb.toString())
             } catch (t: Exception) {
                 emit(TranscriptEvent.Failed(
-                    "Summarization failed: ${'$'}{t.message ?: t::class.simpleName}. " +
+                    "Summarization failed: ${t.message ?: t::class.simpleName}. " +
                         "If the transcript is near the context limit, split the recording."))
                 return@flow
             }
             if (notes != null) {
-                val rendered = notes.summary.joinToString("\n") { "- ${'$'}it" }
-                    .ifBlank { notes.topics.joinToString("\n") { "- ${'$'}it" } }
+                val rendered = notes.summary.joinToString("\n") { "- $it" }
+                    .ifBlank { notes.topics.joinToString("\n") { "- $it" } }
                 emit(TranscriptEvent.Progress(1f))
                 emit(TranscriptEvent.SummaryComplete(convert(rendered)))
                 val actionsText = buildString {
-                    notes.actions.forEach { appendLine("- ${'$'}it") }
-                    notes.decisions.forEach { appendLine("- ${'$'}it") }
+                    notes.actions.forEach { appendLine("- $it") }
+                    notes.decisions.forEach { appendLine("- $it") }
                 }.trim()
                 if (actionsText.isNotEmpty()) emit(TranscriptEvent.ActionItemsComplete(convert(actionsText)))
                 emit(TranscriptEvent.NotesComplete(convertNotes(notes)))
@@ -144,7 +172,7 @@ class Summarizer(
             // The estimate gate errs toward refusing, but if the real tokenizer still
             // overflows (or the engine fails), surface a clean event instead of crashing.
             emit(TranscriptEvent.Failed(
-                "Summarization failed: ${'$'}{t.message ?: t::class.simpleName}. " +
+                "Summarization failed: ${t.message ?: t::class.simpleName}. " +
                     "If the transcript is near the context limit, split the recording."))
             return@flow
         }
@@ -184,6 +212,109 @@ class Summarizer(
         return TranscriptEvent.Title(convert(SummaryText.cleanTitle(sb.toString())))
     }
 
+    /**
+     * Applies the model's chat template to every prompt on its way to the engine.
+     *
+     * REQUIRED, and its absence is silent. [MeetingAgent] hands [TextGen] a bare instruction
+     * because the reference implementation ran on LiteRT-LM, whose bundle carries its own template
+     * and applies it in the runtime. Our JNI tokenizes the string it is given and never calls
+     * `llama_chat_apply_template`, so an unwrapped prompt is not a question to the model — it is
+     * text to continue, and Qwen3.5 duly continues the transcript.
+     *
+     * Measured on Android before this existed: all nine chunks of a 2-hour meeting generated for
+     * ~330 s each and parsed to ZERO items. Nothing threw; the only symptom was 49 minutes of work
+     * producing empty sections. Keep in step with the Android build.
+     */
+    internal class ChatWrapped(
+        private val inner: TextGen,
+        private val template: ChatTemplate,
+    ) : TextGen by inner {
+        override fun generateBlocking(prompt: String, maxTokens: Int): String =
+            inner.generateBlocking(SummaryText.wrap(template, prompt), maxTokens)
+    }
+
+    /**
+     * Whether the agent can serve this request, or the single-pass path must.
+     *
+     * The harness prompts are GENERATED from the fine-tune's training contract and exist in
+     * exactly two languages, EN and ZH. Neither carries an output-language directive: the model
+     * answers in the transcript's language, which is right for the common case (summarize this
+     * meeting) and cannot express the other one (translate as you summarize). Editing the prompts
+     * to add [langClause] is not an option — they are the strings the model was tuned on.
+     *
+     * So a CROSS-LINGUAL request falls back to single-pass, keeping today's behaviour for it,
+     * length limit included. Lifting that needs a prompt variant from the fine-tuning side.
+     */
+    private fun agentCanServe(transcript: String): Boolean {
+        if (targetLanguage == null) return true
+        return zhTarget == isHanDominant(transcript)
+    }
+
+    /**
+     * The agentic NOTES path: [MeetingAgent] reads the transcript chunk by chunk, merges each
+     * section with the source lines in view, and derives a title — all orchestration in Kotlin,
+     * the model only ever writing notes about text it can currently see. Emits the same event set
+     * as the single-pass path, so nothing downstream changes.
+     *
+     * Progress is REAL here: the agent knows its total step count up front (chunks + sections +
+     * title) and reports each one.
+     */
+    private suspend fun FlowCollector<TranscriptEvent>.runAgent(transcript: String, withTitle: Boolean) {
+        emit(TranscriptEvent.Progress(0f))
+        // Captured here rather than queried in the callback: onProgress is a plain lambda, so it
+        // cannot suspend to read the coroutine context itself.
+        val job = currentCoroutineContext()[Job]
+        // Language comes from the TRANSCRIPT, not the target: these prompts instruct the model in
+        // the language it is reading, and [agentCanServe] has established the two agree.
+        val agent = MeetingAgent(
+            llm = ChatWrapped(llm, template),
+            lang = if (isHanDominant(transcript)) MeetingAgent.Lang.ZH_TW else MeetingAgent.Lang.EN,
+            chunkTokens = chunkTokens,
+        )
+        val progress = mutableListOf<Float>()
+        val raw = try {
+            agent.run(transcript) { p ->
+                // The agent is a long BLOCKING loop; without this it keeps burning chunks after
+                // the caller has gone away. Throwing from the progress callback is the one
+                // cancellation point it offers, and it unwinds the run cleanly.
+                if (job?.isActive == false) {
+                    throw kotlinx.coroutines.CancellationException("summarization cancelled")
+                }
+                progress += (p.step.toFloat() / p.total).coerceIn(0f, 0.99f)
+            }
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            throw c
+        } catch (t: Exception) {
+            emit(TranscriptEvent.Failed("Summarization failed: ${t.message ?: t::class.simpleName}."))
+            return
+        }
+        // Emitted after the fact: a plain `flow {}` forbids emitting from another context, and the
+        // agent's callback runs on whatever thread generateBlocking returned on.
+        progress.forEach { emit(TranscriptEvent.Progress(it)) }
+        val notes = MeetingNotes.parse(raw)
+        if (notes == null) {
+            // The agent renders v2 NOTES itself, so a parse failure means every section came back
+            // empty. Report it rather than showing an empty card.
+            emit(TranscriptEvent.Failed("The summarizer produced no usable notes for this transcript."))
+            return
+        }
+        val rendered = notes.summary.joinToString("\n") { "- $it" }
+            .ifBlank { notes.topics.joinToString("\n") { "- $it" } }
+        emit(TranscriptEvent.Progress(1f))
+        emit(TranscriptEvent.SummaryComplete(convert(rendered)))
+        val actionsText = buildString {
+            notes.actions.forEach { appendLine("- $it") }
+            notes.decisions.forEach { appendLine("- $it") }
+        }.trim()
+        if (actionsText.isNotEmpty()) emit(TranscriptEvent.ActionItemsComplete(convert(actionsText)))
+        emit(TranscriptEvent.NotesComplete(convertNotes(notes)))
+        if (withTitle) {
+            if (notes.title.isNotBlank()) {
+                emit(TranscriptEvent.Title(convert(SummaryText.cleanTitle(notes.title))))
+            } else emit(titleEvent(convert(rendered)))
+        }
+    }
+
     /** Script-convert every field (OpenCC s2tw for zh-TW), matching the rendered summary. */
     private fun convertNotes(n: MeetingNotes) = MeetingNotes(
         title = convert(n.title),
@@ -212,6 +343,58 @@ class Summarizer(
          * Desktop-only by nature: on Android LiteRT-LM bakes the KV geometry into the bundle's
          * `ekv`, so context there is a build-time property of the bundle, not a load parameter.
          */
+        /**
+         * Transcript tokens per agent call.
+         *
+         * 4000, from an on-device MEASUREMENT that contradicted the obvious reasoning. Larger
+         * chunks mean fewer (expensive) generations, and the transcript is prefilled once either
+         * way — but that last clause is false: prefill cost per token grows with depth, because 6
+         * of this model's 24 layers are full attention and therefore quadratic.
+         *
+         * Boox Tab Mini C (Cortex-A73), 34,802-token zh meeting, read phase:
+         *   4k chunks   9 x ~330 s  = ~50 min      10k chunks  4 x 1064 s = ~71 min
+         *
+         * Comfortably inside the ~12k faithfulness ceiling the model card warns about, which
+         * bounds chunk size from above only. Keep in step with the Android build.
+         */
+        const val AGENT_CHUNK_TOKENS = 4000
+
+        /**
+         * Context window the agentic path needs — a function of the CHUNK, not the transcript.
+         *
+         * This is the structural win over single-pass: the window no longer grows with the
+         * meeting, so a three-hour recording allocates the same KV cache as a ten-minute one, and
+         * a transcript longer than the model's ceiling stops being a refusal.
+         */
+        fun agentContext(chunkTokens: Int = AGENT_CHUNK_TOKENS, min: Int = 4096, max: Int = 32768): Int {
+            val need = chunkTokens + 640 + NOTES_MAX_TOKENS + 192
+            val step = 4096
+            return (((need + step - 1) / step) * step).coerceIn(min, max)
+        }
+
+        /**
+         * Whether [text] is predominantly Han script — i.e. whether the ZH prompts apply.
+         *
+         * Deliberately NARROW, mirroring `detect_cjk_language` in the Python codebase: Japanese
+         * and Korean text contains Han too, and misreading either as Chinese would put the model
+         * in front of Chinese instructions for a language the harness has no prompts for.
+         */
+        internal fun isHanDominant(text: String): Boolean {
+            var han = 0; var kana = 0; var hangul = 0; var letters = 0
+            for (c in text) {
+                val cp = c.code
+                when {
+                    cp in 0x3400..0x4DBF || cp in 0x4E00..0x9FFF -> { han++; letters++ }
+                    cp in 0x3040..0x30FF -> { kana++; letters++ }
+                    cp in 0xAC00..0xD7AF -> { hangul++; letters++ }
+                    c.isLetter() -> letters++
+                }
+            }
+            if (han < 20 || letters == 0) return false
+            if (kana * 20 > han || hangul * 20 > han) return false   // ja/ko text that contains Han
+            return han.toDouble() / letters >= 0.15
+        }
+
         fun contextFor(text: String, outputTokens: Int, min: Int = 4096, max: Int = 32768): Int {
             val need = SummaryText.estimateTokens(text) + outputTokens + 192
             val step = 4096
@@ -242,7 +425,7 @@ class Summarizer(
             "SUMMARY:\nDECISIONS:\nACTIONS:\nOPEN:\nTOPICS:\n" +
             "Every section except TITLE is a list of \"- \" bullets on the following lines. " +
             "If a section has nothing, write a single \"-\".\n" +
-            "ACTIONS bullets are \"- owner: task\", adding \"(due: ...)\" only if a date was said.\n" +
+            "ACTIONS bullets are \"- name: task\", where the name is someone actually named in the transcript; if no one was named, write just the task and never the literal word \"owner\". Add \"(due: ...)\" only if a date was said.\n" +
             "Use ONLY what the transcript states. Do not add facts, names or figures that are " +
             "not there.%s\n\nTranscript:\n%s"
 
@@ -253,7 +436,7 @@ class Summarizer(
             "SUMMARY:\nDECISIONS:\nACTIONS:\nOPEN:\nTOPICS:\n" +
             "除 TITLE 外，每個區段都用「- 」開頭的條列，寫在該標記的下一行。" +
             "若該區段沒有內容，只寫一個「-」。\n" +
-            "ACTIONS 的格式是「- 負責人: 工作內容」，若逐字稿有提到期限才加上「(期限: ...)」。\n" +
+            "ACTIONS 每點寫「- 姓名: 工作內容」，姓名必須是逐字稿裡真的出現過的人；若逐字稿沒有指名是誰，就只寫工作內容，不要寫「負責人」這三個字。若逐字稿有提到期限才加上「(期限: ...)」。\n" +
             "內容一律使用繁體中文，且只能根據逐字稿所述，不得自行補充逐字稿沒有的人名、數字或事實。\n\n" +
             "逐字稿:\n%s"
 
@@ -274,6 +457,11 @@ class Summarizer(
             "Write ONE short title (at most 8 words) for the summary below.%s " +
                 "Output only the title text — no quotes, no list, no preamble.\n\nSummary:\n%s\n\nTitle:"
         // %s = user instruction, %s = the style's reduce directive, %s = the over-long summary.
+        /** Chinese-instruction title prompt. Added with the agentic path, which needs a zh title
+         *  op; it also closes one of the en-only divergences from Android noted above. */
+        const val TITLE_TEMPLATE_ZH =
+            "請為以下摘要取一個簡短標題（8 個字以內）。只輸出標題本身——不要引號、不要條列、不要前言。\n\n摘要:\n%s"
+
         const val SHRINK_TEMPLATE =
             "%s\nThe summary below is too long. Rewrite it %s. Keep ONLY the most important points" +
                 " and drop minor detail. Output only the summary itself — no headings, no multiple" +
