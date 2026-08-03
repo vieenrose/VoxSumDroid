@@ -65,7 +65,17 @@ class AgenticSummarizerValidationTest {
 
             val t1 = System.currentTimeMillis()
             var lastPhase = ""
-            val notesRaw = MeetingAgent(llm, MeetingAgent.Lang.ZH_TW).run(transcript) { p ->
+            // MIRROR PRODUCTION, exactly. This helper used to construct the agent bare —
+            // `MeetingAgent(llm, Lang.ZH_TW)` — which differs from Summarizer in two ways that
+            // both matter: no chat template (our JNI applies none, so the model continues the
+            // transcript instead of answering) and a hardcoded Chinese prompt set. A zh transcript
+            // survived that by luck, because the zh instruction-first prompt still reads as an
+            // instruction unwrapped; an English one produced five empty sections.
+            val notesRaw = MeetingAgent(
+                llm = ChatWrap(llm, spec.chatTemplate),
+                lang = if (Summarizer.isHanDominant(transcript)) MeetingAgent.Lang.ZH_TW
+                       else MeetingAgent.Lang.EN,
+            ).run(transcript) { p ->
                 val el = (System.currentTimeMillis() - t1) / 1000
                 if (p.phase != lastPhase) { lastPhase = p.phase; Log.i(tag, "-- phase ${p.phase}") }
                 Log.i(tag, "step ${p.step}/${p.total} ${p.phase} t=${el}s rss=${peakRssMb()}MB")
@@ -209,6 +219,14 @@ class AgenticSummarizerValidationTest {
         override fun generateBlocking(prompt: String, maxTokens: Int): String =
             inner.generateBlocking(studio.voxsum.core.llm.SummaryText.wrap(template, prompt), maxTokens)
     }
+
+    /**
+     * The cross-device comparison case: the SAME short English transcript run on the Boox, the
+     * RPi4 and x86, so the three numbers are directly comparable rather than three different
+     * inputs. Small on purpose — this measures the device, not the model.
+     */
+    @Test fun englishTranscriptForCrossDeviceComparison() =
+        runOn("transcript_en.txt", "en cross-device")
 
     /** ~40k tokens — over the 32768 ceiling, so the single-pass path refused it entirely. */
     @Test fun twoHourMeetingOverContext() = runOn("transcript2h.txt", "2h zh meeting")
