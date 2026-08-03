@@ -1,0 +1,3 @@
+Maintenance release. No change to how the app behaves compared with 0.39.1.
+
+This build carries internal work only: the summarizer's language handling was reorganised and tested more thoroughly, after checking whether summaries could be translated into another language while still supporting long recordings. They cannot yet, so translated summaries continue to work exactly as before, with the previous length limit.
