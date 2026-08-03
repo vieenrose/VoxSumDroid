@@ -15,7 +15,7 @@ internal expect fun loadVoxsumLlmLibrary()
  * Memory discipline (see SPIKE.md): never hold the ASR/diarization models and the LLM
  * loaded simultaneously. Load -> generate -> close around the summarization phase.
  */
-class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : AutoCloseable {
+class LlmEngine private constructor(private var handle: Long, override val nCtx: Int) : TextGen {
 
     fun interface TokenCallback {
         /** Invoked by native code per decoded piece; forward to a Flow for streaming. */
@@ -47,6 +47,19 @@ class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : A
         }
     }
 
+    override fun generateBlocking(prompt: String, maxTokens: Int): String =
+        generate(prompt, maxTokens) {}
+
+    /** The model's OWN tokenizer, not an estimate — see [TextGen.countTokens] for why the
+     *  difference matters to the agent's chunker. Takes [lock] for the same reason generate()
+     *  does: a concurrent close() would otherwise free the handle mid-call. Falls back to the
+     *  interface estimate on a closed handle rather than returning 0, which the chunker would
+     *  read as "this line costs nothing" and pack an unbounded chunk. */
+    override fun countTokens(text: String): Int {
+        val n = synchronized(lock) { if (handle == 0L) -1 else nativeCountTokens(handle, text) }
+        return if (n >= 0) n else super.countTokens(text)
+    }
+
     /** Stop an in-flight generation (foreground service stop / new request). */
     fun cancel() {
         synchronized(lock) { if (handle != 0L) nativeCancel(handle) }
@@ -69,6 +82,7 @@ class LlmEngine private constructor(private var handle: Long, val nCtx: Int) : A
     private external fun nativeGenerate(
         ptr: Long, prompt: String, maxTokens: Int, onToken: TokenCallback,
     ): String
+    private external fun nativeCountTokens(ptr: Long, text: String): Int
     private external fun nativeCancel(ptr: Long)
     private external fun nativeFree(ptr: Long)
 

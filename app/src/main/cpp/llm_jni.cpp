@@ -272,6 +272,25 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
     return toJavaString(env, out.data(), completeUtf8Prefix(out));
 }
 
+// Exact token count for `text`, using the model's OWN vocab. The agentic summarizer's chunker
+// sizes every chunk against this: a chars/token estimate is fine for English but wrong by roughly
+// a factor of two on mixed zh/latin transcripts, and an under-estimate there means a chunk that
+// overflows the window. Cheap: tokenization only, no decode. addSpecial=false — this measures
+// transcript text, not a prompt about to be fed to the model.
+// Keep identical to the Android copy (branch `main`).
+JNIEXPORT jint JNICALL
+Java_studio_voxsum_core_llm_LlmEngine_nativeCountTokens(
+        JNIEnv* env, jobject /*thiz*/, jlong ptr, jstring jText) {
+    LlmHandle* h = asHandle(ptr);
+    if (!h || !h->model) return -1;
+    const char* text = env->GetStringUTFChars(jText, nullptr);
+    if (!text) return -1;
+    const int n = (int) tokenize(llama_model_get_vocab(h->model), std::string(text),
+                                 /*addSpecial=*/false).size();
+    env->ReleaseStringUTFChars(jText, text);
+    return n;
+}
+
 JNIEXPORT void JNICALL
 Java_studio_voxsum_core_llm_LlmEngine_nativeCancel(JNIEnv*, jobject, jlong ptr) {
     if (auto* h = asHandle(ptr)) h->cancel = true;
