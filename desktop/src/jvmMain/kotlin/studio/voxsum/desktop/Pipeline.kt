@@ -279,9 +279,18 @@ suspend fun reTitle(state: AppState, update: Update) {
         withContext(Dispatchers.Default) {
             val llm = loadDesktopLlm(models, llmSpec, state.summary, outputTokens = 64)
             try {
+                // Named, not positional: this constructor grows, and a silently shifted argument
+                // here is a wrong-language or wrong-budget summary rather than a compile error.
                 Summarizer(
-                    llm, llmSpec.chatTemplate, targetName, convert, style.mapInstruction,
-                    style.reduceInstruction, style.mapTokens, style.reduceTokens,
+                    llm = llm,
+                    template = llmSpec.chatTemplate,
+                    targetLanguage = targetName,
+                    targetLanguageId = TargetLanguage.fromId(state.config.targetLanguage).id,
+                    convert = convert,
+                    mapInstruction = style.mapInstruction,
+                    reduceInstruction = style.reduceInstruction,
+                    mapMaxTokens = style.mapTokens,
+                    reduceMaxTokens = style.reduceTokens,
                 ).title(state.summary).collect { e ->
                     if (e is TranscriptEvent.Title) update { it.copy(title = e.title) }
                 }
@@ -606,8 +615,15 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
             val t0 = System.nanoTime()
             var lastText = ""
             Summarizer(
-                llm, llmSpec.chatTemplate, targetName, convert, style.mapInstruction,
-                style.reduceInstruction, style.mapTokens, style.reduceTokens,
+                llm = llm,
+                template = llmSpec.chatTemplate,
+                targetLanguage = targetName,
+                targetLanguageId = TargetLanguage.fromId(config.targetLanguage).id,
+                convert = convert,
+                mapInstruction = style.mapInstruction,
+                reduceInstruction = style.reduceInstruction,
+                mapMaxTokens = style.mapTokens,
+                reduceMaxTokens = style.reduceTokens,
             ).summarize(transcript = transcriptText, userPrompt = config.summaryPrompt).collect { e ->
                 when (e) {
                     is TranscriptEvent.Title -> if (regenerateTitle) update { it.copy(title = e.title) }

@@ -30,6 +30,16 @@ class Summarizer(
     private val template: ChatTemplate = ChatTemplate.CHATML,
     /** Human-readable target language injected into the prompt; `null` = match the transcript. */
     private val targetLanguage: String? = null,
+    /**
+     * The target's STABLE id (TargetLanguage.id: "en", "fr", "zh-Hant", "ja", ...), as opposed to
+     * the human-readable [targetLanguage] that goes into the prompt.
+     *
+     * Needed because [agentServes] has to compare the request against the transcript's actual
+     * language, and matching on the prompt text would be brittle. Defaults to null, which is
+     * treated as "unknown" and routes any explicit target to the single-pass path — the safe
+     * direction, since the alternative is silently summarizing in the wrong language.
+     */
+    private val targetLanguageId: String? = null,
     /** Script post-conversion (OpenCC s2tw for Traditional Chinese); identity when not needed. */
     private val convert: (String) -> String = { it },
     /** Format directives from the chosen SummaryStyle (default = bullets) + their token budgets. */
@@ -246,8 +256,9 @@ class Summarizer(
      * length limit included. Lifting that needs a prompt variant from the fine-tuning side.
      */
     private fun agentCanServe(transcript: String): Boolean {
-        if (targetLanguage == null) return true
-        return zhTarget == isHanDominant(transcript)
+        if (targetLanguage == null) return true   // AUTO — "match the transcript", which is
+                                                  // exactly what the agent already does
+        return agentServes(targetLanguageId, transcript)
     }
 
     /**
@@ -268,7 +279,8 @@ class Summarizer(
         // the language it is reading, and [agentCanServe] has established the two agree.
         val agent = MeetingAgent(
             llm = ChatWrapped(llm, template),
-            lang = if (isHanDominant(transcript)) MeetingAgent.Lang.ZH_TW else MeetingAgent.Lang.EN,
+            lang = if (transcriptLanguage(transcript) == "zh") MeetingAgent.Lang.ZH_TW
+                   else MeetingAgent.Lang.EN,
             chunkTokens = chunkTokens,
         )
         val progress = mutableListOf<Float>()
@@ -379,6 +391,78 @@ class Summarizer(
          * and Korean text contains Han too, and misreading either as Chinese would put the model
          * in front of Chinese instructions for a language the harness has no prompts for.
          */
+        /**
+         * Whether the agent may serve a request for [targetId], or the single-pass path must.
+         *
+         * The question is "is the transcript ALREADY in the target language?", because the agent's
+         * prompts carry no output-language directive — the model answers in the language it is
+         * reading. If the answer is no, or unknown, the request is a TRANSLATION, and only
+         * single-pass can express that (keeping its length limit).
+         *
+         * This replaces a gate that asked whether the target's Han-ness matched the transcript's.
+         * That proxy was wrong for every non-Chinese target: a French target over an English
+         * transcript gave `false == false`, so the agent ran and silently produced ENGLISH.
+         * Shipped in v0.39.0, fixed here. The lesson generalises — a gate must test the property
+         * it actually depends on, not a correlate of it.
+         *
+         * Unknown answers NO. A wrong-language summary is silent and looks correct, while a false
+         * negative merely sends a long meeting down the single-pass path and refuses it visibly.
+         */
+        internal fun agentServes(targetId: String?, transcript: String): Boolean {
+            val want = targetId ?: return false
+            val got = transcriptLanguage(transcript) ?: return false
+            // Both Chinese targets are satisfied by a Han transcript: Hant/Hans is OpenCC's job
+            // downstream, not the model's, so it is a script conversion and not a translation.
+            if (got == "zh") return want == "zh-Hant" || want == "zh-Hans"
+            return want == got
+        }
+
+        /**
+         * Coarse language of a transcript: "zh", "ja", "ko", "en", "fr", or null when unsure.
+         *
+         * Only as precise as [agentServes] needs, and null-biased on purpose. Script settles the
+         * CJK three; English and French share an alphabet, so they are separated by function-word
+         * frequency — reliable at transcript length, and declining to answer on short input.
+         */
+        internal fun transcriptLanguage(text: String): String? {
+            var han = 0; var kana = 0; var hangul = 0; var latin = 0
+            for (c in text) {
+                val cp = c.code
+                when {
+                    cp in 0x3040..0x30FF -> kana++
+                    cp in 0xAC00..0xD7AF -> hangul++
+                    cp in 0x3400..0x4DBF || cp in 0x4E00..0x9FFF -> han++
+                    c.isLetter() && cp < 0x250 -> latin++
+                }
+            }
+            // Kana and hangul are exclusive to ja/ko; Han is not, which is why those come first —
+            // Japanese and Korean text contains Han as well.
+            if (kana >= 10 && kana * 4 >= han) return "ja"
+            if (hangul >= 10) return "ko"
+            if (han >= 20 && han >= (han + latin) * 0.15) return "zh"
+            if (latin < 100) return null
+            val words = Regex("[a-z\']+").findAll(text.lowercase()).map { it.value }.toList()
+            val en = words.count { it in EN_MARKERS }
+            val fr = words.count { it in FR_MARKERS }
+            // A clear margin, or nothing: the two vocabularies overlap in names and loanwords.
+            return when {
+                en >= 5 && en >= fr * 2 -> "en"
+                fr >= 5 && fr >= en * 2 -> "fr"
+                else -> null
+            }
+        }
+
+        /** Function words with no counterpart in the other language. "on", "a" and "en" are
+         *  deliberately absent, being common to both. */
+        private val EN_MARKERS = setOf(
+            "the", "and", "is", "of", "to", "that", "we", "you", "it", "for", "with", "this",
+            "are", "was", "have", "will", "they", "but", "not", "from", "there", "which",
+        )
+        private val FR_MARKERS = setOf(
+            "le", "la", "les", "des", "du", "une", "est", "et", "dans", "pour", "que", "qui",
+            "pas", "nous", "vous", "avec", "sur", "cette", "ils", "elle", "mais", "sont", "ont",
+        )
+
         internal fun isHanDominant(text: String): Boolean {
             var han = 0; var kana = 0; var hangul = 0; var letters = 0
             for (c in text) {
