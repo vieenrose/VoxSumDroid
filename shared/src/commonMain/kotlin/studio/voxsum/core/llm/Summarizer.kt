@@ -279,9 +279,13 @@ class Summarizer(
         // the language it is reading, and [agentCanServe] has established the two agree.
         val agent = MeetingAgent(
             llm = ChatWrapped(llm, template),
-            lang = if (transcriptLanguage(transcript) == "zh") MeetingAgent.Lang.ZH_TW
+            lang = if (if (targetLanguage != null) zhTarget
+                       else transcriptLanguage(transcript) == "zh") MeetingAgent.Lang.ZH_TW
                    else MeetingAgent.Lang.EN,
             chunkTokens = chunkTokens,
+            // Empty when the output language is simply the transcript's — an unnecessary
+            // "translate as you summarize" instruction is itself a way to get a worse summary.
+            langClause = if (needsTranslation(targetLanguageId, transcript)) langClause else "",
         )
         val progress = mutableListOf<Float>()
         val raw = try {
@@ -410,11 +414,35 @@ class Summarizer(
          */
         internal fun agentServes(targetId: String?, transcript: String): Boolean {
             val want = targetId ?: return false
+            transcriptLanguage(transcript) ?: return false   // unknown -> do not guess
+            // Same language: not a translation, so the agent serves it and the meeting keeps the
+            // no-length-limit benefit. This is the common case.
+            if (!needsTranslation(want, transcript)) return true
+            // A TRANSLATION request goes to single-pass, MEASURED not assumed.
+            //
+            // The plumbing for the alternative exists — [AgentPrompts.AppNotes] threads the app's
+            // cross-lingual clause into all three ops, and the fine-tune's card lists those
+            // prompts ("en+zh with cross-lingual clause") as supported. It was tried on real
+            // weights (x86, 2026-08-03) in en -> zh-Hant, the direction this project's 2026-06
+            // eval found reliable SINGLE-PASS, and it does not survive chunking:
+            //
+            //   Chinese-instruction template   Han 109 / latin 221  (SUMMARY entirely English)
+            //   + instruction-first prefix     Han  76 / latin 597  (worse — more English)
+            //
+            // Reading a chunk of English, the model answers in English however the instruction is
+            // phrased; strengthening it made it worse. Whole-transcript context is evidently what
+            // carried the clause before. So the clause is passed but the routing is NOT enabled —
+            // re-test with a model change, do not re-argue it from the prompt.
+            return false
+        }
+
+        /** Whether serving [targetId] over this transcript means translating, as opposed to
+         *  answering in the language already on the page. Hant/Hans is NOT a translation — script
+         *  conversion is OpenCC's job downstream, not the model's. */
+        internal fun needsTranslation(targetId: String?, transcript: String): Boolean {
+            val want = targetId ?: return false
             val got = transcriptLanguage(transcript) ?: return false
-            // Both Chinese targets are satisfied by a Han transcript: Hant/Hans is OpenCC's job
-            // downstream, not the model's, so it is a script conversion and not a translation.
-            if (got == "zh") return want == "zh-Hant" || want == "zh-Hans"
-            return want == got
+            return if (got == "zh") want != "zh-Hant" && want != "zh-Hans" else want != got
         }
 
         /**
