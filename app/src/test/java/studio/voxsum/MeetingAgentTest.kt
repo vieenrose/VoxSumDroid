@@ -2,6 +2,7 @@ package studio.voxsum
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import studio.voxsum.core.agentic.AgentPrompts
@@ -469,6 +470,72 @@ class MeetingAgentTest {
         assertTrue(!Summarizer.isHanDominant(
             "今日の会議では製品のロードマップと来四半期の目標について話し合いました。".repeat(3)))
         assertTrue(!Summarizer.isHanDominant("오늘 회의에서는 제품 로드맵과 다음 분기 목표를 논의했습니다. 會議".repeat(3)))
+    }
+
+    // ---- the v0.39.0 wrong-language defect ----------------------------------------------------
+
+    private val enText = ("The team discussed the roadmap and agreed that we will not ship this " +
+        "quarter, but there are risks from the supplier which we have to review with finance. " +
+        "It is not clear that they have the capacity, and you can see from the numbers that " +
+        "this is the main issue we are facing. ").repeat(3)
+    private val frText = ("Le comite a discute des priorites et nous avons decide que la " +
+        "livraison est reportee, mais il y a des risques avec le fournisseur qui doivent etre " +
+        "revus. Ce n'est pas clair pour nous, et vous pouvez voir dans les chiffres que cette " +
+        "question est la plus importante pour les equipes. ").repeat(3)
+    private val zhText = "\u4eca\u5929\u7684\u6703\u8b70\u8a0e\u8ad6\u4e86\u7522\u54c1\u8def\u7dda\u5716\u8207\u4e0b\u500b\u5b63\u5ea6\u7684\u76ee\u6a19\u4ee5\u53ca\u5e02\u5834\u63a8\u5ee3\u8a08\u5283\u7684\u5167\u5bb9\u5b89\u6392\u3002".repeat(4)
+    private val jaText = "\u4eca\u65e5\u306e\u4f1a\u8b70\u3067\u306f\u88fd\u54c1\u306e\u30ed\u30fc\u30c9\u30de\u30c3\u30d7\u3068\u6765\u56db\u534a\u671f\u306e\u76ee\u6a19\u306b\u3064\u3044\u3066\u8a71\u3057\u5408\u3044\u307e\u3057\u305f\u3002".repeat(4)
+    private val koText = "\uc624\ub298 \ud68c\uc758\uc5d0\uc11c\ub294 \uc81c\ud488 \ub85c\ub4dc\ub9f5\uacfc \ub2e4\uc74c \ubd84\uae30 \ubaa9\ud45c\ub97c \ub17c\uc758\ud588\uc2b5\ub2c8\ub2e4.".repeat(4)
+
+    @Test fun detectsTranscriptLanguage() {
+        assertEquals("en", Summarizer.transcriptLanguage(enText))
+        assertEquals("fr", Summarizer.transcriptLanguage(frText))
+        assertEquals("zh", Summarizer.transcriptLanguage(zhText))
+        assertEquals("ja", Summarizer.transcriptLanguage(jaText))
+        assertEquals("ko", Summarizer.transcriptLanguage(koText))
+    }
+
+    /** Unknown must answer null, because the gate turns null into "use single-pass". */
+    @Test fun undetectableTextIsNull() {
+        assertNull(Summarizer.transcriptLanguage(""))
+        assertNull(Summarizer.transcriptLanguage("ok yes no maybe"))
+        assertNull(Summarizer.transcriptLanguage("Zagreb Osijek Rijeka Split ".repeat(20)))
+    }
+
+    /**
+     * THE DEFECT, shipped in v0.39.0: the old gate compared the target's Han-ness with the
+     * transcript's, so a French target over an English transcript passed (false == false), the
+     * agent ran, and the user who asked for French silently got English.
+     */
+    @Test fun crossLingualRequestsDoNotReachTheAgent() {
+        assertTrue("fr target / en transcript must not use the agent",
+            !Summarizer.agentServes("fr", enText))
+        assertTrue("ko target / en transcript must not use the agent",
+            !Summarizer.agentServes("ko", enText))
+        assertTrue("en target / zh transcript must not use the agent",
+            !Summarizer.agentServes("en", zhText))
+        assertTrue("zh target / en transcript must not use the agent",
+            !Summarizer.agentServes("zh-Hant", enText))
+        assertTrue("zh target / ja transcript must not use the agent",
+            !Summarizer.agentServes("zh-Hant", jaText))
+    }
+
+    /** Same-language requests are not translations and must keep the agent's length benefit. */
+    @Test fun sameLanguageRequestsUseTheAgent() {
+        assertTrue(Summarizer.agentServes("en", enText))
+        assertTrue(Summarizer.agentServes("fr", frText))
+        assertTrue(Summarizer.agentServes("ja", jaText))
+        assertTrue(Summarizer.agentServes("ko", koText))
+    }
+
+    /** Hant/Hans is OpenCC's job downstream, not a translation — both accept a Han transcript. */
+    @Test fun bothChineseScriptsAcceptAHanTranscript() {
+        assertTrue(Summarizer.agentServes("zh-Hant", zhText))
+        assertTrue(Summarizer.agentServes("zh-Hans", zhText))
+    }
+
+    /** A caller that does not pass the id must fall back rather than guess. */
+    @Test fun unknownTargetIdFallsBack() {
+        assertTrue(!Summarizer.agentServes(null, enText))
     }
 
     /** A couple of stray Han characters in an English transcript must not tip the ratio. */

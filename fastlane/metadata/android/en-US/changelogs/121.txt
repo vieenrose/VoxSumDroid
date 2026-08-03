@@ -1,0 +1,5 @@
+Fixes summaries coming back in the wrong language.
+
+• If you asked for a summary in French or Korean and the meeting was in another language, v0.39.0 could quietly give you the summary in the meeting's language instead of the one you picked. It now translates as before, and only skips the new long-recording mode when a translation is actually needed.
+
+Everything else from v0.39.0 is unchanged.

@@ -1705,6 +1705,9 @@ class TranscriptionService : LifecycleService() {
                     llm,
                     template = spec.chatTemplate,
                     targetLanguage = TargetLanguage.fromId(cfg.targetLanguage).promptName,
+                    // The stable id, so the agent gate can compare the request against the
+                    // transcript's real language instead of the prompt text.
+                    targetLanguageId = TargetLanguage.fromId(cfg.targetLanguage).id,
                     convert = { converter?.convert(it) ?: it },
                     mapInstruction = style.mapInstruction,
                     reduceInstruction = style.reduceInstruction,
@@ -1776,6 +1779,9 @@ class TranscriptionService : LifecycleService() {
                     llm,
                     template = spec.chatTemplate,
                     targetLanguage = TargetLanguage.fromId(cfg.targetLanguage).promptName,
+                    // The stable id, so the agent gate can compare the request against the
+                    // transcript's real language instead of the prompt text.
+                    targetLanguageId = TargetLanguage.fromId(cfg.targetLanguage).id,
                     convert = { converter?.convert(it) ?: it },
                 ).title(summary)
                     .flowOn(Dispatchers.Default)
