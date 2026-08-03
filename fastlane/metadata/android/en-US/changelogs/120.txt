@@ -1,0 +1,8 @@
+Long recordings can now be summarized.
+
+• A two-hour meeting no longer fails with "transcript too long". The summarizer reads the transcript in sections and combines them, so recording length is no longer a limit — a 2-hour meeting was summarized on a 4 GB device in about 52 minutes, using the same memory a ten-minute one uses.
+• Memory no longer grows with the recording. Peak usage stayed at about 890 MB whether the meeting was ten minutes or two hours.
+• The progress bar is now real. It reports each section as it is finished instead of estimating, so the time remaining on a long summary means something.
+• Action items no longer come back labelled "person in charge" when nobody was named — they now carry the actual name said in the meeting, or just the task.
+
+Please be aware: summary quality is still uneven. This release changes how much the summarizer can take in, not how good the writing is, and summaries should be checked against the recording. Summarizing into a different language than the meeting was held in still has the old length limit. Transcription is unaffected.
