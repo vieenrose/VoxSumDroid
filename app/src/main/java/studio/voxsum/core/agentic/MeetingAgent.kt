@@ -41,6 +41,15 @@ class MeetingAgent(
     private val chunkTokens: Int = prompts.chunkTokens,
     /** From the generated contract, so caps never drift from the ones training used. */
     private val maxBullets: Map<Section, Int> = Prompts.MAX_BULLETS,
+    /**
+     * Output-language clause, for a summary in a language the transcript is NOT in. Empty when
+     * the output language is the transcript's, which is the common case.
+     *
+     * Passed to every op, not just the first: the merge and title steps read bullets rather than
+     * the transcript, and without the clause they revert to the bullets' language — which would
+     * hand back French chunk notes merged into an English summary.
+     */
+    private val langClause: String = "",
 ) {
     enum class Lang { EN, ZH_TW }
 
@@ -68,7 +77,7 @@ class MeetingAgent(
             // the merge step below; a cancellation still propagates, because it is raised from
             // onProgress above rather than from here.
             val raw = try {
-                llm.generateBlocking(prompts.chunkNotes(zh, chunk), prompts.chunkNotesTokens)
+                llm.generateBlocking(prompts.chunkNotes(zh, chunk, langClause), prompts.chunkNotesTokens)
             } catch (c: kotlin.coroutines.cancellation.CancellationException) {
                 throw c
             } catch (t: Exception) {
@@ -106,7 +115,8 @@ class MeetingAgent(
             // empty handling below, which keeps the earliest `cap` items, anchored by construction.
             val merged = try {
                 llm.generateBlocking(
-                    prompts.mergeSection(zh, section, cap, body, evidence), prompts.mergeTokens)
+                    prompts.mergeSection(zh, section, cap, body, evidence, langClause),
+                    prompts.mergeTokens)
             } catch (t: Exception) {
                 ""
             }
@@ -142,7 +152,8 @@ class MeetingAgent(
         // Blank on failure: the notes are already finished and worth returning, and the caller
         // falls back to deriving a title from them.
         val title = try {
-            llm.generateBlocking(prompts.title(zh, out.render(withAnchors = prompts.requiresAnchors)),
+            llm.generateBlocking(
+                prompts.title(zh, out.render(withAnchors = prompts.requiresAnchors), langClause),
                 prompts.titleTokens)
         } catch (c: kotlin.coroutines.cancellation.CancellationException) {
             throw c

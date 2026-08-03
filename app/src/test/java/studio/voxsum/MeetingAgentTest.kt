@@ -502,35 +502,64 @@ class MeetingAgentTest {
     }
 
     /**
-     * THE DEFECT, shipped in v0.39.0: the old gate compared the target's Han-ness with the
-     * transcript's, so a French target over an English transcript passed (false == false), the
-     * agent ran, and the user who asked for French silently got English.
+     * THE v0.39.0 DEFECT: the gate compared the target's Han-ness with the transcript's, so a
+     * French target over an English transcript passed (false == false), the agent ran with no
+     * output-language clause, and the user who asked for French silently got English.
+     *
+     * Every translation request now goes to single-pass. That is a MEASURED decision, not
+     * caution: the clause was threaded through all three ops and tried on real weights in
+     * en -> zh-Hant (the direction measured reliable single-pass), and the model kept answering in
+     * the chunk's language — 109 Han / 221 latin, and 76 / 597 when the instruction was
+     * strengthened. See Summarizer.agentServes.
      */
-    @Test fun crossLingualRequestsDoNotReachTheAgent() {
-        assertTrue("fr target / en transcript must not use the agent",
-            !Summarizer.agentServes("fr", enText))
-        assertTrue("ko target / en transcript must not use the agent",
-            !Summarizer.agentServes("ko", enText))
-        assertTrue("en target / zh transcript must not use the agent",
-            !Summarizer.agentServes("en", zhText))
-        assertTrue("zh target / en transcript must not use the agent",
-            !Summarizer.agentServes("zh-Hant", enText))
-        assertTrue("zh target / ja transcript must not use the agent",
-            !Summarizer.agentServes("zh-Hant", jaText))
+    @Test fun translationRequestsDoNotReachTheAgent() {
+        assertTrue("fr target / en transcript", !Summarizer.agentServes("fr", enText))
+        assertTrue("zh target / en transcript", !Summarizer.agentServes("zh-Hant", enText))
+        assertTrue("en target / zh transcript", !Summarizer.agentServes("en", zhText))
+        assertTrue("zh target / ja transcript", !Summarizer.agentServes("zh-Hant", jaText))
+        assertTrue("unknown source", !Summarizer.agentServes("fr", "ok yes no"))
     }
 
-    /** Same-language requests are not translations and must keep the agent's length benefit. */
+    /** Same-language requests are not translations and keep the agent's length benefit. */
     @Test fun sameLanguageRequestsUseTheAgent() {
         assertTrue(Summarizer.agentServes("en", enText))
         assertTrue(Summarizer.agentServes("fr", frText))
         assertTrue(Summarizer.agentServes("ja", jaText))
         assertTrue(Summarizer.agentServes("ko", koText))
-    }
-
-    /** Hant/Hans is OpenCC's job downstream, not a translation — both accept a Han transcript. */
-    @Test fun bothChineseScriptsAcceptAHanTranscript() {
         assertTrue(Summarizer.agentServes("zh-Hant", zhText))
         assertTrue(Summarizer.agentServes("zh-Hans", zhText))
+    }
+
+    /** needsTranslation drives whether the clause is attached at all — an unnecessary
+     *  "translate as you summarize" is itself a way to get a worse summary. */
+    @Test fun sameLanguageIsNotATranslation() {
+        assertTrue(!Summarizer.needsTranslation("en", enText))
+        assertTrue(!Summarizer.needsTranslation("fr", frText))
+        assertTrue(!Summarizer.needsTranslation("zh-Hant", zhText))
+        assertTrue(!Summarizer.needsTranslation("zh-Hans", zhText))   // script, not translation
+        assertTrue(Summarizer.needsTranslation("fr", enText))
+        assertTrue(Summarizer.needsTranslation("en", zhText))
+    }
+
+    /** The clause has to reach EVERY op. The merge and title steps read bullets, not the
+     *  transcript, so without it they revert to the bullets' language and a French request comes
+     *  back as French chunks merged into an English summary. */
+    @Test fun crossLingualPromptsCarryTheClause() {
+        val clause = " Write the ENTIRE output in French (français)."
+        val p = AgentPrompts.AppNotes
+        assertTrue("op A dropped the clause", p.chunkNotes(false, "x", clause).contains(clause))
+        assertTrue("merge dropped the clause",
+            p.mergeSection(false, Section.SUMMARY, 5, "- a", "", clause).contains(clause))
+        assertTrue("title dropped the clause", p.title(false, "notes", clause).contains(clause))
+        // The zh variant dictates its output language in its own words and takes no clause.
+        assertTrue(!p.chunkNotes(true, "x", clause).contains(clause))
+    }
+
+    /** The generated contract must never be altered, so Harness ignores the clause entirely —
+     *  which is why a harness checkpoint cannot serve a cross-lingual request. */
+    @Test fun harnessPromptsIgnoreTheClause() {
+        val clause = " Write the ENTIRE output in French."
+        assertTrue(!AgentPrompts.Harness.chunkNotes(false, "x", clause).contains(clause))
     }
 
     /** A caller that does not pass the id must fall back rather than guess. */

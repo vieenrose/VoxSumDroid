@@ -48,9 +48,16 @@ interface AgentPrompts {
      */
     val requiresAnchors: Boolean
 
-    fun chunkNotes(zh: Boolean, chunk: String): String
-    fun mergeSection(zh: Boolean, section: Section, cap: Int, items: String, evidence: String): String
-    fun title(zh: Boolean, notes: String): String
+    /**
+     * @param zh render the CHINESE variant — chosen by the OUTPUT language, not the transcript's.
+     * @param langClause the app's "write the entire output in X, translate as you summarize"
+     *   clause, or "" when the output language is simply the transcript's. Only meaningful when
+     *   [zh] is false: the zh variant already dictates 繁體中文 in its own words.
+     */
+    fun chunkNotes(zh: Boolean, chunk: String, langClause: String = ""): String
+    fun mergeSection(zh: Boolean, section: Section, cap: Int, items: String, evidence: String,
+                     langClause: String = ""): String
+    fun title(zh: Boolean, notes: String, langClause: String = ""): String
 
     /** Read one per-chunk generation into typed items tagged with their source chunk. */
     fun parseChunk(raw: String, chunkIndex: Int): Map<Section, List<NoteItem>>
@@ -67,10 +74,16 @@ interface AgentPrompts {
         override val titleTokens = Prompts.MAX_TITLE
         override val requiresAnchors = true
 
-        override fun chunkNotes(zh: Boolean, chunk: String) = Prompts.chunkNotes(zh, chunk)
-        override fun mergeSection(zh: Boolean, section: Section, cap: Int, items: String, evidence: String) =
+        // langClause is IGNORED here, deliberately. These strings are generated from the
+        // training contract; appending anything to them is the train/deploy divergence the
+        // generated-file header warns about. A harness checkpoint therefore cannot serve a
+        // cross-lingual request — Summarizer's gate keeps those away from it.
+        override fun chunkNotes(zh: Boolean, chunk: String, langClause: String) =
+            Prompts.chunkNotes(zh, chunk)
+        override fun mergeSection(zh: Boolean, section: Section, cap: Int, items: String,
+                                  evidence: String, langClause: String) =
             Prompts.mergeSection(zh, section, cap, items, evidence)
-        override fun title(zh: Boolean, notes: String) = Prompts.title(zh, notes)
+        override fun title(zh: Boolean, notes: String, langClause: String) = Prompts.title(zh, notes)
         override fun parseChunk(raw: String, chunkIndex: Int) = NotesParser.parse(raw, chunkIndex)
     }
 
@@ -100,9 +113,9 @@ interface AgentPrompts {
         // anchor check would reject every merged bullet.
         override val requiresAnchors = false
 
-        override fun chunkNotes(zh: Boolean, chunk: String): String =
+        override fun chunkNotes(zh: Boolean, chunk: String, langClause: String): String =
             if (zh) Summarizer.NOTES_TEMPLATE_ZH.format(chunk)
-            else Summarizer.NOTES_TEMPLATE.format("", chunk)
+            else Summarizer.NOTES_TEMPLATE.format(langClause, chunk)
 
         /**
          * Section-scoped reduce. Scoping to ONE section is what keeps it tractable for a 0.8B —
@@ -124,7 +137,8 @@ interface AgentPrompts {
          * model is to continue it as one. [MeetingAgent] also drops meta lines defensively, but
          * the prompt not inviting them is the real fix.
          */
-        override fun mergeSection(zh: Boolean, section: Section, cap: Int, items: String, evidence: String): String =
+        override fun mergeSection(zh: Boolean, section: Section, cap: Int, items: String,
+                                  evidence: String, langClause: String): String =
             if (zh)
                 "把下面的筆記合併成最多 $cap 點，講同一件事的合併成一點，次要的刪掉。\n" +
                     "直接輸出「- 」開頭的條列，每點 30 字以內。\n" +
@@ -134,11 +148,14 @@ interface AgentPrompts {
                 "Merge the notes below into at most $cap bullets. Combine points about the same " +
                     "thing; drop the minor ones.\nOutput the \"- \" bullets directly, each under " +
                     "25 words.\nDo not restate these instructions, and do not write headings like " +
-                    "\"Input\", \"Task\" or \"Constraints\".\n\nNotes:\n$items"
+                    // The clause belongs here too: this op reads BULLETS, not the transcript, so
+                    // without it the merge reverts to the bullets' language and a French
+                    // request returns French chunk notes merged into an English summary.
+                    "\"Input\", \"Task\" or \"Constraints\".$langClause\n\nNotes:\n$items"
 
-        override fun title(zh: Boolean, notes: String): String =
+        override fun title(zh: Boolean, notes: String, langClause: String): String =
             if (zh) Summarizer.TITLE_TEMPLATE_ZH.format(notes)
-            else Summarizer.TITLE_TEMPLATE.format("", notes)
+            else Summarizer.TITLE_TEMPLATE.format(langClause, notes)
 
         /**
          * [MeetingNotes] carries no per-item timestamp, so every item gets `atSec = -1`. Ordering
