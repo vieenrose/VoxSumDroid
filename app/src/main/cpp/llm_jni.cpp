@@ -182,6 +182,12 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeLoad(
     llama_model_params mp = llama_model_default_params();
     mp.n_gpu_layers = 0;          // CPU-only on device
     mp.use_mmap     = true;       // keep peak RAM down (see SPIKE.md "memory")
+    // --no-repack. ggml otherwise repacks quantized weights into an ARM-optimised layout at load,
+    // which materialises a SECOND, anonymous copy of them: the mmapped file stays resident and the
+    // repacked copy is added on top, roughly doubling the weight footprint. That trade (throughput
+    // for memory) is wrong on a device whose lowmemorykiller ceiling is the binding constraint, and
+    // the model's own GGUF_NOTES.md specifies --no-repack in its measured production command.
+    mp.use_extra_bufts = false;   // (this pin spells --no-repack as use_extra_bufts=false)
 
     auto* h = new LlmHandle();
     h->topK = topK; h->topP = topP; h->temp = temp;
@@ -199,6 +205,10 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeLoad(
     // unchanged (llama splits the logical batch into 512-token physical sub-batches internally); prompts
     // beyond n_ctx are still caught by the n_ctx guard in the decode loop below and degrade gracefully.
     cp.n_batch         = (uint32_t) nCtx;
+    // Physical sub-batch: GGUF_NOTES.md's measured command uses -ub 256 (default 512). The compute
+    // buffer scales with n_ubatch, so halving it halves that allocation — worth doing on a device
+    // where the summarizer competes with resident ASR models for the same ceiling.
+    cp.n_ubatch        = 256;
     cp.n_threads       = nThreads;
     cp.n_threads_batch = nThreads;
     // Optional q8_0-quantized KV cache (desktop, where the context is 32768). Halves the KV
@@ -344,6 +354,24 @@ Java_studio_voxsum_core_llm_LlmEngine_nativeGenerate(
     // Return the full text, dropping any trailing half-codepoint (e.g. stopped at maxTokens
     // mid-char) so the returned String is always valid — same content the callbacks streamed.
     return toJavaString(env, out.data(), completeUtf8Prefix(out));
+}
+
+// Exact token count for `text`, using the model's OWN vocab. The agentic chunker sizes every
+// chunk against this: a chars/token estimate is fine for English but wrong by roughly a factor
+// of two on mixed zh/latin transcripts, and an under-estimate there means a chunk that overflows
+// the window — the failure this pipeline exists to prevent. Cheap: tokenization only, no decode.
+// addSpecial=false — this measures transcript text, not a prompt about to be fed to the model.
+JNIEXPORT jint JNICALL
+Java_studio_voxsum_core_llm_LlmEngine_nativeCountTokens(
+        JNIEnv* env, jobject /*thiz*/, jlong ptr, jstring jText) {
+    LlmHandle* h = asHandle(ptr);
+    if (!h || !h->model) return -1;
+    const char* text = env->GetStringUTFChars(jText, nullptr);
+    if (!text) return -1;
+    const int n = (int) tokenize(llama_model_get_vocab(h->model), std::string(text),
+                                 /*addSpecial=*/false).size();
+    env->ReleaseStringUTFChars(jText, text);
+    return n;
 }
 
 JNIEXPORT void JNICALL

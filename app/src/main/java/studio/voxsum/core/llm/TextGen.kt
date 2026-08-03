@@ -20,6 +20,34 @@ interface TextGen : AutoCloseable {
     /** Blocking generation; [onToken] receives streamed pieces token by token. */
     fun generate(prompt: String, maxTokens: Int, onToken: TokenCallback): String
 
+    /**
+     * Generation with no streaming — the whole text or nothing.
+     *
+     * What [studio.voxsum.core.agentic.MeetingAgent] calls. Its ops are INTERNAL steps (per-chunk
+     * notes, a section merge, the title), not user-facing prose: streaming a half-parsed op-A
+     * generation into the summary pane would show the user the pipeline's scratch work. The agent
+     * reports progress through its own `Progress` callback instead, which is per-step and so a
+     * real fraction rather than a token dribble.
+     */
+    fun generateBlocking(prompt: String, maxTokens: Int): String = generate(prompt, maxTokens) {}
+
+    /**
+     * Token count for [text] under THIS model's vocab. Drives the agent's chunk sizing.
+     *
+     * The default is a deliberately CONSERVATIVE estimate — one token per CJK character, one per
+     * three characters otherwise — kept only so test fakes need not carry a tokenizer. Chunk
+     * sizing tolerates a few percent of error, but not the ~2x a single fixed chars/token ratio
+     * makes on a transcript mixing Han and latin script; an UNDER-count there yields a chunk that
+     * overflows the context, so the estimate errs high. [LlmEngine] overrides it with the real
+     * tokenizer and none of this applies.
+     */
+    fun countTokens(text: String): Int {
+        var cjk = 0
+        var other = 0
+        for (c in text) if (c.code in 0x2E80..0x9FFF || c.code in 0xAC00..0xD7AF) cjk++ else other++
+        return cjk + (other + 2) / 3
+    }
+
     /** Best-effort cancel of an in-flight generation; llama.cpp lands it within one token. */
     fun cancel()
 

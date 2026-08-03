@@ -138,6 +138,27 @@ class MeetingNotesTest {
         assertEquals(listOf("vendor lock-in"), b.extra["RISKS"])
     }
 
+    /** voxsum-gemma3-270m emits "- -" for an empty section, not just "-". */
+    @Test fun dashBulletAlsoMeansEmpty() {
+        val n = MeetingNotes.parse("TITLE: T\nSUMMARY:\n- a\nDECISIONS:\n- -\nOPEN:\n–\nTOPICS:\n- x")!!
+        assertTrue(n.decisions.isEmpty())
+        assertTrue(n.open.isEmpty())
+        assertEquals(listOf("a"), n.summary)
+        assertEquals(listOf("x"), n.topics)
+    }
+
+    /** Audio anchors are kept — they are what makes the draft checkable — but the model's [cN]
+     *  provenance tags are internal and a RANGE anchor is a fabricated position per its card. */
+    @Test fun stripsProvenanceTagsAndRangeAnchors() {
+        val n = MeetingNotes.parse(
+            "TITLE: T\nSUMMARY:\n- the team compared two quotes [4:12] [c3]\n" +
+            "- battery target unclear [7:21-17:38]\n- shipped in H2 [1:02:44]",
+        )!!
+        assertEquals("the team compared two quotes [4:12]", n.summary[0])
+        assertEquals("battery target unclear", n.summary[1])
+        assertEquals("shipped in H2 [1:02:44]", n.summary[2])
+    }
+
     @Test fun emptyInputIsNotNotes() {
         assertNull(MeetingNotes.parse(""))
         assertNull(MeetingNotes.parse("   \n  \n"))

@@ -44,6 +44,16 @@ class LlmEngine private constructor(private var handle: Long, override val nCtx:
         }
     }
 
+    /** The model's OWN tokenizer, not an estimate — see [TextGen.countTokens] for why the
+     *  difference matters to the agent's chunker. Takes [lock] for the same reason generate()
+     *  does: a concurrent close() would otherwise free the handle mid-call. Falls back to the
+     *  interface estimate on a closed handle rather than returning 0, which the chunker would
+     *  read as "this line costs nothing" and pack an unbounded chunk. */
+    override fun countTokens(text: String): Int {
+        val n = synchronized(lock) { if (handle == 0L) -1 else nativeCountTokens(handle, text) }
+        return if (n >= 0) n else super.countTokens(text)
+    }
+
     /** Stop an in-flight generation (foreground service stop / new request). llama.cpp checks the
      *  flag once per token, so this lands within one token rather than one chunk. */
     override fun cancel() {
@@ -67,6 +77,7 @@ class LlmEngine private constructor(private var handle: Long, override val nCtx:
     private external fun nativeGenerate(
         ptr: Long, prompt: String, maxTokens: Int, onToken: TextGen.TokenCallback,
     ): String
+    private external fun nativeCountTokens(ptr: Long, text: String): Int
     private external fun nativeCancel(ptr: Long)
     private external fun nativeFree(ptr: Long)
 
