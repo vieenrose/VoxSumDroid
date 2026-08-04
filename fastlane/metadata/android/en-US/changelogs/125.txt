@@ -1,0 +1,2 @@
+• Summary bullets carry timestamps again. The new model marks every point with the moment it came from, but the app was discarding them — so summaries lost that, and long sections still favoured the start of the recording over its end.
+• Aborting an import no longer loses everything. Stopping a podcast, YouTube or file import while it transcribed discarded the audio and the partial transcript; the recording now stays in Studio, ready to run again.
