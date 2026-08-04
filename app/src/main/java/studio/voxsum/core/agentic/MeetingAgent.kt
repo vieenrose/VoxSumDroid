@@ -58,7 +58,7 @@ class MeetingAgent(
 
     fun run(transcript: String, onProgress: (Progress) -> Unit = {}): String {
         val zh = lang == Lang.ZH_TW
-        val chunks = Chunker.byLines(transcript, chunkTokens, llm::countTokens)
+        val chunks = Chunker.byLines(transcript, chunkTokens, count = llm::countTokens)
         val memory = NotesMemory()
         val total = chunks.size + maxBullets.size + 1
 
@@ -67,6 +67,11 @@ class MeetingAgent(
         // into a lookup instead of a judgement.
         val tLines = transcript.lineSequence().filter { it.isNotBlank() }.toList()
         val lTimes = tLines.map { Evidence.lineSeconds(it) }
+        // Upper bound for anchor validation: the last real timestamp in the transcript, plus a
+        // minute of tolerance so an anchor on the closing utterance is not rejected by rounding.
+        // Int.MAX_VALUE when the transcript carries no timestamps at all — then nothing is
+        // checkable and every anchor is left alone rather than all of them stripped.
+        val maxAnchorSec = (lTimes.filter { it >= 0 }.maxOrNull()?.plus(60)) ?: Int.MAX_VALUE
 
         // Phase 1 — read. One bounded call per chunk; no state carried into the prompt, so
         // an early mistake cannot contaminate later chunks (the documented failure mode of
@@ -84,7 +89,10 @@ class MeetingAgent(
                 ""
             }
             prompts.parseChunk(raw, chunkIndex = i).forEach { (section, items) ->
-                items.forEach { memory.add(section, it) }
+                // Validate anchors as they arrive, against the transcript's own end. An anchor
+                // past that is invented (upstream saw 3541m = 59 h on a real meeting) and would
+                // otherwise flow into ordering, spread() and the UI's jump-to-audio.
+                items.forEach { memory.add(section, dropImpossibleAnchor(it, maxAnchorSec)) }
             }
         }
 
@@ -137,10 +145,20 @@ class MeetingAgent(
                 anchored.size >= maxOf(1, cap / 2) -> anchored
                 else -> emptyList()
             }
-            // Never let a bad generation empty a section: fall back to the DETERMINISTIC pick.
-            // spread(), not take(cap) — see below for why that distinction is load-bearing.
-            val keep = if (usable.isEmpty()) spread(items, cap).map { it.render(prompts.requiresAnchors) }
-                       else usable.take(cap)
+            // The deterministic pick, which is also the yardstick the model's reduce is judged
+            // against below. spread(), not take(cap) — see spread() for why that is load-bearing.
+            val deterministic = spread(items, cap).map { it.render(prompts.requiresAnchors) }
+            // THE MODEL'S REDUCE CAN COLLAPSE THE TIMELINE. Asked to shrink a section it sometimes
+            // rewrites bullets spanning the whole meeting into ones all anchored at its start —
+            // upstream sees 11 bullets over 0-39m become 6 at [0:00]. Prefer the deterministic pick
+            // whenever the model's span is under 60% of it: same bullets the windows produced, no
+            // rewriting, so no opportunity to invent. Only meaningful with anchors to measure.
+            val modelPick = usable.take(cap)
+            val collapsed = prompts.requiresAnchors && modelPick.isNotEmpty() && run {
+                val det = anchorSpanSec(deterministic)
+                det > 0 && anchorSpanSec(modelPick) * 100 < det * 60
+            }
+            val keep = if (modelPick.isEmpty() || collapsed) deterministic else modelPick
             keep.forEach { line ->
                 val at = NotesParser.anchorSeconds(line)
                 out.add(section, NoteItem(NotesParser.stripAnchor(line), at, chunk = -1))
@@ -174,35 +192,76 @@ class MeetingAgent(
 }
 
 /**
- * Pick [cap] items from [items] so the selection SPANS the meeting, instead of keeping a prefix.
+ * Pick [cap] items so the selection SPANS the meeting's timeline, not its opening.
  *
- * `items.take(cap)` looks equivalent and is not. [NotesMemory.get] returns insertion order, which is
- * chunk order, which is transcript order — so a prefix keeps only the EARLIEST part of the recording
- * and silently discards everything after it. Measured upstream on a 60-minute meeting: SUMMARY went
- * from 10 bullets spanning 0-19m to 4 bullets all anchored [0:00]; TOPICS from 11 spanning 0-39m to
- * 6 at [0:00]. For a product whose bullets are meant to point at moments in the audio, dropping the
- * end of the meeting is wrong on its own terms.
+ * `items.take(cap)` looks equivalent and is not: [NotesMemory.get] returns insertion order, which
+ * is window order, which is transcript order — so a prefix keeps only the earliest window and
+ * silently discards the end of every meeting. Upstream measured it on qmsum-test-education_17:
+ * SUMMARY went from 10 items spanning 0-19m to 4 all anchored [0:00], TOPICS from 11 spanning
+ * 0-39m to 6 at [0:00]. Their diagnosis goes further than "untidy" — that anchor collapse is what
+ * lay behind 9 of 11 English inversions, because a model asked to summarize a meeting from bullets
+ * covering only its opening pads the mandatory sections with unsupported absolutes.
  *
- * Keeps the first and last item and fills the middle at even intervals. Index-based rather than
- * time-based on purpose: under [AgentPrompts.AppNotes] no timestamps are requested, so every atSec
- * is -1 and a time-weighted spread would divide by zero span — while insertion order already IS
- * transcript order, which is the property that matters. A checkpoint that anchors every bullet would
- * allow a true time-weighted pick; the indices are a faithful proxy until then.
+ * Keeps the first and last ANCHORED items (a meeting's opening context and its outcome both
+ * matter), then fills the middle at even TIME intervals. Unanchored items sort last rather than
+ * being dropped, so this can only re-order, never lose content.
  *
- * Honest note: fixing this did NOT move judged quality upstream (paired over 20 meetings, faith
- * p=0.453, cover p=0.625, 13-16 of 20 scored identically). It is correct rather than better.
+ * Ported from upstream `longdoc.spread()`. It replaced an index-based version written here when no
+ * checkpoint anchored its bullets; the anchored checkpoint makes the real time-weighted pick
+ * possible, and indices are a poor proxy once windows overlap.
  */
 internal fun spread(items: List<NoteItem>, cap: Int): List<NoteItem> {
     if (cap <= 0) return emptyList()
     if (items.size <= cap) return items
-    if (cap == 1) return listOf(items.first())
-    val last = items.size - 1
-    // Evenly spaced positions inclusive of both ends; distinct() guards the degenerate rounding
-    // case where two slots land on the same index.
-    return (0 until cap)
-        .map { i -> (i.toLong() * last / (cap - 1)).toInt() }
-        .distinct()
-        .map { items[it] }
+    // (atSec, originalIndex, item) — the index keeps the sort stable for equal timestamps.
+    val anchored = items.withIndex().filter { it.value.atSec >= 0 }
+        .sortedWith(compareBy({ it.value.atSec }, { it.index }))
+    val unanchored = items.withIndex().filter { it.value.atSec < 0 }
+    // Too few anchors to spread over: keep them all, then original-order filler.
+    if (anchored.size <= cap) {
+        return anchored.map { it.value } + unanchored.map { it.value }.take(cap - anchored.size)
+    }
+    if (cap == 1) return listOf(anchored.first().value)
+    val first = anchored.first().value.atSec
+    val span = anchored.last().value.atSec - first
+    if (span <= 0) return anchored.take(cap).map { it.value }   // all at one instant
+    // Target an even time grid, and take the anchored item nearest each target.
+    val picked = LinkedHashSet<Int>()
+    for (i in 0 until cap) {
+        val target = first + span * i / (cap - 1)
+        val best = anchored.minByOrNull { kotlin.math.abs(it.value.atSec - target) } ?: continue
+        // Nearest-unused, so two adjacent targets cannot collapse onto the same bullet.
+        val cand = anchored.filter { it.index !in picked }
+            .minByOrNull { kotlin.math.abs(it.value.atSec - target) } ?: best
+        picked.add(cand.index)
+    }
+    // Emit in time order, which is what a reader expects of meeting notes.
+    return anchored.filter { it.index in picked }.map { it.value }
+}
+
+/**
+ * Drop an anchor that cannot be real.
+ *
+ * Upstream's §8: "Invented timestamps are not fully gated. One meeting produced an anchor of 3541m
+ * (59 hours)." A bullet whose anchor points past the end of the recording is worse than an
+ * unanchored one — it will link to nothing, and in a product where the anchor is the reader's way
+ * to verify a claim, a broken link undermines the bullets that are correct.
+ *
+ * Keeps the bullet, strips only the impossible anchor: the CONTENT may still be sound, and
+ * discarding a real finding because its timestamp hallucinated would trade one error for a worse
+ * one. [maxSec] is the transcript's own last timestamp plus a small tolerance, so a legitimate
+ * anchor on the final utterance survives rounding.
+ */
+internal fun dropImpossibleAnchor(item: NoteItem, maxSec: Int): NoteItem =
+    if (item.atSec > maxSec) item.copy(atSec = -1) else item
+
+/**
+ * Seconds between the earliest and latest anchor in [lines], or 0 when fewer than two are anchored.
+ * The measure the reduce guard compares on — see [MeetingAgent]'s compress phase.
+ */
+internal fun anchorSpanSec(lines: List<String>): Int {
+    val t = lines.map { NotesParser.anchorSeconds(it) }.filter { it >= 0 }
+    return if (t.size > 1) t.max() - t.min() else 0
 }
 
 /**
@@ -232,18 +291,34 @@ internal fun isMetaLine(text: String): Boolean {
 /** Splits on line boundaries so a `[mm:ss] S1: text` record is never cut in half — the
  *  chunker must respect transcript-format v1's "one utterance = one line" guarantee. */
 object Chunker {
-    fun byLines(transcript: String, budget: Int, count: (String) -> Int): List<String> {
+    /** Lines carried into the next window so a thought stated across a cut survives. Upstream's
+     *  `longdoc.windows()` uses 2; we had 0, which silently truncated any decision that spanned a
+     *  boundary — the model saw half of it in each window and could anchor neither half. */
+    const val OVERLAP_LINES = 2
+
+    // count LAST so the trailing-lambda call form keeps working at every call site; overlapLines
+    // sits before it with a default.
+    fun byLines(
+        transcript: String,
+        budget: Int,
+        overlapLines: Int = OVERLAP_LINES,
+        count: (String) -> Int,
+    ): List<String> {
         val out = mutableListOf<String>()
-        val cur = StringBuilder()
+        var cur = mutableListOf<String>()
         var n = 0
         for (line in transcript.lineSequence()) {
             val t = count(line) + 1
             if (cur.isNotEmpty() && n + t > budget) {
-                out += cur.toString(); cur.clear(); n = 0
+                out += cur.joinToString("\n")
+                // Carry the tail forward, and recount it — the overlap consumes budget too, so
+                // dropping it from the running total would let each window creep over.
+                cur = if (overlapLines > 0) cur.takeLast(overlapLines).toMutableList() else mutableListOf()
+                n = cur.sumOf { count(it) + 1 }
             }
-            cur.append(line).append('\n'); n += t
+            cur.add(line); n += t
         }
-        if (cur.isNotEmpty()) out += cur.toString()
+        if (cur.isNotEmpty()) out += cur.joinToString("\n")
         return out
     }
 }

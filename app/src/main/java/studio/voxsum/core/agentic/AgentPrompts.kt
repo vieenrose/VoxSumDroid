@@ -109,9 +109,11 @@ interface AgentPrompts {
         override val chunkNotesTokens = Summarizer.NOTES_MAX_TOKENS
         override val mergeTokens = 420
         override val titleTokens = 24
-        // The NOTES prompt does not ask for timestamps, so nothing is anchored and the
-        // anchor check would reject every merged bullet.
-        override val requiresAnchors = false
+        // TRUE since the anchored checkpoint: it emits a [m:ss] on every bullet without being
+        // asked (training taught it, the deployed prompt does not request it). That re-enables the
+        // machinery this flag gates — time-ordering, evidence lookup in the merge, the
+        // unanchored-merge rejection, and a time-weighted spread() over the meeting.
+        override val requiresAnchors = true
 
         override fun chunkNotes(zh: Boolean, chunk: String, langClause: String): String =
             if (zh) Summarizer.NOTES_TEMPLATE_ZH.format(chunk)

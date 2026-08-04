@@ -25,7 +25,6 @@
     <string name="re_run">Relancer</string>
     <string name="re_transcribe">Retranscrire</string>
     <string name="re_summarize">Refaire le résumé</string>
-    <string name="re_title">Regénérer le titre</string>
     <string name="re_diarize">Redétecter les locuteurs</string>
     <string name="re_transcribe_diarize">Retranscrire et redétecter les locuteurs</string>
     <string name="pick_audio">Choisir un audio…</string>

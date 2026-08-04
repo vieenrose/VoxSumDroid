@@ -61,7 +61,7 @@ class SummaryQualityGateTest {
 
         LlmEngine.load(model.absolutePath, nThreads = 4, nCtx = Summarizer.agentContext(),
                        sampler = spec.sampler).use { llm ->
-            val chunk = Chunker.byLines(transcript, Summarizer.AGENT_CHUNK_TOKENS, llm::countTokens).first()
+            val chunk = Chunker.byLines(transcript, Summarizer.AGENT_CHUNK_TOKENS, count = llm::countTokens).first()
             val prompt = SummaryText.wrap(spec.chatTemplate, AgentPrompts.AppNotes.chunkNotes(zh = true, chunk = chunk))
             val t0 = System.currentTimeMillis()
             val raw = llm.generateBlocking(prompt, AgentPrompts.AppNotes.chunkNotesTokens)

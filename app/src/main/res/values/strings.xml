@@ -25,7 +25,6 @@
     <string name="re_run">Re-run</string>
     <string name="re_transcribe">Re-transcribe</string>
     <string name="re_summarize">Re-summarize</string>
-    <string name="re_title">Re-generate title</string>
     <string name="re_diarize">Re-detect speakers</string>
     <!-- MOSS-TD transcribes + diarizes in one pass, so its two re-run actions collapse into one. -->
     <string name="re_transcribe_diarize">Re-transcribe &amp; re-diarize</string>

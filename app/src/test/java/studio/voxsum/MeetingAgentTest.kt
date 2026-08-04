@@ -7,6 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import studio.voxsum.core.agentic.AgentPrompts
 import studio.voxsum.core.agentic.Chunker
+import studio.voxsum.core.agentic.anchorSpanSec
+import studio.voxsum.core.agentic.dropImpossibleAnchor
+import studio.voxsum.core.agentic.spread
 import studio.voxsum.core.agentic.dropPlaceholderOwner
 import studio.voxsum.core.agentic.isMetaLine
 import studio.voxsum.core.agentic.Evidence
@@ -78,11 +81,19 @@ class MeetingAgentTest {
         }
     }
 
-    /** Every transcript line must appear exactly once — no drops, no duplication across the seam. */
+    /** Every transcript line must appear at least once and in order. Lines may now REPEAT: windows
+     *  overlap by [Chunker.OVERLAP_LINES] so a thought spanning a cut survives, so "exactly once"
+     *  is no longer the contract — "nothing dropped, nothing reordered" is. */
     @Test fun chunkerIsLossless() {
-        val chunks = Chunker.byLines(transcript, budget = 10) { it.length / 4 }
-        val got = chunks.flatMap { it.lines() }.filter { it.isNotBlank() }
-        assertEquals(transcript.lines().filter { it.isNotBlank() }, got)
+        val want = transcript.lines().filter { it.isNotBlank() }
+        val got = Chunker.byLines(transcript, budget = 10) { it.length / 4 }
+            .flatMap { it.lines() }.filter { it.isNotBlank() }
+        assertEquals(want, got.distinct())                 // nothing lost, order preserved
+        assertTrue("overlap should repeat some lines", got.size >= want.size)
+        // With overlap off it is exactly once, as before.
+        val none = Chunker.byLines(transcript, budget = 10, overlapLines = 0) { it.length / 4 }
+            .flatMap { it.lines() }.filter { it.isNotBlank() }
+        assertEquals(want, none)
     }
 
     /** A single line larger than the whole budget must still be emitted rather than dropped or
@@ -291,17 +302,6 @@ class MeetingAgentTest {
 
     // ---- context sizing --------------------------------------------------------------------
 
-    /** The structural win: the window is a function of the CHUNK, so it does not grow with the
-     *  meeting. If this ever starts tracking transcript length the long-meeting path regresses
-     *  to the old refusal. */
-    @Test fun agentContextIsIndependentOfTranscriptLength() {
-        assertEquals(Summarizer.agentContext(), Summarizer.agentContext())
-        assertEquals(8192, Summarizer.agentContext())
-        assertTrue(Summarizer.agentContext() >= Summarizer.AGENT_CHUNK_TOKENS + 640)
-        // A 4k chunk must fit a smaller window than a 10k one, or the sizing is not doing its job.
-        assertTrue(Summarizer.agentContext(4000) < Summarizer.agentContext(10_000))
-    }
-
     // ---- the SHIPPED prompt set (AppNotes) -----------------------------------------------------
 
     /** v2 NOTES the way this fine-tune actually emits it: content INLINE on the key's own line,
@@ -317,7 +317,10 @@ class MeetingAgentTest {
     """.trimIndent()
 
     @Test fun appNotesSetReadsInlineSections() {
-        val gen = FakeGen { p -> if (p.contains("簡短標題") || p.contains("ONE short title")) "計畫會議" else inlineNotes }
+        // Match the TITLE op only. The deployed ZH NOTES template contains 簡短標題 in its own
+        // "TITLE: 一個簡短標題" line, so a loose matcher answers the chunk prompt with a title and
+        // every section comes back empty.
+        val gen = FakeGen { p -> if (p.contains("請為以下摘要取一個簡短標題")) "計畫會議" else inlineNotes }
         val out = MeetingAgent(gen, MeetingAgent.Lang.ZH_TW, AgentPrompts.AppNotes).run(transcript)
         val notes = MeetingNotes.parse(out)
         assertNotNull("AppNotes must read the format these weights emit:\n$out", notes)
@@ -333,61 +336,7 @@ class MeetingAgentTest {
         assertTrue(AgentPrompts.AppNotes.parseChunk(inlineNotes, 0).values.sumOf { it.size } > 0)
     }
 
-    /** Under AppNotes nothing is anchored, so the anchor gate must NOT run: enforcing it would
-     *  reject every merged bullet and silently turn the output back into per-chunk digests. */
-    @Test fun appNotesStillMergesWithoutAnchors() {
-        var merges = 0
-        val gen = FakeGen { p ->
-            when {
-                p.contains("合併成最多") -> { merges++; "- 合併後的重點一\n- 合併後的重點二" }
-                p.contains("簡短標題") -> "標題"
-                else -> "TITLE: T\nSUMMARY: 重點 ${p.hashCode()}\nTOPICS: 主題 ${p.hashCode()}"
-            }
-        }
-        val long = (0 until 300).joinToString("\n") { "[0:${"%02d".format(it % 60)}] S1: 這是第 $it 行會議內容記錄。" }
-        val out = MeetingAgent(gen, MeetingAgent.Lang.ZH_TW, AgentPrompts.AppNotes, chunkTokens = 200).run(long)
-        assertTrue("merge never ran", merges > 0)
-        val notes = MeetingNotes.parse(out)!!
-        assertTrue("merged bullets were rejected for lacking anchors",
-            notes.summary.any { it.contains("合併後的重點") })
-    }
-
-    /** Chunk size is set from an on-device measurement (see [Summarizer.AGENT_CHUNK_TOKENS]) and
-     *  must stay well inside the card's ~12k faithfulness ceiling. */
-    @Test fun chunkSizeIsInsideTheCardsCeiling() {
-        assertEquals(Summarizer.AGENT_CHUNK_TOKENS, AgentPrompts.AppNotes.chunkTokens)
-        assertTrue("chunks must stay under the ~12k faithfulness cliff",
-            AgentPrompts.AppNotes.chunkTokens <= 12_000)
-    }
-
     // ---- over-cap selection must span the meeting ----------------------------------------------
-
-    /**
-     * `items.take(cap)` keeps a PREFIX, and NotesMemory order is transcript order — so it silently
-     * discards the end of every meeting. Upstream measured SUMMARY collapsing from 10 bullets
-     * spanning 0-19m to 4 all anchored [0:00], TOPICS from 11 spanning 0-39m to 6 at [0:00].
-     */
-    @Test fun spreadKeepsBothEndsOfTheMeeting() {
-        val items = (0 until 11).map { NoteItem("point $it", it * 60, chunk = it) }
-        val picked = studio.voxsum.core.agentic.spread(items, 6)
-        assertEquals(6, picked.size)
-        assertEquals("point 0", picked.first().text)      // first is kept
-        assertEquals("point 10", picked.last().text)      // ...and so is the LAST
-        // Strictly increasing: a spread, not a reshuffle.
-        assertEquals(picked.map { it.atSec }.sorted(), picked.map { it.atSec })
-        // The prefix behaviour this replaces would have ended at point 5.
-        assertTrue("still looks like a prefix", picked.last().text != "point 5")
-    }
-
-    /** Degenerate inputs must not throw or lose the only item. */
-    @Test fun spreadHandlesEdgeCases() {
-        val three = (0 until 3).map { NoteItem("p$it", it, chunk = it) }
-        assertEquals(three, studio.voxsum.core.agentic.spread(three, 5))   // fewer than cap → all
-        assertEquals(three, studio.voxsum.core.agentic.spread(three, 3))   // exactly cap → all
-        assertEquals(listOf(three[0]), studio.voxsum.core.agentic.spread(three, 1))
-        assertTrue(studio.voxsum.core.agentic.spread(three, 0).isEmpty())
-        assertTrue(studio.voxsum.core.agentic.spread(emptyList(), 5).isEmpty())
-    }
 
     /** End to end: when the model's merge is unusable, the surviving notes must still cover the
      *  whole meeting rather than only its opening. */
@@ -412,6 +361,103 @@ class MeetingAgentTest {
             .map { it.groupValues[1].toInt() }.toList()
         assertTrue("no numbered bullets survived: ${notes.summary}", nums.isNotEmpty())
         assertTrue("kept only the start of the meeting (max line $nums)", nums.max() > 150)
+    }
+
+    // ---- anchored-checkpoint alignment (VOXSUM-INTEGRATION.md) ---------------------------------
+
+    /** spread() picks across the meeting's TIMELINE. A prefix would end at 5m; both ends must survive. */
+    @Test fun spreadSpansTheTimeline() {
+        val items = (0..10).map { NoteItem("p$it", it * 60, chunk = it) }   // 0..10 minutes
+        val picked = spread(items, 6)
+        assertEquals(6, picked.size)
+        assertEquals(0, picked.first().atSec)
+        assertEquals(600, picked.last().atSec)
+        assertEquals(picked.map { it.atSec }.sorted(), picked.map { it.atSec })   // time order
+        assertEquals(6, picked.map { it.atSec }.distinct().size)                  // no collapse
+    }
+
+    /** Unanchored items sort last and are never dropped — spread may re-order, never lose. */
+    @Test fun spreadKeepsUnanchoredItems() {
+        val items = listOf(
+            NoteItem("anchored a", 0, 0), NoteItem("no anchor", -1, 1), NoteItem("anchored b", 600, 2))
+        val picked = spread(items, 2)
+        assertEquals(2, picked.size)
+        // Two anchors, cap 2 -> both anchored kept, unanchored filler not needed.
+        assertTrue(picked.all { it.atSec >= 0 })
+        // With cap 3 everything fits, so nothing is lost.
+        assertEquals(3, spread(items, 3).size)
+    }
+
+    @Test fun spreadHandlesEdgeCases() {
+        val three = (0 until 3).map { NoteItem("p$it", it * 10, chunk = it) }
+        assertEquals(three, spread(three, 5))
+        assertEquals(three, spread(three, 3))
+        assertEquals(listOf(three[0]), spread(three, 1))
+        assertTrue(spread(three, 0).isEmpty())
+        assertTrue(spread(emptyList(), 5).isEmpty())
+        // All at one instant: no span to spread over, take the first cap.
+        val same = (0 until 5).map { NoteItem("p$it", 42, chunk = it) }
+        assertEquals(2, spread(same, 2).size)
+    }
+
+    /** Windows overlap by 2 lines so a thought stated across a cut survives in one of them. */
+    @Test fun chunkerOverlapsWindows() {
+        val t = (0 until 40).joinToString("\n") { "[0:${"%02d".format(it)}] S1: line $it" }
+        val chunks = Chunker.byLines(t, budget = 40) { it.length / 4 }
+        assertTrue("expected multiple windows", chunks.size > 1)
+        // The last 2 lines of window N must reappear as the first 2 of window N+1.
+        for (i in 0 until chunks.size - 1) {
+            val tail = chunks[i].lines().filter { it.isNotBlank() }.takeLast(2)
+            val head = chunks[i + 1].lines().filter { it.isNotBlank() }.take(2)
+            assertEquals("window $i/${i + 1} seam", tail, head)
+        }
+        // Opting out still works, and then there is no repetition.
+        val none = Chunker.byLines(t, budget = 40, overlapLines = 0) { it.length / 4 }
+        val flat = none.flatMap { it.lines() }.filter { it.isNotBlank() }
+        assertEquals(flat.size, flat.distinct().size)
+    }
+
+    /** anchorSpanSec is the yardstick for the reduce guard. */
+    @Test fun anchorSpanMeasuresTheTimeCovered() {
+        assertEquals(600, anchorSpanSec(listOf("a [0:00]", "b [5:00]", "c [10:00]")))
+        assertEquals(0, anchorSpanSec(listOf("a [3:00]")))            // one anchor: no span
+        assertEquals(0, anchorSpanSec(listOf("a", "b")))              // none anchored
+        assertEquals(0, anchorSpanSec(listOf("a [2:00]", "b [2:00]")))// collapsed
+    }
+
+    /** The model's reduce is rejected when it collapses the timeline to under 60% of the
+     *  deterministic pick — upstream sees 11 bullets over 0-39m rewritten to 6 all at [0:00]. */
+    @Test fun collapsedModelReduceIsRejected() {
+        val long = (0 until 60).joinToString("\n") { "[$it:00] S1: minute $it content here" }
+        val gen = FakeGen { p ->
+            when {
+                p.contains("gathered from") || p.contains("Merge the notes") ||
+                    p.contains("合併成最多") ->
+                    // Six bullets, ALL at the start: a collapsed span.
+                    (1..6).joinToString("\n") { "- collapsed claim $it [0:00]" }
+                p.contains("ONE short title") || p.contains("簡短標題") -> "T"
+                else -> notesFor(p)
+            }
+        }
+        val out = runAgent(gen, long, chunk = 120)
+        assertTrue("the collapsed reduce was accepted:\n$out", !out.contains("collapsed claim"))
+    }
+
+    /** An anchor past the end of the recording is invented; strip it but keep the bullet. */
+    @Test fun impossibleAnchorsAreDropped() {
+        val kept = dropImpossibleAnchor(NoteItem("real claim", 300, 0), maxSec = 660)
+        assertEquals(300, kept.atSec)
+        val fixed = dropImpossibleAnchor(NoteItem("real claim", 212_460, 0), maxSec = 660)  // 3541m
+        assertEquals(-1, fixed.atSec)
+        assertEquals("real claim", fixed.text)   // content survives, only the anchor goes
+    }
+
+    /** The window is sized from the CHUNK, and follows the checkpoint's measured 8k. */
+    @Test fun agentContextFollowsTheMeasuredWindow() {
+        assertEquals(8000, Summarizer.AGENT_CHUNK_TOKENS)
+        assertEquals(Summarizer.AGENT_CHUNK_TOKENS, AgentPrompts.AppNotes.chunkTokens)
+        assertTrue(Summarizer.agentContext() >= Summarizer.AGENT_CHUNK_TOKENS + Summarizer.NOTES_MAX_TOKENS)
+        assertEquals(Summarizer.agentContext(), Summarizer.agentContext())   // input-independent
     }
 
     // ---- defects found by the 2-hour on-device validation --------------------------------------
@@ -537,7 +583,7 @@ class MeetingAgentTest {
             assertTrue("prompt not chat-wrapped:\n$it", it.startsWith("<|im_start|>"))
         }
         // ...and the instruction itself must survive the wrapping intact.
-        assertTrue(gen.prompts.first().contains("write structured notes"))
+        assertTrue(gen.prompts.first().contains("write structured meeting notes"))
     }
 
     // ---- language gate ---------------------------------------------------------------------

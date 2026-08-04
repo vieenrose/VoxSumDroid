@@ -100,7 +100,6 @@ class TranscriptionService : LifecycleService() {
         // The transcript rides [pendingDiarize] (like ACTION_EXPORT's pendingExport — utterance
         // lists are too large for Intent extras).
         const val ACTION_DIARIZE = "studio.voxsum.DIARIZE"
-        const val ACTION_RETITLE = "studio.voxsum.RETITLE"
         const val ACTION_EXTRACT_ACTIONS = "studio.voxsum.EXTRACT_ACTIONS"
         // Gracefully end live recording and continue into diarization/summary (vs ACTION_STOP,
         // which cancels the whole job).
@@ -146,7 +145,7 @@ class TranscriptionService : LifecycleService() {
         /** A pending edits-persist into a library entry (see ACTION_PERSIST_LIBRARY). */
         @Volatile var pendingPersist: PersistRequest? = null
 
-        /** The transcript/summary text for ACTION_SUMMARIZE/RETITLE/EXTRACT_ACTIONS. Rides a holder
+        /** The transcript/summary text for ACTION_SUMMARIZE/EXTRACT_ACTIONS. Rides a holder
          *  rather than an Intent extra: a long meeting's transcript exceeds the ~1 MB Binder
          *  transaction limit → TransactionTooLargeException crash. Consumed in onStartCommand. */
         @Volatile var pendingText: String? = null
@@ -398,7 +397,6 @@ class TranscriptionService : LifecycleService() {
 
         val recording = intent?.action == ACTION_RECORD
         val summarizeOnly = intent?.action == ACTION_SUMMARIZE
-        val retitle = intent?.action == ACTION_RETITLE
         val extractActions = intent?.action == ACTION_EXTRACT_ACTIONS
         val diarizeOnly = intent?.action == ACTION_DIARIZE
         val processQueue = intent?.action == ACTION_PROCESS_QUEUE
@@ -431,7 +429,7 @@ class TranscriptionService : LifecycleService() {
         val uri = intent?.getStringExtra(EXTRA_AUDIO_URI)
         // Transcript/summary text rides pendingText (Binder-limit safe). Consume it here on the
         // main thread before the job launches so a rapid second dispatch can't steal it.
-        val pendingBody = if (summarizeOnly || retitle || extractActions) pendingText.also { pendingText = null } else null
+        val pendingBody = if (summarizeOnly || extractActions) pendingText.also { pendingText = null } else null
         val transcript = pendingBody ?: intent?.getStringExtra(EXTRA_TRANSCRIPT)
         val summaryExtra = pendingBody ?: intent?.getStringExtra(EXTRA_SUMMARY)
         val summarizeWithTitle = intent?.getBooleanExtra(EXTRA_WITH_TITLE, false) ?: false
@@ -459,7 +457,6 @@ class TranscriptionService : LifecycleService() {
             runCatching {
                 when {
                     summarizeOnly -> runSummarizeOnly(transcript.orEmpty(), summarizeWithTitle)
-                    retitle -> runTitleOnly(summaryExtra.orEmpty())
                     extractActions -> runExtractActions(transcript.orEmpty())
                     diarizeOnly -> runDiarizeOnly(uri)
                     processQueue -> runQueue()
@@ -1744,44 +1741,6 @@ class TranscriptionService : LifecycleService() {
         summarize(transcript, cfg, models, outputConverter(cfg), withTitle = withTitle)
     }
 
-    /** Re-generate ONLY the title, from the existing summary (no re-decode / re-ASR / re-summary). */
-    private suspend fun runTitleOnly(summary: String) {
-        if (summary.isBlank()) {
-            emitEvent(TranscriptEvent.Title(""))
-            emitEvent(TranscriptEvent.SummaryComplete(summary))   // terminal event → client clears `running`
-            return
-        }
-        val cfg = TranscriptionConfig.Holder.config
-        val models = ModelManager(this)
-        val spec = LlmRegistry.byId(cfg.llmModelId)
-        ensureSummarizerModels(spec, models)
-        updateNotification(getString(R.string.svc_summarizing))
-        emitEvent(TranscriptEvent.Status(getString(R.string.svc_summarizing)))
-        emitEvent(TranscriptEvent.Progress(0f))
-        val converter = outputConverter(cfg)
-        // Re-title reads an existing SUMMARY, not the transcript — a few hundred tokens in, 24
-        // out. contextFor's 4096 floor already covers that; nothing here needs a big window.
-        studio.voxsum.core.llm.TextGen.load(
-            this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(),
-            backend = cfg.llmBackend, nCtx = Summarizer.contextFor(summary, outputTokens = 24),
-        ).use { llm ->
-            activeLlm = llm
-            try {
-                Summarizer(
-                    llm,
-                    template = spec.chatTemplate,
-                    convert = { converter?.convert(it) ?: it },
-                ).title(summary)
-                    .flowOn(Dispatchers.Default)
-                    .collect { emitEvent(it) }
-            } finally {
-                activeLlm = null
-            }
-        }
-        // Title alone has no terminal event; re-send the unchanged summary so the client clears `running`
-        // and reaches the done state (otherwise a successful re-title strands the UI as still-running).
-        emitEvent(TranscriptEvent.SummaryComplete(summary))
-    }
 
     /** Extract action items + decisions for an existing transcript (no re-decode / re-ASR). Reuses
      *  the resident Gemma model via the CJK-safe map-reduce so a long meeting doesn't overflow n_ctx. */

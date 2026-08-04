@@ -1504,7 +1504,24 @@ private fun TranscribeScreen(
                     if (diarizeOnlyRun) { diarizeOnlyRun = false; running = false }
                     autosaveSessionNow()
                 }
-                is TranscriptEvent.Title -> { title = e.title; if (libraryDir != null && !watchingQueue) sessionDirty = true; autosaveSessionNow() }
+                is TranscriptEvent.Title -> {
+                    // FILL, never OVERWRITE. A title already on screen came from somewhere better
+                    // than the summarizer: a podcast episode name, a YouTube video title, the
+                    // library entry's own metadata, or the user typing one. The summarizer's guess
+                    // is the fallback for when there is nothing — so accept it only into a blank.
+                    //
+                    // titleEdited already protected the RE-summarize path (regenerateTitle =
+                    // !titleEdited), but this event handler assigned unconditionally, so a fresh
+                    // run over imported audio replaced the source title with a machine guess.
+                    // The Re-title action was removed with this change: regenerating a machine
+                    // title is exactly the override this rule exists to prevent. A user who wants
+                    // a different title edits it directly.
+                    if (title.isNullOrBlank()) {
+                        title = e.title
+                        if (libraryDir != null && !watchingQueue) sessionDirty = true
+                        autosaveSessionNow()
+                    }
+                }
                 is TranscriptEvent.RecordingSaved -> {
                     val newUri = Uri.parse(e.uri)
                     // End-of-ASR source swap (original file → decoded WAV of the SAME audio): keep the
@@ -1745,20 +1762,6 @@ private fun TranscribeScreen(
         val intent = Intent(context, TranscriptionService::class.java)
             .setAction(TranscriptionService.ACTION_SUMMARIZE)
             .putExtra(TranscriptionService.EXTRA_WITH_TITLE, regenerateTitle)
-            .putExtra(TranscriptionService.EXTRA_RUN_GEN, sessionGen)
-        ContextCompat.startForegroundService(context, intent)
-    }
-
-    // Re-run only title generation from the current summary (no re-ASR / re-summary). Lets you swap the
-    // summary model for a better summary without it, then refresh just the title if you want.
-    fun reTitle() {
-        if (running || summary.isNullOrBlank()) return
-        TranscriptionConfig.Holder.config = config
-        title = null; titleEdited = false   // regenerated title is machine-made, not a sticky user edit
-        running = true; progress = 0f; status = context.getString(R.string.status_starting)
-        TranscriptionService.pendingText = summary
-        val intent = Intent(context, TranscriptionService::class.java)
-            .setAction(TranscriptionService.ACTION_RETITLE)
             .putExtra(TranscriptionService.EXTRA_RUN_GEN, sessionGen)
         ContextCompat.startForegroundService(context, intent)
     }
@@ -2161,8 +2164,6 @@ private fun TranscribeScreen(
                 onReTranscribe = { audioUri?.let { launchAudio(it) } },
                 canReSummarize = transcriptReady && !running,
                 onReSummarize = { regenerateStaleChildren() },
-                canReTitle = transcriptReady && !running && !summary.isNullOrBlank(),
-                onReTitle = { reTitle() },
                 canReDiarize = transcriptReady && !running && audioUri != null,
                 onReDiarize = { reDiarize() },
                 canExtractActions = transcriptReady && !running,

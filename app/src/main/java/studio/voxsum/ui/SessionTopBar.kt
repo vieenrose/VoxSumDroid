@@ -75,7 +75,6 @@ fun SessionTopBar(
     onSearch: () -> Unit,
     canReTranscribe: Boolean, onReTranscribe: () -> Unit,
     canReSummarize: Boolean, onReSummarize: () -> Unit,
-    canReTitle: Boolean, onReTitle: () -> Unit,
     canReDiarize: Boolean, onReDiarize: () -> Unit,
     canExtractActions: Boolean, onExtractActions: () -> Unit,
     canExport: Boolean,
@@ -133,7 +132,7 @@ fun SessionTopBar(
                 }
             }
             OverflowMenu(
-                canReTranscribe, onReTranscribe, canReSummarize, onReSummarize, canReTitle, onReTitle,
+                canReTranscribe, onReTranscribe, canReSummarize, onReSummarize,
                 canReDiarize, onReDiarize, canExtractActions, onExtractActions,
                 canExport, isMossBackend, onOpenExport, onSettings,
             )
@@ -171,7 +170,6 @@ fun SessionTopBar(
 private fun OverflowMenu(
     canReTranscribe: Boolean, onReTranscribe: () -> Unit,
     canReSummarize: Boolean, onReSummarize: () -> Unit,
-    canReTitle: Boolean, onReTitle: () -> Unit,
     canReDiarize: Boolean, onReDiarize: () -> Unit,
     canExtractActions: Boolean, onExtractActions: () -> Unit,
     canExport: Boolean,
@@ -193,14 +191,12 @@ private fun OverflowMenu(
                 onClick = pick(onReTranscribe))
             if (canReSummarize) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.Summarize, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_summarize)) }, onClick = pick(onReSummarize))
-            if (canReTitle) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.Title, null, Modifier.size(18.dp)) },
-                text = { Text(stringResource(R.string.re_title)) }, onClick = pick(onReTitle))
             // MOSS diarizes in the same pass, so the standalone Re-detect-speakers item is hidden.
             if (canReDiarize && !isMossBackend) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_diarize)) }, onClick = pick(onReDiarize))
             if (canExtractActions) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.Checklist, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_extract_actions)) }, onClick = pick(onExtractActions))
-            if (canReTranscribe || canReSummarize || canReTitle || canReDiarize || canExtractActions) HorizontalDivider()
+            if (canReTranscribe || canReSummarize || canReDiarize || canExtractActions) HorizontalDivider()
             // --- exports (disabled while running, like before) ---
             // One entry, not eight: the formats and the save/share choice live in ExportSheet, which
             // groups them by what you get. A dropdown this long also meant several slow full-page

@@ -25,7 +25,6 @@
     <string name="re_run">重新執行</string>
     <string name="re_transcribe">重新轉錄</string>
     <string name="re_summarize">重新摘要</string>
-    <string name="re_title">重新產生標題</string>
     <string name="re_diarize">重新辨識語者</string>
     <string name="re_transcribe_diarize">重新轉錄並辨識語者</string>
     <string name="pick_audio">選擇音訊…</string>
