@@ -1,0 +1,5 @@
+• New summarizer model. Summaries are markedly more faithful — its publisher measures 5% contradicted decisions against 33-55% for the alternatives, judged by an independent model. Every bullet now carries a timestamp, so you can check any claim against the recording.
+• Notes cover the whole meeting. Long sections used to keep only the earliest points and silently drop the end of the recording; they now span it from start to finish.
+• Your title is kept. A title from a podcast episode, a YouTube video, or one you typed is no longer replaced by a generated one — the summarizer only fills a title in when there is none. The Re-title action is gone for the same reason.
+• Speaker detection fixed. A recording with several speakers could come back labelled as one, with no error shown. Three separate causes are fixed and validated against six recordings with known speaker counts.
+• The playback cursor no longer jumps back to the start when processing finishes.
