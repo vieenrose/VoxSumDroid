@@ -1,0 +1,1 @@
+• Decisions no longer appear twice. They were being listed both in their own card and inside the action items, which also made the action items list misleading — a decision the meeting reached is not a task for you to do. Action items now contain only actions; decisions keep their own card, and both still appear in exported notes.
