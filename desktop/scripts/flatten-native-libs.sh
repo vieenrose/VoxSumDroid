@@ -12,7 +12,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DESKTOP_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="${VOXSUM_NATIVE_BUILD_DIR:-$DESKTOP_DIR/build-native}"
-OUT_DIR="${VOXSUM_NATIVE_LIBS_OUT_DIR:-$DESKTOP_DIR/appResources/linux-x64}"
+# Host arch decides both the staging dir and which vendored LiteRT to copy — the desktop
+# build is buildable on arm64 Linux only if these follow CMake's choice (see CMakeLists.txt).
+case "$(uname -m)" in
+  aarch64|arm64) ARCH_DIR="linux-arm64" ;;
+  x86_64|amd64)  ARCH_DIR="linux-x64" ;;
+  *) echo "unsupported arch $(uname -m): no vendored LiteRT runtime" >&2; exit 1 ;;
+esac
+OUT_DIR="${VOXSUM_NATIVE_LIBS_OUT_DIR:-$DESKTOP_DIR/appResources/$ARCH_DIR}"
 
 PATCHELF="${PATCHELF:-patchelf}"
 if ! command -v "$PATCHELF" >/dev/null 2>&1; then
@@ -37,7 +44,7 @@ copy_real "$BUILD_DIR" "libvoxsum-llm.so"
 # libLiteRt.so is a vendored glibc prebuilt, not a build product — see
 # desktop/native-prebuilt/linux-x64/PROVENANCE.md.
 copy_real "$BUILD_DIR" "libvoxsum-mosslite.so"
-copy_real "$DESKTOP_DIR/native-prebuilt/linux-x64" "libLiteRt.so"
+copy_real "$DESKTOP_DIR/native-prebuilt/$ARCH_DIR" "libLiteRt.so"
 
 # Recreate the unversioned SONAME symlinks flattened builds still need for dlopen-by-SONAME
 # (e.g. libllama.so.0.0.1's own DT_SONAME is usually libllama.so.0).
