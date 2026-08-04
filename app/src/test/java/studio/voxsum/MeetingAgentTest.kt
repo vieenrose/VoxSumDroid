@@ -360,6 +360,60 @@ class MeetingAgentTest {
             AgentPrompts.AppNotes.chunkTokens <= 12_000)
     }
 
+    // ---- over-cap selection must span the meeting ----------------------------------------------
+
+    /**
+     * `items.take(cap)` keeps a PREFIX, and NotesMemory order is transcript order — so it silently
+     * discards the end of every meeting. Upstream measured SUMMARY collapsing from 10 bullets
+     * spanning 0-19m to 4 all anchored [0:00], TOPICS from 11 spanning 0-39m to 6 at [0:00].
+     */
+    @Test fun spreadKeepsBothEndsOfTheMeeting() {
+        val items = (0 until 11).map { NoteItem("point $it", it * 60, chunk = it) }
+        val picked = studio.voxsum.core.agentic.spread(items, 6)
+        assertEquals(6, picked.size)
+        assertEquals("point 0", picked.first().text)      // first is kept
+        assertEquals("point 10", picked.last().text)      // ...and so is the LAST
+        // Strictly increasing: a spread, not a reshuffle.
+        assertEquals(picked.map { it.atSec }.sorted(), picked.map { it.atSec })
+        // The prefix behaviour this replaces would have ended at point 5.
+        assertTrue("still looks like a prefix", picked.last().text != "point 5")
+    }
+
+    /** Degenerate inputs must not throw or lose the only item. */
+    @Test fun spreadHandlesEdgeCases() {
+        val three = (0 until 3).map { NoteItem("p$it", it, chunk = it) }
+        assertEquals(three, studio.voxsum.core.agentic.spread(three, 5))   // fewer than cap → all
+        assertEquals(three, studio.voxsum.core.agentic.spread(three, 3))   // exactly cap → all
+        assertEquals(listOf(three[0]), studio.voxsum.core.agentic.spread(three, 1))
+        assertTrue(studio.voxsum.core.agentic.spread(three, 0).isEmpty())
+        assertTrue(studio.voxsum.core.agentic.spread(emptyList(), 5).isEmpty())
+    }
+
+    /** End to end: when the model's merge is unusable, the surviving notes must still cover the
+     *  whole meeting rather than only its opening. */
+    @Test fun unusableMergeStillCoversTheWholeMeeting() {
+        val long = (0 until 300).joinToString("\n") { "[${it / 60}:${"%02d".format(it % 60)}] S1: line $it" }
+        val gen = FakeGen { p ->
+            when {
+                // BOTH merge wordings: Harness says "gathered from", AppNotes "Merge the notes".
+                // Matching only one let the merge fall through to the chunk-notes fake, so the
+                // fallback under test never ran.
+                p.contains("gathered from") || p.contains("Merge the notes") ||
+                    p.contains("合併成最多") -> ""   // merge fails
+                p.contains("ONE short title") || p.contains("簡短標題") -> "T"
+                else -> notesFor(p)
+            }
+        }
+        val out = runAgent(gen, long, chunk = 100)
+        val notes = MeetingNotes.parse(out)!!
+        // notesFor() tags each bullet with its line number, so a prefix-only result would mention
+        // only low numbers. Assert the LAST kept bullet comes from late in the transcript.
+        val nums = Regex("point (\\d+)").findAll(notes.summary.joinToString(" "))
+            .map { it.groupValues[1].toInt() }.toList()
+        assertTrue("no numbered bullets survived: ${notes.summary}", nums.isNotEmpty())
+        assertTrue("kept only the start of the meeting (max line $nums)", nums.max() > 150)
+    }
+
     // ---- defects found by the 2-hour on-device validation --------------------------------------
 
     /** The merge step restated the prompt instead of following it, and the restatement landed in
