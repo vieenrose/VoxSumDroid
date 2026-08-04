@@ -76,8 +76,19 @@ class DiarizationEngine(
 
     private val segmenterDelegate = lazy {
         val m = segmentationModel ?: return@lazy null
-        if (!java.io.File(m).exists()) return@lazy null
-        LiteSegmenter.load(java.io.File(m))
+        if (!java.io.File(m).exists()) {
+            System.err.println("voxsum-diar: segmentation model MISSING at $m — falling back to the " +
+                "per-utterance path (boundaries from silence, not from voice change)")
+            return@lazy null
+        }
+        // A null here is not "no segmenter configured", it is "the configured one would not load"
+        // — historically because segmentationModel pointed at an ONNX and LitePod is LiteRT. That
+        // silently made the segmentation-first and legacy paths identical.
+        LiteSegmenter.load(java.io.File(m)).also {
+            if (it == null) System.err.println(
+                "voxsum-diar: segmentation model at $m FAILED TO LOAD — is it a LiteRT .tflite? " +
+                    "Falling back to the per-utterance path.")
+        }
     }
     private val segmenter: LiteSegmenter? get() = segmenterDelegate.value
 
@@ -126,7 +137,12 @@ class DiarizationEngine(
         // (native error, degenerate output) falls back to the legacy per-utterance flow below.
         usedSegmenter = false
         segmenter?.let { sd ->
-            val r = runCatching { segmentFirst(sd, utterances, onProgress, redecode) }.getOrNull()
+            // Loud on failure: this used to swallow the exception and drop to the legacy path with
+            // usedSegmenter = false, which is indistinguishable from "no segmenter configured".
+            val r = runCatching { segmentFirst(sd, utterances, onProgress, redecode) }
+                .onFailure { System.err.println("voxsum-diar: segmentation-first pass FAILED (" +
+                    "${it::class.simpleName}: ${it.message}) — falling back to the per-utterance path") }
+                .getOrNull()
             if (r != null) {
                 usedSegmenter = true
                 return r

@@ -88,7 +88,7 @@ class DiarizationFieldRepro {
         // The LiteRT CAM++ — the artifact LiteSpeakerEmbedder can actually load. Hardcoding the
         // ONNX here is what produced the first (bogus) 1-speaker result.
         val emb = File(modelsDir, "campplus_cn_common_500f.tflite")
-        val segm = File(modelsDir, "pyannote_segmentation_3_0.onnx")
+        val segm = File(modelsDir, "pyannote-segmentation.tflite")   // LiteRT, what LiteSegmenter loads
         assumeTrue("no CAM++ at $emb", emb.exists())
 
         for ((label, segModel) in listOf("legacy (spectral)" to null, "segmentation-first" to segm)) {

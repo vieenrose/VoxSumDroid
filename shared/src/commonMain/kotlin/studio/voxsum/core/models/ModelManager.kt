@@ -67,7 +67,17 @@ class ModelManager(appFilesDir: File) {
     /** pyannote segmentation-3.0 (MIT, ~6 MB) — the speaker-aware local segmenter that drives
      *  DiarizationEngine's segmentation-first path (boundaries where the VOICE changes, not
      *  where silence falls). */
-    val segmentationModel: File get() = File(modelsDir, "pyannote_segmentation_3_0.onnx")
+    /**
+     * pyannote segmentation-3.0 as LiteRT — what [LiteSegmenter] can actually load.
+     *
+     * This pointed at `pyannote_segmentation_3_0.onnx`, the same stale-artifact bug the speaker
+     * embedder had: LiteSegmenter.load -> LitePod.load rejects an ONNX and returns null, and
+     * DiarizationEngine skipped the segmentation-first path without a word. Every desktop run
+     * reported usedSegmenter=false even when a valid-looking model file was passed, so "legacy"
+     * and "segmentation-first" silently executed IDENTICAL code. Android was already on the
+     * tflite; only this copy was stale.
+     */
+    val segmentationModel: File get() = File(modelsDir, "pyannote-segmentation.tflite")
 
     // MOSS-TD: one GGUF does ASR + diarization + timestamps (RapidSpeech.cpp runtime). The 14 MB
     // CAM++ GGUF is OPTIONAL — without it per-window [Sxx] tags still work, only cross-window
@@ -761,9 +771,11 @@ class ModelManager(appFilesDir: File) {
         private const val SENSE_VOICE_SHA = "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e"
         private const val EMB_SHA = "62eb2d79d363c1fd5ee093a4b0dcb5470d5ad3b7452612b67cce9b89f36c8ef3"
 
+        // The LiteRT build, matching what [segmentationModel] now resolves to. The old ONNX URL
+        // would write ONNX bytes into a .tflite path: file present, sha valid, still unloadable.
         private const val SEG_URL =
-            "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx"
-        private const val SEG_SHA = "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079"
+            "https://huggingface.co/soniqo/Pyannote-Segmentation-LiteRT/resolve/8422f41c2d87cafe24be03d731b64c74eab2c126/pyannote-segmentation.tflite"
+        private const val SEG_SHA = "0232d4098c5069d012b92cb4b5d8cf148807777aa214203e4706a282e640f259"
 
         // MOSS-TD (RapidSpeech.cpp GGUFs) — see models/manifest.json. Exact artifact sizes so the
         // GGUF magic+size check is a tight lower bound; the SHA pins are verified on download.
