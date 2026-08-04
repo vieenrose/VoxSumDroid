@@ -56,7 +56,7 @@ import studio.voxsum.BuildConfig
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.NemotronLang
-import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.config.SummaryScript
 import studio.voxsum.core.config.SummaryStyle
 import studio.voxsum.core.config.ThemeMode
 import studio.voxsum.core.config.TranscriptionConfig
@@ -208,13 +208,12 @@ fun SettingsContent(
         Section(stringResource(R.string.settings_summary_options))
         LabeledRow(stringResource(R.string.settings_summary_language)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TargetLanguage.entries.forEach { lang ->
-                    val label = if (lang == TargetLanguage.AUTO)
-                        stringResource(R.string.summary_language_auto) else lang.autonym
+                SummaryScript.entries.forEach { s ->
+                    val label = s.autonym
                     FilterChip(
-                        selected = config.targetLanguage == lang.id,
+                        selected = config.summaryScript == s.id,
                         enabled = enabled,
-                        onClick = { onChange(config.copy(targetLanguage = lang.id)) },
+                        onClick = { onChange(config.copy(summaryScript = s.id)) },
                         label = { Text(label) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = pal.Sky.copy(alpha = 0.15f),

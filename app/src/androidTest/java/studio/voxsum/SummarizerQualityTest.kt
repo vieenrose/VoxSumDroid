@@ -54,8 +54,9 @@ class SummarizerQualityTest {
         val summary = StringBuilder(); val title = StringBuilder(); var mapChunks = 0
         var failure: String? = null
         val t0 = System.nanoTime()
-        Summarizer(llm, template = spec.chatTemplate, targetLanguage = "Traditional Chinese (繁體中文)",
-                   convert = { cc.convert(it) })
+        // No target language: summaries are always in the transcript's language. The OpenCC
+        // converter still normalises the Han script, which is all `cc` ever did.
+        Summarizer(llm, template = spec.chatTemplate, convert = { cc.convert(it) })
             .summarize(transcript, "Summarize the key points of this transcript.")
             .collect { e ->
                 when (e) {

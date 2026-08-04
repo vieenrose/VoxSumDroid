@@ -65,7 +65,7 @@ class LlmBenchTest {
         val llm = TextGen.load(appCtx, local.absolutePath, LlmRegistry.byId(LlmRegistry.DEFAULT_ID), nThreads)
         out.appendLine("load=${SystemClock.elapsedRealtime() - tLoad}ms  RSS after load=${rssMb()}MB  peak=${hwmMb()}MB"); flush()
 
-        // null targetLanguage → "write it in the same language as the transcript": tests whether the
+        // Summaries are always in the transcript's language: tests whether the
         // model summarises zh in zh and fr in fr (the multilingual signal we care about).
         val keys = (args.getString("keys") ?: "en-short,zh-short,zh-long,fr-short").split(",")
         for (key in keys) {

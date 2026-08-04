@@ -25,7 +25,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import studio.voxsum.core.asr.AsrBackend
-import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.config.SummaryScript
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.ui.SettingsContent
@@ -90,11 +90,11 @@ class SettingsContentTest {
         assertEquals(false, changed?.diarizationEnabled)
     }
 
-    @Test fun selectingTargetLanguageReportsIt() {
+    @Test fun selectingChineseScriptReportsIt() {
         var changed: TranscriptionConfig? = null
         host(onChange = { changed = it })
-        compose.onNodeWithText(TargetLanguage.ENGLISH.autonym).performScrollTo().performClick()
-        assertEquals(TargetLanguage.ENGLISH.id, changed?.targetLanguage)
+        compose.onNodeWithText(SummaryScript.SIMPLIFIED.autonym).performScrollTo().performClick()
+        assertEquals(SummaryScript.SIMPLIFIED.id, changed?.summaryScript)
     }
 
     @Test fun editingSummaryPromptReportsIt() {

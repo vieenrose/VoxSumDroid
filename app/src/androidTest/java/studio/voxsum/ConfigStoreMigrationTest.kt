@@ -9,7 +9,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import studio.voxsum.core.config.ConfigStore
-import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.config.SummaryScript
 
 /**
  * Verifies the summary-language settings migration in [ConfigStore.load]: a saved value wins, the legacy
@@ -26,23 +26,31 @@ class ConfigStoreMigrationTest {
     @Before fun clear() { prefs().edit().clear().commit() }
     @After fun cleanup() { prefs().edit().clear().commit() }
 
-    @Test fun legacyTraditionalChineseTrueMigratesToZhHant() {
-        prefs().edit().putBoolean("traditionalChinese", true).commit()
-        assertEquals("zh-Hant", ConfigStore.load(ctx).targetLanguage)
+    /**
+     * The legacy keys are deliberately NOT migrated.
+     *
+     * "traditionalChinese" and "summaryLanguage" both encoded an output LANGUAGE for the summary,
+     * and that feature was removed (see [SummaryScript]) because translating while summarizing
+     * degraded a 0.8B model's output. Reading either would carry a translation preference into a
+     * build that cannot honour it — e.g. a stored "ja" would have to mean something, and any
+     * meaning we invented would be wrong. They are ignored; stored summaries are untouched.
+     */
+    @Test fun legacyLanguageKeysAreIgnored() {
+        prefs().edit()
+            .putString("summaryLanguage", "ja")
+            .putBoolean("traditionalChinese", false)
+            .commit()
+        val loaded = ConfigStore.load(ctx).summaryScript
+        assertEquals(SummaryScript.defaultFor(java.util.Locale.getDefault()).id, loaded)
     }
 
-    @Test fun legacyTraditionalChineseFalseMigratesToAuto() {
-        prefs().edit().putBoolean("traditionalChinese", false).commit()
-        assertEquals("auto", ConfigStore.load(ctx).targetLanguage)
+    @Test fun savedScriptRoundTrips() {
+        ConfigStore.save(ctx, ConfigStore.load(ctx).copy(summaryScript = SummaryScript.SIMPLIFIED.id))
+        assertEquals(SummaryScript.SIMPLIFIED.id, ConfigStore.load(ctx).summaryScript)
     }
 
-    @Test fun savedTargetLanguageWinsOverLegacyBoolean() {
-        prefs().edit().putString("summaryLanguage", "ja").putBoolean("traditionalChinese", true).commit()
-        assertEquals("ja", ConfigStore.load(ctx).targetLanguage)
-    }
-
-    @Test fun freshInstallDefaultsToDeviceLanguage() {
-        // No summaryLanguage and no legacy boolean → the user's display-language default.
-        assertEquals(TargetLanguage.defaultFor(ctx).id, ConfigStore.load(ctx).targetLanguage)
+    @Test fun freshInstallDefaultsFromLocale() {
+        assertEquals(SummaryScript.defaultFor(java.util.Locale.getDefault()).id,
+            ConfigStore.load(ctx).summaryScript)
     }
 }

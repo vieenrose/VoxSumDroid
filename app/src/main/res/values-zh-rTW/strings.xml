@@ -70,7 +70,7 @@
     <string name="settings_identify_speakers">辨識語者</string>
     <string name="settings_precise_diarization">精確語者邊界（較慢）</string>
     <string name="settings_summary_options">摘要選項</string>
-    <string name="settings_summary_language">目標語言</string>
+    <string name="settings_summary_language">中文字形</string>
     <string name="summary_language_auto">與逐字稿相同</string>
     <string name="settings_summary_prompt">摘要提示詞</string>
     <string name="settings_asr_context">需要辨識的名稱與術語</string>

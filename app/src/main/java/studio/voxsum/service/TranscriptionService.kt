@@ -49,7 +49,7 @@ import studio.voxsum.core.audio.RecordingRecovery
 import studio.voxsum.core.audio.WavIo
 import studio.voxsum.core.audio.WavSlicer
 import studio.voxsum.core.audio.WavNormalizer
-import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.config.SummaryScript
 import studio.voxsum.core.config.SummaryStyle
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
@@ -947,7 +947,7 @@ class TranscriptionService : LifecycleService() {
         val cfgAll = TranscriptionConfig.Holder.config
         // Anything transcription-affecting invalidates a leftover sidecar from an older drain.
         val fingerprint = listOf(
-            cfgAll.asrBackend, cfgAll.asrModelId, cfgAll.language, cfgAll.targetLanguage,
+            cfgAll.asrBackend, cfgAll.asrModelId, cfgAll.language, cfgAll.summaryScript,
             cfgAll.useItn, cfgAll.diarizationEnabled, cfgAll.vadThreshold,
         ).joinToString("|")
         var lastLap: List<String>? = null
@@ -1642,16 +1642,11 @@ class TranscriptionService : LifecycleService() {
     ): SummaryResult {
         val spec = LlmRegistry.byId(cfg.llmModelId)
         ensureLlm(spec, models)
-        // Size the context to ONE AGENT CHUNK, not to the transcript.
-        //
-        // The summarizer runs the agentic NOTES path, which never puts the whole meeting in a
-        // prompt — so the window is a function of the chunk size and is the SAME for a ten-minute
-        // recording and a three-hour one. That is what removes the old "transcript too long"
-        // refusal, and because llama.cpp charges per-token decode against the ALLOCATED context,
-        // it also makes long meetings faster per token than the transcript-sized window was.
-        //
-        // The transcript-sized [Summarizer.contextFor] is still the right call for the single-pass
-        // path (and the re-title path below), which is why it stays.
+        // One window for every request: the summarizer always runs the agentic path, which reads
+        // one chunk at a time, so the window is a function of the CHUNK and identical for a
+        // ten-minute recording and a three-hour one. (v0.39.0-v0.39.3 also had a single-pass
+        // fallback for cross-lingual requests and sized this window wrongly for it, refusing long
+        // translations; translation is gone, so that branch is gone with it.)
         val nCtx = Summarizer.agentContext(max = studio.voxsum.core.llm.TextGen.CTX_MAX)
         studio.voxsum.core.llm.TextGen.load(
             this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(),
@@ -1704,10 +1699,6 @@ class TranscriptionService : LifecycleService() {
                 Summarizer(
                     llm,
                     template = spec.chatTemplate,
-                    targetLanguage = TargetLanguage.fromId(cfg.targetLanguage).promptName,
-                    // The stable id, so the agent gate can compare the request against the
-                    // transcript's real language instead of the prompt text.
-                    targetLanguageId = TargetLanguage.fromId(cfg.targetLanguage).id,
                     convert = { converter?.convert(it) ?: it },
                     mapInstruction = style.mapInstruction,
                     reduceInstruction = style.reduceInstruction,
@@ -1778,10 +1769,6 @@ class TranscriptionService : LifecycleService() {
                 Summarizer(
                     llm,
                     template = spec.chatTemplate,
-                    targetLanguage = TargetLanguage.fromId(cfg.targetLanguage).promptName,
-                    // The stable id, so the agent gate can compare the request against the
-                    // transcript's real language instead of the prompt text.
-                    targetLanguageId = TargetLanguage.fromId(cfg.targetLanguage).id,
                     convert = { converter?.convert(it) ?: it },
                 ).title(summary)
                     .flowOn(Dispatchers.Default)
@@ -1821,7 +1808,6 @@ class TranscriptionService : LifecycleService() {
                 val text = ActionItemExtractor(
                     llm,
                     template = spec.chatTemplate,
-                    targetLanguage = TargetLanguage.fromId(cfg.targetLanguage).promptName,
                     convert = { converter?.convert(it) ?: it },
                 ).extract(transcript) { frac -> events.tryEmit(gen to TranscriptEvent.Progress(frac)) }
                 emitEvent(TranscriptEvent.ActionItemsComplete(text))
@@ -1834,11 +1820,11 @@ class TranscriptionService : LifecycleService() {
     /**
      * The single OpenCC converter applied to ALL output text — transcript, summary, title, action items,
      * and (in MainActivity) detected speaker names — so everything stays in one consistent script. The
-     * target script comes from the Target-language setting × device locale ([TargetLanguage.scriptFor]):
+     * target script comes from the Chinese-script setting ([SummaryScript.scriptFor]):
      * Traditional → s2tw, Simplified → t2s, otherwise null (skip). Built once per script and cached.
      */
     private fun outputConverter(cfg: TranscriptionConfig): OpenCcConverter? =
-        TargetLanguage.scriptFor(cfg.targetLanguage, this)?.let { OpenCcConverter.get(this, it) }
+        SummaryScript.scriptFor(cfg.summaryScript, this)?.let { OpenCcConverter.get(this, it) }
 
     /**
      * OpenCC for the TRANSCRIPT. The split from [outputConverter] is phonetic vs semantic: a
@@ -1868,7 +1854,7 @@ class TranscriptionService : LifecycleService() {
             // Explicitly non-Chinese speech (en/ja/ko/…): never run OpenCC.
             !studio.voxsum.core.asr.NemotronLang.isChinese(lang) -> null
             // Chinese without a stated variant (legacy "zh"/"yue"): follow Target language.
-            else -> TargetLanguage.scriptFor(cfg.targetLanguage, this)
+            else -> SummaryScript.scriptFor(cfg.summaryScript, this)
         }
         return when (script) {
             studio.voxsum.core.text.ChineseScript.TRADITIONAL -> OpenCcConverter.getTranscriptTraditional(this)

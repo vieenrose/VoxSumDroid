@@ -161,7 +161,7 @@ import studio.voxsum.core.library.ProcessingQueue
 import studio.voxsum.core.library.SessionLibrary
 import studio.voxsum.core.session.SessionAutosave
 import studio.voxsum.core.config.ConfigStore
-import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.config.SummaryScript
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.power.BackgroundReliability
 import studio.voxsum.core.text.ChineseScript
@@ -2345,23 +2345,15 @@ private fun TranscribeScreen(
                 // a run (Re-detect speakers, a queue already draining) read the Holder, and the old
                 // "set it when a run starts" contract left them on stale settings.
                 TranscriptionConfig.Holder.config = newCfg
-                // Target-language change: a pure Traditional↔Simplified switch is only a script re-render,
-                // so convert every text node in place (OpenCC, instant, no LLM) — even user-edited ones,
-                // since conversion preserves wording. Any other language change needs the LLM (→ snackbar).
-                if (newCfg.targetLanguage != old.targetLanguage) {
-                    val zh = setOf(TargetLanguage.TRADITIONAL.id, TargetLanguage.SIMPLIFIED.id)
-                    val newScript = TargetLanguage.scriptFor(newCfg.targetLanguage, context)
-                    // The transcript is raw ASR Chinese regardless of the OLD target, so whenever the new
-                    // target is a Chinese script, normalize it in place (OpenCC, instant, no LLM). This
-                    // also covers switching TO zh from a non-zh target (e.g. Français → 繁體中文), not just
-                    // zh↔zh — otherwise the transcript stays Simplified under a zh-Hant target. Title /
-                    // summary / names ride along; the converter leaves non-Chinese text untouched.
-                    if (newScript != null && utterances.isNotEmpty()) applyChineseScript(newScript)
-                    // Summary/title/actions are LLM output in the target LANGUAGE. A pure Traditional↔
-                    // Simplified switch is only a re-render (done above, no LLM); any other language
-                    // change needs an LLM re-run to rewrite them in the new language.
-                    val pureScriptSwitch = old.targetLanguage in zh && newCfg.targetLanguage in zh
-                    if (!pureScriptSwitch && (!summary.isNullOrBlank() || actionItems != null)) summaryStale = true
+                // Chinese-script change (繁體↔简体) is ONLY a re-render: OpenCC converts every text
+                // node in place, instantly, with no LLM — even user-edited ones, since conversion
+                // preserves wording. Nothing is ever marked stale by it.
+                //
+                // It used to be possible to change the output LANGUAGE here, which did need an LLM
+                // re-run to rewrite the summary; that feature is gone (see [SummaryScript]), so the
+                // pure-script-switch case is now the only case.
+                if (newCfg.summaryScript != old.summaryScript && utterances.isNotEmpty()) {
+                    applyChineseScript(SummaryScript.scriptFor(newCfg.summaryScript, context))
                 }
                 // Spoken-language change (Nemotron's picker). zh-TW↔zh-CN differ only in the OpenCC
                 // direction applied to the SAME decode, so that pair re-renders in place — instant,

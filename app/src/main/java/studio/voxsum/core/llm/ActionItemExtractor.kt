@@ -13,8 +13,6 @@ import studio.voxsum.core.models.ChatTemplate
 class ActionItemExtractor(
     private val llm: TextGen,
     private val template: ChatTemplate = ChatTemplate.CHATML,
-    /** Human-readable target language; null = match the transcript. */
-    private val targetLanguage: String? = null,
     /** Script post-conversion (OpenCC s2tw for Traditional Chinese); identity when not needed. */
     private val convert: (String) -> String = { it },
 ) {
@@ -22,12 +20,9 @@ class ActionItemExtractor(
     /** Blocking (runs native generate); call on a background dispatcher. [onProgress] reports the
      *  per-chunk map progress (0..1) for the UI bar. */
     fun extract(transcript: String, onProgress: (Float) -> Unit = {}): String {
-        // Strengthened like Summarizer's clause: the weak " Write them in X." was ignored cross-lingually
-        // (validation: action-items scored 17/35 vs summarize's 24/35 purely from this clause).
-        val langClause = if (targetLanguage != null)
-            " Write the ENTIRE output in $targetLanguage. The transcript may be in another language —" +
-                " translate as you extract. Do not use any language other than $targetLanguage."
-            else " Write them in the same language as the transcript."
+        // Output is always in the transcript's language: the translate-as-you-extract option was
+        // removed with the summarizer's (see [studio.voxsum.core.config.SummaryScript]).
+        val langClause = " Write them in the same language as the transcript."
         // Same CJK-safe char budget as Summarizer (~0.6 chars/token), reserving MAX_TOKENS for output.
         val budget = ((llm.nCtx - MAX_TOKENS - 96) * 3 / 5).coerceIn(512, 3500)
         val chunks = SummaryText.chunk(transcript, size = budget)

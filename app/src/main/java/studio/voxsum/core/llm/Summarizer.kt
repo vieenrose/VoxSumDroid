@@ -25,18 +25,6 @@ import studio.voxsum.core.models.ChatTemplate
 class Summarizer(
     private val llm: TextGen,
     private val template: ChatTemplate = ChatTemplate.CHATML,
-    /** Human-readable target language injected into the prompt; `null` = match the transcript. */
-    private val targetLanguage: String? = null,
-    /**
-     * The target's STABLE id (TargetLanguage.id: "en", "fr", "zh-Hant", "ja", ...), as opposed to
-     * the human-readable [targetLanguage] that goes into the prompt.
-     *
-     * Needed because [agentServes] has to compare the request against the transcript's actual
-     * language, and matching on the prompt text would be brittle. Defaults to null, which is
-     * treated as "unknown" and routes any explicit target to the single-pass path — the safe
-     * direction, since the alternative is silently summarizing in the wrong language.
-     */
-    private val targetLanguageId: String? = null,
     /** Script post-conversion (OpenCC s2tw for Traditional Chinese); identity when not needed. */
     private val convert: (String) -> String = { it },
     /** Format directives from the chosen SummaryStyle (default = bullets) + their token budgets. */
@@ -77,30 +65,16 @@ class Summarizer(
     private val chunkTokens: Int = AGENT_CHUNK_TOKENS,
 ) {
 
-    // Output-language clause appended to every prompt. A small LLM otherwise replies in the transcript's
-    // language even when a target is set — the weak " Write it in X." was ignored cross-lingually. So when
-    // a target is picked we force it emphatically (repeat the name, demand translation).
-    //
-    // Verified cross-lingual behavior (2026-06 model eval, target = Chinese): en → 繁中 works via
-    // this clause; ja → 繁中 is unreliable on small CJK models (shared kanji makes them treat ja as
-    // "already Chinese"); ko → 繁中 needs a dedicated translate pass, evaluated and skipped
-    // (narrow value). So residual ja/ko output can stay in the source language.
-    // The OpenCcConverter guard keeps that residual ja/ko output CLEAN (it skips s2tw on kana/hangul) rather
-    // than mangling it. (OpenCC only does Simplified↔Traditional — it can't translate; language is the model's.)
-    private val langClause: String = if (targetLanguage != null)
-        " Write the ENTIRE output in $targetLanguage. The transcript may be in another language —" +
-            " translate as you summarize. Do not use any language other than $targetLanguage."
-    else " Write it in the same language as the transcript."
 
-    // Chinese targets get CHINESE instructions. On the LiteRT-LM Gemma 4 QAT engine, English
-    // meta-instructions around a zh transcript + the translate clause read as "re-emit the
-    // transcript in Chinese" — it echoed the input verbatim; the same engine follows a
-    // Chinese instruction-first prompt correctly (the benchmarked reference prompt).
-    private val zhTarget: Boolean = targetLanguage?.contains("中文") == true
 
     fun summarize(transcript: String, userPrompt: String, withTitle: Boolean = true): Flow<TranscriptEvent> =
         kotlinx.coroutines.flow.channelFlow {
-        val instr = userPrompt + langClause
+        val instr = userPrompt
+        // Chinese transcripts get CHINESE instructions, not English ones plus a "reply in Chinese"
+        // clause. Measured, not assumed: with English prompts a zh transcript is summarized in
+        // English much of the time. Derived from the TRANSCRIPT now that there is no output-language
+        // target — the summary is always in the recording's language.
+        val zh = transcriptLanguage(transcript) == "zh"
         val reduceMax = reduceMaxTokens
         // Hard context gate. Token estimate is per-character-class (see
         // SummaryText.estimateTokens — timestamps/punctuation cost ~1 tok/char, so a flat
@@ -117,7 +91,7 @@ class Summarizer(
         // What must fit instead is one chunk plus its prompt and generation, which the caller
         // sized the window for via [agentContext]; if it somehow does not, the native over-context
         // guard raises and the catch around run() turns it into a clean Failed event.
-        if (structuredNotes && agentic && agentCanServe(transcript)) {
+        if (structuredNotes && agentic) {
             runAgent(transcript, withTitle)
             return@channelFlow
         }
@@ -138,8 +112,8 @@ class Summarizer(
         // through to the prose path below rather than showing the user an empty card.
         if (structuredNotes) {
             val nSb = StringBuilder()
-            val nPrompt = if (zhTarget) NOTES_TEMPLATE_ZH.format(transcript)
-                          else NOTES_TEMPLATE.format(langClause, transcript)
+            val nPrompt = if (zh) NOTES_TEMPLATE_ZH.format(transcript)
+                          else NOTES_TEMPLATE.format("", transcript)
             trySend(TranscriptEvent.Partial("", reset = true))
             val notes = try {
                 llm.generate(SummaryText.wrap(template, nPrompt), maxTokens = notesMaxTokens) {
@@ -185,7 +159,7 @@ class Summarizer(
 
         // One pass over the whole transcript.
         val finalSb = StringBuilder()
-        val prompt = if (zhTarget) SINGLE_TEMPLATE_ZH.format(transcript)
+        val prompt = if (zh) SINGLE_TEMPLATE_ZH.format(transcript)
                      else SINGLE_TEMPLATE.format(instr, reduceInstruction, transcript)
         trySend(TranscriptEvent.Partial("", reset = true))
         try {
@@ -210,7 +184,7 @@ class Summarizer(
         // result is clearly too long — an hour-long meeting must not yield a 30-bullet wall.
         if (SummaryText.tooLong(finalText)) {
             val sb = StringBuilder()
-            val sPrompt = if (zhTarget) SHRINK_TEMPLATE_ZH.format(finalText)
+            val sPrompt = if (zh) SHRINK_TEMPLATE_ZH.format(finalText)
                           else SHRINK_TEMPLATE.format(instr, reduceInstruction, finalText)
             trySend(TranscriptEvent.Partial("", reset = true))
             llm.generate(
@@ -255,30 +229,6 @@ class Summarizer(
     }
 
     /**
-     * Whether the agent can serve this request, or the single-pass path must.
-     *
-     * The harness prompts are GENERATED from the fine-tune's training contract and exist in
-     * exactly two languages, EN and ZH. Neither carries an output-language directive: the model
-     * answers in the transcript's language, which is right for the overwhelmingly common case
-     * (summarize this meeting) and cannot express the other one (translate this meeting as you
-     * summarize it). Editing the prompts to add [langClause] is not an option — they are the
-     * strings the model was tuned on, and diverging from them is exactly the failure the
-     * generated-file header warns about.
-     *
-     * So a CROSS-LINGUAL request falls back to single-pass, keeping today's behaviour for it,
-     * length limit included. That is a real limitation and not a temporary one; lifting it needs
-     * a prompt variant from the fine-tuning side, not a local edit.
-     *
-     * Everything else — no target language, or a target that agrees with the transcript's own
-     * script — goes to the agent.
-     */
-    private fun agentCanServe(transcript: String): Boolean {
-        if (targetLanguage == null) return true   // AUTO — "match the transcript", which is
-                                                  // exactly what the agent already does
-        return agentServes(targetLanguageId, transcript)
-    }
-
-    /**
      * The agentic NOTES path: [MeetingAgent] reads the transcript chunk by chunk, merges each
      * section with the source lines in view, and derives a title — all orchestration in Kotlin,
      * the model only ever writing notes about text it can currently see.
@@ -299,18 +249,13 @@ class Summarizer(
     ) {
         send(TranscriptEvent.Progress(0f))
         trySend(TranscriptEvent.Partial("", reset = true))
-        // Output language comes from the TARGET, and only falls back to the transcript's when no
-        // target was picked (AUTO). Only zh has its own prompt variant; every other target takes
-        // the EN instructions plus [langClause], which is the same pairing the single-pass path
-        // uses and the one the fine-tune's card lists as supported.
-        val outputZh = if (targetLanguage != null) zhTarget else transcriptLanguage(transcript) == "zh"
         val agent = MeetingAgent(
             llm = ChatWrapped(llm, template),
-            lang = if (outputZh) MeetingAgent.Lang.ZH_TW else MeetingAgent.Lang.EN,
+            // The agent instructs the model in the language it is READING; the summary comes back
+            // in that same language, which is the only mode this build offers.
+            lang = if (transcriptLanguage(transcript) == "zh") MeetingAgent.Lang.ZH_TW
+                   else MeetingAgent.Lang.EN,
             chunkTokens = chunkTokens,
-            // Empty when the output language is simply the transcript's — an unnecessary
-            // "translate as you summarize" instruction is itself a way to get a worse summary.
-            langClause = if (needsTranslation(targetLanguageId, transcript)) langClause else "",
         )
         val raw = try {
             agent.run(transcript) { p ->
@@ -375,8 +320,10 @@ class Summarizer(
     /** One short title for [summary], in the target language and OpenCC-converted. Shared by both paths. */
     private fun titleEvent(summary: String): TranscriptEvent {
         val sb = StringBuilder()
-        val tPrompt = if (zhTarget) TITLE_TEMPLATE_ZH.format(summary)
-                      else TITLE_TEMPLATE.format(langClause, summary)
+        // Derived from the SUMMARY being titled: it is already in the transcript's language, and
+        // titleEvent is also reachable from the re-title path where no transcript is in scope.
+        val tPrompt = if (transcriptLanguage(summary) == "zh") TITLE_TEMPLATE_ZH.format(summary)
+                      else TITLE_TEMPLATE.format("", summary)
         llm.generate(SummaryText.wrap(template, tPrompt), maxTokens = 24) { sb.append(it) }
         return TranscriptEvent.Title(convert(SummaryText.cleanTitle(sb.toString())))
     }
@@ -420,59 +367,9 @@ class Summarizer(
          * English transcript from tipping the ratio.
          */
         /**
-         * Whether the agent may serve a request for [targetId], or the single-pass path must.
-         *
-         * The question is "is the transcript ALREADY in the target language?", because the agent's
-         * prompts carry no output-language directive — the model answers in the language it is
-         * reading. If the answer is no, or unknown, the request is a TRANSLATION, and only
-         * single-pass can express that (keeping its length limit).
-         *
-         * This replaces a gate that asked whether the target's Han-ness matched the transcript's.
-         * That proxy was wrong for every non-Chinese target: a French target over an English
-         * transcript gave `false == false`, so the agent ran and silently produced ENGLISH.
-         * Shipped in v0.39.0, fixed here. The lesson generalises — a gate must test the property
-         * it actually depends on, not a correlate of it.
-         *
-         * Unknown answers NO. A wrong-language summary is silent and looks correct, while a false
-         * negative merely sends a long meeting down the single-pass path and refuses it visibly.
-         */
-        internal fun agentServes(targetId: String?, transcript: String): Boolean {
-            val want = targetId ?: return false
-            transcriptLanguage(transcript) ?: return false   // unknown -> do not guess
-            // Same language: not a translation, so the agent serves it and the meeting keeps the
-            // no-length-limit benefit. This is the common case.
-            if (!needsTranslation(want, transcript)) return true
-            // A TRANSLATION request goes to single-pass, MEASURED not assumed.
-            //
-            // The plumbing for the alternative exists — [AgentPrompts.AppNotes] threads the app's
-            // cross-lingual clause into all three ops, and the fine-tune's card lists those
-            // prompts ("en+zh with cross-lingual clause") as supported. It was tried on real
-            // weights (x86, 2026-08-03) in en -> zh-Hant, the direction this project's 2026-06
-            // eval found reliable SINGLE-PASS, and it does not survive chunking:
-            //
-            //   Chinese-instruction template   Han 109 / latin 221  (SUMMARY entirely English)
-            //   + instruction-first prefix     Han  76 / latin 597  (worse — more English)
-            //
-            // Reading a chunk of English, the model answers in English however the instruction is
-            // phrased; strengthening it made it worse. Whole-transcript context is evidently what
-            // carried the clause before. So the clause is passed but the routing is NOT enabled —
-            // re-test with a model change, do not re-argue it from the prompt.
-            return false
-        }
-
-        /** Whether serving [targetId] over this transcript means translating, as opposed to
-         *  answering in the language already on the page. Hant/Hans is NOT a translation — script
-         *  conversion is OpenCC's job downstream, not the model's. */
-        internal fun needsTranslation(targetId: String?, transcript: String): Boolean {
-            val want = targetId ?: return false
-            val got = transcriptLanguage(transcript) ?: return false
-            return if (got == "zh") want != "zh-Hant" && want != "zh-Hans" else want != got
-        }
-
-        /**
          * Coarse language of a transcript: "zh", "ja", "ko", "en", "fr", or null when unsure.
          *
-         * Only as precise as [agentServes] needs, and null-biased on purpose. Script settles the
+         * Used to pick the zh vs en prompt variant, and null-biased on purpose. Script settles the
          * CJK three; English and French share an alphabet, so they are separated by function-word
          * frequency — reliable at transcript length, and declining to answer on short input.
          */
@@ -638,7 +535,7 @@ class Summarizer(
         const val TITLE_TEMPLATE =
             "Write ONE short title (at most 8 words) for the summary below.%s " +
                 "Output only the title text — no quotes, no list, no preamble.\n\nSummary:\n%s"
-        // Chinese-instruction variants (see zhTarget): instruction-first, no completion
+        // Chinese-instruction variants (selected when the TRANSCRIPT is Han): instruction-first,
         // trailer — the phrasing class validated on the LiteRT-LM engine.
         const val MAP_TEMPLATE_ZH =
             "請將以下逐字稿整理成一份簡潔的摘要，條列重點（每點 20 字以內）。" +

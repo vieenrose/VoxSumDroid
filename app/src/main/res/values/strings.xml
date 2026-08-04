@@ -71,7 +71,7 @@
     <string name="settings_identify_speakers">Identify speakers</string>
     <string name="settings_precise_diarization">Precise speaker boundaries (slower)</string>
     <string name="settings_summary_options">Summary Options</string>
-    <string name="settings_summary_language">Target language</string>
+    <string name="settings_summary_language">Chinese script</string>
     <string name="summary_language_auto">Match transcript</string>
     <string name="settings_summary_prompt">Summary prompt</string>
     <!-- Hotword/context biasing. MOSS-TD only: it is an LLM ASR, so terms are appended

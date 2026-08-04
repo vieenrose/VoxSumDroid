@@ -13,15 +13,12 @@ object ConfigStore {
     fun load(context: Context): TranscriptionConfig {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val d = TranscriptionConfig()
-        // Target language: a saved value wins; else migrate the legacy boolean (true→Traditional);
-        // a truly fresh install defaults to the user's display language. The prefs KEY stays the legacy
-        // "summaryLanguage" (the field/enum were renamed to targetLanguage/TargetLanguage, but renaming
-        // the stored key would orphan existing installs' setting).
-        val targetLanguage = when {
-            p.contains("summaryLanguage") -> p.getString("summaryLanguage", d.targetLanguage) ?: d.targetLanguage
-            p.contains("traditionalChinese") -> if (p.getBoolean("traditionalChinese", true)) "zh-Hant" else "auto"
-            else -> TargetLanguage.defaultFor(context).id
-        }
+        // Han script for Chinese output. A NEW key: the old "summaryLanguage" / "traditionalChinese"
+        // values chose an output LANGUAGE, and that feature is gone (see [SummaryScript]), so they are
+        // deliberately not migrated — reading them would carry a translation preference into a build
+        // that cannot honour it. A fresh read falls back to the device locale.
+        val summaryScript = p.getString("summaryScript", null)
+            ?: SummaryScript.defaultFor(java.util.Locale.getDefault()).id
         return TranscriptionConfig(
             asrBackend = p.getString("asrBackend", d.asrBackend) ?: d.asrBackend,
             asrModelId = p.getString("asrModelId", d.asrModelId) ?: d.asrModelId,
@@ -36,7 +33,7 @@ object ConfigStore {
             llmBackend = p.getString("llmBackend", d.llmBackend) ?: d.llmBackend,
             asrHardware = p.getString("asrHardware", d.asrHardware) ?: d.asrHardware,
             summaryPrompt = p.getString("summaryPrompt", d.summaryPrompt) ?: d.summaryPrompt,
-            targetLanguage = targetLanguage,
+            summaryScript = summaryScript,
             summaryStyle = p.getString("summaryStyle", d.summaryStyle) ?: d.summaryStyle,
         )
     }
@@ -56,7 +53,7 @@ object ConfigStore {
             putString("llmBackend", c.llmBackend)
             putString("asrHardware", c.asrHardware)
             putString("summaryPrompt", c.summaryPrompt)
-            putString("summaryLanguage", c.targetLanguage)   // legacy key (see load())
+            putString("summaryScript", c.summaryScript)
             putString("summaryStyle", c.summaryStyle)
             apply()
         }
