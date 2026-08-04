@@ -431,6 +431,38 @@ class MeetingAgentTest {
         assertEquals("淑芬: 定價分析", dropPlaceholderOwner("淑芬: 定價分析"))
     }
 
+    // ---- section routing -----------------------------------------------------------------------
+
+    /**
+     * DECISIONS belong to the decisions card, not the action-items card.
+     *
+     * They were originally folded into ACTIONS because they had nowhere else to go; once
+     * MainActivity gained a dedicated NotesSection for decisions/open/topics, that fold made the
+     * same bullets render twice and mislabelled the card — a decision is not an action item.
+     */
+    @Test fun actionItemsCardCarriesActionsOnly() = kotlinx.coroutines.runBlocking {
+        val notes = "TITLE: T\nSUMMARY:\n- s\nDECISIONS:\n- we dropped the flip-open case\n" +
+            "ACTIONS:\n- rachel: send the cost sheet\nOPEN:\n- o\nTOPICS:\n- t"
+        val gen = FakeGen { p -> if (p.contains("ONE short title")) "T" else notes }
+        var actions: String? = null
+        var carried: MeetingNotes? = null
+        Summarizer(gen, template = studio.voxsum.core.models.ChatTemplate.QWEN3)
+            .summarize(transcript, "Summarize.").collect { e ->
+                when (e) {
+                    is studio.voxsum.core.events.TranscriptEvent.ActionItemsComplete -> actions = e.text
+                    is studio.voxsum.core.events.TranscriptEvent.NotesComplete -> carried = e.notes
+                    else -> {}
+                }
+            }
+        assertTrue("no action items emitted", actions != null)
+        assertTrue("decision leaked into the actions card: $actions",
+            !actions!!.contains("flip-open"))
+        assertTrue("action missing from the actions card: $actions",
+            actions!!.contains("rachel: send the cost sheet"))
+        // ...and the decision is still delivered, on its own section.
+        assertEquals(listOf("we dropped the flip-open case"), carried!!.decisions)
+    }
+
     // ---- chat template ------------------------------------------------------------------------
 
     /**

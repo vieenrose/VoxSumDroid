@@ -157,12 +157,11 @@ class Summarizer(
                     .ifBlank { notes.topics.joinToString("\n") { "- $it" } }
                 send(TranscriptEvent.Progress(1f))
                 send(TranscriptEvent.SummaryComplete(convert(rendered)))
-                // Actions and decisions share the existing action-items card; both are commitments
-                // the reader acts on, and neither had a home before.
-                val actionsText = buildString {
-                    notes.actions.forEach { appendLine("- $it") }
-                    notes.decisions.forEach { appendLine("- $it") }
-                }.trim()
+                // ACTIONS only. Decisions used to be folded in here because they had no home of
+                // their own; they now get a dedicated card (MainActivity renders NotesSection for
+                // decisions/open/topics), so including them meant the same bullets appeared twice
+                // and mislabelled the card — a decision is not an action item.
+                val actionsText = notes.actions.joinToString("\n") { "- $it" }
                 if (actionsText.isNotEmpty()) send(TranscriptEvent.ActionItemsComplete(convert(actionsText)))
                 send(TranscriptEvent.NotesComplete(convertNotes(notes)))
                 if (withTitle && notes.title.isNotBlank()) {
@@ -343,10 +342,8 @@ class Summarizer(
             .ifBlank { notes.topics.joinToString("\n") { "- $it" } }
         send(TranscriptEvent.Progress(1f))
         send(TranscriptEvent.SummaryComplete(convert(rendered)))
-        val actionsText = buildString {
-            notes.actions.forEach { appendLine("- $it") }
-            notes.decisions.forEach { appendLine("- $it") }
-        }.trim()
+        // ACTIONS only — decisions have their own card; see the single-pass path above.
+        val actionsText = notes.actions.joinToString("\n") { "- $it" }
         if (actionsText.isNotEmpty()) send(TranscriptEvent.ActionItemsComplete(convert(actionsText)))
         send(TranscriptEvent.NotesComplete(convertNotes(notes)))
         // The agent derives the title from the FINISHED notes, so it has already paid for it; only
