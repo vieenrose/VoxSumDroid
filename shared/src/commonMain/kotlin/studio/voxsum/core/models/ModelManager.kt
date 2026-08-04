@@ -51,7 +51,18 @@ class ModelManager(appFilesDir: File) {
     // eres2net), half the size of fp32, with accuracy indistinguishable from fp32 (int8 was both
     // slower and less accurate on this ARM CPU). Hosted on HF since it is a custom conversion.
     // New filename forces a fresh download on existing installs (the downloader skips if present).
-    val embeddingModel: File get() = File(modelsDir, "campplus_zh_en_fp16.onnx")
+    /**
+     * Speaker embedding for diarization: the LiteRT CAM++, which is what [LiteSpeakerEmbedder]
+     * loads. Aliased to [mossSpeakerModel] so there is ONE artifact and the two cannot drift.
+     *
+     * This used to point at `campplus_zh_en_fp16.onnx`, left behind when the embedder moved from
+     * sherpa-onnx to LiteRT. LitePod.nativeInit rejects an ONNX file and returns null, and
+     * DiarizationEngine's `embedder?.let { ... }` swallowed that — so desktop diarization loaded no
+     * model, produced no embeddings, and reported exactly ONE speaker for every recording, in zero
+     * seconds, with no error. Android had already been switched to the tflite; only this copy was
+     * stale. See [studio.voxsum.core.diarization.DiarizationEngine] for the loud-failure guard.
+     */
+    val embeddingModel: File get() = mossSpeakerModel
 
     /** pyannote segmentation-3.0 (MIT, ~6 MB) — the speaker-aware local segmenter that drives
      *  DiarizationEngine's segmentation-first path (boundaries where the VOICE changes, not
@@ -478,7 +489,10 @@ class ModelManager(appFilesDir: File) {
     /** Ensure the diarization model (3D-Speaker CAM++ zh+en fp16 embedding) — Phase 3. */
     suspend fun ensureDiarizationModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         if (!embeddingModel.exists()) {
-            download(EMB_URL, embeddingModel, EMB_SHA) { onProgress(it * 0.7f) }
+            // The LiteRT CAM++, matching what [embeddingModel] now resolves to. Fetching EMB_URL
+            // here would write ONNX bytes into a .tflite path — the file would exist, the sha would
+            // match, and the embedder would still refuse to load it.
+            download(MOSS_SPK_URL, embeddingModel, MOSS_SPK_SHA) { onProgress(it * 0.7f) }
         }
         if (!segmentationModel.exists()) {
             download(SEG_URL, segmentationModel, SEG_SHA) { onProgress(0.7f + it * 0.3f) }

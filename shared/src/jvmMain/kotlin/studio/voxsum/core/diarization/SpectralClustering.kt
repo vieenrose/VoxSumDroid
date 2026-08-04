@@ -47,6 +47,8 @@ internal object SpectralClustering {
     private const val MIN_PNUM = 3
     /** Denominator floor for the eigengap ratio — keeps near-zero λ from dominating the ratio. */
     private const val GAP_EPS = 0.01
+    /** λ₁ at or above this fraction of λ_max means no near-zero plateau, i.e. ONE speaker. */
+    private const val SINGLE_PLATEAU_RATIO = 0.30
     /** Inputs of at most this size use [tinyCluster] instead of the eigengap. 11: below ~12 points
      *  the pruned graph cannot isolate speaker blocks (a speaker owns too few neighbours), so the
      *  eigengap reads "one connected component" no matter how separable the voices are — measured
@@ -83,6 +85,10 @@ internal object SpectralClustering {
 
         val kMax = min(maxSpeakers, n)
         val k = if (numClusters in 1..n) min(numClusters, kMax) else eigenGapK(vals, kMax)
+        // Diagnostic: k=1 on audio a listener hears as multi-speaker is indistinguishable from
+        // "it really is one voice" without the eigenvalues that decided it.
+        println("[diar-k] n=$n kMax=$kMax fixedK=$numClusters -> k=$k eigs=" +
+            vals.take(min(6, vals.size)).joinToString(",") { "%.5f".format(it) })
         if (k <= 1) return IntArray(n)
 
         // Spectral embedding: each point becomes its row of the first k eigenvectors,
@@ -212,18 +218,52 @@ internal object SpectralClustering {
     }
 
     /**
-     * k = 1 + argmax of the *relative* eigengap (λ_{i+1} − λ_i) / (λ_{i+1} + [GAP_EPS]) over the
-     * first kMax+1 eigenvalues. The ratio (vs the absolute gap) is what keeps a single voice from
-     * being over-split: a lone speaker's spectrum rises steadily with no true block structure, so
-     * every absolute gap competes, but relative to its own magnitude only the first one stands
-     * out. Ties resolve to the smallest k (conservative). Validated on real CAM++ meeting
-     * embeddings: all single-speaker subsets → k=1, distinct pairs → k=2, where the absolute gap
-     * split single speakers in two.
+     * k from the eigenvalue spectrum, in two steps.
+     *
+     * STEP 1 — is there a plateau at all? A normalized Laplacian always has λ₀ ≈ 0 (the trivial
+     * eigenvalue), and a graph with k well-separated blocks has k eigenvalues near zero. So a
+     * SECOND near-zero eigenvalue is the evidence for a second speaker: k = 1 only when λ₁ is
+     * comparable to the LARGEST eigenvalue in the window ([SINGLE_PLATEAU_RATIO]), meaning the
+     * spectrum rises steadily with no plateau to read.
+     *
+     * STEP 2 — where does the plateau end? 1 + argmax of the relative eigengap
+     * (λᵢ₊₁ − λᵢ)/(λᵢ₊₁ + [GAP_EPS]) over i ≥ 1. Relative rather than absolute keeps one noisy
+     * voice together: a lone speaker's gaps all compete on absolute scale, but not relative to
+     * their own magnitude. Ties resolve to the smallest k.
+     *
+     * WHY i=0 IS EXCLUDED FROM STEP 2. Its score is λ₁/(λ₁ + GAP_EPS), which saturates toward 1
+     * as λ₁ grows — so it outscored every real gap exactly when the speakers' blocks were LEAST
+     * separated, and k collapsed to 1. Measured on a labelled 2-speaker zh-TW interview
+     * (yt y0ouoBiuLDo): λ = 0.000, 0.093, 0.415, 0.463 → i=0 scored 0.903 against the true gap's
+     * 0.759, giving k=1. The old rule also made this unrecoverable: DiarizationEngine's silhouette
+     * re-scoring, which exists to fix under-counts, is gated on k ≥ 2 to protect lone-voice
+     * recordings, so a k=1 verdict short-circuited its own correction.
+     *
+     * CALIBRATION. The threshold is bracketed by two LABELLED recordings, one either side:
+     *
+     *   zh-TW interview, 2 speakers   λ₁/λ_max = 0.130   must NOT be 1
+     *   solo unboxing,   1 speaker    λ₁/λ_max = 0.439   must BE 1
+     *
+     * 0.30 is the midpoint. Every value in [0.20, 0.40] satisfies both, plus two more labelled
+     * 2-speaker recordings, two unlabelled ones, and the synthetic 1-/3-cluster spectra in
+     * DiarizationClusteringTest — so the exact figure is not load-bearing, but the bracket is.
+     *
+     * A first attempt compared λ₁ to λ₂ instead of λ_max at ratio 0.5; it fixed the interview and
+     * broke the monologue (0.439 read as a plateau → k=2). Both anchors are now regression tests.
+     * NOT re-validated against the AMI/AISHELL sweep the previous constants were tuned on; that
+     * remains the set for any further change here.
      */
     internal fun eigenGapK(valsAscending: DoubleArray, kMax: Int): Int {
         val m = min(kMax + 1, valsAscending.size)
-        var best = 0; var bestRatio = -1.0
-        for (i in 0 until m - 1) {
+        // No λ₂ to compare against (a 2-point spectrum) → nothing to split.
+        if (m < 3) return 1
+        // No near-zero plateau → one block. Compared against the TOP of the window rather than
+        // λ₂: with three or more clusters λ₁ AND λ₂ are both near zero and their ratio is
+        // arbitrary (λ = [0, 0.001, 0.002, 2.0] gives exactly 0.5), which read as "no plateau" and
+        // returned 1 for a 3-speaker spectrum. Against λ_max the plateau is unambiguous.
+        if (valsAscending[1] >= SINGLE_PLATEAU_RATIO * valsAscending[m - 1]) return 1
+        var best = 1; var bestRatio = -1.0
+        for (i in 1 until m - 1) {
             val r = (valsAscending[i + 1] - valsAscending[i]) / (valsAscending[i + 1] + GAP_EPS)
             if (r > bestRatio) { bestRatio = r; best = i }
         }

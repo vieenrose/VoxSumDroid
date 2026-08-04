@@ -49,6 +49,27 @@ class DiarizationEngine(
     // embedding is a tiny fraction of diarization wall time).
     private val embedder = LiteSpeakerEmbedder.load(java.io.File(embeddingModel))
 
+    /**
+     * Whether a speaker model actually loaded. FALSE means diarization cannot work at all — every
+     * embedding comes back empty and the clusterer labels the whole recording speaker 0.
+     *
+     * Exposed because that outcome is indistinguishable from a genuine single-speaker recording:
+     * a wrong model path (an ONNX handed to the LiteRT loader) or a missing download produced
+     * "1 speaker" in zero seconds with nothing logged, and only an eigenvalue trace revealed the
+     * clusterer had never run. Callers should report it rather than present the result as a
+     * diarization.
+     */
+    val embedderReady: Boolean get() = embedder != null
+
+    init {
+        if (embedder == null) {
+            System.err.println(
+                "voxsum-diar: NO SPEAKER MODEL at $embeddingModel — diarization will label every " +
+                    "utterance as one speaker. Check the file exists and is a LiteRT .tflite.",
+            )
+        }
+    }
+
     /** Whether the last [assignSpeakers] call used the segmentation-first path (observability). */
     var usedSegmenter: Boolean = false
         private set
@@ -260,6 +281,10 @@ class DiarizationEngine(
         val anchors = bySolo.filter { solos[it].second - solos[it].first >= SEG_ANCHOR_SOLO_SEC }
             .take(ANCHOR_MAX)
             .ifEmpty { bySolo.take(ANCHOR_MAX) }
+        // Diagnostic: on a 2-person interview this path reported 4 speakers. Log the inputs to the
+        // k decision so an over-split can be attributed — anchor supply vs the silhouette sweep.
+        println("[diar-seg] islands=$n valid=${valid.size} anchors=${anchors.size} " +
+            "soloSecMin=$SEG_ANCHOR_SOLO_SEC")
         val anchorEmbs = Array(anchors.size) { embs[anchors[it]] }
 
         fun assign(fixedK: Int): Triple<IntArray, Array<FloatArray>, Int> {
@@ -309,12 +334,19 @@ class DiarizationEngine(
             if (k1 >= 2) {
                 var bestK = k1
                 var bestS = silhouette(anchorEmbs, probe, k1)
+                val scores = StringBuilder("k1=$k1 sil=%.4f".format(bestS))
                 for (kk in maxOf(2, k1)..minOf(maxSpeakers, k1 + SEG_SIL_RANGE)) {
                     if (kk == k1) continue
                     val l = SpectralClustering.cluster(anchorEmbs, kk, maxSpeakers)
                     val s = silhouette(anchorEmbs, l, kk)
+                    scores.append(" | k=$kk sil=%.4f".format(s))
                     if (s > bestS + SEG_SIL_MARGIN) { bestS = s; bestK = kk }
                 }
+                // The eigengap is only a FLOOR here and silhouette may raise it — a rule tuned on
+                // AMI/AISHELL meetings where every k error was an UNDER-count. On a 2-person
+                // interview it can push the other way, so log what it compared and what won.
+                println("[diar-seg] silhouette sweep: $scores -> chose ${if (bestK != k1) bestK else k1} " +
+                    "(margin=$SEG_SIL_MARGIN, range=$SEG_SIL_RANGE)")
                 if (bestK != k1) chosenK = bestK
             }
         }
@@ -470,6 +502,10 @@ class DiarizationEngine(
                 .take(ANCHOR_MAX).sorted()
         } else clusterable
 
+        // Diagnostic: on a 2-person interview this path reported 4 speakers. Log the inputs to the
+        // k decision so an over-split can be attributed — anchor supply vs the silhouette sweep.
+        println("[diar-seg] islands=$n valid=${valid.size} anchors=${anchors.size} " +
+            "soloSecMin=$SEG_ANCHOR_SOLO_SEC")
         val anchorEmbs = Array(anchors.size) { embs[anchors[it]] }
         val anchorLabels = SpectralClustering.cluster(anchorEmbs, numClusters, maxSpeakers)
         var k = (anchorLabels.maxOrNull() ?: 0) + 1
@@ -490,7 +526,11 @@ class DiarizationEngine(
                 for (side in listOf(h.first, h.second)) {
                     var best = Double.MAX_VALUE
                     for (c in cents) best = minOf(best, cosineDistance(side, c))
-                    if (best >= ABS_GATE && k < maxSpeakers) { cents.add(side); k++ }
+                    if (best >= ABS_GATE && k < maxSpeakers) {
+                        cents.add(side); k++
+                        println("[diar-mix] unseen-voice pass FOUNDED speaker $k " +
+                            "(utt $i, fullBest=%.3f sideBest=%.3f, gate=%.3f)".format(fullBest, best, ABS_GATE))
+                    }
                 }
             }
         }
