@@ -1347,7 +1347,8 @@ class TranscriptionService : LifecycleService() {
             return null
         }
         val speaker = models.mossSpeakerModel.takeIf { models.mossSpeakerReady() }
-            ?.let { studio.voxsum.core.asr.LiteSpeakerEmbedder.load(it) }
+            // MOSS-TD cross-window linker — same threading fix as DiarizationEngine's embedder.
+            ?.let { studio.voxsum.core.asr.LiteSpeakerEmbedder.load(it, asrThreads()) }
         // Capture the run gen now — the onProgress callback runs inside withContext(Default) where
         // reading coroutineContext for it isn't available (it's a plain non-suspend lambda).
         val gen = kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED

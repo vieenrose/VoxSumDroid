@@ -201,8 +201,13 @@ class LiteSpeakerEmbedder(private val pod: LitePod) : AutoCloseable {
         private const val N_FFT = 512
         private const val N_BINS = N_FFT / 2 + 1
 
-        fun load(model: java.io.File): LiteSpeakerEmbedder? =
-            LitePod.load(model)?.let { LiteSpeakerEmbedder(it) }
+        /** @param threads XNNPACK worker threads. Defaulted to 1 for a decade of callers who did
+         *  not pass it, which made CAM++ embedding single-threaded on every platform: measured
+         *  ~10 s of compute per MINUTE of speech (~0.17x realtime) on an 8-core x86, using one
+         *  core. Cost tracks total speech duration, not segment count, so this is the dominant
+         *  term in diarization wall time. */
+        fun load(model: java.io.File, threads: Int = 1): LiteSpeakerEmbedder? =
+            LitePod.load(model, threads)?.let { LiteSpeakerEmbedder(it) }
 
         // Kaldi mel scale (1127·ln(1+f/700)), 80 triangular bins over 20..8000 Hz.
         private val MEL_FB: Array<FloatArray> by lazy {

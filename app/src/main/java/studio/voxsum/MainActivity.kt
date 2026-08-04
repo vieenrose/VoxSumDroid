@@ -806,9 +806,22 @@ private fun TranscribeScreen(
         var lastPos = -1
         var frozen = 0
         while (isPlaying) {
+            // NOT YET PREPARED: skip the whole tick. A source swap builds the new MediaPlayer on the
+            // main thread and prepares it ASYNCHRONOUSLY, and an unprepared player answers
+            // currentPosition with 0 WITHOUT throwing — so runCatching's fallback never fired and
+            // this loop overwrote the carried playhead with 0 before preparePlayer could seek to it.
+            // That is the "cursor jumps back to the start when processing finishes" report: the
+            // end-of-ASR and LibrarySaved swaps both carry the playhead correctly, and this poll
+            // then threw it away. Starting an unprepared player is the second hazard (it enters the
+            // Error state, where every later start() fails), so the stall retry below must not run
+            // either. durationMs is the readiness signal: the swap zeroes it and preparePlayer sets
+            // it only after prepare() returns.
+            if (durationMs == 0) {
+                durationMs = runCatching { player?.duration ?: 0 }.getOrDefault(0)
+                if (durationMs <= 0) { delay(150); continue }
+            }
             val pos = runCatching { player?.currentPosition ?: 0 }.getOrDefault(positionMs)
             positionMs = pos
-            if (durationMs == 0) durationMs = runCatching { player?.duration ?: 0 }.getOrDefault(0)
             val atEnd = durationMs > 0 && pos >= durationMs - 250
             val advancing = pos != lastPos && runCatching { player?.isPlaying == true }.getOrDefault(false)
             if (!atEnd && !advancing) {

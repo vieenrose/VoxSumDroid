@@ -45,9 +45,11 @@ class DiarizationEngine(
 ) : AutoCloseable {
 
     // CAM++ cn-common on LiteRT (192-d) — see LiteSpeakerEmbedder for the parity-gated
-    // conversion + front end. `numThreads` is retained for API stability (pods run 1-thread;
-    // embedding is a tiny fraction of diarization wall time).
-    private val embedder = LiteSpeakerEmbedder.load(java.io.File(embeddingModel))
+    // conversion + front end. `numThreads` NOW REACHES the pod: it used to be accepted and
+    // ignored, on the belief that "embedding is a tiny fraction of diarization wall time". It is
+    // not — it is the dominant term, ~10 s per minute of speech single-threaded, scaling with total
+    // speech duration rather than segment count.
+    private val embedder = LiteSpeakerEmbedder.load(java.io.File(embeddingModel), numThreads)
 
     /**
      * Whether a speaker model actually loaded. FALSE means diarization cannot work at all — every
