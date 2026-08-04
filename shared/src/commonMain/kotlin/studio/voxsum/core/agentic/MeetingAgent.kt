@@ -187,7 +187,11 @@ class MeetingAgent(
             ?.trim()?.trim('"', '「', '」', '“', '”')
             ?.takeIf { it.isNotBlank() && !isMetaLine(it) }
 
-        return out.render(title = title, withAnchors = false)
+        // Emit the anchors when the prompt set produces them. Hardcoded false until the anchored
+        // checkpoint: the previous weights never anchored, so rendering them would have printed
+        // "[-1]" noise. Now it is the feature — an anchor is how a reader verifies a bullet or
+        // jumps to that moment in the audio.
+        return out.render(title = title, withAnchors = prompts.requiresAnchors)
     }
 }
 
