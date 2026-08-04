@@ -428,11 +428,6 @@ private fun mainApplication() = application {
                                 DropdownMenuItem(text = { Text(Strings.reSummarize) }, onClick = {
                                     showRerunMenu = false; regenerateStaleChildren()
                                 })
-                                DropdownMenuItem(
-                                    enabled = state.summary.isNotEmpty(),
-                                    text = { Text(Strings.reTitle) },
-                                    onClick = { showRerunMenu = false; scope.launch { reTitle(state, update) } },
-                                )
                                 if (!isMoss) {
                                     DropdownMenuItem(
                                         enabled = state.audioFile != null,

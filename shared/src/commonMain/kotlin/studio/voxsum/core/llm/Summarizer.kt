@@ -182,8 +182,6 @@ class Summarizer(
         if (withTitle) emit(titleEvent(finalSummary))
     }
 
-    /** Generate ONLY the title, from an existing summary — the "re-title" path (leaves the summary as-is). */
-    fun title(summary: String): Flow<TranscriptEvent> = flow { emit(titleEvent(summary)) }
 
     /** One short title for [summary], in the transcript's own language, OpenCC-converted. Shared by
      *  both paths. The zh variant is chosen from the SUMMARY being titled, which is already in the
@@ -312,20 +310,21 @@ class Summarizer(
          * `ekv`, so context there is a build-time property of the bundle, not a load parameter.
          */
         /**
-         * Transcript tokens per agent call.
+         * Transcript tokens per agent window.
          *
-         * 4000, from an on-device MEASUREMENT that contradicted the obvious reasoning. Larger
-         * chunks mean fewer (expensive) generations, and the transcript is prefilled once either
-         * way — but that last clause is false: prefill cost per token grows with depth, because 6
-         * of this model's 24 layers are full attention and therefore quadratic.
+         * 8000, from the anchored checkpoint's own measurement (VOXSUM-INTEGRATION.md §4/§7):
+         * "measured best of the sizes tried for this model", and optimal on BOTH axes on an
+         * ARMv8.0 proxy — 16k windows would cost ~234 min on an 80k transcript and push peak RSS
+         * to 892 MB, while 8k holds 785 MB.
          *
-         * Boox Tab Mini C (Cortex-A73), 34,802-token zh meeting, read phase:
-         *   4k chunks   9 x ~330 s  = ~50 min      10k chunks  4 x 1064 s = ~71 min
-         *
-         * Comfortably inside the ~12k faithfulness ceiling the model card warns about, which
-         * bounds chunk size from above only. Keep in step with the Android build.
+         * This REPLACES a 4000 chosen from our own on-device measurement, where 4k beat 10k by
+         * ~40% wall clock on a Cortex-A73 because prefill cost per token grows with depth. Both
+         * numbers are real; they were measured on different weights and different quantizations
+         * (ours Q4_K_M, theirs Q4_0 at its trained numerics), and theirs is the one the quality
+         * figures belong to. Ours remains the reason to re-measure on device rather than assume
+         * this transfers — see the speed note in §7, which is arithmetic, not a timed run.
          */
-        const val AGENT_CHUNK_TOKENS = 4000
+        const val AGENT_CHUNK_TOKENS = 8000
 
         /**
          * Context window the agentic path needs — a function of the CHUNK, not the transcript.
@@ -432,27 +431,23 @@ class Summarizer(
          * prompt: the fine-tune emits ASCII keys, and the UI renders its own localized headers.
          * Only the CONTENT language changes between the two templates.
          */
+        /**
+         * The DEPLOYED prompts of the anchored checkpoint, copied verbatim from its
+         * `harness/prompts.py` at revision 6156045.
+         *
+         * "THESE are the prompts that produced the measured numbers (faith 4.60 / 5% inversions,
+         * gemma-4-26B judge, n=20) — NOT the anchor-demanding variant used to build the training
+         * data. The model anchors because training taught it to, so the inference prompt does not
+         * need to ask." Do not reword them: the numbers belong to these exact strings, and upstream
+         * has NOT measured whether the training-time anchor-demanding variant scores higher.
+         *
+         * EN takes TWO %s (system prefix, transcript); ZH takes ONE (transcript). Not interchangeable.
+         */
         const val NOTES_TEMPLATE =
-            "Read the meeting transcript below and write structured notes.\n" +
-            "Reply with EXACTLY these sections, each key at the start of a line, in this order:\n" +
-            "TITLE: (one line, at most 8 words)\n" +
-            "SUMMARY:\nDECISIONS:\nACTIONS:\nOPEN:\nTOPICS:\n" +
-            "Every section except TITLE is a list of \"- \" bullets on the following lines. " +
-            "If a section has nothing, write a single \"-\".\n" +
-            "ACTIONS bullets are \"- name: task\", where the name is someone actually named in the transcript; if no one was named, write just the task and never the literal word \"owner\". Add \"(due: ...)\" only if a date was said.\n" +
-            "Use ONLY what the transcript states. Do not add facts, names or figures that are " +
-            "not there.%s\n\nTranscript:\n%s"
+            "Analyze the meeting transcript below and write structured meeting notes in EXACTLY this format:\nTITLE: one short title (at most 8 words)\nSUMMARY:\n- 3-5 short bullet points (each under 20 words)\nDECISIONS:\n- the key decisions made\nACTIONS:\n- one bullet per assigned action, written as \"name: what they will do\"; append \"(due: ...)\" only when a deadline was actually stated\nOPEN:\n- open questions and follow-ups\nTOPICS:\n- the main topics discussed\nKeep the section keys exactly as shown (TITLE, SUMMARY, DECISIONS, ACTIONS, OPEN, TOPICS), in that order, always all present. If a section has nothing, its content must be exactly \"-\" on one line — never a placeholder, never \"none\". Use \"- \" bullets, plain text only — no markdown headings, no preamble, no commentary.%s\n\nTranscript:\n%s"
 
         const val NOTES_TEMPLATE_ZH =
-            "請閱讀以下會議逐字稿，並輸出結構化會議記錄。\n" +
-            "務必依照下列順序輸出這些區段，每個標記都要在行首（標記本身保持英文大寫）：\n" +
-            "TITLE:（一行，最多十二個字）\n" +
-            "SUMMARY:\nDECISIONS:\nACTIONS:\nOPEN:\nTOPICS:\n" +
-            "除 TITLE 外，每個區段都用「- 」開頭的條列，寫在該標記的下一行。" +
-            "若該區段沒有內容，只寫一個「-」。\n" +
-            "ACTIONS 每點寫「- 姓名: 工作內容」，姓名必須是逐字稿裡真的出現過的人；若逐字稿沒有指名是誰，就只寫工作內容，不要寫「負責人」這三個字。若逐字稿有提到期限才加上「(期限: ...)」。\n" +
-            "內容一律使用繁體中文，且只能根據逐字稿所述，不得自行補充逐字稿沒有的人名、數字或事實。\n\n" +
-            "逐字稿:\n%s"
+            "請分析以下會議逐字稿，並以「完全相同」的格式輸出結構化會議記錄：\nTITLE: 一個簡短標題（8 個字以內）\nSUMMARY:\n- 3-5 點簡短重點（每點 20 字以內）\nDECISIONS:\n- 會議做成的關鍵決策\nACTIONS:\n- 每項被指派的行動一點，寫成「某人: 要做的事」；只有明確提到期限時才在後面加上（期限: …）\nOPEN:\n- 未解決的問題與待追蹤事項\nTOPICS:\n- 討論的主要議題\n區段鍵字（TITLE、SUMMARY、DECISIONS、ACTIONS、OPEN、TOPICS）必須完全照抄、依此順序、全部出現。若某區段沒有內容，該行只寫「-」——絕不要寫佔位文字、「無」或「沒有」。使用「- 」條列，純文字——不要 Markdown 標題、不要前言、不要評論。\n\n逐字稿:\n%s"
 
         const val SINGLE_TEMPLATE =
             "%s\nWrite the summary of the transcript below %s. " +

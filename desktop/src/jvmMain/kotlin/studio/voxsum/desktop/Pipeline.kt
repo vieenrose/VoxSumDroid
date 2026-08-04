@@ -263,44 +263,6 @@ suspend fun rerunSummary(state: AppState, update: Update) {
     }
 }
 
-/** Regenerate just the title from the current summary (Android's re-title). Explicitly requested,
- *  so it clears titleEdited — the fresh AI title is no longer treated as user/source-pinned. */
-suspend fun reTitle(state: AppState, update: Update) {
-    if (state.summary.isEmpty()) return
-    update { it.copy(running = true, error = null, status = Strings.stGeneratingTitle) }
-    try {
-        val models = ModelManager(appDataDir)
-        val llmSpec = LlmRegistry.byId(state.config.llmModelId)
-        ensureLlm(models, llmSpec, update)
-        val script = SummaryScript.scriptFor(state.config.summaryScript)
-        val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
-        val style = state.summaryStyle
-        withContext(Dispatchers.Default) {
-            val llm = loadDesktopLlm(models, llmSpec, state.summary, outputTokens = 64)
-            try {
-                // Named, not positional: this constructor grows, and a silently shifted argument
-                // here is a wrong-language or wrong-budget summary rather than a compile error.
-                Summarizer(
-                    llm = llm,
-                    template = llmSpec.chatTemplate,
-                    convert = convert,
-                    mapInstruction = style.mapInstruction,
-                    reduceInstruction = style.reduceInstruction,
-                    mapMaxTokens = style.mapTokens,
-                    reduceMaxTokens = style.reduceTokens,
-                ).title(state.summary).collect { e ->
-                    if (e is TranscriptEvent.Title) update { it.copy(title = e.title) }
-                }
-            } finally {
-                llm.close()
-            }
-        }
-        update { it.copy(running = false, status = Strings.stDone, titleEdited = false) }
-    } catch (t: Throwable) {
-        if (t is kotlinx.coroutines.CancellationException) throw t
-        update { it.copy(error = t.message ?: t.javaClass.simpleName, running = false, status = Strings.stFailed) }
-    }
-}
 
 
 /** LLM-based action-item + decision extraction over the current transcript. */
@@ -621,7 +583,13 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
                 reduceMaxTokens = style.reduceTokens,
             ).summarize(transcript = transcriptText, userPrompt = config.summaryPrompt).collect { e ->
                 when (e) {
-                    is TranscriptEvent.Title -> if (regenerateTitle) update { it.copy(title = e.title) }
+                    // FILL, never OVERWRITE — and check the title itself, not only the caller's
+                    // flag. A title already present came from somewhere better than the summarizer
+                    // (podcast episode, YouTube video, library metadata, or the user typing one);
+                    // the machine guess is only for when there is nothing. Re-title clears the
+                    // title first, so that path still works.
+                    is TranscriptEvent.Title ->
+                        if (regenerateTitle) update { if (it.title.isBlank()) it.copy(title = e.title) else it }
                     is TranscriptEvent.Partial -> update { it.copy(summary = it.summary + e.chunk) }
                     is TranscriptEvent.SummaryComplete -> update { it.copy(summary = e.summary) }
                     is TranscriptEvent.NotesComplete -> update { it.copy(notes = e.notes) }
