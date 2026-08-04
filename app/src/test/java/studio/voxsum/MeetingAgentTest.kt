@@ -182,14 +182,22 @@ class MeetingAgentTest {
         assertNotNull(out, notes)
         assertEquals("Casing review", notes!!.title)
         assertTrue(notes.summary.any { it.contains("casing designs") })
-        assertEquals(listOf("rachel: send the cost sheet"), notes.actions)
+        // The anchor is KEPT now — it is how a reader jumps to that moment in the audio.
+        assertEquals(listOf("rachel: send the cost sheet [2:20]"), notes.actions)
         assertTrue(notes.open.isNotEmpty())
     }
 
-    /** User-facing output carries no anchors and no provenance tags. */
-    @Test fun finalNotesAreClean() {
+    /**
+     * User-facing output KEEPS anchors and drops provenance tags.
+     *
+     * Anchors used to be stripped, because the weights of the day never produced one. The anchored
+     * checkpoint emits [m:ss] on every bullet and that is the point of it — the anchor is how a
+     * reader verifies a claim or jumps to the moment in the audio. Provenance tags ([c3], which
+     * name a CHUNK index) stay internal: they mean nothing to a reader.
+     */
+    @Test fun finalNotesKeepAnchorsAndDropProvenance() {
         val out = runAgent(FakeGen { p -> if (p.contains("ONE short title")) "T" else chunkNotes })
-        assertTrue("anchor leaked: $out", !out.contains("[0:12]"))
+        assertTrue("anchors were stripped: $out", out.contains("[0:12]"))
         assertTrue("provenance tag leaked: $out", !out.contains("[c0]"))
     }
 

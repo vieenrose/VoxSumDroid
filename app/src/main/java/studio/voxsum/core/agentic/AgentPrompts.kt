@@ -167,7 +167,18 @@ interface AgentPrompts {
          */
         override fun parseChunk(raw: String, chunkIndex: Int): Map<Section, List<NoteItem>> {
             val n = MeetingNotes.parse(raw) ?: return emptyMap()
-            fun items(xs: List<String>) = xs.map { NoteItem(it.trim(), -1, chunkIndex) }
+            // PARSE THE ANCHOR OUT. The anchored checkpoint puts a [m:ss] on every bullet; this
+            // used to hardcode atSec = -1 because the app's older prompt never asked for one.
+            // Left that way it discards the whole point of the checkpoint silently: with no atSec,
+            // spread() falls through to its "not enough anchored" branch and degenerates back into
+            // take(cap), the reduce span guard can never fire (every span is 0), time-ordering is a
+            // no-op, and dropImpossibleAnchor has nothing to check. Measured on a 111-minute
+            // meeting before the fix: 0 of 26 bullets carried an anchor end to end, while the raw
+            // model emitted one on every bullet.
+            fun items(xs: List<String>) = xs.map {
+                val t = it.trim()
+                NoteItem(NotesParser.stripAnchor(t), NotesParser.anchorSeconds(t), chunkIndex)
+            }
             return mapOf(
                 Section.SUMMARY to items(n.summary),
                 Section.DECISIONS to items(n.decisions),
