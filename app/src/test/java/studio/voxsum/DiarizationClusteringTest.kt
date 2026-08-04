@@ -158,8 +158,66 @@ class DiarizationClusteringTest {
     @Test fun eigenGapPicksTheLargestGap() {
         // λ = [0, 0.001, 0.002, 2.0, 2.5] — three near-zero eigenvalues ⇒ three clusters.
         assertEquals(3, SpectralClustering.eigenGapK(doubleArrayOf(0.0, 0.001, 0.002, 2.0, 2.5), 8))
-        // One near-zero eigenvalue then a big jump ⇒ one cluster.
+        // Only the TRIVIAL eigenvalue is near zero (λ₁ ≈ λ₂) ⇒ no plateau ⇒ one cluster.
         assertEquals(1, SpectralClustering.eigenGapK(doubleArrayOf(0.0, 3.0, 3.1, 3.2), 8))
+    }
+
+    /**
+     * REAL spectra from CAM++ embeddings of four recordings, two with confirmed ground truth.
+     *
+     * The interview row is the regression: its λ₁ = 0.093 is large enough that the OLD rule's
+     * i=0 score, λ₁/(λ₁ + GAP_EPS) = 0.903, beat the true gap's 0.759 and returned k=1 for a
+     * 2-speaker interview. That saturation meant k collapsed to 1 exactly when the speakers were
+     * LEAST separable, and DiarizationEngine's silhouette rescue is gated on k ≥ 2, so it could
+     * never recover.
+     */
+    @Test fun eigenGapOnRealRecordings() {
+        // ~/voxsum-testdata/diar_ref_2spk_123s.wav — ground truth 2.
+        assertEquals(2, SpectralClustering.eigenGapK(
+            doubleArrayOf(0.0, 0.01739, 0.36107, 0.56332, 0.64408, 0.67509), 8))
+        // zh-TW interview (yt y0ouoBiuLDo) — ground truth 2. Returned 1 before this fix.
+        assertEquals(2, SpectralClustering.eigenGapK(
+            doubleArrayOf(0.0, 0.09271, 0.41532, 0.46321, 0.66683, 0.71529), 8))
+        // Unlabelled sanity checks — both were already 2 and must not move.
+        assertEquals(2, SpectralClustering.eigenGapK(
+            doubleArrayOf(0.0, 0.01551, 0.44601, 0.64234, 0.71517, 0.74688), 8))
+        assertEquals(2, SpectralClustering.eigenGapK(
+            doubleArrayOf(0.0, 0.00612, 0.06148, 0.18748, 0.76034, 0.76427), 8))
+    }
+
+    /**
+     * S5E58 first 5 min — THREE speakers (two hosts + invited guest), yet its eigengap answers 1.
+     *
+     * Asserted as 1 deliberately: this documents that the eigengap MISSES this case and the
+     * correct answer comes from DiarizationEngine's unseen-voice pass, which founds the guest from
+     * a single far-from-every-centroid segment. Do not "fix" this to 3 here.
+     *
+     * It also proves λ₁/λ_max cannot be pushed further as a k heuristic: this 3-speaker clip
+     * scores 0.564 while the CONFIRMED 1-speaker monologue scores 0.439 — more speakers, higher
+     * ratio. No threshold on this statistic separates them, so a real improvement needs the
+     * AMI/AISHELL sweep, not another constant.
+     */
+    @Test fun eigenGapUnderCountsS5E58AndTheEngineRecovers() {
+        assertEquals(1, SpectralClustering.eigenGapK(
+            doubleArrayOf(0.0, 0.38666, 0.43198, 0.62554, 0.65768, 0.68528), 8))
+    }
+
+    /** The monologue anchor: REAL spectrum from a single-narrator unboxing video (yt JOy11E6MhBA),
+     *  λ₁/λ_max = 0.439. An earlier attempt at this fix returned 2 here — over-splitting one voice
+     *  is as wrong as merging two, and voice memos are a first-class input. */
+    @Test fun realMonologueStaysOneCluster() {
+        assertEquals(1, SpectralClustering.eigenGapK(
+            doubleArrayOf(0.0, 0.30509, 0.42590, 0.47158, 0.55243, 0.69540), 8))
+    }
+
+    /** A genuine monologue must still answer 1 — the reason i=0 could not simply be dropped.
+     *  Voice memos are a first-class input, and over-splitting one voice is as wrong as merging two. */
+    @Test fun singleVoiceSpectrumStaysOneCluster() {
+        // No plateau: λ₁ is a large fraction of λ₂, the spectrum just rises.
+        assertEquals(1, SpectralClustering.eigenGapK(doubleArrayOf(0.0, 0.40, 0.55, 0.70), 8))
+        // Degenerate spectra cannot be split.
+        assertEquals(1, SpectralClustering.eigenGapK(doubleArrayOf(0.0, 0.5), 8))
+        assertEquals(1, SpectralClustering.eigenGapK(doubleArrayOf(0.0), 8))
     }
 
     @Test fun jacobiEigenOnKnownMatrix() {

@@ -49,6 +49,27 @@ class DiarizationEngine(
     // embedding is a tiny fraction of diarization wall time).
     private val embedder = LiteSpeakerEmbedder.load(java.io.File(embeddingModel))
 
+    /**
+     * Whether a speaker model actually loaded. FALSE means diarization cannot work at all — every
+     * embedding comes back empty and the clusterer labels the whole recording speaker 0.
+     *
+     * Exposed because that outcome is indistinguishable from a genuine single-speaker recording:
+     * a wrong model path (an ONNX handed to the LiteRT loader) or a missing download produced
+     * "1 speaker" in zero seconds with nothing logged, and only an eigenvalue trace revealed the
+     * clusterer had never run. Callers should report it rather than present the result as a
+     * diarization.
+     */
+    val embedderReady: Boolean get() = embedder != null
+
+    init {
+        if (embedder == null) {
+            System.err.println(
+                "voxsum-diar: NO SPEAKER MODEL at $embeddingModel — diarization will label every " +
+                    "utterance as one speaker. Check the file exists and is a LiteRT .tflite.",
+            )
+        }
+    }
+
     /** Whether the last [assignSpeakers] call used the segmentation-first path (observability). */
     var usedSegmenter: Boolean = false
         private set
