@@ -149,10 +149,10 @@ class Summarizer(
                     .ifBlank { notes.topics.joinToString("\n") { "- $it" } }
                 emit(TranscriptEvent.Progress(1f))
                 emit(TranscriptEvent.SummaryComplete(convert(rendered)))
-                val actionsText = buildString {
-                    notes.actions.forEach { appendLine("- $it") }
-                    notes.decisions.forEach { appendLine("- $it") }
-                }.trim()
+                // ACTIONS only. Decisions used to be folded in here because they had no home of
+                // their own; they now get a dedicated card, so including them made the same
+                // bullets appear twice and mislabelled the card — a decision is not an action.
+                val actionsText = notes.actions.joinToString("\n") { "- $it" }
                 if (actionsText.isNotEmpty()) emit(TranscriptEvent.ActionItemsComplete(convert(actionsText)))
                 emit(TranscriptEvent.NotesComplete(convertNotes(notes)))
                 if (withTitle && notes.title.isNotBlank()) {
@@ -318,10 +318,10 @@ class Summarizer(
             .ifBlank { notes.topics.joinToString("\n") { "- $it" } }
         emit(TranscriptEvent.Progress(1f))
         emit(TranscriptEvent.SummaryComplete(convert(rendered)))
-        val actionsText = buildString {
-            notes.actions.forEach { appendLine("- $it") }
-            notes.decisions.forEach { appendLine("- $it") }
-        }.trim()
+        // ACTIONS only. Decisions used to be folded in here because they had no home of
+        // their own; they now get a dedicated card, so including them made the same
+        // bullets appear twice and mislabelled the card — a decision is not an action.
+        val actionsText = notes.actions.joinToString("\n") { "- $it" }
         if (actionsText.isNotEmpty()) emit(TranscriptEvent.ActionItemsComplete(convert(actionsText)))
         emit(TranscriptEvent.NotesComplete(convertNotes(notes)))
         if (withTitle) {
