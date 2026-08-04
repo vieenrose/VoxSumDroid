@@ -114,7 +114,7 @@ class AgenticSummarizerValidationTest {
             // Exactly what the agent sends: one line-bounded chunk, the generated zh op-A prompt,
             // wrapped in the model's chat template.
             val chunk = studio.voxsum.core.agentic.Chunker
-                .byLines(tf.readText(), Summarizer.AGENT_CHUNK_TOKENS, llm::countTokens).first()
+                .byLines(tf.readText(), Summarizer.AGENT_CHUNK_TOKENS, count = llm::countTokens).first()
             val prompt = studio.voxsum.core.llm.SummaryText.wrap(
                 spec.chatTemplate, studio.voxsum.core.agentic.Prompts.chunkNotes(zh = true, chunk = chunk))
             Log.i(tag, "chunk = ${llm.countTokens(chunk)} tokens, prompt = ${llm.countTokens(prompt)} tokens")
@@ -152,7 +152,7 @@ class AgenticSummarizerValidationTest {
         LlmEngine.load(model.absolutePath, nThreads = 4, nCtx = Summarizer.agentContext(),
                        sampler = spec.sampler).use { llm ->
             val chunk = studio.voxsum.core.agentic.Chunker
-                .byLines(tf.readText(), Summarizer.AGENT_CHUNK_TOKENS, llm::countTokens).first()
+                .byLines(tf.readText(), Summarizer.AGENT_CHUNK_TOKENS, count = llm::countTokens).first()
             val notesPrompt = studio.voxsum.core.llm.SummaryText.wrap(
                 spec.chatTemplate, Summarizer.NOTES_TEMPLATE_ZH.format(chunk))
             val t0 = System.currentTimeMillis()

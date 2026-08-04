@@ -35,7 +35,7 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 class SummaryQualityGateTest {
 
-    private val modelPath = "/data/local/tmp/voxsum-qwen35-0.8b-Q4_K_M.gguf"
+    private val modelPath = "/data/local/tmp/voxsum-anchored-q4_0.gguf"
     private val tag = "voxsum-quality-gate"
 
     /** Tokens the CONTRACT's worked examples use. None belongs to any real meeting of ours, so any
@@ -115,6 +115,28 @@ class SummaryQualityGateTest {
             // false positives — the first version used 0.55 and rejected a correct summary.
             assertTrue("summary vocabulary is not grounded in the transcript (%.2f) — possible "
                 .format(ratio) + "fabrication:\n$all", ratio >= 0.35)
+
+            // 3b. ANCHORS. The reason this checkpoint was adopted: it emits [m:ss] on every bullet
+            //     without being asked. If it does not, requiresAnchors=true silently disables
+            //     merging (every merged bullet gets rejected), so this must be verified on real
+            //     weights, not assumed from the model card.
+            val bullets = notes.summary + notes.decisions + notes.topics
+            val anchored = bullets.count {
+                studio.voxsum.core.agentic.NotesParser.anchorSeconds(it) >= 0
+            }
+            Log.i(tag, "== anchors: $anchored/${bullets.size} bullets carry [m:ss]")
+            bullets.forEach { Log.i(tag, "   bullet: $it") }
+            assertTrue("checkpoint emitted NO anchors ($anchored/${bullets.size}) — requiresAnchors=true "
+                + "would silently reject every merged bullet:\n${bullets.joinToString("\n")}",
+                bullets.isEmpty() || anchored > 0)
+
+            // 3c. Every anchor must resolve inside the transcript (upstream saw 3541m = 59 h).
+            val lastSec = transcript.lineSequence().mapNotNull {
+                studio.voxsum.core.agentic.Evidence.lineSeconds(it).takeIf { s -> s >= 0 }
+            }.maxOrNull() ?: 0
+            val bogus = bullets.map { studio.voxsum.core.agentic.NotesParser.anchorSeconds(it) }
+                .filter { it > lastSec + 60 }
+            Log.i(tag, "== anchor range: transcript ends ${lastSec}s, bogus anchors: $bogus")
 
             // 4. The subject of THIS meeting. Narrow and fixture-specific on purpose: it is the
             //    exact check that would have failed Gemma-270M's 影視系統.
