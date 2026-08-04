@@ -827,13 +827,27 @@ class TranscriptionService : LifecycleService() {
          *
          * Plain file rename underneath, so it is safe to call on a cancelled coroutine.
          */
-        suspend fun promoteImport() {
-            if (!foreground || existing != null || entry != null) return
+        suspend fun promoteImport() = withContext(NonCancellable) {
+            // NonCancellable is REQUIRED, and the first version of this got it wrong. This function
+            // is suspend (it emits an event) and runs from a finally on a coroutine that has usually
+            // just been CANCELLED — the state a user's Stop puts it in, i.e. exactly the case the
+            // promote exists for. Without this wrapper the first suspension point throws
+            // CancellationException and the save never happens. The earlier comment here argued the
+            // wrapper was unnecessary "because promoteRecording is a rename, not a suspending call";
+            // that stopped being true the moment this wrapper itself became suspend.
+            val len = if (wav.exists()) wav.length() else -1L
+            Log.i("voxsum-promote", "promoteImport foreground=$foreground existing=${existing?.id} " +
+                "entry=${entry?.id} wavExists=${wav.exists()} wavLen=$len min=${WavIo.HEADER + WavIo.SAMPLE_RATE * 2L}")
+            if (!foreground || existing != null || entry != null) return@withContext
             // A WAV with only a header is a decode that never produced audio — nothing to save.
-            if (!wav.exists() || wav.length() <= WavIo.HEADER + WavIo.SAMPLE_RATE * 2L) return
+            if (len <= WavIo.HEADER + WavIo.SAMPLE_RATE * 2L) {
+                Log.w("voxsum-promote", "nothing to save: decoded WAV is $len bytes")
+                return@withContext
+            }
             entry = runCatching {
-                SessionLibrary.promoteRecording(this, wav, totalDurationSec.toInt())
-            }.getOrNull()
+                SessionLibrary.promoteRecording(this@TranscriptionService, wav, totalDurationSec.toInt())
+            }.onFailure { Log.w("voxsum-promote", "promoteRecording threw", it) }.getOrNull()
+            Log.i("voxsum-promote", "promoted -> ${entry?.id ?: "NULL"}")
             // The decoded WAV just moved into the entry — repoint the player (playhead carried).
             entry?.let { emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(it.wavFile).toString())) }
         }
@@ -901,8 +915,7 @@ class TranscriptionService : LifecycleService() {
         }
         } finally {
             // Whatever happened — finished, failed, or aborted — the audio is on disk and belongs
-            // in the library. NonCancellable is not needed: promoteRecording is a rename, not a
-            // suspending call, so it completes even on a cancelled coroutine.
+            // in the library. promoteImport runs under NonCancellable; see it for why that matters.
             promoteImport()
         }
 

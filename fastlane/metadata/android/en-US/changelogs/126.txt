@@ -1,0 +1,1 @@
+• Aborting an import really does keep the audio now. The previous attempt did not work: stopping a podcast, YouTube or file import during transcription still discarded everything. The recording now stays in Studio, ready to run again.
