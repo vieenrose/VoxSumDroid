@@ -421,7 +421,7 @@ private suspend fun runMossTranscription(
     ) ?: throw IllegalStateException("MOSS-TD LiteRT engine failed to load")
     val speakerEmbedder = models.mossSpeakerModel
         .takeIf { models.mossSpeakerReady() }
-        ?.let { LiteSpeakerEmbedder.load(it) }
+        ?.let { LiteSpeakerEmbedder.load(it, cores) }   // cross-window linker: same threading fix
 
     update { it.copy(status = Strings.stTranscribing, progress = 0f) }
     val durS = pcm.size.toDouble() / MOSS_SR
@@ -545,7 +545,9 @@ private suspend fun diarize(
     return withContext(Dispatchers.Default) {
         val diar = DiarizationEngine(
             embeddingModel = models.embeddingModel.absolutePath,
-            numThreads = 2,
+            // Reaches the CAM++ pod now (it used to be accepted and ignored), and embedding is the
+            // dominant term in diarization wall time — ~10 s per minute of speech single-threaded.
+            numThreads = maxOf(1, minOf(8, Runtime.getRuntime().availableProcessors())),
             numClusters = config.numSpeakers,
             segmentationModel = models.segmentationModel
                 .takeIf { config.preciseDiarization && it.exists() }?.absolutePath,
