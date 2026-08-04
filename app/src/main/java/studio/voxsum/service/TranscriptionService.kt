@@ -803,8 +803,42 @@ class TranscriptionService : LifecycleService() {
         }.flowOn(Dispatchers.IO)
 
         // --- ASR phase: collect utterances while streaming them to the UI. ---
+        // Whether this run owns a library entry, decided BEFORE any long phase so the finally below
+        // can save the audio no matter where the run stops. A re-run of a library capture already
+        // has one (its audio never left) and the queue drain owns its own — both skip the promote.
+        val foreground = (kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED) != QUEUE_GEN
+        val existing = if (ownWav && srcFile!!.name == SessionLibrary.WAV_NAME)
+            srcFile.parentFile?.let { SessionLibrary.byId(this, it.name) } else null
+        var entry: SessionLibrary.Entry? = existing
+
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         var diarized: Pair<List<TranscriptEvent.Utterance>, Int>? = null
+
+        /**
+         * Save the decoded audio into the library as a RECORDED entry.
+         *
+         * Runs from the finally below, so it fires on SUCCESS, on failure, and — the case this
+         * exists for — on CANCELLATION. Aborting an import used to lose everything: the promote sat
+         * after ASR and diarization, so stopping during either left the decoded WAV in filesDir with
+         * no library row, and going Home dropped the whole session (reported from the field:
+         * podcast → download → abort during transcription → audio and partial transcript both gone).
+         * The recording pipeline has always promoted its capture from a finally for exactly this
+         * reason; imports now match it.
+         *
+         * Plain file rename underneath, so it is safe to call on a cancelled coroutine.
+         */
+        suspend fun promoteImport() {
+            if (!foreground || existing != null || entry != null) return
+            // A WAV with only a header is a decode that never produced audio — nothing to save.
+            if (!wav.exists() || wav.length() <= WavIo.HEADER + WavIo.SAMPLE_RATE * 2L) return
+            entry = runCatching {
+                SessionLibrary.promoteRecording(this, wav, totalDurationSec.toInt())
+            }.getOrNull()
+            // The decoded WAV just moved into the entry — repoint the player (playhead carried).
+            entry?.let { emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(it.wavFile).toString())) }
+        }
+
+        try {
         if (backend == AsrBackend.MOSS) {
             // MOSS-TD does ASR + speaker diarization + timestamps in one pass — no sherpa ASR, no
             // separate diarization stage. Decode the whole source to the 16 kHz work WAV first, then
@@ -865,9 +899,16 @@ class TranscriptionService : LifecycleService() {
                 }
             } // ASR native resources freed here, before the LLM is loaded.
         }
+        } finally {
+            // Whatever happened — finished, failed, or aborted — the audio is on disk and belongs
+            // in the library. NonCancellable is not needed: promoteRecording is a rename, not a
+            // suspending call, so it completes even on a cancelled coroutine.
+            promoteImport()
+        }
 
-        // The decoded 16 kHz WAV is the player source now (per the streaming design).
-        emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
+        // The decoded 16 kHz WAV is the player source now (per the streaming design), unless the
+        // promote above already moved it into a library entry and repointed the player.
+        if (entry == null) emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(wav).toString()))
         if (utterances.isEmpty()) {
             // No speech detected — a legitimate (empty) SUCCESS, not an error. Return an empty
             // result (not null) so the queue marks the entry DONE with an audio-only session,
@@ -881,32 +922,19 @@ class TranscriptionService : LifecycleService() {
             emitEvent(TranscriptEvent.Complete(tagged, diarized?.second))
             return tagged to SummaryResult(null, null)
         }
-        // Promote a FOREGROUND import into the library BEFORE the LLM phase, so a process kill
-        // during summarization leaves a RECORDED entry (audio safe + re-transcribeable) in Studio
-        // instead of an empty home with the whole run lost. This mirrors the recording pipeline,
-        // which promotes its capture before finishPipeline. A re-run of a library capture is
-        // already durable (its audio never left) and the queue drain owns its own entry — both
-        // skip the early promote.
-        val foreground = (kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED) != QUEUE_GEN
-        val existing = if (ownWav && srcFile!!.name == SessionLibrary.WAV_NAME)
-            srcFile.parentFile?.let { SessionLibrary.byId(this, it.name) } else null
-        val entry = if (foreground && existing == null)
-            runCatching { SessionLibrary.promoteRecording(this, wav, totalDurationSec.toInt()) }.getOrNull()
-        else existing
-        // The decoded WAV just moved into the new entry — swap the player source (playhead carried).
-        if (foreground && existing == null && entry != null) {
-            emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(entry.wavFile).toString()))
-        }
+        // The import was already promoted by the ASR phase's finally (see promoteImport). Nothing
+        // to do here beyond keeping `entry` for attachResults below.
 
         val result = finishPipeline(utterances, diarized, cfg, models, converter)
 
         // Embed the finished results into the entry (RECORDED → full self-describing session.m4a).
         // Non-fatal on failure: the session view still has the results, and the RECORDED entry above
         // is already a durable, re-runnable fallback.
-        if (foreground && entry != null) {
+        val libEntry = entry
+        if (foreground && libEntry != null) {
             runCatching {
                 val updated = SessionLibrary.attachResults(
-                    this, entry, result.first, emptyMap(), result.second.summary, null,
+                    this, libEntry, result.first, emptyMap(), result.second.summary, null,
                     result.second.title, result.second.notes, cfg.asrModelId, cfg.asrBackend, cfg.llmModelId,
                 )
                 if (updated != null) {
