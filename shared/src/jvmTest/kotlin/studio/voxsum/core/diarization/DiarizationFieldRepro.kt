@@ -103,6 +103,15 @@ class DiarizationFieldRepro {
                 assumeTrue("speaker model did not load — see stderr", d.embedderReady)
                 val (tagged, count) = d.assignSpeakers(pcm16k = pcm, utterances = utts)
                 val distinct = tagged.mapNotNull { it.speaker }.distinct().sorted()
+                // Per-speaker timeline, so a disagreement can be CHECKED by ear instead of argued
+                // about: prints where each label was placed and how much audio it owns.
+                tagged.groupBy { it.speaker }.toSortedMap(compareBy { it ?: -1 }).forEach { (spk, us) ->
+                    val secs = us.sumOf { it.endSec - it.startSec }
+                    val when_ = us.take(8).joinToString(" ") {
+                        "%d:%02d".format(it.startSec.toInt() / 60, it.startSec.toInt() % 60)
+                    }
+                    println("[repro]   S$spk: ${us.size} segs, %.0fs total, at $when_".format(secs))
+                }
                 println("[repro] %-20s -> speakerCount=%d distinct=%s usedSegmenter=%s in %ds"
                     .format(label, count, distinct, d.usedSegmenter,
                         (System.currentTimeMillis() - t0) / 1000))
