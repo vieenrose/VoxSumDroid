@@ -11,7 +11,7 @@ import studio.voxsum.core.asr.NemotronLang
 import studio.voxsum.desktop.asr.SpeechEngineFactory
 import studio.voxsum.core.asr.moss.MOSS_SR
 import studio.voxsum.core.asr.moss.MossPipeline
-import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.config.SummaryScript
 import studio.voxsum.core.text.ChineseScript
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.diarization.DiarizationEngine
@@ -272,8 +272,7 @@ suspend fun reTitle(state: AppState, update: Update) {
         val models = ModelManager(appDataDir)
         val llmSpec = LlmRegistry.byId(state.config.llmModelId)
         ensureLlm(models, llmSpec, update)
-        val targetName = TargetLanguage.fromId(state.config.targetLanguage).promptName
-        val script = TargetLanguage.scriptFor(state.config.targetLanguage)
+        val script = SummaryScript.scriptFor(state.config.summaryScript)
         val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
         val style = state.summaryStyle
         withContext(Dispatchers.Default) {
@@ -284,8 +283,6 @@ suspend fun reTitle(state: AppState, update: Update) {
                 Summarizer(
                     llm = llm,
                     template = llmSpec.chatTemplate,
-                    targetLanguage = targetName,
-                    targetLanguageId = TargetLanguage.fromId(state.config.targetLanguage).id,
                     convert = convert,
                     mapInstruction = style.mapInstruction,
                     reduceInstruction = style.reduceInstruction,
@@ -315,8 +312,7 @@ suspend fun extractActionItems(state: AppState, update: Update) {
         val models = ModelManager(appDataDir)
         val llmSpec = LlmRegistry.byId(state.config.llmModelId)
         ensureLlm(models, llmSpec, update)
-        val targetName = TargetLanguage.fromId(state.config.targetLanguage).promptName
-        val script = TargetLanguage.scriptFor(state.config.targetLanguage)
+        val script = SummaryScript.scriptFor(state.config.summaryScript)
         val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
         val text = studio.voxsum.core.llm.TranscriptFormat.format(state.utterances, state.speakerNames.mapValues { it.value.name })
         val result = withContext(Dispatchers.Default) {
@@ -325,7 +321,7 @@ suspend fun extractActionItems(state: AppState, update: Update) {
             // decode fast. ACTION_ITEM_CTX is what that cap works out to with headroom.
             val llm = loadDesktopLlm(models, llmSpec, text = "", outputTokens = ACTION_ITEM_CTX)
             try {
-                ActionItemExtractor(llm, llmSpec.chatTemplate, targetName, convert)
+                ActionItemExtractor(llm, llmSpec.chatTemplate, convert)
                     .extract(text) { p -> update { it.copy(progress = p) } }
             } finally {
                 llm.close()
@@ -590,8 +586,7 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
     ensureLlm(models, llmSpec, update)
 
     update { it.copy(status = Strings.stSummarizing, progress = null) }
-    val targetName = TargetLanguage.fromId(config.targetLanguage).promptName
-    val script = TargetLanguage.scriptFor(config.targetLanguage)
+    val script = SummaryScript.scriptFor(config.summaryScript)
     val convert: (String) -> String = script?.let { s -> { text: String -> OpenCcConverter.get(s).convert(text) } } ?: { it }
     val transcriptText = studio.voxsum.core.llm.TranscriptFormat.format(tagged)
     withContext(Dispatchers.Default) {
@@ -617,8 +612,6 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
             Summarizer(
                 llm = llm,
                 template = llmSpec.chatTemplate,
-                targetLanguage = targetName,
-                targetLanguageId = TargetLanguage.fromId(config.targetLanguage).id,
                 convert = convert,
                 mapInstruction = style.mapInstruction,
                 reduceInstruction = style.reduceInstruction,
@@ -668,7 +661,7 @@ private fun transcriptConvert(config: TranscriptionConfig, backend: AsrBackend):
         // Explicitly non-Chinese speech: OpenCC could only corrupt it.
         !NemotronLang.isChinese(lang) -> null
         // Chinese without a stated variant (legacy "zh"/"yue"): follow Target language.
-        else -> TargetLanguage.scriptFor(config.targetLanguage)
+        else -> SummaryScript.scriptFor(config.summaryScript)
     }
     return when (script) {
         ChineseScript.TRADITIONAL -> OpenCcConverter.getTranscriptTraditional().let { c -> { t: String -> c.convert(t) } }

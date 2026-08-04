@@ -19,15 +19,12 @@ object ConfigStore {
     fun load(defaultLocale: Locale = Locale.getDefault()): TranscriptionConfig {
         val p = store
         val d = TranscriptionConfig()
-        // Target language: a saved value wins; else migrate the legacy boolean (true→Traditional);
-        // a truly fresh install defaults to the user's display language. The prefs KEY stays the legacy
-        // "summaryLanguage" (the field/enum were renamed to targetLanguage/TargetLanguage, but renaming
-        // the stored key would orphan existing installs' setting).
-        val targetLanguage = when {
-            p.contains("summaryLanguage") -> p.getString("summaryLanguage", d.targetLanguage) ?: d.targetLanguage
-            p.contains("traditionalChinese") -> if (p.getBoolean("traditionalChinese", true)) "zh-Hant" else "auto"
-            else -> TargetLanguage.defaultFor(defaultLocale).id
-        }
+        // Han script for Chinese output. A NEW key: the legacy "summaryLanguage" /
+        // "traditionalChinese" values chose an output LANGUAGE, and that feature is gone (see
+        // [SummaryScript]), so they are deliberately not migrated — reading them would carry a
+        // translation preference into a build that cannot honour it.
+        val summaryScript = (p.getString("summaryScript", "") ?: "")
+            .ifEmpty { SummaryScript.defaultFor(defaultLocale).id }
         return TranscriptionConfig(
             asrBackend = p.getString("asrBackend", d.asrBackend) ?: d.asrBackend,
             asrModelId = p.getString("asrModelId", d.asrModelId) ?: d.asrModelId,
@@ -40,7 +37,7 @@ object ConfigStore {
             preciseDiarization = p.getBoolean("preciseDiarization", d.preciseDiarization),
             llmModelId = p.getString("llmModelId", d.llmModelId) ?: d.llmModelId,
             summaryPrompt = p.getString("summaryPrompt", d.summaryPrompt) ?: d.summaryPrompt,
-            targetLanguage = targetLanguage,
+            summaryScript = summaryScript,
             summaryStyle = p.getString("summaryStyle", d.summaryStyle) ?: d.summaryStyle,
         )
     }
@@ -57,7 +54,7 @@ object ConfigStore {
         store.putBoolean("preciseDiarization", c.preciseDiarization)
         store.putString("llmModelId", c.llmModelId)
         store.putString("summaryPrompt", c.summaryPrompt)
-        store.putString("summaryLanguage", c.targetLanguage)   // legacy key (see load())
+        store.putString("summaryScript", c.summaryScript)   // legacy key (see load())
         store.putString("summaryStyle", c.summaryStyle)
     }
 }

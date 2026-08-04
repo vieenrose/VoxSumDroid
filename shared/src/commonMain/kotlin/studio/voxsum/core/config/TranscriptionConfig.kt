@@ -43,12 +43,10 @@ data class TranscriptionConfig(
     // changed, so the "recommended" model in Settings and the model that actually ran disagreed.
     val llmModelId: String = LlmRegistry.DEFAULT_ID,
     val summaryPrompt: String = "Summarize the key points of this transcript.",
-    // Target language for ALL out-coming text — summary, title, transcript, and detected speaker names
-    // (a [TargetLanguage] id; surfaced in Settings as "Target language"). "auto" = match the transcript.
-    // ConfigStore derives a locale-based default on first run. The chosen language × the device locale
-    // pick the single Han script everything is normalized to via OpenCC — Traditional (s2tw) / Simplified
-    // (t2s) / none — keeping every text consistent. See [TargetLanguage.scriptFor].
-    val targetLanguage: String = "auto",
+    // Han script every Chinese text is normalized to (a [SummaryScript] id). Summaries are always
+    // in the RECORDING's language — the translate-as-you-summarize option was removed because it
+    // degraded a 0.8B summarizer's output. This is a post-hoc OpenCC mapping, not a model task.
+    val summaryScript: String = "zh-Hant",
     // Format of the summary (a [SummaryStyle] id): bullet (default) | executive | narrative.
     val summaryStyle: String = "executive",
 ) {

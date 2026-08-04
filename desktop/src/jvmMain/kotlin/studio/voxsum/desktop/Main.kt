@@ -84,7 +84,7 @@ import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.ConfigStore
 import studio.voxsum.core.asr.NemotronLang
-import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.config.SummaryScript
 import studio.voxsum.core.text.ChineseScript
 import studio.voxsum.core.config.FontScaleStore
 import studio.voxsum.core.config.ThemeMode
@@ -262,27 +262,25 @@ private fun mainApplication() = application {
                         // --- Settings-change invalidation (Android's ConfigSheet onChange) ---
                         val hasContent = next.utterances.isNotEmpty()
                         val hasSummary = next.summary.isNotEmpty() || next.actionItems.isNotEmpty()
-                        // Target-language: a pure Traditional↔Simplified switch is only a script
-                        // re-render — convert every text node in place (OpenCC, instant, no LLM).
-                        // Any other language change needs the LLM → summary stale.
-                        if (cfg.targetLanguage != old.targetLanguage) {
-                            val zh = setOf(TargetLanguage.TRADITIONAL.id, TargetLanguage.SIMPLIFIED.id)
-                            val newScript = TargetLanguage.scriptFor(cfg.targetLanguage)
-                            if (old.targetLanguage in zh && cfg.targetLanguage in zh && newScript != null && hasContent) {
-                                val cc = OpenCcConverter.get(newScript)
-                                // Transcript stays phonetic (conservative s2t) so an in-place
-                                // re-render matches a fresh transcription; generated text keeps
-                                // the localising converter. Same split as Pipeline.transcriptConvert.
-                                val ccTranscript =
-                                    if (newScript == ChineseScript.TRADITIONAL) OpenCcConverter.getTranscriptTraditional() else cc
-                                next = next.copy(
-                                    utterances = next.utterances.map { u -> u.copy(text = ccTranscript.convert(u.text)) },
-                                    title = cc.convert(next.title),
-                                    summary = cc.convert(next.summary),
-                                    actionItems = cc.convert(next.actionItems),
-                                    speakerNames = next.speakerNames.mapValues { (_, n) -> n.copy(name = cc.convert(n.name)) },
-                                )
-                            } else if (hasSummary) next = next.copy(summaryStale = true)
+                        // Chinese-script change (繁體↔简体) is ONLY a re-render: OpenCC converts
+                        // every text node in place, instantly, with no LLM. It used to be possible
+                        // to change the output LANGUAGE here, which needed an LLM re-run; that
+                        // feature is gone (see [SummaryScript]), so nothing is marked stale.
+                        if (cfg.summaryScript != old.summaryScript && hasContent) {
+                            val newScript = SummaryScript.scriptFor(cfg.summaryScript)
+                            val cc = OpenCcConverter.get(newScript)
+                            // Transcript stays phonetic (conservative s2t) so an in-place re-render
+                            // matches a fresh transcription; generated text keeps the localising
+                            // converter. Same split as Pipeline.transcriptConvert.
+                            val ccTranscript =
+                                if (newScript == ChineseScript.TRADITIONAL) OpenCcConverter.getTranscriptTraditional() else cc
+                            next = next.copy(
+                                utterances = next.utterances.map { u -> u.copy(text = ccTranscript.convert(u.text)) },
+                                title = cc.convert(next.title),
+                                summary = cc.convert(next.summary),
+                                actionItems = cc.convert(next.actionItems),
+                                speakerNames = next.speakerNames.mapValues { (_, n) -> n.copy(name = cc.convert(n.name)) },
+                            )
                         }
                         // Summary-shaping changes (style / model / prompt) → summary stale.
                         if (hasSummary && (newStyle != oldStyle || cfg.llmModelId != old.llmModelId || cfg.summaryPrompt != old.summaryPrompt)) {

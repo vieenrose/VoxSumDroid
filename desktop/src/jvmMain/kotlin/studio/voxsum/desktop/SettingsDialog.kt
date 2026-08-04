@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.NemotronLang
-import studio.voxsum.core.config.TargetLanguage
+import studio.voxsum.core.config.SummaryScript
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
 import studio.voxsum.core.models.ModelManager
@@ -55,7 +55,7 @@ fun SettingsDialog(
         mutableStateOf(if (config.numSpeakers > 0) config.numSpeakers.toString() else "")
     }
     var preciseDiarization by remember { mutableStateOf(config.preciseDiarization) }
-    var targetLanguage by remember { mutableStateOf(TargetLanguage.fromId(config.targetLanguage)) }
+    var summaryScript by remember { mutableStateOf(SummaryScript.fromId(config.summaryScript)) }
     var language by remember { mutableStateOf(config.language) }
     var style by remember { mutableStateOf(summaryStyle) }
     var useItn by remember { mutableStateOf(config.useItn) }
@@ -178,8 +178,8 @@ fun SettingsDialog(
                 }
             }
 
-            SettingsSection(Strings.targetLanguage) {
-                ChipRow(pal, TargetLanguage.entries, targetLanguage, { targetLanguage = it }) {
+            SettingsSection(Strings.chineseScript) {
+                ChipRow(pal, SummaryScript.entries, summaryScript, { summaryScript = it }) {
                     it.autonym.ifBlank { Strings.auto }
                 }
             }
@@ -219,7 +219,7 @@ fun SettingsDialog(
                             // matching Android's -1..10 clamp (its +/- stepper never yields 0).
                             numSpeakers = numSpeakersText.toIntOrNull()?.takeIf { it in 1..10 } ?: -1,
                             preciseDiarization = preciseDiarization,
-                            targetLanguage = targetLanguage.id,
+                            summaryScript = summaryScript.id,
                             language = language,
                             useItn = useItn,
                             vadThreshold = vadThreshold,

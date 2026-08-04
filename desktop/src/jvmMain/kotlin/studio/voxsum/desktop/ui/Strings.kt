@@ -177,7 +177,7 @@ object Strings {
         "Nombre de locuteurs (vide = auto) : ",
         "語者數提示（留空 = 自動）：",
     )
-    val targetLanguage: String get() = t("Target language", "Langue cible", "目標語言")
+    val chineseScript: String get() = t("Chinese script", "Écriture chinoise", "中文字形")
     val auto: String get() = t("Auto", "Auto", "自動")
     val summaryStyle: String get() = t("Summary style", "Style du résumé", "摘要風格")
     val customSummaryPrompt: String get() = t("Custom summary prompt", "Invite de résumé personnalisée", "自訂摘要提示詞")

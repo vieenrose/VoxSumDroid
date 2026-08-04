@@ -32,8 +32,6 @@ class AgenticRuntimeTest {
     private val libDir = System.getenv("VOXSUM_NATIVE_LIB_DIR")?.let(::File)
     private val gguf = System.getenv("VOXSUM_TEST_GGUF")?.let(::File)
     private val transcriptFile = System.getenv("VOXSUM_TEST_TRANSCRIPT")?.let(::File)
-    /** TargetLanguage.id — set it to exercise the CROSS-LINGUAL path. */
-    private val targetId = System.getenv("VOXSUM_TEST_TARGET")
 
     /** Mirrors Summarizer's decorator — the JNI never applies a chat template itself. */
     private class ChatWrap(private val inner: TextGen, private val template: ChatTemplate) :
@@ -63,23 +61,14 @@ class AgenticRuntimeTest {
 
             val t0 = System.currentTimeMillis()
             var steps = 0
-            // Mirrors what Summarizer does: output language from the TARGET, and the clause only
-            // when that actually means translating.
-            val target = targetId?.let { studio.voxsum.core.config.TargetLanguage.fromId(it) }
-            val outputZh = if (target?.promptName != null) target.promptName!!.contains("中文")
-                           else Summarizer.transcriptLanguage(transcript) == "zh"
-            val clause = if (target?.promptName != null &&
-                             Summarizer.needsTranslation(target.id, transcript))
-                " Write the ENTIRE output in ${target.promptName}. The transcript may be in " +
-                    "another language — translate as you summarize. Do not use any language " +
-                    "other than ${target.promptName}."
-            else ""
-            println("[runtime] target=${target?.id ?: "AUTO"} outputZh=$outputZh translating=${clause.isNotEmpty()}")
+            // Mirrors what Summarizer does: the zh prompt variant is chosen from the
+            // TRANSCRIPT. There is no output-language target — summaries are always in the
+            // recording's language (the translate option was removed, see SummaryScript).
             val raw = MeetingAgent(
                 llm = ChatWrap(llm, spec.chatTemplate),
-                lang = if (outputZh) MeetingAgent.Lang.ZH_TW else MeetingAgent.Lang.EN,
+                lang = if (Summarizer.transcriptLanguage(transcript) == "zh") MeetingAgent.Lang.ZH_TW
+                       else MeetingAgent.Lang.EN,
                 prompts = AgentPrompts.AppNotes,
-                langClause = clause,
             ).run(transcript) { steps++ }
             println("[runtime] $steps steps in ${(System.currentTimeMillis() - t0) / 1000}s")
             raw.lines().forEach { println("[runtime] | $it") }
@@ -95,17 +84,6 @@ class AgenticRuntimeTest {
             assertTrue("placeholder owner survived: ${notes.actions}",
                 notes.actions.none { it.startsWith("负责人") || it.startsWith("負責人") })
 
-            // THE CROSS-LINGUAL ASSERTION. Requesting Chinese over an English transcript must
-            // actually yield Chinese — the v0.39.0 defect was exactly that it silently did not.
-            if (targetId == "zh-Hant" || targetId == "zh-Hans") {
-                val body = (listOf(notes.title) + notes.summary + notes.decisions + notes.actions +
-                    notes.open + notes.topics).joinToString(" ")
-                val han = body.count { it.code in 0x3400..0x4DBF || it.code in 0x4E00..0x9FFF }
-                val latin = body.count { it.isLetter() && it.code < 0x250 }
-                println("[runtime] output script: han=$han latin=$latin")
-                assertTrue("asked for Chinese, got $han Han vs $latin latin chars:\n$body",
-                    han > latin)
-            }
         }
     }
 }
