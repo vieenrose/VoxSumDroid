@@ -1,0 +1,1 @@
+• The playback cursor no longer jumps back to the start when processing finishes. If you were listening at 2:46 while the summary was still being written, you stay at 2:46. An earlier attempt at this did not work; this one was traced on a device.

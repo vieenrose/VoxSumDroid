@@ -686,6 +686,9 @@ private fun TranscribeScreen(
     // When the playback source is swapped to the decoded WAV at end-of-ASR (same audio, new file), carry
     // the position + play-state across the player rebuild so the cursor doesn't snap back to 0.
     var pendingSeekMs by remember { mutableStateOf<Int?>(null) }
+    // A just-written session.m4a can need a moment before MediaPlayer will prepare it.
+    val PREPARE_ATTEMPTS = 4
+    val PREPARE_RETRY_MS = 250L
     var resumeAfterSwap by remember { mutableStateOf(false) }
     var volume by remember { mutableFloatStateOf(1f) }
     var muted by remember { mutableStateOf(false) }
@@ -707,13 +710,29 @@ private fun TranscribeScreen(
             android.util.Log.i("voxsum-play", "PREPARE skipped: already playing (seekTo=$seekTo LOST)")
             return@withLock true
         }
-        runCatching {
-            withContext(Dispatchers.IO) { p.reset(); p.setDataSource(context, uri); p.prepare() }
-            durationMs = p.duration
-            seekTo?.let { p.seekTo(it.coerceIn(0, durationMs)) }
-            android.util.Log.i("voxsum-play", "PREPARED dur=$durationMs sought=$seekTo")
-            true
-        }.onFailure { android.util.Log.w("voxsum-play", "PREPARE failed", it) }.getOrDefault(false)
+        // RETRY, and never drop the carried playhead. A source swap at end-of-run points the player
+        // at a session.m4a the pipeline has only just finished writing, and prepare() on it throws
+        // IllegalStateException if it catches the file mid-settle. Measured on a Boox: the swap
+        // carried pos=166224 correctly, prepare() threw, the seek never ran, and playback later
+        // restarted from 0 — which is the whole "cursor jumps back to the start when processing
+        // finishes" report. A single prepare was the defect; the earlier fix guarded the poll loop,
+        // which was a real but different bug.
+        var lastErr: Throwable? = null
+        repeat(PREPARE_ATTEMPTS) { attempt ->
+            val ok = runCatching {
+                withContext(Dispatchers.IO) { p.reset(); p.setDataSource(context, uri); p.prepare() }
+                durationMs = p.duration
+                seekTo?.let { p.seekTo(it.coerceIn(0, durationMs)) }
+                android.util.Log.i("voxsum-play", "PREPARED dur=$durationMs sought=$seekTo try=$attempt")
+                true
+            }.onFailure { lastErr = it }.getOrDefault(false)
+            if (ok) return@withLock true
+            delay(PREPARE_RETRY_MS)
+        }
+        android.util.Log.w("voxsum-play", "PREPARE failed after $PREPARE_ATTEMPTS tries", lastErr)
+        // Hand the position back so a later recovery resumes HERE rather than at zero.
+        pendingSeekMs = seekTo
+        false
     }
     // Retire a player without racing its in-flight prepare: sever the state reference NOW (main),
     // release under the SAME mutex preparePlayer holds — release() on an instance that another

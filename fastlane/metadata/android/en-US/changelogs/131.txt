@@ -1,1 +1,0 @@
-• Stopping a transcription now keeps the recording. Aborting a podcast, YouTube or file import used to discard the audio and the partial transcript; the recording stays in Studio, ready to run again. Two earlier attempts at this did not work — this one was verified on a device.
