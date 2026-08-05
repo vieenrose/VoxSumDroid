@@ -703,13 +703,17 @@ private fun TranscribeScreen(
         // Coalesce queued recoveries: while this call waited on the mutex, an earlier recovery (or
         // the poll loop's gentle retry) may have already brought p back to life — reset()ing a
         // player that is playing again would kill live playback and jump the cursor.
-        if (runCatching { p.isPlaying }.getOrDefault(false)) return@withLock true
+        if (runCatching { p.isPlaying }.getOrDefault(false)) {
+            android.util.Log.i("voxsum-play", "PREPARE skipped: already playing (seekTo=$seekTo LOST)")
+            return@withLock true
+        }
         runCatching {
             withContext(Dispatchers.IO) { p.reset(); p.setDataSource(context, uri); p.prepare() }
             durationMs = p.duration
             seekTo?.let { p.seekTo(it.coerceIn(0, durationMs)) }
+            android.util.Log.i("voxsum-play", "PREPARED dur=$durationMs sought=$seekTo")
             true
-        }.getOrDefault(false)
+        }.onFailure { android.util.Log.w("voxsum-play", "PREPARE failed", it) }.getOrDefault(false)
     }
     // Retire a player without racing its in-flight prepare: sever the state reference NOW (main),
     // release under the SAME mutex preparePlayer holds — release() on an instance that another
@@ -725,6 +729,7 @@ private fun TranscribeScreen(
         // Consume the carry-over from a source swap (null on a genuinely new session → start at 0).
         val seekTo = pendingSeekMs; val resume = resumeAfterSwap
         pendingSeekMs = null; resumeAfterSwap = false
+        android.util.Log.i("voxsum-play", "REBUILD seekTo=$seekTo resume=$resume uri=${audioUri?.lastPathSegment}")
         durationMs = 0; positionMs = seekTo ?: 0; dragMs = null; buffering = false
         audioUri?.let { uri ->
             val mp = MediaPlayer()
@@ -858,6 +863,8 @@ private fun TranscribeScreen(
     fun swapAudioKeepingPlayhead(newUri: Uri) {
         pendingSeekMs = positionMs.takeIf { it > 0 }
         resumeAfterSwap = isPlaying
+        android.util.Log.i("voxsum-play", "SWAP pos=$positionMs pending=$pendingSeekMs " +
+            "playing=$isPlaying to=${newUri.lastPathSegment}")
         audioUri = newUri
     }
 
