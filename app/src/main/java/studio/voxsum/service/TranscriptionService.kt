@@ -390,6 +390,11 @@ class TranscriptionService : LifecycleService() {
                 // cancellation promptly must not wedge the service, so stop anyway after it.
                 val job = pipelineJob
                 Log.i(STOP_TAG, "ACTION_STOP received, job=${job != null} active=${job?.isActive}")
+                // SAVE BEFORE CANCELLING. The pipeline coroutine cannot be counted on to unwind —
+                // see inFlightWav — so the audio is banked here, synchronously, while the service
+                // is still alive. The decoded WAV is already on disk and its writer is flushed by
+                // AudioDecoder's `use`, so what is saved is every second transcribed so far.
+                saveInFlightImport("stop")
                 lifecycleScope.launch {
                     val t0 = System.currentTimeMillis()
                     val drained = runCatching { withTimeout(STOP_DRAIN_MS) { job?.cancelAndJoin() } }
@@ -564,6 +569,21 @@ class TranscriptionService : LifecycleService() {
     // main teardown hop). Exports run OUTSIDE pipelineJob, so both teardowns must consult BOTH: a
     // pipeline finishing must not stopSelf under a live export, and one export must not stop the
     // service under another.
+    /**
+     * The decoded work WAV of the import currently in flight, or null.
+     *
+     * Exists because the pipeline coroutine CANNOT be relied on to save it. Measured on a Boox:
+     * ACTION_STOP's cancelAndJoin times out after the full 15 s and the job ends
+     * jobActive=false jobCompleted=false — cancelled but stuck mid-unwind inside a native ASR call
+     * that never observes cancellation. Its `finally` therefore never runs, which is why three
+     * successive fixes that lived in that finally all did nothing. The stop handler owns the save
+     * instead: it runs on the main thread and always completes.
+     */
+    private var inFlightWav: java.io.File? = null
+    private var inFlightDurationSec = 0
+    /** One-shot: the stop handler and the pipeline both try to save; whoever gets there first wins. */
+    private val importSaved = java.util.concurrent.atomic.AtomicBoolean(false)
+
     private var activeExports = 0
         set(v) { field = v; exportsInFlight = v }
 
@@ -573,6 +593,28 @@ class TranscriptionService : LifecycleService() {
      * out-of-pipeline IO job under the shared foreground, so quitting the app can't truncate the
      * session file mid-write. Emits [TranscriptEvent.LibrarySaved] so the Studio list refreshes.
      */
+    /**
+     * Save the in-flight import's decoded audio into the library, at most once.
+     *
+     * Non-suspending on purpose — [SessionLibrary.promoteRecording] is a file rename — so the stop
+     * handler can call it inline and be sure it completed before the service dies.
+     */
+    private fun saveInFlightImport(reason: String): SessionLibrary.Entry? {
+        val wav = inFlightWav ?: return null
+        val min = WavIo.HEADER + WavIo.SAMPLE_RATE * 2L
+        if (!wav.exists() || wav.length() <= min) {
+            Log.i(STOP_TAG, "saveInFlightImport($reason): nothing to save, len=${if (wav.exists()) wav.length() else -1}")
+            return null
+        }
+        if (!importSaved.compareAndSet(false, true)) return null   // the other side already saved it
+        val entry = runCatching { SessionLibrary.promoteRecording(this, wav, inFlightDurationSec) }
+            .onFailure { Log.w(STOP_TAG, "saveInFlightImport($reason) failed", it) }
+            .getOrNull()
+        Log.i(STOP_TAG, "saveInFlightImport($reason) -> ${entry?.id ?: "NULL"}")
+        if (entry != null) inFlightWav = null
+        return entry
+    }
+
     private fun runPersist(req: PersistRequest?) {
         if (req == null) {
             satisfyForegroundContract()
@@ -843,6 +885,15 @@ class TranscriptionService : LifecycleService() {
             srcFile.parentFile?.let { SessionLibrary.byId(this, it.name) } else null
         var entry: SessionLibrary.Entry? = existing
 
+        // Publish the work WAV so ACTION_STOP can bank it even when this coroutine never unwinds.
+        // Only for a foreground import that does not already own a library entry — a re-run of a
+        // library capture is durable already, and the queue drain owns its own row.
+        if (foreground && existing == null) {
+            inFlightWav = wav
+            inFlightDurationSec = totalDurationSec.toInt()
+            importSaved.set(false)
+        }
+
         val utterances = ArrayList<TranscriptEvent.Utterance>()
         var diarized: Pair<List<TranscriptEvent.Utterance>, Int>? = null
 
@@ -871,15 +922,9 @@ class TranscriptionService : LifecycleService() {
             Log.i("voxsum-promote", "promoteImport foreground=$foreground existing=${existing?.id} " +
                 "entry=${entry?.id} wavExists=${wav.exists()} wavLen=$len min=${WavIo.HEADER + WavIo.SAMPLE_RATE * 2L}")
             if (!foreground || existing != null || entry != null) return@withContext
-            // A WAV with only a header is a decode that never produced audio — nothing to save.
-            if (len <= WavIo.HEADER + WavIo.SAMPLE_RATE * 2L) {
-                Log.w("voxsum-promote", "nothing to save: decoded WAV is $len bytes")
-                return@withContext
-            }
-            entry = runCatching {
-                SessionLibrary.promoteRecording(this@TranscriptionService, wav, totalDurationSec.toInt())
-            }.onFailure { Log.w("voxsum-promote", "promoteRecording threw", it) }.getOrNull()
-            Log.i("voxsum-promote", "promoted -> ${entry?.id ?: "NULL"}")
+            // Shared one-shot with the stop handler: on a normal finish this saves, and after an
+            // abort it is already done and returns null (harmlessly) — whoever gets there first.
+            entry = saveInFlightImport("pipeline")
             // The decoded WAV just moved into the entry — repoint the player (playhead carried).
             entry?.let { emitEvent(TranscriptEvent.RecordingSaved(Uri.fromFile(it.wavFile).toString())) }
         }
@@ -990,6 +1035,7 @@ class TranscriptionService : LifecycleService() {
                     emitEvent(TranscriptEvent.LibrarySaved(Uri.fromFile(updated.sessionFile).toString(), updated.title))
                 }
             }.onFailure { android.util.Log.w("voxsum-library", "could not auto-save import", it) }
+            inFlightWav = null   // fully attached; nothing left for a later stop to bank
         }
         return result
     }
