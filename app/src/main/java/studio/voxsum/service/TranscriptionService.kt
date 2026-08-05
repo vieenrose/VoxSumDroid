@@ -100,6 +100,9 @@ class TranscriptionService : LifecycleService() {
          *  service regardless. Generous: the save is a file rename, but the coroutine first has to
          *  unwind out of a native ASR call that only checks cancellation between chunks. */
         private const val STOP_DRAIN_MS = 15_000L
+
+        /** One tag for the whole abort path, so a device run can be read with a single filter. */
+        private const val STOP_TAG = "voxsum-stop"
         const val ACTION_RECORD = "studio.voxsum.RECORD"
         const val ACTION_SUMMARIZE = "studio.voxsum.SUMMARIZE"
         // Standalone re-diarize (Re-detect speakers): speaker detection only, no re-transcription.
@@ -386,10 +389,20 @@ class TranscriptionService : LifecycleService() {
                 // The timeout is the safety valve: a native ASR/decode call that does not observe
                 // cancellation promptly must not wedge the service, so stop anyway after it.
                 val job = pipelineJob
+                Log.i(STOP_TAG, "ACTION_STOP received, job=${job != null} active=${job?.isActive}")
                 lifecycleScope.launch {
-                    runCatching { withTimeout(STOP_DRAIN_MS) { job?.cancelAndJoin() } }
+                    val t0 = System.currentTimeMillis()
+                    val drained = runCatching { withTimeout(STOP_DRAIN_MS) { job?.cancelAndJoin() } }
+                    val ms = System.currentTimeMillis() - t0
+                    // The number that decides the design: if this reports a TIMEOUT, the pipeline
+                    // coroutine never unwound, so no amount of finally/NonCancellable in it can save
+                    // anything and the save must move into this handler instead.
+                    Log.i(STOP_TAG, "drain finished in ${ms}ms drained=${drained.isSuccess} " +
+                        "err=${drained.exceptionOrNull()?.let { it::class.simpleName }} " +
+                        "jobActive=${job?.isActive} jobCompleted=${job?.isCompleted}")
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf(lastStartId)
+                    Log.i(STOP_TAG, "service stopped")
                 }
                 return START_NOT_STICKY
             }
@@ -935,7 +948,11 @@ class TranscriptionService : LifecycleService() {
         } finally {
             // Whatever happened — finished, failed, or aborted — the audio is on disk and belongs
             // in the library. promoteImport runs under NonCancellable; see it for why that matters.
+            // This log distinguishes "the finally never ran" from "it ran and returned early",
+            // which three failed fixes could not tell apart.
+            Log.i(STOP_TAG, "runPipeline finally ENTERED")
             promoteImport()
+            Log.i(STOP_TAG, "runPipeline finally DONE entry=${entry?.id ?: "null"}")
         }
 
         // The decoded 16 kHz WAV is the player source now (per the streaming design), unless the
