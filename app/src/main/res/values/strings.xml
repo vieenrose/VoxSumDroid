@@ -68,7 +68,7 @@
     <string name="settings_vad_threshold">VAD threshold</string>
     <string name="settings_diarization">Diarization</string>
     <string name="settings_identify_speakers">Identify speakers</string>
-    <string name="settings_precise_diarization">Precise speaker boundaries (slower)</string>
+    <string name="settings_precise_diarization">Precise speaker boundaries (best for meetings)</string>
     <string name="settings_summary_options">Summary Options</string>
     <string name="settings_summary_language">Chinese script</string>
     <string name="summary_language_auto">Match transcript</string>
