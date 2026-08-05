@@ -71,7 +71,9 @@ private typealias Update = ((AppState) -> AppState) -> Unit
  *  on Dispatchers.Default/IO; [update] mutations are posted back via the caller's (UI) dispatcher. */
 suspend fun runPipeline(file: File, config: TranscriptionConfig, style: SummaryStyle, update: Update, presetTitle: String? = null) {
     // A supplied source title (podcast episode / YouTube video) is used verbatim and marked
-    // titleEdited so it stays out of the update tree — only an explicit Re-title changes it. Blank
+    // titleEdited so the summarizer cannot replace it — the source's own name beats a guess from
+    // the transcript. Only a manual rename changes it (the Re-title action was removed: it existed
+    // only to overwrite a title with a generated one, which is what this rule forbids). Blank
     // → summarize() generates a title as usual.
     val useSourceTitle = !presetTitle.isNullOrBlank()
     update {
