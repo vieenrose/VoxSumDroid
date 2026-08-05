@@ -24,6 +24,7 @@ import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.isActive
 import studio.voxsum.core.asr.moss.MossWindower
 import kotlinx.coroutines.flow.buffer
@@ -94,6 +95,11 @@ class TranscriptionService : LifecycleService() {
         const val EXTRA_WITH_TITLE = "with_title"   // ACTION_SUMMARIZE: also regenerate the title
         const val EXTRA_RUN_GEN = "run_gen"         // the UI sessionGen that owns this run (event tagging)
         const val ACTION_STOP = "studio.voxsum.STOP"
+
+        /** How long a Stop waits for the pipeline's teardown (the library save) before stopping the
+         *  service regardless. Generous: the save is a file rename, but the coroutine first has to
+         *  unwind out of a native ASR call that only checks cancellation between chunks. */
+        private const val STOP_DRAIN_MS = 15_000L
         const val ACTION_RECORD = "studio.voxsum.RECORD"
         const val ACTION_SUMMARIZE = "studio.voxsum.SUMMARIZE"
         // Standalone re-diarize (Re-detect speakers): speaker detection only, no re-transcription.
@@ -369,9 +375,22 @@ class TranscriptionService : LifecycleService() {
         when (intent?.action) {
             ACTION_STOP -> {
                 activeLlm?.cancel()
-                pipelineJob?.cancel()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf(lastStartId)
+                // CANCEL, THEN WAIT, THEN STOP. `cancel()` only REQUESTS cancellation and returns
+                // immediately; calling stopSelf() straight after destroyed the service — and with it
+                // lifecycleScope — before the cancelled pipeline coroutine was ever scheduled again,
+                // so its `finally` blocks never ran. That is why aborting an import lost the audio
+                // even after the promote was moved into a finally and wrapped in NonCancellable:
+                // the continuation holding them never executed at all. Measured on a Boox against
+                // v0.40.2, which logged nothing on abort while logging correctly on completion.
+                //
+                // The timeout is the safety valve: a native ASR/decode call that does not observe
+                // cancellation promptly must not wedge the service, so stop anyway after it.
+                val job = pipelineJob
+                lifecycleScope.launch {
+                    runCatching { withTimeout(STOP_DRAIN_MS) { job?.cancelAndJoin() } }
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf(lastStartId)
+                }
                 return START_NOT_STICKY
             }
             // End recording but let the job carry on into diarization/summary.
