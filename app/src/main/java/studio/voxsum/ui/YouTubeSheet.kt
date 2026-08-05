@@ -52,7 +52,7 @@ import studio.voxsum.ui.theme.voxSumTextFieldColors
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
+fun YouTubeSheet(onAudioReady: (Uri, String?) -> Unit, onDismiss: () -> Unit) {
     val pal = LocalVoxSumPalette.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -70,9 +70,9 @@ fun YouTubeSheet(onAudioReady: (Uri) -> Unit, onDismiss: () -> Unit) {
             runCatching {
                 val audio = YouTube.resolve(url)
                 statusRes = R.string.dl_downloading        // resolved → now streaming the audio
-                YouTube.download(context, audio) { p -> progress = p }
+                YouTube.download(context, audio) { p -> progress = p } to audio.title
             }
-                .onSuccess { uri -> busy = false; onAudioReady(uri) }
+                .onSuccess { (uri, vidTitle) -> busy = false; onAudioReady(uri, vidTitle) }
                 .onFailure { busy = false; error = it.message ?: context.getString(R.string.youtube_fetch_failed) }
         }
     }

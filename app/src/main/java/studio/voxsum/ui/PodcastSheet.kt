@@ -15,7 +15,7 @@ import studio.voxsum.ui.theme.LocalVoxSumPalette
 /** Podcast search/browse/download in a bottom sheet (hosts the existing [PodcastPanel]). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PodcastSheet(onEpisodeReady: (Uri) -> Unit, onDismiss: () -> Unit) {
+fun PodcastSheet(onEpisodeReady: (Uri, String?) -> Unit, onDismiss: () -> Unit) {
     val pal = LocalVoxSumPalette.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(

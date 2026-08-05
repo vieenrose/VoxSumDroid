@@ -49,7 +49,7 @@ import studio.voxsum.ui.theme.voxSumTextFieldColors
  * and hands its file:// Uri to [onEpisodeReady], reusing the existing pipeline.
  */
 @Composable
-fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
+fun PodcastPanel(onEpisodeReady: (Uri, String?) -> Unit) {
     val pal = LocalVoxSumPalette.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -142,7 +142,7 @@ fun PodcastPanel(onEpisodeReady: (Uri) -> Unit) {
                                     Podcast.downloadEpisode(context, e, onProgress = { progress = it })
                                 }.getOrElse { error = it.message; null }
                                 busy = false
-                                uri?.let(onEpisodeReady)
+                                uri?.let { onEpisodeReady(it, e.title) }
                             }
                         })
                     }

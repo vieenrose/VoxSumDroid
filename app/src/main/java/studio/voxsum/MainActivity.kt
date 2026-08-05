@@ -965,13 +965,23 @@ private fun TranscribeScreen(
     }
 
     // Start a run from any audio Uri (SAF pick or podcast download): reset session + go.
-    fun launchAudio(uri: Uri) {
+    /**
+     * @param sourceTitle the name the audio arrived with — a podcast episode or YouTube video
+     *   title. Pinned exactly like a user edit ([titleEdited]) so the summarizer's generated title
+     *   never replaces it: the source's own name is better than a guess from the transcript, and
+     *   it is what the user recognises the session by. Null for a plain file import, which has no
+     *   name worth keeping, and the summarizer fills that in.
+     */
+    fun launchAudio(uri: Uri, sourceTitle: String? = null) {
         TranscriptionConfig.Holder.config = config   // apply settings to this run
         clearSession()
         libraryDir = SessionLibrary.entryDirOf(context, uri)   // non-null when re-running a library capture
         recordingRun = libraryDir != null
         screen = Screen.Session   // watch the import/transcription live
-        running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri; onPicked(uri, sessionGen)
+        running = true; transcriptReady = false; progress = 0f; status = context.getString(R.string.status_starting); audioUri = uri
+        // AFTER clearSession(), which resets both — otherwise the reset wipes the inherited name.
+        sourceTitle?.takeIf { it.isNotBlank() }?.let { title = it.trim(); titleEdited = true }
+        onPicked(uri, sessionGen)
     }
 
     // Offer to finish a recording the OS killed mid-capture. Requires an explicit choice (no
@@ -2429,7 +2439,7 @@ private fun TranscribeScreen(
     }
     if (showPodcastSheet) {
         PodcastSheet(
-            onEpisodeReady = { uri -> launchAudio(uri) },
+            onEpisodeReady = { uri, epTitle -> launchAudio(uri, epTitle) },
             onDismiss = { showPodcastSheet = false },
         )
     }
@@ -2452,7 +2462,7 @@ private fun TranscribeScreen(
     }
     if (showYouTubeSheet) {
         YouTubeSheet(
-            onAudioReady = { uri -> launchAudio(uri) },
+            onAudioReady = { uri, vidTitle -> launchAudio(uri, vidTitle) },
             onDismiss = { showYouTubeSheet = false },
         )
     }

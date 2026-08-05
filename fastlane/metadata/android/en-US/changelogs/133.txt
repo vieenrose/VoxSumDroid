@@ -1,0 +1,2 @@
+• Podcast and YouTube sessions keep their real name. The episode or video title is now used as the session title instead of one guessed from the transcript, and the summarizer never replaces it.
+• The playback cursor no longer jumps back to the start when processing finishes. If you were listening at 2:46 while the summary was still being written, you stay at 2:46.
