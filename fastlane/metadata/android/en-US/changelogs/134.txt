@@ -1,0 +1,1 @@
+• The speaker-detection setting now says what it is for: "Precise speaker boundaries (best for meetings)". It is tuned for meetings and is the right default there; if you mostly record podcasts or fast-paced interviews, turning it off detects speakers more accurately on that kind of audio.
