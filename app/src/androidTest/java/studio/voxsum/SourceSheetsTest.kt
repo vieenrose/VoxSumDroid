@@ -36,7 +36,7 @@ class SourceSheetsTest {
     // --- PodcastPanel ------------------------------------------------------------------------
 
     @Test fun podcastSearchButtonDisabledUntilQueryTyped() {
-        compose.setContent { PodcastPanel(onEpisodeReady = {}) }
+        compose.setContent { PodcastPanel(onEpisodeReady = { _, _ -> }) }
         compose.onNodeWithText(str(R.string.podcast_search_hint)).assertIsDisplayed()
         compose.onNodeWithText(str(R.string.podcast_search)).assertIsNotEnabled()
         compose.onNode(hasSetTextAction()).performTextInput("news")
@@ -44,7 +44,7 @@ class SourceSheetsTest {
     }
 
     @Test fun podcastSearchCompletesOverNetwork() {
-        compose.setContent { PodcastPanel(onEpisodeReady = {}) }
+        compose.setContent { PodcastPanel(onEpisodeReady = { _, _ -> }) }
         compose.onNode(hasSetTextAction()).performTextInput("BBC")
         compose.onNodeWithText(str(R.string.podcast_search)).performClick()
         searchCleared()   // the busy "searching" bar must clear within 30 s (not hang)
@@ -54,25 +54,25 @@ class SourceSheetsTest {
     // --- YouTubeSheet ------------------------------------------------------------------------
 
     @Test fun youtubeRendersTitleAndField() {
-        compose.setContent { YouTubeSheet(onAudioReady = {}, onDismiss = {}) }
+        compose.setContent { YouTubeSheet(onAudioReady = { _, _ -> }, onDismiss = {}) }
         compose.onNodeWithText(str(R.string.source_youtube)).assertIsDisplayed()
         compose.onNodeWithText(str(R.string.youtube_search_hint)).assertIsDisplayed()
     }
 
     @Test fun youtubeButtonLabelTogglesBetweenSearchAndGo() {
-        compose.setContent { YouTubeSheet(onAudioReady = {}, onDismiss = {}) }
+        compose.setContent { YouTubeSheet(onAudioReady = { _, _ -> }, onDismiss = {}) }
         compose.onNode(hasSetTextAction()).performTextInput("lofi beats")
         compose.onNodeWithText(str(R.string.youtube_search)).assertIsDisplayed()   // keyword → Search
     }
 
     @Test fun youtubeButtonSaysGoForAUrl() {
-        compose.setContent { YouTubeSheet(onAudioReady = {}, onDismiss = {}) }
+        compose.setContent { YouTubeSheet(onAudioReady = { _, _ -> }, onDismiss = {}) }
         compose.onNode(hasSetTextAction()).performTextInput("https://youtu.be/dQw4w9WgXcQ")
         compose.onNodeWithText(str(R.string.youtube_go)).assertIsDisplayed()       // URL → Go
     }
 
     @Test fun youtubeSearchCompletesOverNetwork() {
-        compose.setContent { YouTubeSheet(onAudioReady = {}, onDismiss = {}) }
+        compose.setContent { YouTubeSheet(onAudioReady = { _, _ -> }, onDismiss = {}) }
         compose.onNode(hasSetTextAction()).performTextInput("lofi")
         compose.onNodeWithText(str(R.string.youtube_search)).performClick()
         searchCleared()   // resolves to results or a clean error within 30 s — must not hang

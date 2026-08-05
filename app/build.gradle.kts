@@ -137,7 +137,12 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-    // Also in the test APK: with a suffixed application id the Compose rules launch
-    // ComponentActivity from the TEST package, which must therefore declare it.
-    androidTestImplementation("androidx.compose.ui:ui-test-manifest")
+    // Only under -PisolatedTestId: a suffixed application id makes the TEST package the one
+    // Compose rules launch ComponentActivity from, which must therefore declare it. Applying
+    // this unconditionally breaks the default (non-isolated) run instead: androidx.test then
+    // resolves ComponentActivity against the test package even though targetPackage is the
+    // unsuffixed app id, and every Compose test fails to launch its host activity.
+    if (project.hasProperty("isolatedTestId")) {
+        androidTestImplementation("androidx.compose.ui:ui-test-manifest")
+    }
 }
