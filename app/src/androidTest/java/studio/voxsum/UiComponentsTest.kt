@@ -1,5 +1,7 @@
 package studio.voxsum
 
+import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -8,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -20,6 +23,7 @@ import studio.voxsum.ui.SpeakerStatsPanel
 import studio.voxsum.ui.UpdateBanner
 import studio.voxsum.ui.components.DownloadStatusBar
 import studio.voxsum.ui.components.GradientButton
+import studio.voxsum.ui.renderMarkdown
 
 /**
  * Isolated Compose tests for the leaf UI components — each hosted with controlled state and spy
@@ -134,5 +138,34 @@ class UiComponentsTest {
         )
         compose.setContent { SpeakerStatsPanel(stats) }
         compose.onNodeWithText(ctx.resources.getQuantityString(R.plurals.speaker_count, 2, 2)).assertIsDisplayed()
+    }
+
+    // --- renderMarkdown anchors ---------------------------------------------------------------
+    // NotesSection/CollapsibleMarkdown are private to MainActivity.kt, but both are thin wrappers
+    // around this same renderMarkdown() call — exercising it here proves the tap-to-seek wiring
+    // (LinkAnnotation.Clickable -> onSeek) without needing a live ASR/summarizer session.
+
+    @Test fun anchorTapSeeksToMinuteSecondTimestamp() {
+        var seekedMs: Int? = null
+        compose.setContent {
+            Text(renderMarkdown("[1:23]", anchorColor = Color.Blue, onSeek = { seekedMs = it }))
+        }
+        compose.onNodeWithText("1:23").assertIsDisplayed().performClick()
+        assertEquals(83_000, seekedMs)
+    }
+
+    @Test fun anchorTapSeeksToHourMinuteSecondTimestamp() {
+        var seekedMs: Int? = null
+        compose.setContent {
+            Text(renderMarkdown("[1:02:03]", anchorColor = Color.Blue, onSeek = { seekedMs = it }))
+        }
+        compose.onNodeWithText("1:02:03").assertIsDisplayed().performClick()
+        assertEquals((1 * 3600 + 2 * 60 + 3) * 1000, seekedMs)
+    }
+
+    @Test fun anchorRendersAsPlainTextWithoutOnSeek() {
+        // No player to seek (export/preview path) -> brackets stay literal, nothing to tap.
+        compose.setContent { Text(renderMarkdown("Discussed budget [1:23]")) }
+        compose.onNodeWithText("Discussed budget [1:23]").assertIsDisplayed()
     }
 }

@@ -819,6 +819,19 @@ private fun TranscribeScreen(
             }
         }
     }
+
+    /**
+     * Jump the recording to [ms] and play from there — what tapping a summary bullet's `[m:ss]`
+     * anchor does. Declared out here rather than beside the transport's own doSeek because the
+     * summary and notes cards are rendered far above the player in the same scroll, and an anchor
+     * is only useful if it can reach the player from wherever it is read.
+     */
+    fun seekAndPlay(ms: Int) {
+        if (audioUri == null) return
+        positionMs = ms.coerceAtLeast(0).let { if (durationMs > 0) it.coerceAtMost(durationMs) else it }
+        resumeOrRecover(positionMs)
+    }
+
     // Also keyed on player: a source swap must cancel the old loop — its gentle start() retry
     // otherwise races the NEW player's async prepare (start() on an unprepared/mid-reset player
     // drives it to the Error state and loses the carried-over playhead/auto-resume).
@@ -1950,6 +1963,10 @@ private fun TranscribeScreen(
 
     // Title / summary / speaker-stats overview — the Summary tab in portrait, the left pane in
     // landscape. Self-spaces its cards so both call sites get consistent gaps.
+    // onSeek only when there IS audio to seek — a summary opened without its recording still
+    // shows the timestamps, just not as tap targets. Hoisted above both card groups since the
+    // prose SUMMARY/ACTIONS cards and the v2 NOTES sections all need the same callback.
+    val anchorSeek: ((Int) -> Unit)? = if (audioUri != null) ({ ms -> seekAndPlay(ms) }) else null
     val summaryCards: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             title?.let { t ->
@@ -1967,18 +1984,19 @@ private fun TranscribeScreen(
                         val cm = context.getSystemService(android.content.ClipboardManager::class.java)
                         cm?.setPrimaryClip(android.content.ClipData.newPlainText("VoxSum summary", s))
                         scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.summary_copied)) }
-                    })
+                    },
+                    onSeek = anchorSeek)
             }
             // Sections the v2 NOTES format adds and the older prose summary never had. Rendered
             // only when non-empty: the format requires all six keys to be present, so a meeting
             // with no decisions still emits "DECISIONS:\n-", and an empty card would be noise.
             meetingNotes?.let { n ->
-                NotesSection(stringResource(R.string.notes_decisions), n.decisions)
-                NotesSection(stringResource(R.string.notes_open), n.open)
-                NotesSection(stringResource(R.string.notes_topics), n.topics)
+                NotesSection(stringResource(R.string.notes_decisions), n.decisions, anchorSeek)
+                NotesSection(stringResource(R.string.notes_open), n.open, anchorSeek)
+                NotesSection(stringResource(R.string.notes_topics), n.topics, anchorSeek)
                 // Keys a future model version adds. The spec requires them to survive parsing, so
                 // show them rather than silently dropping content the user's model produced.
-                n.extra.forEach { (key, lines) -> NotesSection(key, lines) }
+                n.extra.forEach { (key, lines) -> NotesSection(key, lines, anchorSeek) }
             }
             if (stats.perSpeaker.isNotEmpty()) SpeakerStatsPanel(stats = stats)
             if (title == null && summary == null && stats.perSpeaker.isEmpty()) {
@@ -2001,7 +2019,8 @@ private fun TranscribeScreen(
                         val cm = context.getSystemService(android.content.ClipboardManager::class.java)
                         cm?.setPrimaryClip(android.content.ClipData.newPlainText("VoxSum action items", ai))
                         scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.action_items_copied)) }
-                    })
+                    },
+                    onSeek = anchorSeek)
             }
             if (actionItems == null) {
                 Text(stringResource(R.string.actions_pending_hint), color = pal.Slate400, modifier = Modifier.padding(top = 24.dp))
@@ -2550,7 +2569,12 @@ private fun OpeningOverlay() {
 /** One section of the v2 structured notes — a localized header over its bullets. The section
  *  KEYS are wire format and never shown; this renders the app's own heading. */
 @Composable
-private fun NotesSection(header: String, items: List<String>) {
+private fun NotesSection(
+    header: String,
+    items: List<String>,
+    /** Seek the player to a millisecond offset — makes each bullet's [m:ss] anchor a tap target. */
+    onSeek: ((Int) -> Unit)? = null,
+) {
     if (items.isEmpty()) return
     val pal = LocalVoxSumPalette.current
     Card(colors = CardDefaults.cardColors(containerColor = pal.Slate800)) {
@@ -2559,8 +2583,15 @@ private fun NotesSection(header: String, items: List<String>) {
                  fontWeight = FontWeight.Bold, color = pal.Slate200)
             Spacer(Modifier.height(6.dp))
             items.forEach {
-                Text("• $it", style = MaterialTheme.typography.bodyMedium,
-                     color = pal.Slate200, modifier = Modifier.padding(bottom = 2.dp))
+                // Through renderMarkdown so the bullet's trailing [m:ss] becomes a tap target that
+                // seeks the recording — the anchor exists so a claim can be CHECKED, and reading a
+                // timestamp then hunting for it with the scrubber defeats that.
+                Text(
+                    renderMarkdown("- $it", anchorColor = if (onSeek != null) pal.Sky else null,
+                                   onSeek = onSeek),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = pal.Slate200, modifier = Modifier.padding(bottom = 2.dp),
+                )
             }
         }
     }
@@ -2609,13 +2640,19 @@ private fun TitleCard(
 /** Markdown display folded past [collapsedMaxLines] behind Show more/Show less — a long summary
  *  must not push the transcript below the fold. Tap the text to edit, as before. */
 @Composable
-private fun CollapsibleMarkdown(text: String, collapsedMaxLines: Int, onBeginEdit: () -> Unit) {
+private fun CollapsibleMarkdown(
+    text: String,
+    collapsedMaxLines: Int,
+    onBeginEdit: () -> Unit,
+    /** Seek the player to a millisecond offset. Null → anchors render as plain text. */
+    onSeek: ((Int) -> Unit)? = null,
+) {
     val pal = LocalVoxSumPalette.current
     // remember(text): a fresh summary (or each streamed partial) starts collapsed.
     var expanded by remember(text) { mutableStateOf(false) }
     var overflowed by remember(text) { mutableStateOf(false) }
     Text(
-        renderMarkdown(text),
+        renderMarkdown(text, anchorColor = if (onSeek != null) pal.Sky else null, onSeek = onSeek),
         style = MaterialTheme.typography.bodyMedium,
         color = pal.Slate200,
         maxLines = if (expanded) Int.MAX_VALUE else collapsedMaxLines,
@@ -2638,6 +2675,7 @@ private fun CollapsibleMarkdown(text: String, collapsedMaxLines: Int, onBeginEdi
 private fun SummaryCard(
     summary: String, llm: String, isEditing: Boolean,
     onBeginEdit: () -> Unit, onSave: (String) -> Unit, onCancel: () -> Unit, onCopy: () -> Unit,
+    onSeek: ((Int) -> Unit)? = null,
 ) {
     val pal = LocalVoxSumPalette.current
     SectionCard {
@@ -2663,7 +2701,7 @@ private fun SummaryCard(
         if (isEditing) {
             UtteranceTextEditor(initial = summary, onSave = onSave, onCancel = onCancel, minLines = 4)
         } else {
-            CollapsibleMarkdown(summary, collapsedMaxLines = 12, onBeginEdit = onBeginEdit)
+            CollapsibleMarkdown(summary, collapsedMaxLines = 12, onBeginEdit = onBeginEdit, onSeek = onSeek)
         }
         // Faithfulness caution — UI chrome only, never part of the exported summary text.
         // The shipped summarizer is a PLACEHOLDER running un-fine-tuned base weights, which can
@@ -2683,6 +2721,7 @@ private fun SummaryCard(
 private fun ActionItemsCard(
     text: String, isEditing: Boolean,
     onBeginEdit: () -> Unit, onSave: (String) -> Unit, onCancel: () -> Unit, onCopy: () -> Unit,
+    onSeek: ((Int) -> Unit)? = null,
 ) {
     val pal = LocalVoxSumPalette.current
     SectionCard {
@@ -2706,7 +2745,7 @@ private fun ActionItemsCard(
         if (isEditing) {
             UtteranceTextEditor(initial = text, onSave = onSave, onCancel = onCancel, minLines = 3)
         } else {
-            CollapsibleMarkdown(text, collapsedMaxLines = 8, onBeginEdit = onBeginEdit)
+            CollapsibleMarkdown(text, collapsedMaxLines = 8, onBeginEdit = onBeginEdit, onSeek = onSeek)
         }
     }
 }
