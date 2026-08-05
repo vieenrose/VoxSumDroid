@@ -31,10 +31,24 @@ data class TranscriptionConfig(
     // when it proved mistuned for CAM++ and silently merged speakers).
     val numSpeakers: Int = -1,
     // Segmentation-first diarization (pyannote local segmenter + CAM++ + auto-k): speaker
-    // boundaries at frame resolution instead of silence boundaries. Large accuracy win on
-    // meetings (AMI: hard cases 55-60% → 97-98% attribution) but the segmenter pass costs
-    // ~0.5× realtime on slow ARM devices — this switch lets those fall back to the legacy
-    // per-utterance flow.
+    // boundaries at frame resolution instead of silence boundaries.
+    //
+    // DEFAULT TRUE, decided 2026-08-05: this app targets MEETINGS, and the split is by content
+    // type, measured on six recordings with confirmed speaker counts (~/voxsum-testdata/RESULTS.md):
+    //
+    //     meetings (2 clips):            per-utterance 1/2   segmentation-first 2/2
+    //     podcasts/interviews (4 clips): per-utterance 4/4   segmentation-first 2/4
+    //
+    // So this reconciles two results that looked contradictory: the AMI/AISHELL sweep behind the
+    // original tuning measured meetings and favoured this path (attribution 82.3->95.6% AMI,
+    // 67.1->92.1% AISHELL); the podcast clips contradict it; both are right. Turning it off would
+    // trade a measured meeting regression for podcast accuracy, which is the wrong way round for
+    // this product. Podcast-heavy users can switch it off in Settings.
+    //
+    // The known weakness is anchor starvation: SEG_ANCHOR_SOLO_SEC demands a 2 s uninterrupted
+    // solo run, which rapid two/three-way turn-taking rarely provides. An anchor-count floor was
+    // tried and REVERTED — it regressed the interview to k=1. Any real fix belongs on the
+    // AMI/AISHELL sweep, not on these clips.
     val preciseDiarization: Boolean = true,
 
     // --- Summarization ---
