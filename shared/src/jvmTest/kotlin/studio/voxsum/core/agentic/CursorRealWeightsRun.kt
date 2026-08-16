@@ -107,6 +107,17 @@ class CursorRealWeightsRun {
             println("[cursor] sections: summary=${it.summary.size} decisions=${it.decisions.size} " +
                 "actions=${it.actions.size} open=${it.open.size} topics=${it.topics.size}")
         }
+        // FAITHFULNESS. The grounding gate we ship is blind to inversion (an inverted bullet
+        // shares nearly every token with the truth, so it scores as maximally grounded), and the
+        // 350M judge answers SUPPORTED to fabrications on real zh evidence. This is the one
+        // faithfulness number here that no model can talk out of.
+        val findings = CursorInversion.audit(out, utterances)
+        println("[cursor] INVERSION ${CursorInversion.summarize(findings)}")
+        findings.filter { it.verdict != CursorInversion.Verdict.CONSISTENT }.forEach {
+            println("[cursor]   ${it.verdict} | ${it.section} | ${it.bullet}" +
+                (it.evidence?.let { e -> "\n[cursor]      vs $e" } ?: ""))
+        }
+
         // Every anchor must point at a real line — a broken [m:ss] link undermines the bullets
         // that are correct, because the reader cannot tell which is which.
         assert(bogus.isEmpty()) { "anchors resolving to no transcript line: $bogus" }
