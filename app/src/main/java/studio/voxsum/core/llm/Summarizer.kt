@@ -2,8 +2,9 @@ package studio.voxsum.core.llm
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.isActive
-import studio.voxsum.core.agentic.AgentPrompts
-import studio.voxsum.core.agentic.MeetingAgent
+import studio.voxsum.core.agentic.CursorAgent
+import studio.voxsum.core.agentic.CursorChat
+import studio.voxsum.core.agentic.CursorVerifier
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.models.ChatTemplate
 
@@ -24,6 +25,21 @@ import studio.voxsum.core.models.ChatTemplate
 class Summarizer(
     private val llm: TextGen,
     private val template: ChatTemplate = ChatTemplate.CHATML,
+    /**
+     * The in-stream faithfulness verifier ([studio.voxsum.core.models.LlmRegistry.VERIFIER]).
+     *
+     * Part of the summarizer, not an option: without it the CURSOR student measures 2/20
+     * inversions instead of 0/20. Nullable only so tests and the non-agentic paths can run
+     * without loading a second model; a null here is logged loudly at run time.
+     */
+    private val verifierLlm: TextGen? = null,
+    /**
+     * Diagnostic sink for the agent's op statistics and the unverified-run warning.
+     *
+     * A lambda, not `android.util.Log`: this class is exercised by the JVM unit tests, where
+     * unmocked Android APIs throw. The service passes a real logger.
+     */
+    private val log: (String) -> Unit = {},
     /** Script post-conversion (OpenCC s2tw for Traditional Chinese); identity when not needed. */
     private val convert: (String) -> String = { it },
     /** Format directives from the chosen SummaryStyle (default = bullets) + their token budgets. */
@@ -42,25 +58,25 @@ class Summarizer(
      *  model ignores the format, so it is safe to leave on for a model that was not tuned for it. */
     private val structuredNotes: Boolean = true,
     /**
-     * Produce the NOTES with [MeetingAgent] (chunk -> per-section merge -> title) rather than one
+     * Produce the NOTES with [CursorAgent] (one evolving state, edited op by op) rather than one
      * prompt holding the whole transcript.
      *
      * ON by default. What it buys, concretely, is that transcript length stops being a limit: the
      * model sees one chunk at a time, so a 2-hour meeting no longer meets a refusal, and the
      * window (see [agentContext]) stops growing with the recording.
      *
-     * The published agent harness reports it also IMPROVING quality over single-pass on 16
-     * held-out long meetings (faith 4.00 -> 4.75, inversions 25.0% -> 6.2%, 8/16 -> 16/16
-     * completed). Those numbers were measured with a checkpoint trained on the harness's own
-     * per-chunk contract, which is NOT what ships here — see [AgentPrompts]. We run the same
-     * ARCHITECTURE with the prompts these weights know, which is the long-input strategy their
-     * model card prescribes, so treat the quality figures as the harness's, not as ours. The
-     * length property is the part we have verified on device.
+     * Unlike the pipeline this replaced, the checkpoint IS trained on the protocol we send it,
+     * so the published quality figures apply to what we actually run. Measured by us on x86
+     * with the deployed Kotlin, n=20 on the publisher's tier: INVERT 0/20 with in-stream
+     * verification, against 3/20 for a 9B map-reduce baseline.
+     *
+     * Verified on the reference device (OPPO CPH2371) through the real foreground service:
+     * 0 malformed ops, anchors resolving, ~170 s per chunk at 2 threads.
      */
     private val agentic: Boolean = true,
-    /** Transcript tokens per agent call. The knob that trades wall-clock against call count:
-     *  larger chunks mean fewer calls but deeper (slower per-token) prefill, and quality is
-     *  measured to fall off well before the window is full. See [MeetingAgent]. */
+    /** Transcript tokens per agent call — 2048, the size the CURSOR checkpoint was trained at,
+     *  not a tuning knob. Larger chunks also mean fewer but deeper (slower per-token) prefills.
+     *  See [studio.voxsum.core.agentic.CursorChunker]. */
     private val chunkTokens: Int = AGENT_CHUNK_TOKENS,
 ) {
 
@@ -206,7 +222,7 @@ class Summarizer(
     /**
      * Applies the model's chat template to every prompt on its way to the engine.
      *
-     * REQUIRED, and its absence is silent. [MeetingAgent] hands [TextGen] a bare instruction
+     * REQUIRED, and its absence is silent. The agent hands [TextGen] a bare instruction
      * because the reference implementation ran on LiteRT-LM, whose bundle carries its own
      * template and applies it in the runtime. Our JNI tokenizes the string it is given and never
      * calls `llama_chat_apply_template`, so an unwrapped prompt is not a question to the model —
@@ -228,7 +244,7 @@ class Summarizer(
     }
 
     /**
-     * The agentic NOTES path: [MeetingAgent] reads the transcript chunk by chunk, merges each
+     * The agentic NOTES path: [CursorAgent] reads the transcript chunk by chunk, editing one
      * section with the source lines in view, and derives a title — all orchestration in Kotlin,
      * the model only ever writing notes about text it can currently see.
      *
@@ -248,13 +264,38 @@ class Summarizer(
     ) {
         send(TranscriptEvent.Progress(0f))
         trySend(TranscriptEvent.Partial("", reset = true))
-        val agent = MeetingAgent(
-            llm = ChatWrapped(llm, template),
-            // The agent instructs the model in the language it is READING; the summary comes back
+
+        // Both models take a real SYSTEM turn — their protocol and rubric are what they were
+        // fine-tuned against, so demoting either into the user turn is the same silent failure
+        // as not wrapping at all. See ChatTemplate.MINICPM5.
+        val studentChat = CursorChat { system, user, maxTokens ->
+            llm.generateBlocking(SummaryText.wrap(template, system, user), maxTokens)
+        }
+        val verifier = verifierLlm?.let { v ->
+            CursorVerifier(CursorChat { system, user, maxTokens ->
+                v.generateBlocking(SummaryText.wrap(ChatTemplate.CHATML, system, user), maxTokens)
+            })
+        }
+        if (verifier == null) {
+            // Not fatal — the student still produces notes — but it is a measured downgrade
+            // from 0/20 inversions to 2/20, so it must never pass unnoticed.
+            log(
+                "no verifier loaded: running the student unverified (measured 2/20 inversions, " +
+                    "vs 0/20 with in-stream verification)"
+            )
+        }
+
+        val agent = CursorAgent(
+            student = studentChat,
+            // The agent instructs the model in the language it is READING; the notes come back
             // in that same language, which is the only mode this build offers.
-            lang = if (transcriptLanguage(transcript) == "zh") MeetingAgent.Lang.ZH_TW
-                   else MeetingAgent.Lang.EN,
+            lang = if (transcriptLanguage(transcript) == "zh") CursorAgent.Lang.ZH_TW
+                   else CursorAgent.Lang.EN,
+            // The engine's real tokenizer. The chunk budget is normative — a heuristic that
+            // undercounts yields a step that overflows the window.
+            countTokens = llm::countTokens,
             chunkTokens = chunkTokens,
+            verifier = verifier,
         )
         val raw = try {
             agent.run(transcript) { p ->
@@ -270,6 +311,12 @@ class Summarizer(
         } catch (t: Exception) {
             send(TranscriptEvent.Failed(
                 "Summarization failed: ${t.message ?: t.javaClass.simpleName}."))
+            return
+        }
+        log("run stats: ${agent.stats}")
+        if (raw == null) {
+            send(TranscriptEvent.Failed(
+                "The transcript has no timestamped lines to summarize."))
             return
         }
         val notes = MeetingNotes.parse(raw)
@@ -331,21 +378,18 @@ class Summarizer(
         const val NOTES_MAX_TOKENS = 640
 
         /**
-         * Transcript tokens per agent window.
+         * Transcript tokens per agent step.
          *
-         * 8000, from the anchored checkpoint's own measurement (VOXSUM-INTEGRATION.md §4/§7):
-         * "measured best of the sizes tried for this model", and optimal on BOTH axes on an
-         * ARMv8.0 proxy — 16k windows would cost ~234 min on an 80k transcript and push peak RSS
-         * to 892 MB, while 8k holds 785 MB.
+         * 2048 — NOT a tuning knob. It is the chunk size the CURSOR checkpoint was fine-tuned
+         * and evaluated at, so changing it changes the distribution the model was trained on,
+         * and the base model is a 4k-context build besides. The previous 8000 belonged to the
+         * anchored Qwen3.5 fine-tune and its per-chunk contract; it has no meaning here.
          *
-         * This REPLACES a 4000 chosen from our own on-device measurement, where 4k beat 10k by
-         * ~40% wall clock on a Cortex-A73 because prefill cost per token grows with depth. Both
-         * numbers are real; they were measured on different weights and different quantizations
-         * (ours Q4_K_M, theirs Q4_0 at its trained numerics), and theirs is the one the quality
-         * figures belong to. Ours remains the reason to re-measure on device rather than assume
-         * this transfers — see the speed note in §7, which is arithmetic, not a timed run.
+         * The independent on-device finding still stands and now agrees: 4k beat 10k by ~40%
+         * wall clock on a Cortex-A73, because prefill cost per token grows with depth. Smaller
+         * chunks mean more steps but cheaper ones.
          */
-        const val AGENT_CHUNK_TOKENS = 8000
+        const val AGENT_CHUNK_TOKENS = studio.voxsum.core.agentic.CursorChunker.CHUNK_TOKENS
 
         /**
          * Whether [text] is predominantly Han script — i.e. whether the ZH prompts apply.

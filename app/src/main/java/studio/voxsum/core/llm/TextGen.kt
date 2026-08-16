@@ -23,7 +23,7 @@ interface TextGen : AutoCloseable {
     /**
      * Generation with no streaming — the whole text or nothing.
      *
-     * What [studio.voxsum.core.agentic.MeetingAgent] calls. Its ops are INTERNAL steps (per-chunk
+     * What [studio.voxsum.core.agentic.CursorAgent] calls. Its ops are INTERNAL steps (per-chunk
      * notes, a section merge, the title), not user-facing prose: streaming a half-parsed op-A
      * generation into the summary pane would show the user the pipeline's scratch work. The agent
      * reports progress through its own `Progress` callback instead, which is per-step and so a

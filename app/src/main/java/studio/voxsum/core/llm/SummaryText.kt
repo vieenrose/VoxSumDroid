@@ -148,14 +148,39 @@ internal object SummaryText {
     }
 
     /** Wrap a user instruction in the model's chat template so it behaves and stops at its EOG. */
-    fun wrap(template: ChatTemplate, user: String): String = when (template) {
-        ChatTemplate.CHATML -> "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
+    fun wrap(template: ChatTemplate, user: String): String =
+        wrap(template, "You are a helpful assistant.", user)
+
+    /**
+     * Apply [template] with an explicit [system] turn.
+     *
+     * Needed by the CURSOR agent, whose system prompt IS the protocol the checkpoint was
+     * fine-tuned against and so cannot be demoted into the user turn. Every other caller
+     * wants the assistant default and uses the two-argument overload.
+     */
+    fun wrap(template: ChatTemplate, system: String, user: String): String = when (template) {
+        ChatTemplate.CHATML -> "<|im_start|>system\n$system<|im_end|>\n" +
             "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n"
         // Qwen3.5 is a thinking model; VoxSum wants the NON-thinking path, which its own
         // chat template expresses as an EMPTY think block prefilled on the assistant turn.
         // Without it the model burns the whole budget reasoning and the summary never lands.
-        ChatTemplate.QWEN3 -> "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n" +
+        ChatTemplate.QWEN3 -> "<|im_start|>system\n$system<|im_end|>\n" +
             "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        // MiniCPM5's own chat_template.jinja: ChatML delimiters, and `enable_thinking=false`
+        // renders as exactly this empty think block. Upstream serves it with `--reasoning
+        // off` and the integration note calls that MANDATORY — with thinking live the model
+        // wraps its ops in a <think> block and the op grammar does not parse.
+        ChatTemplate.MINICPM5 -> "<|im_start|>system\n$system<|im_end|>\n" +
+            "<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        // Granite 4.0 uses its own role delimiters, NOT ChatML. Transcribed from the GGUF's
+        // chat_template.jinja: each message is
+        //   <|start_of_role|>ROLE<|end_of_role|>CONTENT<|end_of_text|>\n
+        // and the generation prompt is the assistant header with no content. Wrapping a granite
+        // model in ChatML "works" in the sense that it generates — it just is not the format it
+        // was trained on, which is the same silent degradation as not wrapping at all.
+        ChatTemplate.GRANITE -> "<|start_of_role|>system<|end_of_role|>$system<|end_of_text|>\n" +
+            "<|start_of_role|>user<|end_of_role|>$user<|end_of_text|>\n" +
+            "<|start_of_role|>assistant<|end_of_role|>"
         // The runtime applies the bundle's own template — pass the prompt through.
         ChatTemplate.NONE -> user
     }

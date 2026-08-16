@@ -6,8 +6,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import studio.voxsum.core.agentic.AgentPrompts
-import studio.voxsum.core.agentic.Chunker
+import studio.voxsum.core.agentic.CursorPrompts
+import studio.voxsum.core.agentic.CursorState
+import studio.voxsum.core.agentic.CursorChunker
+import studio.voxsum.core.agentic.CursorTranscript
 import studio.voxsum.core.llm.LlmEngine
 import studio.voxsum.core.llm.MeetingNotes
 import studio.voxsum.core.llm.SummaryText
@@ -61,10 +63,12 @@ class SummaryQualityGateTest {
 
         LlmEngine.load(model.absolutePath, nThreads = 4, nCtx = Summarizer.agentContext(),
                        sampler = spec.sampler).use { llm ->
-            val chunk = Chunker.byLines(transcript, Summarizer.AGENT_CHUNK_TOKENS, count = llm::countTokens).first()
-            val prompt = SummaryText.wrap(spec.chatTemplate, AgentPrompts.AppNotes.chunkNotes(zh = true, chunk = chunk))
+            val chunk = CursorChunker.chunks(CursorTranscript.parseTranscript(transcript),
+                budget = Summarizer.AGENT_CHUNK_TOKENS, tokenLen = llm::countTokens).first()
+            val prompt = SummaryText.wrap(spec.chatTemplate, CursorPrompts.system(zh = true),
+                CursorPrompts.buildStepPrompt(CursorState(), chunk))
             val t0 = System.currentTimeMillis()
-            val raw = llm.generateBlocking(prompt, AgentPrompts.AppNotes.chunkNotesTokens)
+            val raw = llm.generateBlocking(prompt, 256)
             Log.i(tag, "generated in ${(System.currentTimeMillis() - t0) / 1000}s")
             raw.lines().forEach { Log.i(tag, "> $it") }
 
@@ -122,7 +126,7 @@ class SummaryQualityGateTest {
             //     weights, not assumed from the model card.
             val bullets = notes.summary + notes.decisions + notes.topics
             val anchored = bullets.count {
-                studio.voxsum.core.agentic.NotesParser.anchorSeconds(it) >= 0
+                studio.voxsum.core.agentic.CursorTranscript.clockToSec(Regex("""\[(\d+:\d{2}(?::\d{2})?)]""").find(it)?.groupValues?.get(1) ?: "") ?: -1 >= 0
             }
             Log.i(tag, "== anchors: $anchored/${bullets.size} bullets carry [m:ss]")
             bullets.forEach { Log.i(tag, "   bullet: $it") }
@@ -131,11 +135,11 @@ class SummaryQualityGateTest {
                 bullets.isEmpty() || anchored > 0)
 
             // 3c. Every anchor must resolve inside the transcript (upstream saw 3541m = 59 h).
-            val lastSec = transcript.lineSequence().mapNotNull {
-                studio.voxsum.core.agentic.Evidence.lineSeconds(it).takeIf { s -> s >= 0 }
-            }.maxOrNull() ?: 0
-            val bogus = bullets.map { studio.voxsum.core.agentic.NotesParser.anchorSeconds(it) }
-                .filter { it > lastSec + 60 }
+            val lastSec = CursorTranscript.parseTranscript(transcript).maxOfOrNull { it.start } ?: 0
+            val anchorRe = Regex("""\[(\d+:\d{2}(?::\d{2})?)]""")
+            val bogus = bullets.mapNotNull { b ->
+                anchorRe.find(b)?.groupValues?.get(1)?.let { CursorTranscript.clockToSec(it) }
+            }.filter { it > lastSec + 60 }
             Log.i(tag, "== anchor range: transcript ends ${lastSec}s, bogus anchors: $bogus")
 
             // 4. The subject of THIS meeting. Narrow and fixture-specific on purpose: it is the

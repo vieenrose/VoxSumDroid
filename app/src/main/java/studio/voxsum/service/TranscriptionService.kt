@@ -1142,6 +1142,11 @@ class TranscriptionService : LifecycleService() {
                 break
             }
             llm.use {
+              // One verifier load for the whole drain, mirroring the engine above: it is a
+              // second resident model, so loading it per item would dominate the cost this
+              // batch pass exists to avoid.
+              val drainVerifier = loadVerifierOrNull(models)
+              try {
                 for (id in toSummarize) {
                     val entry = SessionLibrary.byId(this, id)
                     if (entry == null || entry.status == SessionLibrary.Status.DONE || !entry.wavFile.exists()) {
@@ -1156,7 +1161,8 @@ class TranscriptionService : LifecycleService() {
                         val converter = outputConverter(cfgAll)
                         val transcript = studio.voxsum.core.llm.TranscriptFormat.format(utterances)
                         val summary = if (transcript.isBlank()) SummaryResult(null, null)
-                        else summarizeWith(llm, spec, transcript, cfgAll, converter)
+                        else summarizeWith(llm, spec, transcript, cfgAll, converter,
+                            verifierLlm = drainVerifier)
                         // The user may have DELETED this entry while it summarized. attachResults →
                         // buildSession would mkdirs() the deleted dir and resurrect a ghost
                         // session, so bail if the entry is gone. (onDelete also dequeues it.)
@@ -1186,6 +1192,9 @@ class TranscriptionService : LifecycleService() {
                     }
                     ProcessingQueue.remove(this, id)
                 }
+              } finally {
+                drainVerifier?.close()
+              }
             }
         }
         } finally {
@@ -1773,7 +1782,12 @@ class TranscriptionService : LifecycleService() {
             this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(),
             backend = cfg.llmBackend, nCtx = nCtx,
         ).use { llm ->
-            return summarizeWith(llm, spec, transcript, cfg, converter, withTitle)
+            val verifier = loadVerifierOrNull(models)
+            try {
+                return summarizeWith(llm, spec, transcript, cfg, converter, withTitle, verifier)
+            } finally {
+                verifier?.close()
+            }
         }
     }
 
@@ -1787,6 +1801,36 @@ class TranscriptionService : LifecycleService() {
             emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, spec.displayName)))
             val gen = currentGen()
             models.ensureLlmModel(spec) { frac -> reportDownload(gen, R.string.svc_summarization_model_pct, frac) }
+        }
+        // The verifier ships WITH the summarizer — it is the in-stream faithfulness gate, and
+        // without it the student measures 2/20 inversions instead of 0/20. Fetched here rather
+        // than as a user-visible model so it can never be half-provisioned.
+        val verifier = LlmRegistry.VERIFIER
+        if (!models.llmReady(verifier)) {
+            emitEvent(TranscriptEvent.Status(getString(R.string.svc_downloading_named, verifier.displayName)))
+            val gen = currentGen()
+            models.ensureLlmModel(verifier) { frac -> reportDownload(gen, R.string.svc_summarization_model_pct, frac) }
+        }
+    }
+
+    /**
+     * Load the in-stream verifier, or null if it cannot be loaded.
+     *
+     * Fails OPEN by design: a verifier that will not load must degrade the summary's guarantee,
+     * never block the summary itself. [Summarizer] logs the downgrade loudly. The caller owns
+     * the returned engine and must close it.
+     */
+    private fun loadVerifierOrNull(models: ModelManager): studio.voxsum.core.llm.TextGen? {
+        val spec = LlmRegistry.VERIFIER
+        return try {
+            if (!models.llmReady(spec)) null
+            else studio.voxsum.core.llm.TextGen.load(
+                this, models.llmFile(spec).absolutePath, spec, nThreads = asrThreads(),
+                nCtx = spec.maxCtx,
+            )
+        } catch (t: Throwable) {
+            Log.w("voxsum-cursor", "verifier failed to load; running unverified", t)
+            null
         }
     }
 
@@ -1804,6 +1848,8 @@ class TranscriptionService : LifecycleService() {
         cfg: TranscriptionConfig,
         converter: OpenCcConverter?,
         withTitle: Boolean = true,
+        /** The in-stream faithfulness verifier — see [withVerifier]. */
+        verifierLlm: studio.voxsum.core.llm.TextGen? = null,
     ): SummaryResult {
         updateNotification(getString(R.string.svc_summarizing))
         emitEvent(TranscriptEvent.Status(getString(R.string.svc_summarizing)))   // localized (Summarizer no longer sets it)
@@ -1820,6 +1866,8 @@ class TranscriptionService : LifecycleService() {
                 Summarizer(
                     llm,
                     template = spec.chatTemplate,
+                    verifierLlm = verifierLlm,
+                    log = { Log.i("voxsum-cursor", it) },
                     convert = { converter?.convert(it) ?: it },
                     mapInstruction = style.mapInstruction,
                     reduceInstruction = style.reduceInstruction,
