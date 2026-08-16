@@ -43,6 +43,30 @@ internal object CursorNotesGuards {
     fun isCommitLine(text: String, zh: Boolean): Boolean =
         (if (zh) COMMIT_ZH else COMMIT_EN).containsMatchIn(text)
 
+    /** The commitment token that makes [text] look like a decision, or null. */
+    fun commitToken(text: String, zh: Boolean): String? =
+        (if (zh) COMMIT_ZH else COMMIT_EN).find(text)?.value
+
+    /**
+     * Is the token that TRIGGERED the promotion actually present in the evidence?
+     *
+     * A deterministic grounding check, and the load-bearing one — the model judge cannot be
+     * relied on here. Probed on this meeting's real evidence window (6 noisy zh ASR lines) the
+     * 350M verifier answered SUPPORTED to a fabricated bullet, to an unrelated invented decision,
+     * and to a true one alike; it only discriminated on short clean evidence. A judge that
+     * answers SUPPORTED to everything gates nothing.
+     *
+     * The rule is narrow on purpose: promotion is triggered by one specific token, so requiring
+     * THAT token to appear in the supporting lines is exactly the claim being made. It costs
+     * nothing, cannot be talked out of a verdict, and would have caught the real failure — the
+     * bullet "通過三八號訊息更新供給狀況" was promoted on a 通過 that appears nowhere in the
+     * transcript.
+     */
+    fun commitTokenGrounded(text: String, zh: Boolean, evidence: List<String>): Boolean {
+        val token = commitToken(text, zh) ?: return false
+        return evidence.any { it.contains(token) }
+    }
+
     /**
      * MOVE decision-shaped SUMMARY bullets into DECISIONS. Returns the count promoted.
      *
@@ -50,10 +74,42 @@ internal object CursorNotesGuards {
      * same sentence twice in one document. If DECISIONS refuses the bullet (dedup or cap) the
      * SUMMARY bullet is left exactly where it was — never dropped on the floor.
      */
-    fun promoteDecisionSummaries(state: CursorState, zh: Boolean): Int {
+    fun promoteDecisionSummaries(
+        state: CursorState,
+        zh: Boolean,
+        /**
+         * Grounding check, returning a refusal reason or null to allow.
+         *
+         * REQUIRED in production, and the reason this parameter exists at all. Without it the
+         * promotion is an UNVERIFIED back door into the section a reader trusts most: the
+         * in-stream verifier gates every ADD/UPD into DECISIONS during the stream, but a
+         * render-time promotion bypasses it entirely.
+         *
+         * That is not hypothetical. On a real zh meeting the model emitted the SUMMARY bullet
+         * "通過三八號訊息更新供給狀況"; the transcript contains ZERO occurrences of 通過, 三八 or
+         * 更新 — a fabrication whose only decision-shaped token was the hallucinated 通過. The
+         * lexicon matched it and the guard promoted a hallucination into DECISIONS. Elevating
+         * an unsupported bullet is worse than leaving the section empty.
+         */
+        verify: ((section: String, bullet: String, anchor: Int?) -> String?)? = null,
+        /**
+         * Supporting lines for a bullet's anchor, for the DETERMINISTIC grounding check.
+         *
+         * Null skips that check and leaves only the model judge — which is not sufficient on
+         * realistic zh evidence; see [commitTokenGrounded].
+         */
+        evidenceFor: ((anchor: Int?) -> List<String>)? = null,
+    ): Int {
         var promoted = 0
         for (b in state.bullets("SUMMARY").toList()) {
             if (!isCommitLine(b.text, zh)) continue
+            // Deterministic grounding FIRST: the token that triggered this promotion must appear
+            // in the evidence. Cheap, and it cannot be talked out of its verdict the way the
+            // model judge can.
+            if (evidenceFor != null && !commitTokenGrounded(b.text, zh, evidenceFor(b.anchor))) continue
+            // Then the model judge, as a second gate. A refused bullet STAYS in SUMMARY: the
+            // model did say it, and this guard decides what gets promoted, not what is censored.
+            if (verify?.invoke("DECISIONS", b.text, b.anchor) != null) continue
             // Refused by dedup or cap: keep it in SUMMARY rather than lose it.
             if (state.add("DECISIONS", b.text, b.anchor) != null) continue
             // Delete by the full leading text; `find` demands a UNIQUE prefix match, and six

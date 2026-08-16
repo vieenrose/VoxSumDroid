@@ -19,8 +19,8 @@ internal fun interface CursorChat {
  * The CURSOR meeting agent: one evolving NOTES state, edited op by op as the transcript
  * streams past.
  *
- * Replaces [MeetingAgent]'s chunk -> per-section merge -> title pipeline. The difference that
- * matters is not the op vocabulary but WHERE the state lives: the old agent built independent
+ * Replaced a chunk -> per-section merge -> title pipeline (removed 2026-08-16). What matters is
+ * not the op vocabulary but WHERE the state lives: the old agent built independent
  * per-chunk digests and merged them at the end, so nothing could ever revise anything; this
  * one carries a single state forward, so a decision reversed at 48:00 UPDATES the bullet
  * written at 12:00 instead of sitting beside it as a contradiction. That is the whole
@@ -151,6 +151,19 @@ internal class CursorAgent(
         // DECISIONS ops at all, and retraining did not move that.
         return CursorPrompts.renderState(
             state, zh = zh, promoteDecisions = true, enforceChain = true,
+            // Promotion is verified against the WHOLE transcript, not one chunk: by render time
+            // there is no streaming constraint, and a bullet being elevated into DECISIONS
+            // deserves the widest evidence available. Without this the promotion is an
+            // unverified path into the section readers trust most — it promoted a fabricated
+            // "通過…" bullet on a meeting whose transcript never contains 通過 at all.
+            verifyPromotion = verifier?.let { v ->
+                { section, bullet, anchor -> v.veto(section, bullet, anchor, utterances) }
+            },
+            evidenceFor = { anchor ->
+                if (anchor == null) emptyList()
+                else utterances.filter { kotlin.math.abs(it.start - anchor) <= 90 }
+                    .take(6).map { it.render() }
+            },
         )
     }
 

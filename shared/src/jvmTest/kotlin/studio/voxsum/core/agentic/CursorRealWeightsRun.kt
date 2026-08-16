@@ -55,23 +55,29 @@ class CursorRealWeightsRun {
         println("[cursor] ${utterances.size} utterances, zh=$zh")
 
         val cores = maxOf(1, minOf(8, Runtime.getRuntime().availableProcessors()))
+        // Template and sampler come from the REGISTRY, never hardcoded here. A test that pins
+        // its own template cannot see a registry that has drifted away from the deployed agent —
+        // which is exactly how a half-finished re-pin (registry on CURSOR, Summarizer still on the
+        // old agent) survived unnoticed.
+        val spec = studio.voxsum.core.models.LlmRegistry.byId(
+            studio.voxsum.core.models.LlmRegistry.DEFAULT_ID)
+        val vSpec = studio.voxsum.core.models.LlmRegistry.VERIFIER
         val student = LlmEngine.load(
             gguf!!.absolutePath, nThreads = cores,
-            nCtx = CursorAgent.STEP_CTX, sampler = studio.voxsum.core.models.SamplerProfile.CURSOR,
+            nCtx = CursorAgent.STEP_CTX, sampler = spec.sampler,
         )
         val verifierEngine = verifierGguf?.takeIf { it.exists() }?.let {
-            LlmEngine.load(it.absolutePath, nThreads = cores, nCtx = 2048,
-                sampler = studio.voxsum.core.models.SamplerProfile.CURSOR)
+            LlmEngine.load(it.absolutePath, nThreads = cores, nCtx = 2048, sampler = vSpec.sampler)
         }
         println("[cursor] student=${gguf.name} verifier=${verifierGguf?.name ?: "NONE"} " +
             "nCtx=${CursorAgent.STEP_CTX} chunk=${CursorChunker.CHUNK_TOKENS} threads=$cores")
 
         val t0 = System.currentTimeMillis()
         val agent = CursorAgent(
-            student = chat(student, ChatTemplate.MINICPM5),
+            student = chat(student, spec.chatTemplate),
             lang = if (zh) CursorAgent.Lang.ZH_TW else CursorAgent.Lang.EN,
             countTokens = student::countTokens,
-            verifier = verifierEngine?.let { CursorVerifier(chat(it, if (verifierGguf!!.name.contains("granite")) ChatTemplate.GRANITE else ChatTemplate.CHATML)) },
+            verifier = verifierEngine?.let { CursorVerifier(chat(it, vSpec.chatTemplate)) },
             onOp = { step, line -> println("[op] c$step $line") },
         )
         val out = try {

@@ -93,6 +93,11 @@ internal object CursorPrompts {
         zh: Boolean = false,
         promoteDecisions: Boolean = false,
         enforceChain: Boolean = false,
+        /** Grounding check for promoted bullets — see CursorNotesGuards.promoteDecisionSummaries.
+         *  Null promotes UNVERIFIED, which is a testing affordance, not a shipping configuration. */
+        verifyPromotion: ((String, String, Int?) -> String?)? = null,
+        /** Supporting lines per anchor, for the deterministic promotion grounding check. */
+        evidenceFor: ((Int?) -> List<String>)? = null,
     ): String {
         // Clone whenever anything here MUTATES, not only for the caps: the guards below edit the
         // state, and rendering must never be observable to the caller. Without this a render with
@@ -103,7 +108,7 @@ internal object CursorPrompts {
         // Guards run on the PRODUCT render only — see CursorNotesGuards. buildStepPrompt leaves
         // both off, because the STATE block is the model's whole memory and it was fine-tuned
         // against un-promoted notes.
-        if (promoteDecisions) CursorNotesGuards.promoteDecisionSummaries(s, zh)
+        if (promoteDecisions) CursorNotesGuards.promoteDecisionSummaries(s, zh, verifyPromotion, evidenceFor)
         if (enforceChain) CursorNotesGuards.enforceDecisionChain(s)
         val lines = mutableListOf("TITLE: ${s.title}".trimEnd())
         for (section in CursorSections.BULLET_SECTIONS) {
