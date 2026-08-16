@@ -57,6 +57,27 @@ app does. This README covers the architecture, verified status, and how to build
 
 ## Status
 
+### Summarizer — the agentic (CURSOR) pipeline, since desktop-v0.24.0
+
+The transcript streams past the model in ~2000-token chunks and the model edits **one evolving set
+of notes** through typed operations, rather than writing independent per-chunk digests merged at the
+end. When a meeting reverses itself, the notes update the earlier bullet instead of listing both.
+
+Two models, both Apache-2.0, both on-device: **MiniCPM5-1B-CURSOR** (~656 MiB) proposes the edits,
+and **Granite-4.0-350m-verifier** (~226 MiB) checks every proposed decision/action against the
+transcript before it is accepted. Around them sit deterministic Kotlin guards — anchors must
+resolve to a line the model actually saw, a bullet contradicting a later one is dropped, duplicates
+rejected, section caps applied by spreading across the meeting rather than truncating it. The model
+never writes the notes file; the harness renders it. The same four files run byte-identical on
+Android.
+
+Verified: zero malformed operations across English, Chinese and a 62-minute real meeting; every
+timestamp resolving to a real transcript line. **Not** verified: summary coverage — on real meetings
+the model writes few notes and can miss clearly-stated action items — and we have no trustworthy
+faithfulness figure yet, because the meetings available to us overlap the model's training data.
+A deterministic inversion detector ships with this release to start closing that gap.
+
+
 **Builds and runs as a real, installable `.deb`, verified end-to-end** — not just compiled or run
 from the dev tree. Every item below was actually executed and observed:
 
