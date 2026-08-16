@@ -429,6 +429,60 @@ class CursorHarnessTest {
         chunks.flatMap { it.utterances }.forEach { assertEquals(63, it.start) }
     }
 
+    // ---- registry coherence ------------------------------------------------------------------
+
+    /**
+     * The registry must describe the agent we actually run.
+     *
+     * This exists because a half-finished re-pin shipped undetected: the registry was moved to
+     * the CURSOR models while the desktop Summarizer still drove the previous agent, which would
+     * have fed MiniCPM5 prompts it was never trained on. Nothing failed — the real-weights test
+     * pinned its own template and took GGUF paths from the environment, so it never consulted the
+     * registry and could not see the drift.
+     *
+     * Every assertion here is a pairing that produces PLAUSIBLE OUTPUT when wrong, which is the
+     * only reason this file exists.
+     */
+    @Test fun registryDescribesTheDeployedAgent() {
+        val spec = studio.voxsum.core.models.LlmRegistry.byId(
+            studio.voxsum.core.models.LlmRegistry.DEFAULT_ID)
+        val verifier = studio.voxsum.core.models.LlmRegistry.VERIFIER
+
+        // DEFAULT_ID must actually resolve. byId falls back to the default on an unknown id, so a
+        // typo'd DEFAULT_ID would silently resolve to itself-by-fallback and look fine.
+        assertEquals(studio.voxsum.core.models.LlmRegistry.DEFAULT_ID, spec.id)
+
+        // mainFile must be one of the pinned files. These two drifted apart during the p13->p15d
+        // re-pin: the sha256 said one checkpoint and mainFile named another.
+        assertTrue("mainFile ${spec.mainFile} is not among the pinned files ${spec.files.keys}",
+            spec.mainFile in spec.files)
+        assertTrue("verifier mainFile not pinned", verifier.mainFile in verifier.files)
+
+        // Each model gets ITS OWN template, transcribed from its GGUF's jinja. Wrapping a model
+        // in another family's delimiters still generates — it just degrades silently.
+        assertEquals(studio.voxsum.core.models.ChatTemplate.MINICPM5, spec.chatTemplate)
+        assertEquals(studio.voxsum.core.models.ChatTemplate.GRANITE, verifier.chatTemplate)
+
+        // Greedy, both. The student's output is a GRAMMAR — sampling an op line is sampling
+        // whether it parses — and the verifier answers with a single verdict word.
+        listOf(spec.sampler, verifier.sampler).forEach {
+            assertEquals(1, it.topK)
+            assertEquals(0.0f, it.temp, 1e-6f)
+            assertEquals("a repeat penalty punishes the protocol's own recurring tokens",
+                1.0f, it.repeatPenalty, 1e-6f)
+        }
+
+        // The window must fit a step and no more: llama.cpp charges decode against the ALLOCATED
+        // context, so headroom the protocol can never use is paid for on every token.
+        assertTrue("maxCtx ${spec.maxCtx} cannot hold a ${CursorChunker.CHUNK_TOKENS}-token chunk",
+            spec.maxCtx >= CursorChunker.CHUNK_TOKENS)
+        assertEquals(spec.maxCtx, CursorAgent.STEP_CTX)
+
+        // The verifier is a COMPANION, not an alternative — it must never appear in the picker.
+        assertTrue("the verifier is user-selectable",
+            studio.voxsum.core.models.LlmRegistry.ALL.none { it.id == verifier.id })
+    }
+
     // ---- the two deterministic notes guards ------------------------------------------------
 
     /**
@@ -448,6 +502,80 @@ class CursorHarnessTest {
         assertEquals(listOf("the room was quite warm"), state.bullets("SUMMARY").map { it.text })
         // The anchor travels with it — a promoted bullet must stay tappable.
         assertEquals(184, state.bullets("DECISIONS").first().anchor)
+    }
+
+    /**
+     * A promoted bullet must be GROUNDED. Promotion is the one path into DECISIONS that the
+     * in-stream verifier never sees, so without this check it is a back door into the section a
+     * reader trusts most.
+     *
+     * Regression for a real failure: on a zh meeting the model emitted the SUMMARY bullet
+     * "通過三八號訊息更新供給狀況" whose transcript contains ZERO occurrences of 通過, 三八 or
+     * 更新 — a fabrication whose only decision-shaped token was the hallucinated 通過. The
+     * lexicon matched, and the guard promoted a hallucination into DECISIONS. Elevating an
+     * unsupported bullet is strictly worse than leaving the section empty.
+     */
+    @Test fun unsupportedBulletsAreNotPromoted() {
+        val state = CursorState()
+        state.add("SUMMARY", "通過三八號訊息更新供給狀況", 2181)
+        state.add("SUMMARY", "通過掀蓋式方案", 184)
+        // A verifier that rejects the fabricated bullet and supports the real one.
+        // NAMED, not a trailing lambda: `evidenceFor` is the last parameter, so a trailing lambda
+        // silently binds to that instead of `verify` — which is how this test broke once already.
+        val moved = CursorNotesGuards.promoteDecisionSummaries(
+            state, zh = true,
+            verify = { _, bullet, _ ->
+                if (bullet.contains("三八")) "in-stream verifier: UNSUPPORTED" else null
+            },
+        )
+        assertEquals(1, moved)
+        assertEquals(listOf("通過掀蓋式方案"), state.bullets("DECISIONS").map { it.text })
+        // The refused bullet is NOT deleted — the model did say it; we only decline to elevate it.
+        assertEquals(listOf("通過三八號訊息更新供給狀況"), state.bullets("SUMMARY").map { it.text })
+    }
+
+    /** With no verifier wired, nothing is silently elevated on trust — the caller must opt in. */
+    @Test fun promotionWithoutAVerifierIsExplicit() {
+        val state = CursorState()
+        state.add("SUMMARY", "通過掀蓋式方案", 184)
+        // The nullable verify parameter exists so tests can run without a model; production
+        // always passes one (CursorAgent wires it from the real verifier).
+        assertEquals(1, CursorNotesGuards.promoteDecisionSummaries(state, zh = true, verify = null))
+    }
+
+
+    /**
+     * The DETERMINISTIC grounding gate — the one that actually holds.
+     *
+     * Measured on this meeting's real evidence window (6 noisy zh ASR lines), the 350M verifier
+     * answered SUPPORTED to a fabricated bullet, to an invented unrelated decision, and to a true
+     * one alike; it discriminated only on short clean evidence. So the model judge cannot be the
+     * sole gate on promotion. Requiring the promotion's own trigger token to appear in the
+     * evidence is cheap and cannot be talked out of its verdict.
+     */
+    @Test fun promotionRequiresItsTriggerTokenInTheEvidence() {
+        // The real failure: 通過 appears NOWHERE in that meeting.
+        val evidence = listOf(
+            "[36:04] S3: 本生廠。",
+            "[36:05] S1: 本生廠，然後其實是這樣，就是反正我買貴一點賣貴嘛。",
+        )
+        assertFalse("a fabricated 通過 was treated as grounded",
+            CursorNotesGuards.commitTokenGrounded("通過三八號訊息更新供給狀況", true, evidence))
+        assertTrue(CursorNotesGuards.commitTokenGrounded(
+            "通過掀蓋式方案", true, listOf("[3:41] S1: 那掀蓋式方案通過，折扣把差距補起來了。")))
+
+        // ...and end to end: an ungrounded bullet must not reach DECISIONS even when a
+        // permissive judge would allow it.
+        val state = CursorState()
+        state.add("SUMMARY", "通過三八號訊息更新供給狀況", 2181)
+        val moved = CursorNotesGuards.promoteDecisionSummaries(
+            state, zh = true,
+            verify = { _, _, _ -> null },          // a judge that approves everything
+            evidenceFor = { evidence },
+        )
+        assertEquals(0, moved)
+        assertTrue(state.bullets("DECISIONS").isEmpty())
+        assertEquals(1, state.bullets("SUMMARY").size)
     }
 
     /** zh meetings settle things colloquially; the lexicon has to cover that, not just 決定. */

@@ -151,6 +151,19 @@ internal class CursorAgent(
         // DECISIONS ops at all, and retraining did not move that.
         return CursorPrompts.renderState(
             state, zh = zh, promoteDecisions = true, enforceChain = true,
+            // Promotion is verified against the WHOLE transcript, not one chunk: by render time
+            // there is no streaming constraint, and a bullet being elevated into DECISIONS
+            // deserves the widest evidence available. Without this the promotion is an
+            // unverified path into the section readers trust most — it promoted a fabricated
+            // "通過…" bullet on a meeting whose transcript never contains 通過 at all.
+            verifyPromotion = verifier?.let { v ->
+                { section, bullet, anchor -> v.veto(section, bullet, anchor, utterances) }
+            },
+            evidenceFor = { anchor ->
+                if (anchor == null) emptyList()
+                else utterances.filter { kotlin.math.abs(it.start - anchor) <= 90 }
+                    .take(6).map { it.render() }
+            },
         )
     }
 

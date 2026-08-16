@@ -44,10 +44,24 @@ internal class CursorVerifier(
         bullet: String,
         anchor: Int?,
         chunk: CursorChunker.Chunk,
+    ): String? = veto(section, bullet, anchor, chunk.utterances)
+
+    /**
+     * Judge against an arbitrary utterance list.
+     *
+     * In-stream callers pass the current chunk. The render-time promotion guard passes the WHOLE
+     * transcript, which is strictly better evidence — by then there is no streaming constraint,
+     * and a bullet being elevated into DECISIONS deserves the widest check available.
+     */
+    fun veto(
+        section: String,
+        bullet: String,
+        anchor: Int?,
+        utterances: List<CursorTranscript.Utterance>,
     ): String? {
         if (section !in VERIFIED_SECTIONS) return null
 
-        val evidence = evidenceFor(chunk, anchor)
+        val evidence = evidenceFor(utterances, anchor)
         if (evidence.isEmpty()) return null
 
         val raw = try {
@@ -75,11 +89,13 @@ internal class CursorVerifier(
      * still saw those lines this step, so they are legitimate evidence, and judging against
      * a smaller window is better than skipping the check.
      */
-    private fun evidenceFor(chunk: CursorChunker.Chunk, anchor: Int?): List<String> {
+    private fun evidenceFor(utterances: List<CursorTranscript.Utterance>, anchor: Int?): List<String> {
         val near = if (anchor == null) emptyList()
-        else chunk.utterances.filter { kotlin.math.abs(it.start - anchor) <= windowSec }
-        val chosen = near.ifEmpty { chunk.utterances.take(FALLBACK_LINES) }
-        return chosen.map { it.render() }
+        else utterances.filter { kotlin.math.abs(it.start - anchor) <= windowSec }
+        val chosen = near.ifEmpty { utterances.take(FALLBACK_LINES) }
+        // Cap the evidence: over the whole transcript a wide window could otherwise hand the
+        // judge hundreds of lines and blow its 2k context.
+        return chosen.take(MAX_EVIDENCE_LINES).map { it.render() }
     }
 
     companion object {
@@ -89,6 +105,9 @@ internal class CursorVerifier(
 
         private const val NEIGHBOURHOOD_SEC = 90
         private const val FALLBACK_LINES = 6
+
+        /** Upstream's claim-mode budget is <= 6 snippets; keep the judge's input bounded. */
+        private const val MAX_EVIDENCE_LINES = 6
 
         /** One word is the entire expected answer; 8 tokens is upstream's cap and leaves room
          *  for a stray leading space or punctuation without inviting an explanation. */
