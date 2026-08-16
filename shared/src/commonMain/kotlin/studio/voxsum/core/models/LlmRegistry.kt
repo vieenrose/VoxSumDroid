@@ -13,7 +13,7 @@ data class LlmSpec(
     val sampler: SamplerProfile = SamplerProfile.LEGACY,  // per-model llama.cpp sampler chain
 )
 
-enum class ChatTemplate { CHATML, QWEN3 }
+enum class ChatTemplate { CHATML, QWEN3, MINICPM5, GRANITE }
 
 /**
  * llama.cpp sampler settings, chosen per model. The chain itself lives in native code
@@ -43,6 +43,16 @@ data class SamplerProfile(
          *  produced at temp 0 with thinking disabled. No repeat penalty — the note warns that
          *  penalties above ~1.15 eat the structural tokens that delimit the NOTES sections. */
         val QWEN35_ANCHORED = SamplerProfile(topK = 1, topP = 1.0f, temp = 0.0f, repeatPenalty = 1.0f, presencePenalty = 0.0f)
+
+        /**
+         * The CURSOR protocol's setting: greedy, temperature 0, no penalties.
+         *
+         * Greedy is not merely a fidelity choice here — the student's output is a GRAMMAR, and
+         * sampling an op line is sampling whether it parses. A repeat penalty is harmful for the
+         * same reason: ADD, UPD, the section keys and the [m:ss] brackets are meant to recur on
+         * every line, and penalising them penalises the protocol itself.
+         */
+        val CURSOR = SamplerProfile(topK = 1, topP = 1.0f, temp = 0.0f, repeatPenalty = 1.0f, presencePenalty = 0.0f)
     }
 }
 
@@ -55,42 +65,68 @@ data class SamplerProfile(
  * the turn format here rather than via the GGUF's embedded template.
  */
 object LlmRegistry {
-    const val DEFAULT_ID = "voxsum-qwen3.5-0.8b-anchored"
+    const val DEFAULT_ID = "minicpm5-1b-cursor-p15d"
 
     private const val HF = "https://huggingface.co"
 
+    /**
+     * The on-device summarizer: the CURSOR agent, which is TWO models working together.
+     * [ALL] holds the selectable summarizers; [VERIFIER] holds its mandatory companion.
+     *
+     * Replaced the ANCHORED Qwen3.5-0.8B single-pass fine-tune (2026-08-16). That pipeline built
+     * independent per-chunk digests and merged them at the end, so nothing it wrote could ever be
+     * revised — a decision reversed late in a meeting sat beside the original instead of
+     * replacing it. CURSOR carries ONE state forward and edits it.
+     *
+     * Keep this file in step with the Android registry: same artifacts, same pins, same
+     * templates. Divergence means the two ports summarize differently.
+     */
     val ALL: List<LlmSpec> = listOf(
-        // The ANCHORED VoxSum meeting fine-tune of Qwen3.5 0.8B — the SAME artifact the Android
-        // build ships. Qwen3.5 is a hybrid linear-attention model (arch "qwen35" — 18 gated-delta
-        // layers + 6 full-attention); the vendored llama.cpp (LLM_ARCH_QWEN35) supports it.
-        //
-        // Q4_0, NOT Q4_K_M: the model was quantization-aware-trained against symmetric int4, so
-        // Q4_0 is its trained-for numerics while k-quants are asymmetric per block. Upstream has
-        // not measured a quality difference, so this is a principled default, not a measured one
-        // (VOXSUM-INTEGRATION.md §1).
-        //
-        // It anchors every bullet with a [m:ss] without being asked — the deployed prompt does not
-        // request timestamps; training taught it. That is what re-enables time-ordering, the
-        // evidence lookup in the reduce, and a time-weighted spread() over the meeting.
-        //
-        // Windows of 8000 tokens ([Summarizer.AGENT_CHUNK_TOKENS]): measured best for this model.
         LlmSpec(
-            id = "voxsum-qwen3.5-0.8b-anchored",
-            displayName = "VoxSum Qwen3.5 0.8B (anchored)",
-            url = "$HF/Luigi/voxsum-qwen35-0.8b-anchored/resolve/" +
-                "6156045dfac944f2e186e55bcf07923092e35b59/voxsum-qwen35-0.8b-anchored-Q4_0.gguf",
-            sha256 = "56a5516bb387f39210919b52b16aff96dbc9ea2483450b37bd044bcb70c72a8f",
-            sizeBytes = 501_452_160L,
-            fileName = "voxsum-qwen3.5-0.8b-anchored-q4_0.gguf",
-            // QWEN3, not NONE: the GGUF carries the base repo's Qwen3.5-VL MULTIMODAL template.
-            // Our JNI never calls llama_chat_apply_template anyway, so we wrap with plain ChatML,
-            // which is what upstream recommends (§2b) — and the QWEN3 wrap prefills an empty
-            // <think></think>, which is what disables thinking. Without that the answer goes to
-            // reasoning_content and `content` comes back EMPTY (§2a).
-            chatTemplate = ChatTemplate.QWEN3,
-            shortName = "VoxSum 0.8B",
-            sampler = SamplerProfile.QWEN35_ANCHORED,
+            id = "minicpm5-1b-cursor-p15d",
+            displayName = "VoxSum CURSOR 1B (MiniCPM5)",
+            // p15d — upstream's pinned main. FOUR checkpoints sit in that repo (p10 under the
+            // unsuffixed name, p13, p15d, p19c) and ALL FOUR are 688,066,080 bytes, so neither
+            // the size nor the filename identifies the weights. Pin by sha256.
+            //
+            // p19c is published but NOT taken: worst of the three on the tabulated metrics
+            // (raw 4/20 INVERT, FAITH 3.57, vs p13's 2/20 and 3.94), and its coverage gain was
+            // measured on a transcript inside its own training set.
+            url = "$HF/Luigi/minicpm5-1b-cursor/resolve/" +
+                "5b0c7b1f958c39d272e34917bf5f4019387f8b1e/minicpm5-1b-cursor-p15d.Q4_K_M.gguf",
+            sha256 = "baf56be608a6e90dd1b9487e211f6af344f08f3d4992e3406d266c3b6cd7343e",
+            sizeBytes = 688_066_080L,
+            fileName = "minicpm5-1b-cursor-p15d.q4_k_m.gguf",
+            chatTemplate = ChatTemplate.MINICPM5,
+            shortName = "CURSOR 1B",
+            sampler = SamplerProfile.CURSOR,
         ),
+    )
+
+    /**
+     * The in-stream faithfulness verifier — a COMPANION to the summarizer, not an alternative.
+     *
+     * Deliberately NOT in [ALL]: that list drives the model picker, and this is not a choice the
+     * user makes. Without it the student measures 4/20 raw inversions, above our bar; the gate is
+     * what brings the deployed system to ~0.
+     *
+     * granite-4.0-350m, not the earlier LFM2.5 build: LiquidAI/LFM2.5-350M is `license:other`
+     * (LFM Open License, non-commercial), so that derivative's Apache-2.0 card claim could not be
+     * right and it cannot ship in an F-Droid build. ibm-granite/granite-4.0-350m is genuinely
+     * Apache-2.0. The zh-AUGMENTED variant, because zh-TW is our primary case and the
+     * en-only-triples verifier over-drops zh badly enough to collapse coverage.
+     */
+    val VERIFIER: LlmSpec = LlmSpec(
+        id = "granite-4.0-350m-verifier-zh",
+        displayName = "VoxSum faithfulness verifier",
+        url = "$HF/Luigi/granite-4.0-350m-verifier/resolve/" +
+            "fd31ebf47d14c61b948f6be39ce5eae2c3f32eeb/granite-4.0-350m-verifier-zh.Q4_K_M.gguf",
+        sha256 = "e811aaec9741f8b2f7e6073a9f17a5c5af21ef72258545789b09ff00050c9793",
+        sizeBytes = 236_985_536L,
+        fileName = "granite-4.0-350m-verifier-zh.q4_k_m.gguf",
+        chatTemplate = ChatTemplate.GRANITE,
+        shortName = "Verifier 350M",
+        sampler = SamplerProfile.CURSOR,
     )
 
     fun byId(id: String): LlmSpec = ALL.firstOrNull { it.id == id } ?: ALL.first { it.id == DEFAULT_ID }

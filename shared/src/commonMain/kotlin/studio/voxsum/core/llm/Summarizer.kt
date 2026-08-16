@@ -5,8 +5,9 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
-import studio.voxsum.core.agentic.AgentPrompts
-import studio.voxsum.core.agentic.MeetingAgent
+import studio.voxsum.core.agentic.CursorAgent
+import studio.voxsum.core.agentic.CursorChat
+import studio.voxsum.core.agentic.CursorVerifier
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.models.ChatTemplate
 
@@ -45,7 +46,7 @@ class Summarizer(
      *  automatically when the model ignores the format. */
     private val structuredNotes: Boolean = true,
     /**
-     * Produce the NOTES with [MeetingAgent] (chunk -> per-section merge -> title) rather than one
+     * Produce the NOTES with [CursorAgent] (one evolving state, edited op by op) rather than one
      * prompt holding the whole transcript. Keep in step with the Android build.
      *
      * ON by default, and not only for long meetings. Measured on 16 held-out long meetings
@@ -57,6 +58,13 @@ class Summarizer(
      * So it is not a fallback trading quality for reach — it is better on every axis, and it
      * removes the "transcript too long" refusal entirely, at ~5.2 calls and +33% prompt tokens.
      */
+    /**
+     * The in-stream faithfulness verifier ([studio.voxsum.core.models.LlmRegistry.VERIFIER]).
+     *
+     * Part of the summarizer, not an option: the student alone measures 4/20 raw inversions.
+     * Nullable only so tests can run without loading a second model.
+     */
+    private val verifierLlm: TextGen? = null,
     private val agentic: Boolean = true,
     /** Transcript tokens per agent call. See [AGENT_CHUNK_TOKENS]. */
     private val chunkTokens: Int = AGENT_CHUNK_TOKENS,
@@ -197,7 +205,7 @@ class Summarizer(
     /**
      * Applies the model's chat template to every prompt on its way to the engine.
      *
-     * REQUIRED, and its absence is silent. [MeetingAgent] hands [TextGen] a bare instruction
+     * REQUIRED, and its absence is silent. The agent hands [TextGen] a bare instruction
      * because the reference implementation ran on LiteRT-LM, whose bundle carries its own template
      * and applies it in the runtime. Our JNI tokenizes the string it is given and never calls
      * `llama_chat_apply_template`, so an unwrapped prompt is not a question to the model — it is
@@ -216,9 +224,9 @@ class Summarizer(
     }
 
     /**
-     * The agentic NOTES path: [MeetingAgent] reads the transcript chunk by chunk, merges each
-     * section with the source lines in view, and derives a title — all orchestration in Kotlin,
-     * the model only ever writing notes about text it can currently see. Emits the same event set
+     * The agentic NOTES path: [CursorAgent] reads the transcript chunk by chunk, editing ONE
+     * evolving NOTES state through typed ops — all orchestration in Kotlin, the model only ever
+     * proposing edits about text it can currently see. Emits the same event set
      * as the single-pass path, so nothing downstream changes.
      *
      * Progress is REAL here: the agent knows its total step count up front (chunks + sections +
@@ -231,11 +239,24 @@ class Summarizer(
         val job = currentCoroutineContext()[Job]
         // Language comes from the TRANSCRIPT, not the target: these prompts instruct the model in
         // the language it is reading, and [agentCanServe] has established the two agree.
-        val agent = MeetingAgent(
-            llm = ChatWrapped(llm, template),
-            lang = if (transcriptLanguage(transcript) == "zh") MeetingAgent.Lang.ZH_TW
-                   else MeetingAgent.Lang.EN,
+        // Both models take a real SYSTEM turn: their protocol and rubric are what they were
+        // fine-tuned against, so demoting either into the user turn is the same silent failure as
+        // not wrapping at all.
+        val studentChat = CursorChat { system, user, maxTokens ->
+            llm.generateBlocking(SummaryText.wrap(template, system, user), maxTokens)
+        }
+        val verifier = verifierLlm?.let { v ->
+            CursorVerifier(CursorChat { system, user, maxTokens ->
+                v.generateBlocking(SummaryText.wrap(ChatTemplate.GRANITE, system, user), maxTokens)
+            })
+        }
+        val agent = CursorAgent(
+            student = studentChat,
+            lang = if (transcriptLanguage(transcript) == "zh") CursorAgent.Lang.ZH_TW
+                   else CursorAgent.Lang.EN,
+            countTokens = llm::countTokens,
             chunkTokens = chunkTokens,
+            verifier = verifier,
         )
         val progress = mutableListOf<Float>()
         val raw = try {
@@ -257,6 +278,10 @@ class Summarizer(
         // Emitted after the fact: a plain `flow {}` forbids emitting from another context, and the
         // agent's callback runs on whatever thread generateBlocking returned on.
         progress.forEach { emit(TranscriptEvent.Progress(it)) }
+        if (raw == null) {
+            emit(TranscriptEvent.Failed("The transcript has no timestamped lines to summarize."))
+            return
+        }
         val notes = MeetingNotes.parse(raw)
         if (notes == null) {
             // The agent renders v2 NOTES itself, so a parse failure means every section came back
