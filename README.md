@@ -122,8 +122,42 @@ after that, updates arrive automatically.
   saved half-finished — they unlock the moment it completes.
 - **The only thing it ever sends** is an optional, once-a-day check to GitHub for a new version — no
   tracking, and skipped when you're offline. (F-Droid users get updates through their client instead.)
-- **Runs on Android 8.0+.** A recent phone with a few GB of free storage is comfortable; the higher-
-  quality summary model is optional and can be turned off in Settings for lighter devices.
+- **Runs on Android 8.0+.** A recent phone with a few GB of free storage is comfortable. The
+  summarizer downloads two models totalling ~880 MiB the first time you summarize, and both stay
+  resident while it runs — a full transcribe + summarize pass peaks around 2 GB of memory on a
+  mid-range phone.
+
+## Project status
+
+**Current focus: the summarizer.** As of v0.42.0 VoxSum summarizes with an *agentic* pipeline
+rather than a single prompt. The transcript streams past the model in ~2000-token chunks, and the
+model edits **one evolving set of notes** through typed operations (add a bullet, revise a bullet,
+delete one) instead of writing independent per-chunk digests that are merged at the end. The
+practical difference: when a meeting reverses itself — a plan rejected at 12:00 and approved at
+48:00 — the notes now *update* the earlier bullet instead of listing both.
+
+Two models work together on-device, both Apache-2.0:
+
+| model | role | size |
+|---|---|---|
+| MiniCPM5-1B-CURSOR | proposes the note edits | ~656 MiB |
+| Granite-4.0-350m-verifier | checks every proposed decision/action against the transcript before it is accepted | ~226 MiB |
+
+Everything the model proposes passes through deterministic checks written in Kotlin: timestamps
+must point at a line the model actually saw, a bullet contradicting a later one is dropped,
+duplicates are rejected, and section limits are applied by spreading across the meeting rather
+than truncating it. The model never writes the notes file directly — the app renders it.
+
+**What is verified.** Op-format correctness (zero malformed operations across English, Chinese and
+a 62-minute real meeting, on x86 and on-device), timestamps always resolving to real transcript
+lines, and the full pipeline running on a mid-range phone (Dimensity 900) inside ~2 GB peak memory.
+
+**What is not, and you should know it.** Summary *coverage* is unmeasured: on real meetings the
+model tends to write few notes, and may miss action items that were clearly stated. We also cannot
+yet publish a trustworthy faithfulness figure — our own inversion detector ships in this release,
+but the meetings we have are not a fair test set (they overlap the model's training data). Treat
+the summary as a helpful first pass, not a record: the app says as much next to every summary, and
+every bullet carries a timestamp so you can check it against the transcript in one tap.
 
 ## Synced lyrics in Android music players
 
