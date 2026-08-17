@@ -51,6 +51,12 @@ kotlin {
             // audio-source resolution.
             implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.3")
         }
+        // Test-only. Lets desktop carry measurement harnesses (BatchTranscribeRun) that need
+        // the desktop-side APIs — AudioDecoder, SpeechEngineFactory, appDataDir — which :shared
+        // cannot reach.
+        jvmTest.dependencies {
+            implementation("junit:junit:4.13.2")
+        }
     }
 }
 
