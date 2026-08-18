@@ -17,11 +17,17 @@ import studio.voxsum.core.agentic.CursorTranscript.secToClock
  *    instruction alone does not hold, so the harness enforces it the same way it enforces
  *    anchors and the timeline. A single Latin word (a proper noun, an acronym) is legitimate
  *    code-switching and is NOT a flip; the signal is a whole phrase/sentence in the wrong script.
- * 4. **UPD->ADD fallback** — a UPD whose prefix matches nothing is honoured as an ADD.
- * 5. **Dedup + caps** — in [CursorState]; caps applied by `spread`, never truncation.
- * 6. **NOP-collapse** — K consecutive NOPs over content-rich chunks trips the caller's
+ * 4. **Category guard** — a DECISIONS/ACTIONS op whose evidence hedges (可以/should/might) with
+ *    no decision-completion marker anywhere in the neighbourhood reads as advice or a described
+ *    possibility, not something decided here, and is dropped. Narrower than it sounds: it does
+ *    NOT catch outright fabrication (invented content, no hedge at all) or historical narration
+ *    (a past event stated as flat fact) — both measured in the same baseline and neither
+ *    addressed by this guard.
+ * 5. **UPD->ADD fallback** — a UPD whose prefix matches nothing is honoured as an ADD.
+ * 6. **Dedup + caps** — in [CursorState]; caps applied by `spread`, never truncation.
+ * 7. **NOP-collapse** — K consecutive NOPs over content-rich chunks trips the caller's
  *    coverage fallback.
- * 7. **Malformed ops** — logged, never fatal.
+ * 8. **Malformed ops** — logged, never fatal.
  *
  * **These guards are not decoration — they are where the measured numbers come from.** The
  * upstream note is explicit that porting the protocol without them does not reproduce the
@@ -106,6 +112,51 @@ internal object CursorGuards {
         val low = text.lowercase()
         if (NEGATIVE.any { it in low }) return -1
         return if (POSITIVE.any { it in low }) 1 else 0
+    }
+
+    /**
+     * Hedging/capability language: describes a general possibility or practice, not something
+     * decided. Real case: "開發者可以設定一套升級策略..." (developers CAN set up an escalation
+     * strategy) got compressed into the bullet "Use only low-cost models for simple requests" —
+     * an imperative reading nothing in the hedge survived. The hedge lives in the EVIDENCE, not
+     * the (already-compressed) bullet, which is why [readsAsAdvice] scans evidence, not text.
+     */
+    private val HEDGE = listOf(
+        "可以", "可能", "或許", "應該", "建議", "如果", "假設",
+        "could", "might", "may", "should", "suggest", "recommend",
+    )
+
+    /** ±90s around the anchor, the same neighbourhood [CursorVerifier] judges against — kept
+     *  independent of it on purpose: this guard must work even with no verifier configured. */
+    private fun evidenceWindow(chunk: CursorChunker.Chunk, anchor: Int?, windowSec: Int = 90): List<String> {
+        if (anchor == null) return emptyList()
+        return chunk.utterances.filter { kotlin.math.abs(it.start - anchor) <= windowSec }.map { it.text }
+    }
+
+    /**
+     * Reads as advice/description, not something decided IN this conversation?
+     *
+     * Fires ONLY when the evidence hedges (a capability or suggestion, not a completed
+     * decision) AND carries none of [polarity]'s decision-completion markers anywhere in the
+     * 90s neighbourhood — the same margin that lets a real decision phrased with some hedging
+     * ("我們應該現在採用，那就通過了") through, because 通過 nearby proves a decision was
+     * actually reached. Deliberately narrow, same reasoning as [contradictsTimeline]: a wrong
+     * verdict here silently drops a true decision, so it only fires when NO completion marker
+     * is anywhere nearby, not merely absent from the bullet itself.
+     *
+     * Known gap, stated rather than papered over: this catches hedged advice mistaken for a
+     * decision, not outright fabrication (invented content with no hedge at all) or historical
+     * narration (a past event stated as flat fact, not hedged) — measured baseline cases of
+     * both exist and neither is addressed here.
+     */
+    private fun readsAsAdvice(chunk: CursorChunker.Chunk, section: String, anchor: Int?): Boolean {
+        if (section !in TIMELINE_SECTIONS) return false
+        val evidence = evidenceWindow(chunk, anchor)
+        if (evidence.isEmpty()) return false
+        val text = evidence.joinToString(" ").lowercase()
+        val hedged = HEDGE.any { it in text }
+        val decided = POSITIVE.any { it in text } || NEGATIVE.any { it in text }
+        return hedged && !decided
     }
 
     /**
@@ -240,6 +291,10 @@ internal object CursorGuards {
                         continue
                     }
                     val (resolved, note) = resolveAnchor(chunk, op.bullet, op.anchor)
+                    if (readsAsAdvice(chunk, op.section, resolved)) {
+                        outcome.results.add(CursorAppliedOp(op, false, "reads as advice, not a decision (category guard)"))
+                        continue
+                    }
                     val contradiction = contradictsTimeline(state, op.section, op.bullet, resolved)
                     if (contradiction != null) {
                         outcome.results.add(CursorAppliedOp(op, false, contradiction))
@@ -261,6 +316,10 @@ internal object CursorGuards {
                         continue
                     }
                     val (resolved, note) = resolveAnchor(chunk, op.bullet, op.anchor)
+                    if (readsAsAdvice(chunk, op.section, resolved)) {
+                        outcome.results.add(CursorAppliedOp(op, false, "reads as advice, not a decision (category guard)"))
+                        continue
+                    }
                     val vetoed = verify?.invoke(op.section, op.bullet, resolved)
                     if (vetoed != null) {
                         outcome.results.add(CursorAppliedOp(op, false, vetoed))
@@ -298,11 +357,12 @@ internal object CursorGuards {
                 }
 
                 is CursorOp.Cmp -> {
-                    // Drop individual flipped bullets rather than reject the whole rewrite —
-                    // CMP replaces the section, so losing one flipped item still keeps the rest.
+                    // Drop individual bad bullets rather than reject the whole rewrite — CMP
+                    // replaces the section, so losing one flipped/advice item still keeps the rest.
                     val repaired = op.bullets
                         .filterNot { flipsLanguage(zh, op.section, it.text) }
                         .map { it.copy(anchor = resolveAnchor(chunk, it.text, it.anchor).first) }
+                        .filterNot { readsAsAdvice(chunk, op.section, it.anchor) }
                     val reason = state.compact(op.section, repaired)
                     outcome.results.add(CursorAppliedOp(op, reason == null, reason))
                     substantive = substantive || reason == null

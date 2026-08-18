@@ -312,6 +312,59 @@ class CursorHarnessTest {
         assertTrue("TOPICS should be exempt from the language guard", out.results.first().applied)
     }
 
+    // ---- category guard --------------------------------------------------------------------
+    //
+    // Real baseline case: evidence "開發者可以設定一套升級策略，讓大部分簡單的請求交給低成本的
+    // 模型處理" (developers CAN set up an escalation strategy...) got compressed into a DECISIONS
+    // bullet reading as a flat imperative — the hedge (可以) lived in the evidence, not the
+    // (already-compressed) bullet the model wrote.
+
+    private val hedgeChunk = chunkOf(
+        """
+        [0:00] S1: 開發者可以設定一套升級策略
+        [0:08] S1: 讓大部分簡單的請求交給低成本的模型處理
+        [0:16] S1: 複雜的請求才轉發給高階模型
+        """.trimIndent(),
+    )
+
+    @Test fun categoryGuardDropsHedgedAdviceWithNoDecisionMarkerNearby() {
+        val out = CursorGuards.applyCursorOps(
+            CursorState(),
+            CursorOps.parse("ADD DECISIONS - 只使用低成本模型處理簡單請求 [0:08]"),
+            hedgeChunk, zh = true,
+        )
+        assertFalse("hedged advice with no decision marker nearby was applied", out.results.first().applied)
+        assertTrue(out.results.first().reason!!.contains("category guard"))
+    }
+
+    /** The guard must not eat a REAL decision merely because it is phrased with some hedging —
+     *  a decision-completion marker (here 通過, from the shared polarity lexicon) anywhere in
+     *  the 90s neighbourhood proves a decision was actually reached, hedge or not. */
+    @Test fun categoryGuardAllowsAHedgeWhenADecisionMarkerIsNearby() {
+        val chunk = chunkOf(
+            """
+            [0:00] S1: 開發者可以設定一套升級策略
+            [0:08] S1: 讓大部分簡單的請求交給低成本的模型處理
+            [0:20] S2: 好，那我們就通過這個提案
+            """.trimIndent(),
+        )
+        val out = CursorGuards.applyCursorOps(
+            CursorState(), CursorOps.parse("ADD DECISIONS - 只使用低成本模型處理簡單請求 [0:08]"),
+            chunk, zh = true,
+        )
+        assertTrue("a real decision was dropped for merely being phrased with a hedge", out.results.first().applied)
+    }
+
+    /** Only DECISIONS/ACTIONS are checked — the sections a category confusion actually
+     *  corrupts. SUMMARY is exactly where hedged, descriptive content belongs. */
+    @Test fun categoryGuardIsInertOutsideDecisionsAndActions() {
+        val out = CursorGuards.applyCursorOps(
+            CursorState(), CursorOps.parse("ADD SUMMARY - 開發者可以視需求選擇模型 [0:08]"),
+            hedgeChunk, zh = true,
+        )
+        assertTrue("the category guard fired outside DECISIONS/ACTIONS", out.results.first().applied)
+    }
+
     /** Revising an EARLIER bullet is always allowed — that is what UPD is for — and the
      *  revision keeps its slot so the timeline does not reorder. */
     @Test fun updRevisesInPlace() {
