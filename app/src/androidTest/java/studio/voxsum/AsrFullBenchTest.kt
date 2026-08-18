@@ -9,11 +9,8 @@ import org.junit.Assume
 import org.junit.Test
 import org.junit.runner.RunWith
 import studio.voxsum.core.asr.AsrBackend
-import studio.voxsum.core.asr.MossLiteEngine
-import studio.voxsum.core.asr.NemotronLiteAsr
 import studio.voxsum.core.asr.SpeechEngine
 import studio.voxsum.core.asr.XasrLiteAsr
-import studio.voxsum.core.asr.moss.MossPipeline
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.models.ModelManager
 import java.io.File
@@ -94,12 +91,10 @@ class AsrFullBenchTest {
             val audioSec = pcm.size / 16000.0
             Log.i(TAG, "=== $lang: ${"%.1f".format(audioSec)}s ===")
 
-            // -e only x-asr,moss restricts the run. One backend's death taking the
-            // others' results with it is not hypothetical: a full 8-cell run died to
-            // lmkd at cell 5 under system-wide memory pressure, and cells 1-4 with it.
+            // -e only x-asr restricts the run.
             val only = InstrumentationRegistry.getArguments().getString("only")
                 ?.split(',')?.map { it.trim() }
-            for (backend in listOf(AsrBackend.XASR, AsrBackend.NEMOTRON, AsrBackend.MOSS)) {
+            for (backend in listOf(AsrBackend.XASR)) {
                 if (only != null && backend.id !in only) continue
                 val r = runCatching { measure(backend, lang, models, app, dir, pcm, audioSec, ref) }
                     .getOrElse { Log.w(TAG, "${backend.id}/$lang failed: ${it.message}"); null }
@@ -130,10 +125,7 @@ class AsrFullBenchTest {
         }
         val anon = AnonPeak().start()
         val t0 = System.nanoTime()
-        val text = when (backend) {
-            AsrBackend.MOSS -> transcribeMoss(models, app, pcm)
-            else -> transcribeVad(backend, models, app, pcm)
-        }
+        val text = transcribeVad(backend, models, app, pcm)
         val wall = (System.nanoTime() - t0) / 1e9
         return Row(backend.id, lang, audioSec, wall, anon.stop(),
             errorRate(ref, text, lang), ref.length, text)
@@ -143,12 +135,7 @@ class AsrFullBenchTest {
         backend: AsrBackend, models: ModelManager, app: android.content.Context, pcm: FloatArray,
     ): String {
         val f = models.asrFiles(backend)
-        val cache = File(app.cacheDir, "bench").apply { mkdirs() }.absolutePath
-        val e: SpeechEngine = if (backend == AsrBackend.NEMOTRON) NemotronLiteAsr(
-            encoder = File(f.encoder), promptFuse = File(f.promptFuse), decoder = File(f.decoder),
-            joint = File(f.joiner), tokenizerJson = File(f.tokens),
-            vadModelFile = models.vadLiteModel, numThreads = 4, languageId = "auto", cacheDir = cache,
-        ) else XasrLiteAsr(
+        val e: SpeechEngine = XasrLiteAsr(
             modelFile = File(f.encoder), tokensFile = File(f.tokens),
             // NO weight cache for x-asr (mirror TranscriptionService): the cache keys
             // packed weights by data, so the shared-weight bucketed enc signatures
@@ -160,27 +147,6 @@ class AsrFullBenchTest {
                 .joinToString(" ") { u -> u.text }
         }
     }
-
-    private suspend fun transcribeMoss(
-        models: ModelManager, app: android.content.Context, pcm: FloatArray,
-    ): String {
-        val e = MossLiteEngine.create(
-            encoder = models.mossLiteEncoder, embedder = models.mossLiteEmbedder,
-            decoder = models.mossLiteDecoder, vocabJson = models.mossLiteVocab,
-            cacheDir = File(app.cacheDir, "xnnpack"),
-        ) ?: error("MOSS engine failed to load")
-        return e.use { eng ->
-            MossPipeline.run(
-                durS = pcm.size / 16000.0,
-                getWindow = { off, len ->
-                    val a = off.coerceIn(0, pcm.size)
-                    pcm.copyOfRange(a, (a + len).coerceAtMost(pcm.size))
-                },
-                decodeWindow = { p, maxNew -> eng.transcribeWindow(p, maxNew) },
-            ).joinToString(" ") { it.text }
-        }
-    }
-
 
     /**
      * CER for Chinese, WER for English — a word rate is meaningless for a script

@@ -26,7 +26,6 @@
     <string name="re_transcribe">Retranscrire</string>
     <string name="re_summarize">Refaire le résumé</string>
     <string name="re_diarize">Redétecter les locuteurs</string>
-    <string name="re_transcribe_diarize">Retranscrire et redétecter les locuteurs</string>
     <string name="pick_audio">Choisir un audio…</string>
     <string name="stop">Arrêter</string>
     <string name="cd_stop_recording">Arrêter l\'enregistrement</string>
@@ -59,10 +58,7 @@
     <string name="settings_speakers">Locuteurs (%1$s)</string>
     <string name="settings_auto">auto</string>
     <string name="asr_tagline_xasr">x-asr · zh-en, ponctué</string>
-    <string name="asr_tagline_moss">zh · en · ja · ko · yue · locuteurs intégrés · modèle lourd</string>
-    <string name="asr_tagline_nemotron">25 langues · affiné pour le zh-TW</string>
     <string name="settings_recognition">Reconnaissance</string>
-    <string name="settings_language">Langue</string>
     <string name="settings_itn">Normalisation inverse du texte</string>
     <string name="settings_vad_threshold">Seuil VAD</string>
     <string name="settings_diarization">Diarisation</string>
@@ -72,8 +68,6 @@
     <string name="settings_summary_language">Écriture chinoise</string>
     <string name="summary_language_auto">Comme la transcription</string>
     <string name="settings_summary_prompt">Invite de résumé</string>
-    <string name="settings_asr_context">Noms et termes à reconnaître</string>
-    <string name="settings_asr_context_hint">Personnes, entreprises ou jargon présents dans cet enregistrement, séparés par des virgules. MOSS-TD uniquement.</string>
     <string name="settings_storage">Stockage</string>
     <string name="storage_total">Modèles sur l\'appareil : %1$s</string>
     <string name="storage_none">Aucun modèle téléchargé</string>
@@ -334,7 +328,6 @@
     <string name="storage_compile_cache">%1$s (cache de compilation)</string>
     <string name="settings_asr_hw">Matériel de transcription</string>
     <string name="pipeline_transcript_via">via %1$s · %2$s · horodatage par énoncé</string>
-    <string name="pipeline_diar_native">locuteurs identifiés par le même modèle, reliés entre fenêtres par CAM++</string>
     <string name="pipeline_diar_pyannote">locuteurs via pyannote + CAM++</string>
     <string name="pipeline_diar_off">pas de séparation des locuteurs</string>
     <string name="notes_decisions">Décisions</string>

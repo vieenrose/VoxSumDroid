@@ -238,6 +238,22 @@ See [`SPIKE.md`](SPIKE.md) for the proven recipe and [`RELEASING.md`](RELEASING.
 
 ### ASR backend performance
 
+**Nemotron was removed 2026-08-18** — this table is what justified it. It ran ~2× worse CER
+than X-ASR on zh-TW and the app targets zh-TW meetings only, not the 25-language coverage
+Nemotron traded accuracy for.
+
+**MOSS-TD was also removed 2026-08-18 — from this Android app only.** A real transcription
+on the OPPO CPH2371 reference device (Dimensity 900, 2 big + 6 little cores, all engaged —
+there was no unused core to add) measured **RTF 4.43** on a 150 s zh-TW clip: decode ran at
+2.10 tok/s, matching the engine's own "already tuned" figure, so this was the ceiling, not
+an undertuned default. A 60-minute meeting at that rate takes ~4.4 hours — impractical
+regardless of MOSS-TD's accuracy edge. Root cause: autoregressive decode reads the full
+LM-head weight matrix every token, which is memory-bandwidth-bound, not compute-bound — more
+cores cannot fix it. **MOSS-TD stays on the Linux desktop app**, where the same weights run
+well under realtime (see that repo's README) with the best accuracy of any backend; this is a
+phone-hardware limit, not a verdict on the model. Diarization survives via the separate
+pyannote+CAM++ pipeline. The rows below predate removal and are kept as the record.
+
 Measured on a **Boox Tab Mini C** (Snapdragon 662, 4×Cortex-A73 2.0 GHz + 4×A53 1.8 GHz, 3.7 GB
 RAM, Android 11) over two **5-minute** clips — English and Taiwan-accented Mandarin — against
 human references, CPU only, 4 threads, full production pipeline (`AsrFullBenchTest`, the same
@@ -269,13 +285,14 @@ reflects running its bucketed encoder with the XNNPACK weight cache **off**, whi
 for correctness: the cache keys packed weights by tensor data, so the four shared-weight encoder
 signatures collide and the larger buckets decode to nothing.
 
-**Accuracy vs speed:** MOSS-TD is in a different accuracy class (and the only backend that
-diarizes while it transcribes) but runs ~9–10× slower than real time on this SoC. X-ASR is the
-fast default. **Nemotron's case is language coverage — 25 languages — not accuracy**: on Taiwanese
-Mandarin it is roughly 2× worse than X-ASR and 3× worse than MOSS-TD, and it collapses on
-classical text (44.8 CER on 三國演義 against MOSS-TD's 2.2). Pick it when you need a language the
-other two do not cover. The Nemotron row uses the q8 encoder that replaced the original q4-mix at
-the same 599 MB — the q4 quantization alone cost ~6 en WER — plus its retuned VAD pre-roll.
+**Accuracy vs speed:** MOSS-TD was in a different accuracy class (and the only backend that
+diarized while it transcribed) but ran ~9–10× slower than real time on this SoC — later
+confirmed at RTF 4.4-5.7× on the current OPPO reference device, hence its removal above.
+X-ASR is the fast default. **Nemotron's case was language coverage — 25 languages — not
+accuracy**: on Taiwanese Mandarin it was roughly 2× worse than X-ASR and 3× worse than
+MOSS-TD, and it collapsed on classical text (44.8 CER on 三國演義 against MOSS-TD's 2.2). That
+trade wasn't worth it for an app targeting zh-TW meetings, so it's gone; the row above uses
+the q8 encoder that replaced the original q4-mix at the same 599 MB before removal.
 
 **Prefill and generation apply only to MOSS-TD**, the one autoregressive backend
 (per ~90 s window, zh clip):

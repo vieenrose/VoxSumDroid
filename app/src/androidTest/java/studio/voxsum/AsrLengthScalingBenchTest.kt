@@ -11,7 +11,6 @@ import org.junit.Assume
 import org.junit.Test
 import org.junit.runner.RunWith
 import studio.voxsum.core.asr.AsrBackend
-import studio.voxsum.core.asr.NemotronLiteAsr
 import studio.voxsum.core.asr.SpeechEngine
 import studio.voxsum.core.asr.XasrLiteAsr
 import studio.voxsum.core.audio.WavIo
@@ -96,12 +95,7 @@ class AsrLengthScalingBenchTest {
 
     private fun engineFor(backend: AsrBackend, models: ModelManager, ctx: android.content.Context): SpeechEngine {
         val f = models.asrFiles(backend)
-        val cache = File(ctx.cacheDir, "scalebench").apply { mkdirs() }.absolutePath
-        return if (backend == AsrBackend.NEMOTRON) NemotronLiteAsr(
-            encoder = File(f.encoder), promptFuse = File(f.promptFuse), decoder = File(f.decoder),
-            joint = File(f.joiner), tokenizerJson = File(f.tokens),
-            vadModelFile = models.vadLiteModel, numThreads = 4, languageId = "auto", cacheDir = cache,
-        ) else XasrLiteAsr(
+        return XasrLiteAsr(
             modelFile = File(f.encoder), tokensFile = File(f.tokens),
             vadModelFile = models.vadLiteModel, numThreads = 4, cacheDir = "",
         )
@@ -128,7 +122,7 @@ class AsrLengthScalingBenchTest {
         )
 
         val only = args.getString("only")?.split(',')?.map { it.trim() }
-        for (backend in listOf(AsrBackend.XASR, AsrBackend.NEMOTRON)) {
+        for (backend in listOf(AsrBackend.XASR)) {
             if (only != null && backend.id !in only) continue
             if (!models.asrReady(backend)) {
                 runCatching { models.ensureAsrModels(backend) { } }

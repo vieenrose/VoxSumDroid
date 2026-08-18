@@ -9,11 +9,8 @@ import org.junit.Assume
 import org.junit.Test
 import org.junit.runner.RunWith
 import studio.voxsum.core.asr.AsrBackend
-import studio.voxsum.core.asr.MossLiteEngine
-import studio.voxsum.core.asr.NemotronLiteAsr
 import studio.voxsum.core.asr.SpeechEngine
 import studio.voxsum.core.asr.XasrLiteAsr
-import studio.voxsum.core.asr.moss.MossPipeline
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.models.ModelManager
 import java.io.File
@@ -27,9 +24,9 @@ import java.io.InputStream
  * architecture has the notion — prefill and generation rate.
  *
  * On that last point: prefill/generate is a property of AUTOREGRESSIVE decoders.
- * MOSS-TD has one. X-ASR is a Zipformer transducer and Nemotron is encoder+joint;
- * both emit tokens from a single forward pass with no prompt-ingest phase, so a
- * "prefill tok/s" column would be fabricated for them. They report encode time.
+ * X-ASR emits tokens from a single forward pass per VAD segment, with no
+ * prompt-ingest phase, so a "prefill tok/s" column would be fabricated for it.
+ * It reports encode time.
  *
  * RssAnon rather than total RSS is the memory figure: the models are mmap'd, so
  * most of RSS is clean file-backed pages the kernel evicts under pressure.
@@ -60,7 +57,7 @@ class AsrBackendBenchTest {
 
     /** Mirrors TranscriptionService.bigCoreThreads. Passing 0 instead is NOT "auto" for
      *  the XNNPACK-backed engines — XNNPACK defaults to a SINGLE thread, which makes a
-     *  benchmark measure the wrong thing entirely. Only MossLiteEngine treats 0 as auto. */
+     *  benchmark measure the wrong thing entirely. */
     private val bigCoreThreads: Int by lazy {
         val cores = Runtime.getRuntime().availableProcessors()
         val n = runCatching {
@@ -111,7 +108,7 @@ class AsrBackendBenchTest {
         out.writeText("VoxSum ASR backend benchmark\nclip=$clip ${"%.2f".format(audioS)}s\n\n")
 
         val results = mutableListOf<Result>()
-        for (backend in listOf(AsrBackend.XASR, AsrBackend.NEMOTRON, AsrBackend.MOSS)) {
+        for (backend in listOf(AsrBackend.XASR)) {
             val r = runCatching { measure(backend, models, app, pcm, audioS) }
                 .getOrElse { Log.w(TAG, "${backend.id} failed: ${it.message}"); null }
             if (r != null) {
@@ -138,34 +135,23 @@ class AsrBackendBenchTest {
             models.ensureAsrModels(backend) { }
         }
 
-        return if (backend == AsrBackend.MOSS) measureMoss(models, app, pcm, audioS)
-        else measureSpeechEngine(backend, models, app, pcm, audioS)
+        return measureSpeechEngine(backend, models, app, pcm, audioS)
     }
 
-    /** X-ASR / Nemotron: one forward pass per VAD segment, no prefill phase. */
+    /** X-ASR: one forward pass per VAD segment, no prefill phase. */
     private suspend fun measureSpeechEngine(
         backend: AsrBackend, models: ModelManager, app: android.content.Context,
         pcm: FloatArray, audioS: Double,
     ): Result {
         val f = models.asrFiles(backend)
-        val cache = File(app.cacheDir, "bench").apply { mkdirs() }.absolutePath
         var warmS = 0.0
         val sampler = AnonSampler().start()
         val tLoad = System.nanoTime()
-        val engine: SpeechEngine = if (backend == AsrBackend.NEMOTRON) {
-            NemotronLiteAsr(
-                encoder = File(f.encoder), promptFuse = File(f.promptFuse),
-                decoder = File(f.decoder), joint = File(f.joiner),
-                tokenizerJson = File(f.tokens), vadModelFile = models.vadLiteModel,
-                numThreads = bigCoreThreads, languageId = "auto", cacheDir = cache,
-            )
-        } else {
-            XasrLiteAsr(
-                modelFile = File(f.encoder), tokensFile = File(f.tokens),
-                // NO weight cache for x-asr (bucketed shared-weight signatures collide).
-                vadModelFile = models.vadLiteModel, numThreads = bigCoreThreads, cacheDir = "",
-            )
-        }
+        val engine: SpeechEngine = XasrLiteAsr(
+            modelFile = File(f.encoder), tokensFile = File(f.tokens),
+            // NO weight cache for x-asr (bucketed shared-weight signatures collide).
+            vadModelFile = models.vadLiteModel, numThreads = bigCoreThreads, cacheDir = "",
+        )
         val loadS = (System.nanoTime() - tLoad) / 1e9
         // Warm pass first: the XNNPACK weight cache is cold on a fresh cacheDir, so the
         // first run pays weight repacking and graph compilation. Timing that as if it
@@ -180,34 +166,6 @@ class AsrBackendBenchTest {
             t
         }
         return Result(backend.id, audioS, warmS, sampler.stop(), loadS = loadS, text = text)
-    }
-
-    /** MOSS-TD: autoregressive, so encode / prefill / decode are separable. */
-    private suspend fun measureMoss(
-        models: ModelManager, app: android.content.Context, pcm: FloatArray, audioS: Double,
-    ): Result {
-        val sampler = AnonSampler().start()
-        val t0 = System.nanoTime()
-        val engine = MossLiteEngine.create(
-            encoder = models.mossLiteEncoder, embedder = models.mossLiteEmbedder,
-            decoder = models.mossLiteDecoder, vocabJson = models.mossLiteVocab,
-            cacheDir = File(app.cacheDir, "xnnpack"),
-        ) ?: throw IllegalStateException("MOSS LiteRT engine failed to load")
-
-        var enc = 0.0; var pre = 0.0; var dec = 0.0; var prompt = 0; var gen = 0
-        val text = engine.use { e ->
-            val raw = e.transcribeWindow(pcm, maxOf(5120, MossPipeline.TOKENS_PER_AUDIO_SECOND * audioS.toInt()))
-            val (a, b, c) = e.lastTimings()
-            enc = a; pre = b; dec = c
-            prompt = e.lastPromptTokens; gen = e.lastGeneratedTokens
-            raw
-        }
-        val wallS = (System.nanoTime() - t0) / 1e9
-        return Result(
-            AsrBackend.MOSS.id, audioS, wallS, sampler.stop(),
-            encodeS = enc, prefillS = pre, decodeS = dec, text = text,
-            prefillToks = prompt, genToks = gen,
-        )
     }
 
     private fun format(r: Result): String = buildString {

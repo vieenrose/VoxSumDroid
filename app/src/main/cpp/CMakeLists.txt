@@ -18,13 +18,9 @@ project(voxsum)
 set(NATIVE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../native")
 
 add_library(voxsum-mosslite SHARED
-    mosslite/moss_lite_jni.cpp
     mosslite/moss_lite_engine.cc
     mosslite/lite_pod_jni.cpp
-    mosslite/xasr_lite_jni.cpp
-    mosslite/nemotron_lite_jni.cpp
-    mosslite/nemotron_mel.cc
-    mosslite/whisper_mel.cc)
+    mosslite/xasr_lite_jni.cpp)
 target_include_directories(voxsum-mosslite PRIVATE mosslite)
 target_link_libraries(voxsum-mosslite
     "${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libLiteRt.so"

@@ -26,7 +26,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.isActive
-import studio.voxsum.core.asr.moss.MossWindower
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -39,11 +38,7 @@ import kotlinx.coroutines.launch
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.AsrEngine
 import studio.voxsum.core.asr.SpeechEngine
-import studio.voxsum.core.asr.NemotronLiteAsr
 import studio.voxsum.core.asr.XasrLiteAsr
-import studio.voxsum.core.asr.MossLiteEngine
-import studio.voxsum.core.asr.moss.MOSS_SR
-import studio.voxsum.core.asr.moss.MossPipeline
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.AudioRecorder
 import studio.voxsum.core.audio.RecordingRecovery
@@ -84,8 +79,6 @@ private const val ACTION_ITEM_CTX = 8192
 class TranscriptionService : LifecycleService() {
 
     companion object {
-        /** Live-capture MOSS window (s) — shorter than the 90 s file default for cadence. */
-        const val MOSS_LIVE_WINDOW_S = 60
 
         private const val CHANNEL_ID = "voxsum_pipeline"
         private const val NOTIF_ID = 1
@@ -826,7 +819,7 @@ class TranscriptionService : LifecycleService() {
         // as each utterance's end time advances through the file. 0 when unknown → no ASR bar, still fine.
         val totalDurationSec = probeDurationSec(uri)
         // Generated text (summary/title/actions) follows Target language × locale; the transcript
-        // follows [transcriptConverter] (for Nemotron the zh-TW/zh-CN pick, conservative s2t).
+        // always converts to Traditional (conservative s2t) — see [transcriptConverter].
         val converter = outputConverter(cfg)
         val txtConverter = transcriptConverter(cfg, backend)
 
@@ -930,66 +923,54 @@ class TranscriptionService : LifecycleService() {
         }
 
         try {
-        if (backend == AsrBackend.MOSS) {
-            // MOSS-TD does ASR + speaker diarization + timestamps in one pass — no sherpa ASR, no
-            // separate diarization stage. Decode the whole source to the 16 kHz work WAV first, then
-            // run the shared windowed pipeline over it (the model can't stream live per-utterance).
-            if (!ownWav) {
-                withContext(Dispatchers.IO) {
-                    AudioDecoder.decodeToWav16k(this@TranscriptionService, uri, wav, normalize = true) { _, _ -> }
-                }
-            }
-            diarized = runMossPhase(wav, cfg, models, utterances) ?: return null
-        } else {
-            val asr = try {
-                createSpeechEngine(backend, models, cfg)
-            } catch (t: Throwable) {
-                // The model files are present but the recognizer couldn't load them — an incomplete or
-                // corrupt download/extraction. Remove them so a retry re-downloads a clean copy, and
-                // surface a clear, retryable message instead of a raw native error in the transcript.
-                runCatching { models.deleteAsr(backend) }
-                emitEvent(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))
-                return null
-            }
-            asr.use {
-                asr.transcribeLive(chunks)
-                    .flowOn(Dispatchers.Default)
-                    .collect { e ->
-                        when (e) {
-                            is TranscriptEvent.Utterance -> {
-                                // s2tw runs after cleanTranscript joined spaced CJK, so OpenCC sees
-                                // contiguous text for correct phrase matching (clean-then-convert is intentional).
-                                val u = txtConverter?.let { e.copy(text = it.convert(e.text)) } ?: e
-                                utterances += u
-                                emitEvent(u)
-                                // Recognition progress: how far the latest utterance reaches through the audio.
-                                if (totalDurationSec > 0) {
-                                    emitEvent(TranscriptEvent.Progress((u.endSec / totalDurationSec).toFloat().coerceIn(0f, 1f)))
-                                }
-                            }
-                            else -> emitEvent(e)
-                        }
-                    }
-                // Diarize while the recognizer is still alive: the split rescue re-decodes a fused
-                // segment's halves on backends without token timestamps. Only the small
-                // CAM++ embedder is co-resident with the ASR models — the LLM still loads after
-                // both are released.
-                if (utterances.isNotEmpty() && cfg.diarizationEnabled) {
-                    // Diarization is an enhancement, not a prerequisite: a failure here (typically a
-                    // model download dying on flaky Wi-Fi — seen on-device) must NOT cost the session.
-                    // Continue to Complete/summary with the untagged transcript instead of Failed,
-                    // which left the user no retry and no way to save what was already transcribed.
-                    diarized = try {
-                        diarizePhase(wav, utterances, cfg, models, asr, txtConverter)
-                    } catch (ce: CancellationException) {
-                        throw ce
-                    } catch (t: Throwable) {
-                        emitEvent(TranscriptEvent.Status(getString(R.string.svc_diarization_skipped)))
-                        null
-                    }
-                }
-            } // ASR native resources freed here, before the LLM is loaded.
+        val asr = try {
+            createSpeechEngine(backend, models, cfg)
+        } catch (t: Throwable) {
+            // The model files are present but the recognizer couldn't load them — an incomplete or
+            // corrupt download/extraction. Remove them so a retry re-downloads a clean copy, and
+            // surface a clear, retryable message instead of a raw native error in the transcript.
+            runCatching { models.deleteAsr(backend) }
+            emitEvent(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))
+            return null
         }
+        asr.use {
+            asr.transcribeLive(chunks)
+                .flowOn(Dispatchers.Default)
+                .collect { e ->
+                    when (e) {
+                        is TranscriptEvent.Utterance -> {
+                            // s2tw runs after cleanTranscript joined spaced CJK, so OpenCC sees
+                            // contiguous text for correct phrase matching (clean-then-convert is intentional).
+                            val u = txtConverter?.let { e.copy(text = it.convert(e.text)) } ?: e
+                            utterances += u
+                            emitEvent(u)
+                            // Recognition progress: how far the latest utterance reaches through the audio.
+                            if (totalDurationSec > 0) {
+                                emitEvent(TranscriptEvent.Progress((u.endSec / totalDurationSec).toFloat().coerceIn(0f, 1f)))
+                            }
+                        }
+                        else -> emitEvent(e)
+                    }
+                }
+            // Diarize while the recognizer is still alive: the split rescue re-decodes a fused
+            // segment's halves on backends without token timestamps. Only the small
+            // CAM++ embedder is co-resident with the ASR models — the LLM still loads after
+            // both are released.
+            if (utterances.isNotEmpty() && cfg.diarizationEnabled) {
+                // Diarization is an enhancement, not a prerequisite: a failure here (typically a
+                // model download dying on flaky Wi-Fi — seen on-device) must NOT cost the session.
+                // Continue to Complete/summary with the untagged transcript instead of Failed,
+                // which left the user no retry and no way to save what was already transcribed.
+                diarized = try {
+                    diarizePhase(wav, utterances, cfg, models, asr, txtConverter)
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (t: Throwable) {
+                    emitEvent(TranscriptEvent.Status(getString(R.string.svc_diarization_skipped)))
+                    null
+                }
+            }
+        } // ASR native resources freed here, before the LLM is loaded.
         } finally {
             // Whatever happened — finished, failed, or aborted — the audio is on disk and belongs
             // in the library. promoteImport runs under NonCancellable; see it for why that matters.
@@ -1067,7 +1048,7 @@ class TranscriptionService : LifecycleService() {
         val cfgAll = TranscriptionConfig.Holder.config
         // Anything transcription-affecting invalidates a leftover sidecar from an older drain.
         val fingerprint = listOf(
-            cfgAll.asrBackend, cfgAll.asrModelId, cfgAll.language, cfgAll.summaryScript,
+            cfgAll.asrBackend, cfgAll.asrModelId, cfgAll.summaryScript,
             cfgAll.useItn, cfgAll.diarizationEnabled, cfgAll.vadThreshold,
         ).joinToString("|")
         var lastLap: List<String>? = null
@@ -1295,48 +1276,6 @@ class TranscriptionService : LifecycleService() {
             }
         }
         try {
-        if (backend == AsrBackend.MOSS) {
-            if (deferProcessing) {
-                // Deferred take: capture only — the queue re-processes the finished WAV.
-                mic.consumeAsFlow().flowOn(Dispatchers.Default).collect { /* WAV is the source */ }
-                deferred = true
-                withContext(Dispatchers.IO) { WavNormalizer.normalizeInPlace(wav) }
-            } else {
-                // LIVE MOSS streaming: recorder.record() writes each chunk to the WAV BEFORE
-                // emitting it here, so counting consumed chunks == samples durably on disk.
-                // The pipeline's getWindow gate suspends until the next window's samples exist
-                // (or capture ended), so windows decode WHILE recording continues and each
-                // decoded window streams a transcript snapshot to the UI. Audio is already
-                // gain-managed live (LiveAgc in the recorder); the persisted WAV still gets
-                // its playback normalization after the run.
-                emitEvent(TranscriptEvent.Status(getString(R.string.svc_transcribing)))
-                deferred = false
-                val written = MutableStateFlow(0L)
-                val capDone = MutableStateFlow(false)
-                val drain = lifecycleScope.launch(Dispatchers.Default) {
-                    try {
-                        mic.consumeAsFlow().collect { c -> written.value += c.size }
-                    } finally {
-                        capDone.value = true
-                    }
-                }
-                try {
-                    diarized = runMossPhase(
-                        wav, cfg, models, utterances,
-                        awaitSamples = { need ->
-                            combine(written, capDone) { w, d -> w >= need || d }
-                                .first { it }
-                        },
-                        // Shorter windows than the 90 s file default: first text ~1 min into the
-                        // take and steadier cadence — the accuracy sweep showed 60 s is fine.
-                        windowS = MOSS_LIVE_WINDOW_S,
-                    )
-                } finally {
-                    drain.join()
-                }
-                withContext(Dispatchers.IO) { WavNormalizer.normalizeInPlace(wav) }
-            }
-        } else {
         createSpeechEngine(backend, models, cfg).use { asr ->
             asr.transcribeLive(mic.consumeAsFlow())
                 .flowOn(Dispatchers.Default)
@@ -1379,7 +1318,6 @@ class TranscriptionService : LifecycleService() {
                 }
             }
         } // ASR + mic released here, before the LLM loads.
-        }
         } finally {
             // Capture finished (clean stop or user cancel) — the WAV header was finalized in
             // WavWriter.close(); drop the recovery marker so next launch doesn't re-offer it. A hard
@@ -1439,156 +1377,19 @@ class TranscriptionService : LifecycleService() {
     }
 
     /**
-     * MOSS-TD one-pass transcription: decode → windowed ASR+diarization → speaker-linked utterances.
-     * The 16 kHz work [wav] is already written by the caller. Returns (utterances, speakerCount), or
-     * null (with a Failed event) if the model can't load. Emits progress per window; the full
-     * transcript rides the Complete event (MOSS re-links speakers each window, so it isn't a simple
-     * append stream like the sherpa backends).
-     */
-    private suspend fun runMossPhase(
-        wav: File,
-        cfg: TranscriptionConfig,
-        models: ModelManager,
-        utterances: MutableList<TranscriptEvent.Utterance>,
-        // Live capture: suspends until the WAV holds [needSamples] samples or recording ended
-        // (getWindow then reads a short/final window). Null = file input, everything on disk.
-        awaitSamples: (suspend (needSamples: Long) -> Unit)? = null,
-        windowS: Int = MossPipeline.WINDOW_S,
-    ): Pair<List<TranscriptEvent.Utterance>, Int>? {
-        // ASR runs on the LiteRT engine (encoder/embedder/decoder .tflite); cross-window
-        // speaker linking embeds with the WeSpeaker ResNet34 LiteRT pod (the ggml CAM++ was
-        // removed with the rest of ggml — embedding-model swap noted for a quality A/B).
-        val engine = MossLiteEngine.create(
-            encoder = models.mossLiteEncoder,
-            embedder = models.mossLiteEmbedder,
-            decoder = models.mossLiteDecoder,
-            vocabJson = models.mossLiteVocab,
-            cacheDir = File(cacheDir, "xnnpack"),
-            gpu = asrGpu(cfg, AsrBackend.MOSS),
-            // Hotword/context biasing — MOSS-TD only; the other backends have no prompt
-            // to bias. Blank (the default) leaves the prompt byte-identical to before.
-            context = cfg.asrContext,
-            mergesTxt = models.mossLiteMerges,
-        )
-        if (engine == null) {
-            runCatching { models.deleteAsr(AsrBackend.MOSS) }
-            emitEvent(TranscriptEvent.Failed(getString(R.string.svc_asr_model_corrupt)))
-            return null
-        }
-        val speaker = models.mossSpeakerModel.takeIf { models.mossSpeakerReady() }
-            // MOSS-TD cross-window linker — same threading fix as DiarizationEngine's embedder.
-            ?.let { studio.voxsum.core.asr.LiteSpeakerEmbedder.load(it, asrThreads()) }
-        // Capture the run gen now — the onProgress callback runs inside withContext(Default) where
-        // reading coroutineContext for it isn't available (it's a plain non-suspend lambda).
-        val gen = kotlin.coroutines.coroutineContext[RunGen]?.gen ?: UNTAGGED
-        // The base MOSS weights emit Simplified regardless of the speech being Taiwanese, so this
-        // is a transcript conversion like any other — one shared routing, no MOSS special case.
-        val mossConvert: (String) -> String =
-            transcriptConverter(cfg, AsrBackend.MOSS)?.let { c -> { t: String -> c.convert(t) } } ?: { t -> t }
-        val durS = withContext(Dispatchers.IO) { wavDurationS(wav) }
-        fun toUtterances(segs: List<studio.voxsum.core.asr.moss.MossLinkedSeg>) =
-            segs.mapIndexed { i, s ->
-                TranscriptEvent.Utterance(index = i, text = s.text, startSec = s.start, endSec = s.end, speaker = s.speaker)
-            }
-        val linked = try {
-            withContext(Dispatchers.Default) {
-                MossPipeline.run(
-                    durS = durS,
-                    // Stream windows straight from the on-disk WAV — never the whole take in RAM
-                    // (a 16 kHz float buffer grows ~3.8 MB per audio-minute; 2 h ≈ 460 MB).
-                    getWindow = { off, len ->
-                        awaitSamples?.invoke(off.toLong() + len)
-                        withContext(Dispatchers.IO) { readWav16Window(wav, off, len) }
-                    },
-                    windowS = windowS,
-                    decodeWindow = { p, maxNew -> engine.transcribeWindow(p, maxNew) },
-                    embedUnit = speaker?.let { s ->
-                        val f: suspend (FloatArray) -> FloatArray? = { p -> s.embed(p) }
-                        f
-                    },
-                    postProcess = mossConvert,
-                    onProgress = { prog ->
-                        // onProgress is a plain (non-suspend) callback — use the non-suspending
-                        // tryEmit (as the other in-loop progress emitters do), not emitEvent.
-                        utterances.clear(); utterances.addAll(toUtterances(prog.segments))
-                        // Stream the running transcript: MOSS re-links speakers over ALL
-                        // segments each window, so this is a replace-all snapshot, not appends.
-                        events.tryEmit(gen to TranscriptEvent.UtteranceSnapshot(utterances.toList()))
-                        // Live capture: the WAV is still growing, so re-read its length per tick.
-                        val total = if (awaitSamples == null) durS else wavDurationS(wav)
-                        if (total > 0) {
-                            val frac = (prog.processedS / total).toFloat().coerceIn(0f, 1f)
-                            events.tryEmit((gen) to TranscriptEvent.Progress(frac))
-                        }
-                    },
-                )
-            }
-        } finally {
-            engine.close()
-            speaker?.close()
-        }
-        val out = toUtterances(linked)
-        utterances.clear(); utterances.addAll(out)
-        return out to out.mapNotNull { it.speaker }.distinct().size
-    }
-
-    /** Duration in seconds of a 16 kHz mono PCM-16 work WAV. */
-    private fun wavDurationS(wav: File): Double =
-        maxOf(0L, wav.length() - WavIo.HEADER) / 2.0 / MOSS_SR
-
-    /** Read one window of a 16 kHz mono PCM-16 WAV ([offSamples], [lenSamples]) into floats —
-     *  seek + read, so MOSS peak memory stays one window regardless of total duration. */
-    private fun readWav16Window(wav: File, offSamples: Int, lenSamples: Int): FloatArray {
-        java.io.RandomAccessFile(wav, "r").use { f ->
-            val total = maxOf(0L, f.length() - WavIo.HEADER) / 2
-            if (offSamples >= total) return FloatArray(0)
-            val n = minOf(lenSamples.toLong(), total - offSamples).toInt()
-            f.seek(WavIo.HEADER + 2L * offSamples)
-            val bytes = ByteArray(2 * n)
-            f.readFully(bytes)
-            val out = FloatArray(n)
-            var i = 0
-            while (i < n) {
-                val lo = bytes[2 * i].toInt() and 0xFF
-                val hi = bytes[2 * i + 1].toInt()
-                out[i] = ((hi shl 8) or lo).toShort() / 32768f
-                i++
-            }
-            return out
-        }
-    }
-
-    /**
      * Diarization phase — download models if needed, then tag speakers over the on-disk 16 kHz
      * WAV (bounded memory via WavSlicer). Runs INSIDE the ASR engine's lifetime (see call sites)
      * so the within-utterance split can re-decode a fused segment's halves on backends without
      * token timestamps (Qwen3); only the small CAM++ embedder is co-resident with the
      * recognizer, and the LLM still loads only after both are released.
      */
-    /** Build the [SpeechEngine] for [backend] — the VAD-segmented LiteRT backends
-     *  (X-ASR zh-en, Nemotron multilingual). MOSS windows internally and never
-     *  reaches here. */
+    /** Build the [SpeechEngine] for [backend] — the VAD-segmented LiteRT X-ASR backend. */
     private fun createSpeechEngine(
         backend: AsrBackend,
         models: ModelManager,
         cfg: TranscriptionConfig,
     ): SpeechEngine {
         val f = models.asrFiles(backend)
-        if (backend == AsrBackend.NEMOTRON) {
-            return NemotronLiteAsr(
-                encoder = java.io.File(f.encoder),
-                promptFuse = java.io.File(f.promptFuse),
-                decoder = java.io.File(f.decoder),
-                joint = java.io.File(f.joiner),
-                tokenizerJson = java.io.File(f.tokens),
-                vadModelFile = models.vadLiteModel,
-                numThreads = asrThreads(),
-                languageId = cfg.language,
-                vadThreshold = cfg.vadThreshold,
-                cacheDir = cacheDir.absolutePath,
-                gpu = asrGpu(cfg, backend),
-            )
-        }
         return XasrLiteAsr(
                 modelFile = java.io.File(f.encoder),
                 tokensFile = java.io.File(f.tokens),
@@ -1604,13 +1405,12 @@ class TranscriptionService : LifecycleService() {
         )
     }
 
-    /** Per-backend hardware policy: auto = GPU-first for MOSS (prefill/decode relief,
-     *  sticky CPU fallback), CPU for the faster-than-real-time VAD backends. */
+    /** Per-backend hardware policy: auto = CPU, since X-ASR is already faster than real time. */
     private fun asrGpu(cfg: TranscriptionConfig, backend: AsrBackend): Boolean =
         when (cfg.asrHardware) {
             "gpu" -> true
             "cpu" -> false
-            else -> backend == AsrBackend.MOSS
+            else -> false
         }
 
     private suspend fun diarizePhase(
@@ -1696,11 +1496,7 @@ class TranscriptionService : LifecycleService() {
             AudioDecoder.decodeToWav16k(this@TranscriptionService, uri, dest, normalize = true) { _, _ -> }
         }
         val converter = outputConverter(cfg)
-        // MOSS-TD has no separate diarization stage — "re-diarize" re-runs the one-pass pipeline
-        // (re-transcribe + re-link), the only meaningful re-diarize for this backend.
-        val diarized = if (backend == AsrBackend.MOSS) {
-            runMossPhase(wav, cfg, models, ArrayList()) ?: return
-        } else {
+        val diarized = run {
             val asr = try {
                 createSpeechEngine(backend, models, cfg)
             } catch (t: Throwable) {
@@ -1965,34 +1761,13 @@ class TranscriptionService : LifecycleService() {
      * names — which keep using [outputConverter]. This holds for EVERY backend, so a
      * Traditional transcript reads the same whichever one produced it.
      *
-     * Which direction to apply: Nemotron is the one backend with a spoken-language picker, and
-     * for it the Chinese variant IS the choice (`zh-TW` → s2t, `zh-CN` → t2s, any other
-     * language → nothing, since OpenCC over ja/ko/en output could only corrupt it). The rest
-     * have no picker and follow Target language × locale.
+     * No backend has a spoken-language picker (Nemotron, the one that did, is gone), so every
+     * model here is always in auto mode and always emits Simplified — converting to Traditional
+     * is what makes that usable for a zh-TW user, and is a no-op on non-Chinese output (the
+     * converter leaves Latin/kana/hangul alone).
      */
-    private fun transcriptConverter(cfg: TranscriptionConfig, backend: AsrBackend): OpenCcConverter? {
-        val lang = cfg.language
-        val script = when {
-            // An explicit Chinese variant pins the script outright.
-            lang == "zh-TW" -> studio.voxsum.core.text.ChineseScript.TRADITIONAL
-            lang == "zh-CN" -> studio.voxsum.core.text.ChineseScript.SIMPLIFIED
-            // No language stated — which is the default, and the only state the backends
-            // without a picker are ever in. Every model here emits Simplified, so converting
-            // to Traditional is what makes auto mode usable for a zh-TW user; it is a no-op on
-            // non-Chinese output (the converter leaves Latin/kana/hangul alone).
-            studio.voxsum.core.asr.NemotronLang.isAuto(lang) ->
-                studio.voxsum.core.text.ChineseScript.TRADITIONAL
-            // Explicitly non-Chinese speech (en/ja/ko/…): never run OpenCC.
-            !studio.voxsum.core.asr.NemotronLang.isChinese(lang) -> null
-            // Chinese without a stated variant (legacy "zh"/"yue"): follow Target language.
-            else -> SummaryScript.scriptFor(cfg.summaryScript, this)
-        }
-        return when (script) {
-            studio.voxsum.core.text.ChineseScript.TRADITIONAL -> OpenCcConverter.getTranscriptTraditional(this)
-            studio.voxsum.core.text.ChineseScript.SIMPLIFIED -> OpenCcConverter.get(this, script)
-            null -> null
-        }
-    }
+    private fun transcriptConverter(cfg: TranscriptionConfig, backend: AsrBackend): OpenCcConverter? =
+        OpenCcConverter.getTranscriptTraditional(this)
 
     /** Small thread budget — phone big-core count, not all cores (cf. num_vcpus). */
     // Thread budget for the native ASR/diarization/LLM ops. Prefer the count of highest-frequency

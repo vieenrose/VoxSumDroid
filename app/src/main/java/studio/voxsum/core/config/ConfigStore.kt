@@ -22,7 +22,6 @@ object ConfigStore {
         return TranscriptionConfig(
             asrBackend = p.getString("asrBackend", d.asrBackend) ?: d.asrBackend,
             asrModelId = p.getString("asrModelId", d.asrModelId) ?: d.asrModelId,
-            language = p.getString("language", d.language) ?: d.language,
             useItn = p.getBoolean("useItn", d.useItn),
             vadThreshold = p.getFloat("vadThreshold", d.vadThreshold),
             asrContext = p.getString("asrContext", d.asrContext) ?: d.asrContext,
@@ -42,7 +41,6 @@ object ConfigStore {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
             putString("asrBackend", c.asrBackend)
             putString("asrModelId", c.asrModelId)
-            putString("language", c.language)
             putBoolean("useItn", c.useItn)
             putFloat("vadThreshold", c.vadThreshold)
             putString("asrContext", c.asrContext)

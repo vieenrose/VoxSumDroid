@@ -52,30 +52,16 @@ class ModelManager(context: Context) {
     // eres2net), half the size of fp32, with accuracy indistinguishable from fp32 (int8 was both
     // slower and less accurate on this ARM CPU). Hosted on HF since it is a custom conversion.
     // New filename forces a fresh download on existing installs (the downloader skips if present).
-    // One CAM++ LiteRT embedding serves BOTH the sherpa-backend diarization stage and MOSS
-    // cross-window linking (the zh_en ONNX variant retired with ONNX Runtime's removal path;
-    // an en-heavy quality A/B may motivate converting the zh_en checkpoint later).
-    val embeddingModel: File get() = mossSpeakerModel
+    // (the zh_en ONNX variant retired with ONNX Runtime's removal path; an en-heavy quality
+    // A/B may motivate converting the zh_en checkpoint later).
+    val embeddingModel: File get() = campplusEmbedModel
 
     /** pyannote segmentation-3.0 (MIT, ~6 MB) — the speaker-aware local segmenter that drives
      *  DiarizationEngine's segmentation-first path (boundaries where the VOICE changes, not
      *  where silence falls). */
     val segmentationModel: File get() = File(modelsDir, "pyannote-segmentation.tflite")
 
-    // MOSS-TD: one model does ASR + diarization + timestamps. The Android engine is the LiteRT
-    // three-component split (encoder/embedder/decoder .tflite + vocab.json for detokenization);
-    // the RapidSpeech.cpp GGUF path remains only as the F-Droid source-purity fallback. The 14 MB
-    // CAM++ GGUF is OPTIONAL — without it per-window [Sxx] tags still work, only cross-window
-    // speaker-identity linking is lost. See docs/INTEGRATION-MOSS-TD.md.
-    val mossSpeakerModel: File get() = File(modelsDir, "campplus_cn_common_500f.tflite")
-    val mossLiteEncoder: File get() = File(modelsDir, "moss_td_encoder_q8.tflite")
-    val mossLiteEmbedder: File get() = File(modelsDir, "moss_td_embedder_q8.tflite")
-    val mossLiteDecoder: File get() = File(modelsDir, "moss_td_decoder_v2_q4b32_ekv2560.tflite")
-    val mossLiteVocab: File get() = File(modelsDir, "moss_td_vocab.json")
-    /** BPE merges, needed only to ENCODE text (hotword/context biasing). Optional: without it
-     *  MOSS-TD transcribes exactly as before, it just can't be given a term list. Kept out of
-     *  [mossReady] so already-provisioned installs are not invalidated by the added file. */
-    val mossLiteMerges: File get() = File(modelsDir, "moss_td_merges.txt")
+    val campplusEmbedModel: File get() = File(modelsDir, "campplus_cn_common_500f.tflite")
     // Older embeddings to reclaim on upgrade: eres2net_base, the interim CAM++ fp32, and the
     // abandoned fine-tuned MOSS-TD lineage (replaced by the base q4mix weights — the fine-tunes
     // had speaker-diarization and timestamp-accuracy regressions).
@@ -92,19 +78,9 @@ class ModelManager(context: Context) {
     // Diarization is per-utterance embedding + clustering, so only the speaker-embedding
     // model is needed (no pyannote segmentation model).
     fun diarizationReady(): Boolean =
-        embeddingModel.length() == MOSS_SPK_BYTES && segmentationModel.length() == SEG_BYTES
+        embeddingModel.length() == CAMPPLUS_EMBED_BYTES && segmentationModel.length() == SEG_BYTES
 
-    /** MOSS-TD readiness = all three LiteRT components + the detok vocab, size-checked (the
-     *  .tflite flatbuffers have no cheap magic check like GGUF; sha256 is verified on download).
-     *  The CAM++ embedding tflite is optional — [mossSpeakerReady] reports it separately. */
-    fun mossReady(): Boolean =
-        mossLiteEncoder.length() == MOSSLITE_ENC_BYTES &&
-        mossLiteEmbedder.length() == MOSSLITE_EMB_BYTES &&
-        mossLiteDecoder.length() == MOSSLITE_DEC_BYTES &&
-        mossLiteVocab.length() == MOSSLITE_VOCAB_BYTES
-    fun mossSpeakerReady(): Boolean = mossSpeakerModel.length() == MOSS_SPK_BYTES
-    /** Whether hotword/context biasing can be offered (see [mossLiteMerges]). */
-    fun mossContextReady(): Boolean = mossLiteMerges.length() == MOSSLITE_MERGES_BYTES
+    fun campplusEmbedReady(): Boolean = campplusEmbedModel.length() == CAMPPLUS_EMBED_BYTES
 
     // --- Multi-backend ASR registry. Each model extracts to its own top-level folder. ---
     private data class AsrModelSpec(
@@ -146,51 +122,6 @@ class ModelManager(context: Context) {
                 "tokens.txt" to "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c",
             ),
         ),
-        // Nemotron-3.5-ASR 3.5 (q8 LiteRT port, vieenrose/LiteRT `nemotron`):
-        // multilingual (25 languages via a 128-slot prompt), four graphs
-        // (encoder q8 dynamic_wi8_afp32 599 MB + prompt-fuse fp32 + decoder/joint
-        // fp16). q8 replaced the q4-mix at the same size: the q4 quantization was
-        // costing ~6 en WER (ws A/B pr8: en 17.31 -> 11.87, zh 19.00 -> 17.46;
-        // within ~0.7 of fp16 at half its size). HF-only, revision-pinned to
-        // Luigi/nemotron-asr-litert-zhtw@855f287b (v3 = v2 zh-TW fine-tune weights,
-        // encoder requantized; Common Voice zh-TW fine-tune gain retained).
-        // The slot mapping is UNCHANGED: on v2 auto/zh-CN/zh-TW land within ~0.7 CER and the
-        // ranking flips between fp32 and quantized, so they are equivalent — and slot 4 (which
-        // zh-TW and zh-CN already share, keeping the instant script switch) is the best of the
-        // three on the quantized build we ship. Boox
-        // (4×A73) RTF 0.554 on 66 s zh — realtime-capable. Native mel is
-        // byte-parity with the HF NemotronAsrStreamingFeatureExtractor.
-        AsrBackend.NEMOTRON to AsrModelSpec(
-            dir = "nemotron-litert",
-            url = "", sha256 = "",
-            sentinels = listOf(
-                "nemotron_encoder_q8.tflite", "nemotron_prompt_fuse_fp32.tflite",
-                "nemotron_decoder_fp16.tflite", "nemotron_joint_fp16.tflite",
-                "tokenizer.json",
-            ),
-            buildFiles = { d ->
-                AsrModelFiles(
-                    encoder = File(d, "nemotron_encoder_q8.tflite").path,
-                    promptFuse = File(d, "nemotron_prompt_fuse_fp32.tflite").path,
-                    decoder = File(d, "nemotron_decoder_fp16.tflite").path,
-                    joiner = File(d, "nemotron_joint_fp16.tflite").path,
-                    tokens = File(d, "tokenizer.json").path,
-                )
-            },
-            hfBase = "https://huggingface.co/Luigi/nemotron-asr-litert-zhtw/resolve/855f287bc281f85e2ceac2931077157296d70251",
-            hfFiles = listOf(
-                "nemotron_encoder_q8.tflite", "nemotron_prompt_fuse_fp32.tflite",
-                "nemotron_decoder_fp16.tflite", "nemotron_joint_fp16.tflite",
-                "tokenizer.json",
-            ),
-            hfShas = mapOf(
-                "nemotron_encoder_q8.tflite" to "e3c567ba6829be1d70ef44fc44a6e1317b16fcb6e085f7914d1f529767856e2c",
-                "nemotron_prompt_fuse_fp32.tflite" to "21c59326f8633c3824f9e92dcaded6148978dcd53591846c85c9b1ac982a1bba",
-                "nemotron_decoder_fp16.tflite" to "e92dfa900ebd9d7cd87429c9bb7c304b7e3fa61dc233c74f2e074fbb4342222b",
-                "nemotron_joint_fp16.tflite" to "d728fb09aa034b85b1549772fef6cfc4f85d7df0faf59c6db4ad2e7fbbfdc848",
-                "tokenizer.json" to "3f3d481deb073b64c2082e8c7860d487a3a62774bf4e9e4faac83007e181f246",
-            ),
-        ),
     )
 
     private fun specDir(spec: AsrModelSpec) = File(modelsDir, spec.dir)
@@ -198,9 +129,9 @@ class ModelManager(context: Context) {
     /**
      * Do the files on disk come from the revision we currently pin?
      *
-     * Sentinels are filenames and do not change when weights are re-pinned — Nemotron v1.1 -> the
-     * v2 zh-TW fine-tune keeps all five names — so without this check an existing install silently
-     * stays on the old weights forever.
+     * Sentinels are filenames and do not change when weights are re-pinned — a same-name weight
+     * swap keeps every sentinel — so without this check an existing install silently stays on
+     * the old weights forever.
      *
      * Fast path is a marker file written at download time. When it is absent (every install that
      * predates the marker) we do NOT just re-download: that would cost X-ASR users a 295 MB fetch
@@ -221,16 +152,12 @@ class ModelManager(context: Context) {
     }
 
     fun asrReady(backend: AsrBackend): Boolean {
-        // MOSS-TD isn't a sherpa/tar.bz2 spec — its readiness is the tflite trio check. No VAD
-        // needed (the model windows internally), so keep it out of the sentinel/VAD path.
-        if (backend == AsrBackend.MOSS) return mossReady()
-        // Like MOSS: loose files, and no VAD because the model windows internally.
         val spec = asrSpecs.getValue(backend)
         val d = specDir(spec)
         // The revision marker is part of "ready". Callers gate provisioning on this
         // (`if (!asrReady(b)) ensureAsrModels(b)`), so a check that only ensureAsrModels performs
-        // is never reached when the files exist — which is how the Nemotron v2 re-pin shipped
-        // twice without reaching a single device. Cheap on purpose: a small file read, no hashing.
+        // is never reached when the files exist — which is how a past re-pin shipped twice
+        // without reaching a single device. Cheap on purpose: a small file read, no hashing.
         // The expensive hash-and-adopt lives in ensureAsrModels, which runs at most once.
         return vadLiteModel.exists() &&
             spec.sentinels.all { File(d, it).exists() } &&
@@ -245,11 +172,7 @@ class ModelManager(context: Context) {
     }
 
     fun asrFiles(backend: AsrBackend): AsrModelFiles =
-        if (backend == AsrBackend.MOSS) AsrModelFiles(
-            mossModel = mossLiteDecoder.absolutePath,
-            speakerEmbedModel = mossSpeakerModel.takeIf { mossSpeakerReady() }?.absolutePath ?: "",
-        )
-        else asrSpecs.getValue(backend).let { it.buildFiles(specDir(it)) }
+        asrSpecs.getValue(backend).let { it.buildFiles(specDir(it)) }
 
     /**
      * Remove the on-disk model directory for [backend] so the next run re-downloads a clean copy.
@@ -257,26 +180,19 @@ class ModelManager(context: Context) {
      * true and [ensureAsrModels] would otherwise skip the download) but incomplete/corrupt.
      */
     fun deleteAsr(backend: AsrBackend) {
-        if (backend == AsrBackend.MOSS) {
-            listOf(mossLiteEncoder, mossLiteEmbedder, mossLiteDecoder, mossLiteVocab, mossLiteMerges)
-                .forEach { it.takeIf(File::exists)?.delete() }
-            return
-        }
         specDir(asrSpecs.getValue(backend)).takeIf(File::exists)?.deleteRecursively()
     }
 
     /** Download + extract the model for [backend] if missing (VAD shared across backends). */
     suspend fun ensureAsrModels(backend: AsrBackend, onProgress: (Float) -> Unit) =
-        if (backend == AsrBackend.MOSS) ensureMossModels(onProgress)
-        else
         withContext(Dispatchers.IO) {
             ensureVadLite { onProgress(it * 0.1f) }
             val spec = asrSpecs.getValue(backend)
             val d = specDir(spec)
             // Re-provision when the files are missing OR when they came from a DIFFERENT pinned
             // revision. Sentinels are filenames, which do not change when weights are re-pinned:
-            // without the revision check, upgrading (e.g. Nemotron v1.1 -> the v2 zh-TW fine-tune,
-            // same five filenames) silently leaves every existing install on the old weights.
+            // without the revision check, a same-name weight upgrade silently leaves every
+            // existing install on the old weights.
             if (!spec.sentinels.all { File(d, it).exists() } || !revisionMatches(spec, d)) {
                 provisionAsr(spec, d) { onProgress(0.1f + it * 0.9f) }
                 onProgress(1f)
@@ -285,9 +201,7 @@ class ModelManager(context: Context) {
             // Only after the new model verifies present (above): reclaim superseded dirs —
             // mirrors ensureDiarizationModels' legacyEmbeddings reclaim. Gated on the check so a
             // failed/partial download never deletes a still-working older model.
-            if (backend == AsrBackend.XASR) {
-                LEGACY_ASR_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
-            }
+            LEGACY_ASR_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
             // Backends dropped 2026-07: SenseVoice (LiteRT + legacy sherpa) and Qwen3.
             DROPPED_BACKEND_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
         }
@@ -334,9 +248,9 @@ class ModelManager(context: Context) {
                 return
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                // HF-only spec (Nemotron): there is no archive to fall back to, so surface the real
-                // error — and do it BEFORE the wipe, so a retry resumes instead of re-fetching the
-                // 596 MB encoder from zero.
+                // HF-only spec (X-ASR): there is no archive to fall back to, so surface the real
+                // error — and do it BEFORE the wipe, so a retry resumes instead of re-fetching
+                // partially-downloaded files from zero.
                 if (spec.url.isEmpty()) throw e
                 // Mirror failed mid-way — clear partial files so the GitHub fallback starts clean.
                 d.deleteRecursively()
@@ -458,68 +372,11 @@ class ModelManager(context: Context) {
     suspend fun ensureLlmModel(onProgress: (Float) -> Unit) =
         ensureLlmModel(LlmRegistry.byId(LlmRegistry.DEFAULT_ID), onProgress)
 
-    /**
-     * Ensure the MOSS-TD LiteRT artifacts: encoder + embedder + decoder .tflite and the
-     * detokenizer vocab (all SHA-pinned, sizes exact), plus the optional CAM++
-     * speaker-embedding GGUF used for cross-window linking. The speaker model is best-effort
-     * — a failure there still leaves a working (per-window-tagged) MOSS backend, so it never
-     * fails the call. The superseded RapidSpeech GGUF is reclaimed once LiteRT is provisioned.
-     */
-
-    suspend fun ensureMossModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        // (file, url, sha, bytes, progress weight ~ proportional to size)
-        val parts = listOf(
-            Quad(mossLiteEncoder, MOSSLITE_ENC_URL, MOSSLITE_ENC_SHA, MOSSLITE_ENC_BYTES),
-            Quad(mossLiteEmbedder, MOSSLITE_EMB_URL, MOSSLITE_EMB_SHA, MOSSLITE_EMB_BYTES),
-            Quad(mossLiteDecoder, MOSSLITE_DEC_URL, MOSSLITE_DEC_SHA, MOSSLITE_DEC_BYTES),
-            Quad(mossLiteVocab, MOSSLITE_VOCAB_URL, MOSSLITE_VOCAB_SHA, MOSSLITE_VOCAB_BYTES),
-        )
-        val total = parts.sumOf { it.bytes }.toFloat()
-        var doneBytes = 0L
-        for (p in parts) {
-            if (p.file.length() != p.bytes) {
-                if (p.file.exists()) p.file.delete()
-                var attempt = 0
-                while (true) {
-                    attempt++
-                    download(p.url, p.file, p.sha) {
-                        onProgress(((doneBytes + (it * p.bytes)).toFloat() / total) * 0.97f)
-                    }
-                    if (p.file.length() == p.bytes) break
-                    p.file.delete()
-                    check(attempt < 2) { "MOSS-TD model download is corrupt after $attempt attempts. Please try again." }
-                }
-            }
-            doneBytes += p.bytes
-        }
-        // Optional BPE merges (1.6 MB) — enables hotword/context biasing. Best-effort for the
-        // same reason as the speaker model: its absence costs a feature, not the backend.
-        if (mossLiteMerges.length() != MOSSLITE_MERGES_BYTES) {
-            runCatching {
-                if (mossLiteMerges.exists()) mossLiteMerges.delete()
-                download(MOSSLITE_MERGES_URL, mossLiteMerges, MOSSLITE_MERGES_SHA) {}
-            }
-        }
-        // Optional speaker model — never fail the run if it can't be fetched.
-        if (mossSpeakerModel.length() != MOSS_SPK_BYTES) {
-            runCatching {
-                if (mossSpeakerModel.exists()) mossSpeakerModel.delete()
-                download(MOSS_SPK_URL, mossSpeakerModel, MOSS_SPK_SHA) { onProgress(0.97f + it * 0.03f) }
-            }
-        }
-        // Reclaim the superseded ggml artifacts (RapidSpeech GGUF + CAM++ — ggml is gone).
-        File(modelsDir, "moss-transcribe-base-q4mix.gguf").takeIf(File::exists)?.delete()
-        File(modelsDir, "campplus-cn-common.gguf").takeIf(File::exists)?.delete()
-        check(mossReady()) { "MOSS-TD model missing after provisioning" }
-    }
-
-    private data class Quad(val file: File, val url: String, val sha: String, val bytes: Long)
-
     /** Ensure the diarization models (CAM++ LiteRT embedding + pyannote seg-3.0 LiteRT). */
     suspend fun ensureDiarizationModels(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        if (embeddingModel.length() != MOSS_SPK_BYTES) {
+        if (embeddingModel.length() != CAMPPLUS_EMBED_BYTES) {
             if (embeddingModel.exists()) embeddingModel.delete()
-            download(MOSS_SPK_URL, embeddingModel, MOSS_SPK_SHA) { onProgress(it * 0.7f) }
+            download(CAMPPLUS_EMBED_URL, embeddingModel, CAMPPLUS_EMBED_SHA) { onProgress(it * 0.7f) }
         }
         if (segmentationModel.length() != SEG_BYTES) {
             if (segmentationModel.exists()) segmentationModel.delete()
@@ -741,8 +598,12 @@ class ModelManager(context: Context) {
         private const val PART_SUFFIX = ".part"
 
         private const val REL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
-        /** Dirs of backends dropped in 2026-07 (SenseVoice LiteRT + sherpa, Qwen3), reclaimed on upgrade. */
+        /** Dirs of backends dropped in 2026-07 (SenseVoice LiteRT + sherpa, Qwen3) and 2026-08
+         *  (Nemotron — a held-out zh-TW bench showed it ~2x worse CER than X-ASR, and the app
+         *  targets zh-TW meetings only, not the 25-language coverage Nemotron traded accuracy
+         *  for), reclaimed on upgrade. */
         private val DROPPED_BACKEND_DIRS = listOf(
+            "nemotron-litert",
             "sensevoice-litert",
             "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
             "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
@@ -774,12 +635,20 @@ class ModelManager(context: Context) {
             "gemma-4-e2b-it.litertlm", "gemma-4-e4b-it.litertlm",
             "voxsum-qwen3-0.6b_q8_ekv32768.litertlm",
             "qwen3.5-0.8b.gguf", "qwen3-0.6b.gguf", "gemma-3-1b.gguf",
+            // MOSS-TD dropped from this ANDROID app 2026-08 (kept on desktop, where it is
+            // fast and the most accurate backend — this is a phone-specific call): RTF ~4.4x on
+            // the OPPO reference device made a 60-min meeting a ~4.4-hour transcription, and its
+            // accuracy edge (7.74 vs X-ASR's 12.25 CER) didn't justify that on this hardware.
+            // Root cause is memory-bandwidth-bound decode on a 2-big-core mobile SoC — already
+            // running every available core, so no thread/scheduling fix was possible.
+            // Diarization survives via the separate pyannote+CAM++ pipeline (still X-ASR's).
             "moss-td-zhtw-v7-q4_k_m.gguf", "moss-td-zhtw-v61-q4_k_m.gguf",
+            "moss-transcribe-base-q4mix.gguf", "moss_td_decoder_q4b32_ekv2560.tflite",
+            "moss_td_encoder_q8.tflite", "moss_td_embedder_q8.tflite",
+            "moss_td_decoder_v2_q4b32_ekv2560.tflite", "moss_td_vocab.json", "moss_td_merges.txt",
             "campplus-cn-common.gguf", "campplus_zh_en.onnx", "campplus_zh_en_fp16.onnx",
             "pyannote_segmentation_3_0.onnx", "wespeaker_emb_fp16.tflite",
             "speaker_embedding.onnx",
-            // q4-mix nemotron encoder superseded by q8 (same size, -5.4 en WER).
-            "nemotron-litert/nemotron_encoder_q4.tflite",
             // Base Qwen3.5-0.8B, superseded by the VoxSum meeting fine-tune. Same dirName and the
             // same Q4_K_M recipe, but a different FILENAME, so provisioning writes the new GGUF
             // beside the old one instead of over it — 508 MB stranded on every existing install.
@@ -817,39 +686,10 @@ class ModelManager(context: Context) {
         private const val SEG_BYTES = 7_265_360L
 
         // CAM++ cn-common speaker embedding (LiteRT, converted from the 3D-Speaker PyTorch
-        // checkpoint via litert-torch — the SAME weights family the validated ggml MOSS linking
-        // used, so the 0.50/0.35 linking thresholds carry over; parity gates in the model card).
-        private const val MOSS_SPK_URL =
+        // checkpoint via litert-torch; parity gates in the model card).
+        private const val CAMPPLUS_EMBED_URL =
             "https://huggingface.co/Luigi/campplus-litert/resolve/985721e598976ac8f4433e25bf41f61bec1e16df/campplus_cn_common_500f.tflite"
-        private const val MOSS_SPK_SHA = "e7aeb9312b17a8c76af38cb772d0e291b30dd377f3dd5aeb6648383ae7da87d9"
-        private const val MOSS_SPK_BYTES = 28_730_020L
-
-        // MOSS-TD on LiteRT: the three-component split (q8 encoder + q8 embedder + int4-b32 v2
-        // decoder, ekv2560) + tokenizer vocab, from Luigi/moss-transcribe-diarize-litert,
-        // commit-pinned. The v2 int4-b32 decoder carries the near-silence hallucination fix;
-        // text fidelity 99-100% vs the f32 reference on the golden clips.
-        private const val MOSSLITE_REV =
-            "https://huggingface.co/Luigi/moss-transcribe-diarize-litert/resolve/1de273ca3d46c109e248a58b6db485bdb11f691f"
-        private const val MOSSLITE_ENC_URL = "$MOSSLITE_REV/moss_td_encoder_q8.tflite"
-        private const val MOSSLITE_ENC_SHA = "8880bd69c25a1c156bcd641c06541fffdd580ba4477796578584cba7d0a75915"
-        private const val MOSSLITE_ENC_BYTES = 321_145_488L
-        private const val MOSSLITE_EMB_URL = "$MOSSLITE_REV/moss_td_embedder_q8.tflite"
-        private const val MOSSLITE_EMB_SHA = "08b68e2301b078c6c13da7d2dc0b261d4162c2ddaa18078946fad446c3fcf292"
-        private const val MOSSLITE_EMB_BYTES = 161_054_896L
-        private const val MOSSLITE_DEC_URL = "$MOSSLITE_REV/moss_td_decoder_v2_q4b32_ekv2560.tflite"
-        private const val MOSSLITE_DEC_SHA = "8ddfa1e2ee2e0899e948e812ddc2ea10fc4f74c4abd290efdbdb1d626e9bb94b"
-        private const val MOSSLITE_DEC_BYTES = 251_497_728L
-        private const val MOSSLITE_VOCAB_URL = "$MOSSLITE_REV/tokenizer/vocab.json"
-        private const val MOSSLITE_VOCAB_SHA = "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
-        private const val MOSSLITE_VOCAB_BYTES = 2_776_833L
-        // BPE merges come straight from the upstream model repo (commit-pinned) rather than
-        // the LiteRT mirror — it is the same file, and re-hosting it would only add a second
-        // thing to keep in sync. Used only by MossLiteTokenizer (hotword/context biasing).
-        private const val MOSSLITE_MERGES_URL =
-            "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/" +
-                "e5118b411bf5a77d7a90c4941066bec93c967312/merges.txt"
-        private const val MOSSLITE_MERGES_SHA =
-            "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
-        private const val MOSSLITE_MERGES_BYTES = 1_671_853L
+        private const val CAMPPLUS_EMBED_SHA = "e7aeb9312b17a8c76af38cb772d0e291b30dd377f3dd5aeb6648383ae7da87d9"
+        private const val CAMPPLUS_EMBED_BYTES = 28_730_020L
     }
 }

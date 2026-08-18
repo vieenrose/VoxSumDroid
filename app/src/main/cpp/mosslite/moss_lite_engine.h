@@ -1,18 +1,13 @@
-// Resident MOSS-TD LiteRT engine (CPU/XNNPACK) — adapted from the validated
-// engine_cpp/moss_td_engine.cc in vieenrose/LiteRT (moss-td-port).
-//
-// MEMORY DESIGN (the port must beat the ggml engine's ~1.3 GB, not just match
-// wall-clock):
-//  * The decoder KV cache lives in TensorBuffers aliased as BOTH input and
-//    output of every prefill/decode signature — the cache exists exactly once
-//    and never crosses the host boundary.
-//  * Components are PHASE-SERIALIZED per window: the encoder is created,
-//    used and destroyed before the embedder+decoder are created — nothing
-//    persists across windows, so peak RSS is max(encode phase, decode phase),
-//    not their sum.
-//  * Every component gets an XNNPACK weight-cache file: repacked weights are
-//    mmap'd file-backed pages (evictable, shared across recompiles) instead
-//    of anonymous RAM, and the per-window recompile becomes a cache hit.
+// The generic LiteRT engine wrapper (CPU/XNNPACK): a single-model Component
+// (signature-driven run, weight-cache-aware, KV-buffer-aliasing-aware) built
+// originally for MOSS-TD and now the shared base for every LiteRT-backed
+// engine in this app (X-ASR, the VAD/pyannote "pods" in lite_pod_jni.cpp).
+// MOSS-TD itself was removed from this ANDROID app 2026-08 — RTF ~4-6x realtime on the
+// phone reference device (memory-bandwidth-bound decode on a 2-big-core mobile SoC,
+// already using every available core) outweighed its zh-TW accuracy edge over X-ASR
+// there; it is KEPT on desktop, where it runs well under realtime on the same weights
+// (see git history for the engine this file used to host). Component has no
+// MOSS-specific code.
 
 #ifndef VOXSUM_MOSSLITE_MOSS_LITE_ENGINE_H_
 #define VOXSUM_MOSSLITE_MOSS_LITE_ENGINE_H_
@@ -74,38 +69,6 @@ class Component {
   LiteRtCompiledModel cm_ = nullptr;
   std::map<std::string, SigIO> sigs_;
   std::vector<LiteRtTensorBuffer> owned_;
-  bool ok_ = false;
-};
-
-class MossLiteEngine {
- public:
-  // Paths to the three .tflite components. `cache_dir` hosts the XNNPACK
-  // weight caches ("" disables them). `enc_threads`/`dec_threads` are the
-  // XNNPACK thread counts for the encoder vs embedder+decoder.
-  MossLiteEngine(std::string encoder_path, std::string embedder_path,
-                 std::string decoder_path, std::string cache_dir,
-                 int enc_threads, int dec_threads, bool gpu = false);
-  ~MossLiteEngine();
-
-  bool ok() const { return ok_; }
-
-  // One window: 16 kHz mono PCM + prompt token ids (audio placeholders =
-  // 151671, count == sum of chunk token lengths for n samples). Returns the
-  // generated token ids (may end with EOS). Empty on error.
-  std::vector<int32_t> transcribe(const float* pcm, int n_samples,
-                                  const int32_t* ids, int n_ids, int max_new);
-
-  double last_encode_s = 0, last_prefill_s = 0, last_decode_s = 0;
-
- private:
-  std::string cache_path(const std::string& model_path) const;
-
-  std::string encoder_path_, embedder_path_, decoder_path_, cache_dir_;
-  int enc_threads_, dec_threads_;
-  // Sticky: cleared after the first GPU compile failure so later windows
-  // don't re-pay a doomed GPU attempt.
-  bool gpu_ = false;
-  LiteRtEnvironment env_ = nullptr;
   bool ok_ = false;
 };
 

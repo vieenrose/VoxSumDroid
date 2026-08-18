@@ -27,7 +27,6 @@
     <string name="re_summarize">Re-summarize</string>
     <string name="re_diarize">Re-detect speakers</string>
     <!-- MOSS-TD transcribes + diarizes in one pass, so its two re-run actions collapse into one. -->
-    <string name="re_transcribe_diarize">Re-transcribe &amp; re-diarize</string>
     <string name="pick_audio">Pick audio…</string>
     <string name="stop">Stop</string>
     <string name="cd_stop_recording">Stop recording</string>
@@ -60,10 +59,7 @@
     <string name="settings_speakers">Speakers (%1$s)</string>
     <string name="settings_auto">auto</string>
     <string name="asr_tagline_xasr">x-asr · zh-en, punctuated</string>
-    <string name="asr_tagline_moss">zh · en · ja · ko · yue · diarizing · heavy model</string>
-    <string name="asr_tagline_nemotron">25 languages · zh-TW fine-tuned</string>
     <string name="settings_recognition">Recognition</string>
-    <string name="settings_language">Language</string>
     <string name="settings_itn">Inverse text normalization</string>
     <string name="settings_vad_threshold">VAD threshold</string>
     <string name="settings_diarization">Diarization</string>
@@ -75,8 +71,6 @@
     <string name="settings_summary_prompt">Summary prompt</string>
     <!-- Hotword/context biasing. MOSS-TD only: it is an LLM ASR, so terms are appended
          to its prompt. Blank (default) leaves the prompt byte-identical to un-biased. -->
-    <string name="settings_asr_context">Names and terms to recognise</string>
-    <string name="settings_asr_context_hint">People, companies or jargon in this recording, separated by commas. MOSS-TD only.</string>
     <string name="settings_storage">Storage</string>
     <string name="storage_total">Models on device: %1$s</string>
     <string name="storage_none">No models downloaded yet</string>
@@ -353,7 +347,6 @@
     <string name="storage_compile_cache">%1$s (compile cache)</string>
     <string name="settings_asr_hw">Transcription hardware</string>
     <string name="pipeline_transcript_via">via %1$s · %2$s · timestamps per utterance</string>
-    <string name="pipeline_diar_native">speakers from the same model, linked across windows by CAM++</string>
     <string name="pipeline_diar_pyannote">speakers via pyannote + CAM++</string>
     <string name="pipeline_diar_off">no speaker separation</string>
     <string name="notes_decisions">Decisions</string>

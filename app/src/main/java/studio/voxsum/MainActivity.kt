@@ -154,7 +154,6 @@ import studio.voxsum.core.export.TranscriptExport
 import java.io.File
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
-import studio.voxsum.core.asr.NemotronLang
 import studio.voxsum.core.audio.AudioDecoder
 import studio.voxsum.core.audio.RecordingRecovery
 import studio.voxsum.core.library.ProcessingQueue
@@ -1909,11 +1908,9 @@ private fun TranscribeScreen(
     // produced this transcript — so reopening an old session does not mislabel it with today's
     // default backend.
     val asrDisplay = AsrBackend.fromId(config.asrBackend).displayName
-    val diarizationDisplay = when {
-        !config.diarizationEnabled -> stringResource(R.string.pipeline_diar_off)
-        AsrBackend.fromId(config.asrBackend).diarizesNatively -> stringResource(R.string.pipeline_diar_native)
-        else -> stringResource(R.string.pipeline_diar_pyannote)
-    }
+    val diarizationDisplay =
+        if (!config.diarizationEnabled) stringResource(R.string.pipeline_diar_off)
+        else stringResource(R.string.pipeline_diar_pyannote)
 
     // The utterance list — shared by the portrait (single column) and landscape (right pane) layouts.
     val speakerIds = utterances.mapNotNull { it.speaker }.distinct().sorted()
@@ -2208,7 +2205,6 @@ private fun TranscribeScreen(
                 showNextTalk = running && recordingRun && !isRecording,
                 onNextTalk = { nextTalk() },
                 canExport = utterances.isNotEmpty() && !running,
-                isMossBackend = config.asrBackend == AsrBackend.MOSS.id,
                 // All re-run actions are disabled while a run is in flight (each fun also guards `running`);
                 // this also blocks Re-transcribe/Detect-names from starting a second run whose buffered
                 // events would otherwise land on the freshly-reset session.
@@ -2423,26 +2419,6 @@ private fun TranscribeScreen(
                 // pure-script-switch case is now the only case.
                 if (newCfg.summaryScript != old.summaryScript && utterances.isNotEmpty()) {
                     applyChineseScript(SummaryScript.scriptFor(newCfg.summaryScript, context))
-                }
-                // Spoken-language change (Nemotron's picker). zh-TW↔zh-CN differ only in the OpenCC
-                // direction applied to the SAME decode, so that pair re-renders in place — instant,
-                // no re-decode, and it converts user-edited text too since conversion keeps wording.
-                // Any other change selects a different prompt slot, i.e. a genuinely different
-                // transcription → offer Re-transcribe instead.
-                if (newCfg.language != old.language && utterances.isNotEmpty()) {
-                    // Same prompt slot => the decode would be byte-identical, so this is a pure
-                    // script re-render (covers zh-TW<->zh-CN and the legacy "zh"/"yue" ids, which
-                    // all share slot 4). Only a genuinely different slot needs a re-transcribe.
-                    val sameDecode = NemotronLang.slot(old.language) == NemotronLang.slot(newCfg.language)
-                    val newPin = NemotronLang.pinnedScriptId(newCfg.language)
-                    if (sameDecode && newPin != null) {
-                        applyChineseScript(
-                            if (newPin == "zh-Hant") ChineseScript.TRADITIONAL else ChineseScript.SIMPLIFIED,
-                            transcriptOnly = true,
-                        )
-                    } else if (!sameDecode) {
-                        transcriptStale = true
-                    }
                 }
                 // Summary-shaping changes (model / style / prompt) need an LLM re-run of the summary
                 // (and, via regenerateStaleChildren, the action items).

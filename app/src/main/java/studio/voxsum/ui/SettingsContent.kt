@@ -55,7 +55,6 @@ import kotlinx.coroutines.launch
 import studio.voxsum.BuildConfig
 import studio.voxsum.R
 import studio.voxsum.core.asr.AsrBackend
-import studio.voxsum.core.asr.NemotronLang
 import studio.voxsum.core.config.SummaryScript
 import studio.voxsum.core.config.SummaryStyle
 import studio.voxsum.core.config.ThemeMode
@@ -96,8 +95,6 @@ fun SettingsContent(
             AsrBackend.entries.forEach { b ->
                 val taglineRes = when (b) {
                     AsrBackend.XASR -> R.string.asr_tagline_xasr
-                    AsrBackend.MOSS -> R.string.asr_tagline_moss
-                    AsrBackend.NEMOTRON -> R.string.asr_tagline_nemotron
                 }
                 ModelOptionCard(
                     title = b.shortName,
@@ -107,11 +104,6 @@ fun SettingsContent(
                     enabled = enabled,
                     onClick = { onChange(config.copy(asrBackend = b.id)) },
                 )
-            }
-            // Nemotron picks its language via a one-hot prompt slot (not per-utterance
-            // detection) — offer the spoken-language selector only for it.
-            if (AsrBackend.fromId(config.asrBackend) == AsrBackend.NEMOTRON) {
-                NemotronLanguageRow(config.language, enabled) { onChange(config.copy(language = it)) }
             }
         }
 
@@ -144,64 +136,43 @@ fun SettingsContent(
         }
 
         // (3) Recognition detail — VAD.
-        // MOSS-TD windows internally (no VAD) and diarizes natively (no separate speaker stage),
-        // so the VAD slider and the whole Diarization section don't apply to it — header included.
-        val isMoss = AsrBackend.fromId(config.asrBackend) == AsrBackend.MOSS
-        if (!isMoss) {
-            Section(stringResource(R.string.settings_recognition))
-            SliderRow(stringResource(R.string.settings_vad_threshold), config.vadThreshold, 0.1f, 0.9f, enabled) {
-                onChange(config.copy(vadThreshold = it))
-            }
-        } else {
-            // Hotword biasing is MOSS-only: it is an autoregressive LLM ASR, so the terms
-            // are appended to its prompt (upstream's `热词提示：a, b, c` form). The other
-            // backends have no prompt to bias, hence this lives inside the MOSS branch.
-            Section(stringResource(R.string.settings_recognition))
-            OutlinedTextField(
-                value = config.asrContext,
-                onValueChange = { onChange(config.copy(asrContext = it)) },
-                label = { Text(stringResource(R.string.settings_asr_context)) },
-                supportingText = { Text(stringResource(R.string.settings_asr_context_hint)) },
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                minLines = 2,
-            )
+        Section(stringResource(R.string.settings_recognition))
+        SliderRow(stringResource(R.string.settings_vad_threshold), config.vadThreshold, 0.1f, 0.9f, enabled) {
+            onChange(config.copy(vadThreshold = it))
         }
 
-        // (4) Diarization — not shown for MOSS (it diarizes in the same pass as transcription).
-        if (!isMoss) {
-            Section(stringResource(R.string.settings_diarization))
-            SwitchRow(stringResource(R.string.settings_identify_speakers), config.diarizationEnabled, enabled) {
-                onChange(config.copy(diarizationEnabled = it))
+        // (4) Diarization.
+        Section(stringResource(R.string.settings_diarization))
+        SwitchRow(stringResource(R.string.settings_identify_speakers), config.diarizationEnabled, enabled) {
+            onChange(config.copy(diarizationEnabled = it))
+        }
+        if (config.diarizationEnabled) {
+            SwitchRow(stringResource(R.string.settings_precise_diarization), config.preciseDiarization, enabled) {
+                onChange(config.copy(preciseDiarization = it))
             }
-            if (config.diarizationEnabled) {
-                SwitchRow(stringResource(R.string.settings_precise_diarization), config.preciseDiarization, enabled) {
-                    onChange(config.copy(preciseDiarization = it))
+        }
+        if (config.diarizationEnabled) {
+            val speakersVal = if (config.numSpeakers < 0) stringResource(R.string.settings_auto) else config.numSpeakers.toString()
+            LabeledRow(stringResource(R.string.settings_speakers, speakersVal)) {
+                // 48 dp buttons, not 32 dp chips — a stepper is tapped repeatedly and
+                // must meet the Android touch-target minimum.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        enabled = enabled,
+                        onClick = { onChange(config.copy(numSpeakers = (config.numSpeakers - 1).coerceAtLeast(-1))) },
+                        modifier = Modifier.size(48.dp),
+                        contentPadding = PaddingValues(0.dp),
+                    ) { Text("–", style = MaterialTheme.typography.titleMedium) }
+                    OutlinedButton(
+                        enabled = enabled,
+                        onClick = { onChange(config.copy(numSpeakers = (config.numSpeakers + 1).coerceAtMost(10))) },
+                        modifier = Modifier.size(48.dp),
+                        contentPadding = PaddingValues(0.dp),
+                    ) { Text("+", style = MaterialTheme.typography.titleMedium) }
                 }
             }
-            if (config.diarizationEnabled) {
-                val speakersVal = if (config.numSpeakers < 0) stringResource(R.string.settings_auto) else config.numSpeakers.toString()
-                LabeledRow(stringResource(R.string.settings_speakers, speakersVal)) {
-                    // 48 dp buttons, not 32 dp chips — a stepper is tapped repeatedly and
-                    // must meet the Android touch-target minimum.
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            enabled = enabled,
-                            onClick = { onChange(config.copy(numSpeakers = (config.numSpeakers - 1).coerceAtLeast(-1))) },
-                            modifier = Modifier.size(48.dp),
-                            contentPadding = PaddingValues(0.dp),
-                        ) { Text("–", style = MaterialTheme.typography.titleMedium) }
-                        OutlinedButton(
-                            enabled = enabled,
-                            onClick = { onChange(config.copy(numSpeakers = (config.numSpeakers + 1).coerceAtMost(10))) },
-                            modifier = Modifier.size(48.dp),
-                            contentPadding = PaddingValues(0.dp),
-                        ) { Text("+", style = MaterialTheme.typography.titleMedium) }
-                    }
-                }
-                // (The cluster-threshold slider is gone: spectral clustering picks the speaker count
-                // from the eigengap, so there is no distance threshold left to hand-tune.)
-            }
+            // (The cluster-threshold slider is gone: spectral clustering picks the speaker count
+            // from the eigengap, so there is no distance threshold left to hand-tune.)
         }
 
         // (5) Summary options.
@@ -497,37 +468,6 @@ private fun Section(title: String) {
         letterSpacing = 1.sp,
         modifier = Modifier.padding(top = 14.dp, bottom = 2.dp),
     )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun NemotronLanguageRow(selected: String, enabled: Boolean, onSelect: (String) -> Unit) {
-    val pal = LocalVoxSumPalette.current
-    // A stored id that has no chip (the legacy "zh"/"yue", or one left by another backend)
-    // must still show SOMETHING selected, else the row reads as "nothing chosen" while the
-    // engine happily decodes with it. Resolve it to the chip it behaves like.
-    val shown = when {
-        NemotronLang.OPTIONS.any { it.first == selected } -> selected
-        NemotronLang.slot(selected) == NemotronLang.slot("zh-CN") -> "zh-CN"
-        else -> ""
-    }
-    LabeledRow(stringResource(R.string.settings_language)) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            NemotronLang.OPTIONS.forEach { (id, label) ->
-                FilterChip(
-                    selected = shown == id,
-                    enabled = enabled,
-                    onClick = { onSelect(id) },
-                    label = { Text(label) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = pal.Sky.copy(alpha = 0.15f),
-                        selectedLabelColor = pal.Sky,
-                        labelColor = pal.Slate400,
-                    ),
-                )
-            }
-        }
-    }
 }
 
 @Composable

@@ -26,7 +26,6 @@
     <string name="re_transcribe">重新轉錄</string>
     <string name="re_summarize">重新摘要</string>
     <string name="re_diarize">重新辨識語者</string>
-    <string name="re_transcribe_diarize">重新轉錄並辨識語者</string>
     <string name="pick_audio">選擇音訊…</string>
     <string name="stop">停止</string>
     <string name="cd_stop_recording">停止錄音</string>
@@ -59,10 +58,7 @@
     <string name="settings_speakers">語者數（%1$s）</string>
     <string name="settings_auto">自動</string>
     <string name="asr_tagline_xasr">x-asr · 中英、含標點</string>
-    <string name="asr_tagline_moss">中英日韓粵 · 內建語者辨識 · 重量級模型</string>
-    <string name="asr_tagline_nemotron">25 種語言 · 繁中微調</string>
     <string name="settings_recognition">辨識</string>
-    <string name="settings_language">語言</string>
     <string name="settings_itn">反向文字正規化</string>
     <string name="settings_vad_threshold">語音偵測門檻</string>
     <string name="settings_diarization">語者分段</string>
@@ -72,8 +68,6 @@
     <string name="settings_summary_language">中文字形</string>
     <string name="summary_language_auto">與逐字稿相同</string>
     <string name="settings_summary_prompt">摘要提示詞</string>
-    <string name="settings_asr_context">需要辨識的名稱與術語</string>
-    <string name="settings_asr_context_hint">這段錄音中的人名、公司名或專業術語，以逗號分隔。僅適用於 MOSS-TD。</string>
     <string name="settings_storage">儲存空間</string>
     <string name="storage_total">裝置上的模型：%1$s</string>
     <string name="storage_none">尚未下載任何模型</string>
@@ -333,7 +327,6 @@
     <string name="storage_compile_cache">%1$s（編譯快取）</string>
     <string name="settings_asr_hw">轉錄硬體</string>
     <string name="pipeline_transcript_via">使用 %1$s · %2$s · 每句附時間軸</string>
-    <string name="pipeline_diar_native">語者由同一個模型標註，跨視窗以 CAM++ 串接</string>
     <string name="pipeline_diar_pyannote">語者由 pyannote + CAM++ 分離</string>
     <string name="pipeline_diar_off">未區分語者</string>
     <string name="notes_decisions">決議事項</string>

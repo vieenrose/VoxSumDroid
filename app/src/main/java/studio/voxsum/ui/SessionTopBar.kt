@@ -78,9 +78,6 @@ fun SessionTopBar(
     canReDiarize: Boolean, onReDiarize: () -> Unit,
     canExtractActions: Boolean, onExtractActions: () -> Unit,
     canExport: Boolean,
-    // MOSS-TD transcribes + diarizes in one pass — its Re-transcribe becomes a combined
-    // "Re-transcribe & re-diarize" and the separate Re-detect-speakers item is hidden.
-    isMossBackend: Boolean = false,
     onOpenExport: () -> Unit,
     onSettings: () -> Unit,
 ) {
@@ -134,7 +131,7 @@ fun SessionTopBar(
             OverflowMenu(
                 canReTranscribe, onReTranscribe, canReSummarize, onReSummarize,
                 canReDiarize, onReDiarize, canExtractActions, onExtractActions,
-                canExport, isMossBackend, onOpenExport, onSettings,
+                canExport, onOpenExport, onSettings,
             )
         }
         // A healthy idle status ("Loaded session — N lines") is two-second information, not
@@ -173,7 +170,6 @@ private fun OverflowMenu(
     canReDiarize: Boolean, onReDiarize: () -> Unit,
     canExtractActions: Boolean, onExtractActions: () -> Unit,
     canExport: Boolean,
-    isMossBackend: Boolean,
     onOpenExport: () -> Unit,
     onSettings: () -> Unit,
 ) {
@@ -187,12 +183,10 @@ private fun OverflowMenu(
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             // --- re-run ---
             if (canReTranscribe) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.Refresh, null, Modifier.size(18.dp)) },
-                text = { Text(stringResource(if (isMossBackend) R.string.re_transcribe_diarize else R.string.re_transcribe)) },
-                onClick = pick(onReTranscribe))
+                text = { Text(stringResource(R.string.re_transcribe)) }, onClick = pick(onReTranscribe))
             if (canReSummarize) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.Summarize, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_summarize)) }, onClick = pick(onReSummarize))
-            // MOSS diarizes in the same pass, so the standalone Re-detect-speakers item is hidden.
-            if (canReDiarize && !isMossBackend) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null, Modifier.size(18.dp)) },
+            if (canReDiarize) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_diarize)) }, onClick = pick(onReDiarize))
             if (canExtractActions) DropdownMenuItem(leadingIcon = { Icon(Icons.Filled.Checklist, null, Modifier.size(18.dp)) },
                 text = { Text(stringResource(R.string.re_extract_actions)) }, onClick = pick(onExtractActions))
