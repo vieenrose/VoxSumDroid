@@ -118,6 +118,7 @@ internal class CursorAgent(
                 chunk = chunk,
                 consecutiveNops = consecutiveNops,
                 verify = verifier?.let { v -> { s, b, a -> v.veto(s, b, a, chunk) } },
+                zh = lang == Lang.ZH_TW,
             )
             applied += outcome.applied
             onOp?.let { sink -> outcome.results.forEach { sink(i + 1, it.logLine()) } }
@@ -193,7 +194,7 @@ internal class CursorAgent(
                 ?: return@mapNotNull null
             CursorOps.parse("ADD $section - ${m.groupValues[2]}").firstOrNull()
         }
-        if (ops.isNotEmpty()) CursorGuards.applyCursorOps(state, ops, chunk)
+        if (ops.isNotEmpty()) CursorGuards.applyCursorOps(state, ops, chunk, zh = zh)
     }
 
     companion object {

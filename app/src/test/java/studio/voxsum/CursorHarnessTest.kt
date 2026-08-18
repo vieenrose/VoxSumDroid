@@ -260,6 +260,58 @@ class CursorHarnessTest {
         assertTrue("guard fired below its documented 0.34 overlap", out.results.first().applied)
     }
 
+    // ---- language guard --------------------------------------------------------------------
+    //
+    // Measured basis: 7/25 (28%) of a real-ASR baseline flipped zh->English, spanning input
+    // Latin share from 1.9% to 22.1% with no threshold relationship to when it fires. Every
+    // real flip found was a full clause in the wrong script, not a lone term — so the guard
+    // targets phrase length, not language purity.
+
+    private val zhChunk = chunkOf(
+        """
+        [0:00] S1: 歡迎大家參加今天的審查會議
+        [0:12] S1: 我們比較了兩種機殼設計
+        [1:03] S2: 側翻式機殼被拒絕了，成本太高
+        """.trimIndent(),
+    )
+
+    @Test fun languageGuardDropsAFullEnglishBulletOnAZhTranscript() {
+        val state = CursorState()
+        val out = CursorGuards.applyCursorOps(
+            state, CursorOps.parse("ADD SUMMARY - Discussed two casing designs for the review [0:12]"),
+            zhChunk, zh = true,
+        )
+        assertFalse("a full English sentence in a zh transcript was not dropped", out.results.first().applied)
+        assertTrue(out.results.first().reason!!.contains("language guard"))
+        assertTrue(state.bullets("SUMMARY").isEmpty())
+    }
+
+    @Test fun languageGuardAllowsASingleLatinTermInAZhBullet() {
+        val state = CursorState()
+        val out = CursorGuards.applyCursorOps(
+            state, CursorOps.parse("ADD SUMMARY - 討論了 Q3 的機殼設計比較 [0:12]"), zhChunk, zh = true,
+        )
+        assertTrue("ordinary code-switching (one Latin term) was rejected as a flip", out.results.first().applied)
+    }
+
+    @Test fun languageGuardIsInertOnEnglishTranscripts() {
+        val out = CursorGuards.applyCursorOps(
+            CursorState(), CursorOps.parse("ADD SUMMARY - Discussed two casing designs for the review [0:12]"),
+            chunkOf(), zh = false,
+        )
+        assertTrue("the guard fired on an English transcript", out.results.first().applied)
+    }
+
+    /** TOPICS is exempt: real baseline data has a genuine multi-word product name and an
+     *  actual translated-phrase flip at the SAME word count (4), so no length threshold
+     *  separates them there — see [CursorGuards.flipsLanguage]'s doc comment. */
+    @Test fun languageGuardExemptsTopics() {
+        val out = CursorGuards.applyCursorOps(
+            CursorState(), CursorOps.parse("ADD TOPICS - Cloud Inside Data Security [0:12]"), zhChunk, zh = true,
+        )
+        assertTrue("TOPICS should be exempt from the language guard", out.results.first().applied)
+    }
+
     /** Revising an EARLIER bullet is always allowed — that is what UPD is for — and the
      *  revision keeps its slot so the timeline does not reorder. */
     @Test fun updRevisesInPlace() {

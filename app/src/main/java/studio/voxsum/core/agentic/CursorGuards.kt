@@ -11,11 +11,17 @@ import studio.voxsum.core.agentic.CursorTranscript.secToClock
  *    otherwise the bullet falls to the deterministic lexical matcher (logged).
  * 2. **Temporal guard** — ops touching DECISIONS/ACTIONS are checked against the existing
  *    timeline; asserting the opposite of a LATER bullet about the same subject is dropped.
- * 3. **UPD->ADD fallback** — a UPD whose prefix matches nothing is honoured as an ADD.
- * 4. **Dedup + caps** — in [CursorState]; caps applied by `spread`, never truncation.
- * 5. **NOP-collapse** — K consecutive NOPs over content-rich chunks trips the caller's
+ * 3. **Language guard** — on a zh transcript, a bullet with zero Han characters and 2+ Latin
+ *    words is dropped. Measured basis: 7/25 (28%) of a real-ASR baseline flipped zh->English,
+ *    spanning input Latin share from 1.9% to 22.1% with no threshold relationship — a prompt
+ *    instruction alone does not hold, so the harness enforces it the same way it enforces
+ *    anchors and the timeline. A single Latin word (a proper noun, an acronym) is legitimate
+ *    code-switching and is NOT a flip; the signal is a whole phrase/sentence in the wrong script.
+ * 4. **UPD->ADD fallback** — a UPD whose prefix matches nothing is honoured as an ADD.
+ * 5. **Dedup + caps** — in [CursorState]; caps applied by `spread`, never truncation.
+ * 6. **NOP-collapse** — K consecutive NOPs over content-rich chunks trips the caller's
  *    coverage fallback.
- * 6. **Malformed ops** — logged, never fatal.
+ * 7. **Malformed ops** — logged, never fatal.
  *
  * **These guards are not decoration — they are where the measured numbers come from.** The
  * upstream note is explicit that porting the protocol without them does not reproduce the
@@ -157,6 +163,29 @@ internal object CursorGuards {
         return null
     }
 
+    /** TOPICS is exempt: it is legitimately full of short product/company names ("Cloud Inside
+     *  Data Security", a real one from the baseline) that read exactly like a translated phrase
+     *  ("Model Context Agreement MCCP", also real) at the same word count — four words in both,
+     *  one a genuine name and one an actual flip. No word-count threshold separates that pair;
+     *  picking one anyway would be curve-fitting two examples. TOPICS is also the lowest-stakes
+     *  section — a discussion pointer, not a commitment — so an occasional uncaught flip there
+     *  costs far less than rejecting real content would. */
+    private val FLIP_CHECKED_SECTIONS = setOf("SUMMARY", "DECISIONS", "ACTIONS", "OPEN")
+
+    /**
+     * Does [text] flip out of the zh transcript's language? Zero Han characters plus 2+ Latin
+     * words is a phrase/sentence written in the wrong script — a single Latin word (a product
+     * name, an acronym, a proper noun) is ordinary code-switching and is NOT flagged; real
+     * zh-TW speech routinely names things in English mid-sentence. [zh] gates the whole check:
+     * an English transcript's bullets are never flagged by this guard.
+     */
+    internal fun flipsLanguage(zh: Boolean, section: String, text: String): Boolean {
+        if (!zh || section !in FLIP_CHECKED_SECTIONS) return false
+        if (text.any { it in '一'..'鿿' }) return false
+        val words = text.split(Regex("[^\\p{L}]+")).filter { it.length > 1 }
+        return words.size >= 2
+    }
+
     /** Validate an anchor against the current chunk, falling back to the matcher. */
     private fun resolveAnchor(
         chunk: CursorChunker.Chunk,
@@ -188,6 +217,7 @@ internal object CursorGuards {
         chunk: CursorChunker.Chunk,
         consecutiveNops: Int = 0,
         verify: ((String, String, Int?) -> String?)? = null,
+        zh: Boolean = false,
     ): CursorOutcome {
         val outcome = CursorOutcome()
         var substantive = false
@@ -205,6 +235,10 @@ internal object CursorGuards {
                 }
 
                 is CursorOp.Add -> {
+                    if (flipsLanguage(zh, op.section, op.bullet)) {
+                        outcome.results.add(CursorAppliedOp(op, false, "flips language (language guard)"))
+                        continue
+                    }
                     val (resolved, note) = resolveAnchor(chunk, op.bullet, op.anchor)
                     val contradiction = contradictsTimeline(state, op.section, op.bullet, resolved)
                     if (contradiction != null) {
@@ -222,6 +256,10 @@ internal object CursorGuards {
                 }
 
                 is CursorOp.Upd -> {
+                    if (flipsLanguage(zh, op.section, op.bullet)) {
+                        outcome.results.add(CursorAppliedOp(op, false, "flips language (language guard)"))
+                        continue
+                    }
                     val (resolved, note) = resolveAnchor(chunk, op.bullet, op.anchor)
                     val vetoed = verify?.invoke(op.section, op.bullet, resolved)
                     if (vetoed != null) {
@@ -260,9 +298,11 @@ internal object CursorGuards {
                 }
 
                 is CursorOp.Cmp -> {
-                    val repaired = op.bullets.map {
-                        it.copy(anchor = resolveAnchor(chunk, it.text, it.anchor).first)
-                    }
+                    // Drop individual flipped bullets rather than reject the whole rewrite —
+                    // CMP replaces the section, so losing one flipped item still keeps the rest.
+                    val repaired = op.bullets
+                        .filterNot { flipsLanguage(zh, op.section, it.text) }
+                        .map { it.copy(anchor = resolveAnchor(chunk, it.text, it.anchor).first) }
                     val reason = state.compact(op.section, repaired)
                     outcome.results.add(CursorAppliedOp(op, reason == null, reason))
                     substantive = substantive || reason == null
