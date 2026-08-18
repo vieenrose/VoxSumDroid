@@ -66,11 +66,15 @@ internal class CursorAgent(
         val opsEmitted: Int,
         val opsApplied: Int,
         val vetoed: Int,
+        /** Dropped by [CursorGuards.flipsLanguage] or [CursorGuards.readsAsAdvice] — the two
+         *  deterministic guards, as opposed to [vetoed] (the LLM verifier). */
+        val languageGuarded: Int,
+        val categoryGuarded: Int,
         val malformed: Int,
         val nopCollapses: Int,
     )
 
-    var stats: Stats = Stats(0, 0, 0, 0, 0, 0)
+    var stats: Stats = Stats(0, 0, 0, 0, 0, 0, 0, 0)
         private set
 
     /**
@@ -92,6 +96,8 @@ internal class CursorAgent(
         var emitted = 0
         var applied = 0
         var vetoed = 0
+        var languageGuarded = 0
+        var categoryGuarded = 0
         var malformed = 0
         var collapses = 0
 
@@ -126,6 +132,8 @@ internal class CursorAgent(
             vetoed += outcome.results.count {
                 !it.applied && it.reason?.startsWith("in-stream verifier") == true
             }
+            languageGuarded += outcome.results.count { !it.applied && it.reason?.contains("language guard") == true }
+            categoryGuarded += outcome.results.count { !it.applied && it.reason?.contains("category guard") == true }
 
             val substantive = outcome.results.any { it.applied && it.op !is CursorOp.Nop }
             consecutiveNops = if (substantive) 0 else consecutiveNops + 1
@@ -140,7 +148,7 @@ internal class CursorAgent(
             }
         }
 
-        stats = Stats(chunks.size, emitted, applied, vetoed, malformed, collapses)
+        stats = Stats(chunks.size, emitted, applied, vetoed, languageGuarded, categoryGuarded, malformed, collapses)
 
         // A title is part of NOTES v2 and the model sets it with a TITLE op. When it never
         // did, leave it blank: the caller derives one from the finished notes rather than

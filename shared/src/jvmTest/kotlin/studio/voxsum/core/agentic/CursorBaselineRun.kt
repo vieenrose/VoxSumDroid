@@ -94,7 +94,7 @@ class CursorBaselineRun {
 
         val files = dir!!.listFiles { f -> f.extension == "txt" }?.sortedBy { it.name } ?: emptyList()
         val head = "file\tutts\tlatIn\tlatOut\tFLIP\tanchors\tbogus\tsum\tdec\tact\topen\ttop\t" +
-            "chunks\tapplied\tvetoed\tmalformed\tnop\tinv\tsecs"
+            "chunks\tapplied\tvetoed\tlangGuard\tcatGuard\tmalformed\tnop\tinv\tsecs"
         val rows = mutableListOf(head)
         println("[base] $head")
 
@@ -138,7 +138,8 @@ class CursorBaselineRun {
                 val row = "${f.name}\t${utts.size}\t${"%.1f".format(latIn)}\t${"%.1f".format(latOut)}\t$flip\t" +
                     "${anchors.size}\t$bogus\t${notes?.summary?.size ?: -1}\t${notes?.decisions?.size ?: -1}\t" +
                     "${notes?.actions?.size ?: -1}\t${notes?.open?.size ?: -1}\t${notes?.topics?.size ?: -1}\t" +
-                    "${s.chunks}\t${s.opsApplied}\t${s.vetoed}\t${s.malformed}\t${s.nopCollapses}\t" +
+                    "${s.chunks}\t${s.opsApplied}\t${s.vetoed}\t${s.languageGuarded}\t${s.categoryGuarded}\t" +
+                    "${s.malformed}\t${s.nopCollapses}\t" +
                     "${inv.replace('\t', ' ')}\t$secs"
                 rows.add(row)
                 println("[base] $row")
