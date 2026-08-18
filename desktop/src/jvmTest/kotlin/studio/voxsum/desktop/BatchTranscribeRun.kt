@@ -6,6 +6,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.config.TranscriptionConfig
+import studio.voxsum.core.diarization.DiarizationEngine
 import studio.voxsum.core.events.TranscriptEvent
 import studio.voxsum.core.models.ModelManager
 import studio.voxsum.desktop.asr.SpeechEngineFactory
@@ -94,7 +95,24 @@ class BatchTranscribeRun {
             val secs = pcm.size / 16000.0
             val utts = try {
                 SpeechEngineFactory.create(AsrBackend.XASR, models, config, threads).use { asr ->
-                    collect(asr.transcribe(pcm))
+                    val plain = collect(asr.transcribe(pcm))
+                    // Diarization is a SEPARATE stage, not something the ASR engine does because
+                    // the config flag is set. Passing diarizationEnabled to the factory and
+                    // stopping there produced speaker-less output while reporting success — the
+                    // flag was decorative. X-ASR is ASR-only; speakers come from
+                    // segmentation + CAM++ embeddings + clustering, invoked here.
+                    if (config.diarizationEnabled && plain.isNotEmpty()) {
+                        DiarizationEngine(
+                            embeddingModel = models.embeddingModel.absolutePath,
+                            numThreads = threads,
+                            numClusters = config.numSpeakers,
+                            segmentationModel = models.segmentationModel
+                                .takeIf { config.preciseDiarization && it.exists() }?.absolutePath,
+                        ).let { d ->
+                            try { d.assignSpeakers(pcm16k = pcm, utterances = plain).first }
+                            finally { d.close() }
+                        }
+                    } else plain
                 }
             } catch (t: Throwable) {
                 println("[batch] ${f.name}: ASR FAILED ${t.message}"); continue
