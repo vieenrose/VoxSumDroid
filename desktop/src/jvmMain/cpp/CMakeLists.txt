@@ -61,8 +61,6 @@ add_library(voxsum-mosslite SHARED
     "${APP_CPP_DIR}/mosslite/moss_lite_engine.cc"
     "${APP_CPP_DIR}/mosslite/lite_pod_jni.cpp"
     "${APP_CPP_DIR}/mosslite/xasr_lite_jni.cpp"
-    "${APP_CPP_DIR}/mosslite/nemotron_lite_jni.cpp"
-    "${APP_CPP_DIR}/mosslite/nemotron_mel.cc"
     "${APP_CPP_DIR}/mosslite/whisper_mel.cc")
 target_include_directories(voxsum-mosslite PRIVATE "${APP_CPP_DIR}/mosslite" ${JNI_INCLUDE_DIRS})
 target_link_libraries(voxsum-mosslite "${LITERT_PREBUILT}")

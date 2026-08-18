@@ -7,7 +7,6 @@ import kotlinx.coroutines.withContext
 import studio.voxsum.core.asr.AsrBackend
 import studio.voxsum.core.asr.MossLiteEngine
 import studio.voxsum.core.asr.LiteSpeakerEmbedder
-import studio.voxsum.core.asr.NemotronLang
 import studio.voxsum.desktop.asr.SpeechEngineFactory
 import studio.voxsum.core.asr.moss.MOSS_SR
 import studio.voxsum.core.asr.moss.MossPipeline
@@ -616,28 +615,9 @@ private suspend fun summarize(models: ModelManager, config: TranscriptionConfig,
  * substitutes vocabulary (信息→資訊), which belongs to generated text (summary/title/actions).
  * Mirrors TranscriptionService.transcriptConverter on Android.
  *
- * Direction: Nemotron is the one backend with a spoken-language picker, and for it the Chinese
- * variant IS the choice (zh-TW → s2t, zh-CN → t2s, any other language → no conversion). The
- * others follow Target language.
+ * No backend has a spoken-language picker (Nemotron, the one that did, is gone), so every model
+ * here is always in auto mode and always emits Simplified — converting to Traditional is what
+ * makes that usable for a zh-TW user, and is a no-op on non-Chinese output.
  */
-private fun transcriptConvert(config: TranscriptionConfig, backend: AsrBackend): (String) -> String {
-    val lang = config.language
-    val script = when {
-        // An explicit Chinese variant pins the script outright.
-        lang == "zh-TW" -> ChineseScript.TRADITIONAL
-        lang == "zh-CN" -> ChineseScript.SIMPLIFIED
-        // No language stated — the default, and the only state the backends without a picker
-        // are ever in. Every model here emits Simplified, so converting to Traditional is what
-        // makes auto mode usable for a zh-TW user; it is a no-op on non-Chinese output.
-        NemotronLang.isAuto(lang) -> ChineseScript.TRADITIONAL
-        // Explicitly non-Chinese speech: OpenCC could only corrupt it.
-        !NemotronLang.isChinese(lang) -> null
-        // Chinese without a stated variant (legacy "zh"/"yue"): follow Target language.
-        else -> SummaryScript.scriptFor(config.summaryScript)
-    }
-    return when (script) {
-        ChineseScript.TRADITIONAL -> OpenCcConverter.getTranscriptTraditional().let { c -> { t: String -> c.convert(t) } }
-        ChineseScript.SIMPLIFIED -> OpenCcConverter.get(ChineseScript.SIMPLIFIED).let { c -> { t: String -> c.convert(t) } }
-        null -> { t -> t }
-    }
-}
+private fun transcriptConvert(config: TranscriptionConfig, backend: AsrBackend): (String) -> String =
+    OpenCcConverter.getTranscriptTraditional().let { c -> { t: String -> c.convert(t) } }

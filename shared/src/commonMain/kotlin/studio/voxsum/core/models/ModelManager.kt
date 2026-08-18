@@ -134,7 +134,7 @@ class ModelManager(appFilesDir: File) {
         val hfBase: String? = null,
         val hfFiles: List<String>? = null,
         // Optional per-file sha256 pins for [hfFiles] — meaningful for revision-pinned
-        // repos. HF-only specs (Nemotron) have no GitHub archive checksum to fall back
+        // repos. HF-only specs (X-ASR) have no GitHub archive checksum to fall back
         // on, so these are their only integrity check.
         val hfShas: Map<String, String>? = null,
     )
@@ -163,45 +163,6 @@ class ModelManager(appFilesDir: File) {
                 "tokens.txt" to "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c",
             ),
         ),
-        // Nemotron-3.5-ASR 3.5 (q8 LiteRT port) — the multilingual backend shared with
-        // the Android app: 25 languages via a 128-slot prompt, four graphs (encoder q8
-        // dynamic_wi8_afp32 599 MB + prompt-fuse fp32 + decoder/joint fp16). q8 replaced
-        // the q4-mix at the same size: the q4 quant cost ~6 en WER (ws A/B pr8:
-        // en 17.31 -> 11.87, zh 19.00 -> 17.46). Runs on libvoxsum-mosslite.so
-        // (LiteRT CompiledModel), NOT sherpa/ORT. HF-only, revision-pinned with per-file
-        // sha256s. Desktop measured RTF 0.093 (8 threads, 66 s zh clip).
-        AsrBackend.NEMOTRON to AsrModelSpec(
-            dir = "nemotron-litert",
-            url = "", sha256 = "",
-            sentinels = listOf(
-                "nemotron_encoder_q8.tflite", "nemotron_prompt_fuse_fp32.tflite",
-                "nemotron_decoder_fp16.tflite", "nemotron_joint_fp16.tflite", "tokenizer.json",
-            ),
-            buildFiles = { d ->
-                AsrModelFiles(
-                    encoder = File(d, "nemotron_encoder_q8.tflite").path,
-                    promptFuse = File(d, "nemotron_prompt_fuse_fp32.tflite").path,
-                    decoder = File(d, "nemotron_decoder_fp16.tflite").path,
-                    joiner = File(d, "nemotron_joint_fp16.tflite").path,
-                    tokens = File(d, "tokenizer.json").path,
-                )
-            },
-            // v3 = the v2 zh-TW fine-tune weights, encoder requantized q8 (fine-tune gain
-            // retained: Common Voice zh-TW CER 38.43 -> 13.90 vs base). Slot mapping unchanged — on v2 auto/zh-CN/zh-TW are within
-            // ~0.7 CER of each other and slot 4 is the best of the three when quantized.
-            hfBase = "https://huggingface.co/Luigi/nemotron-asr-litert-zhtw/resolve/855f287bc281f85e2ceac2931077157296d70251",
-            hfFiles = listOf(
-                "nemotron_encoder_q8.tflite", "nemotron_prompt_fuse_fp32.tflite",
-                "nemotron_decoder_fp16.tflite", "nemotron_joint_fp16.tflite", "tokenizer.json",
-            ),
-            hfShas = mapOf(
-                "nemotron_encoder_q8.tflite" to "e3c567ba6829be1d70ef44fc44a6e1317b16fcb6e085f7914d1f529767856e2c",
-                "nemotron_prompt_fuse_fp32.tflite" to "21c59326f8633c3824f9e92dcaded6148978dcd53591846c85c9b1ac982a1bba",
-                "nemotron_decoder_fp16.tflite" to "e92dfa900ebd9d7cd87429c9bb7c304b7e3fa61dc233c74f2e074fbb4342222b",
-                "nemotron_joint_fp16.tflite" to "d728fb09aa034b85b1549772fef6cfc4f85d7df0faf59c6db4ad2e7fbbfdc848",
-                "tokenizer.json" to "3f3d481deb073b64c2082e8c7860d487a3a62774bf4e9e4faac83007e181f246",
-            ),
-        ),
             )
 
     private fun specDir(spec: AsrModelSpec) = File(modelsDir, spec.dir)
@@ -209,9 +170,9 @@ class ModelManager(appFilesDir: File) {
     /**
      * Do the files on disk come from the revision we currently pin?
      *
-     * Sentinels are filenames and do not change when weights are re-pinned — Nemotron v1.1 -> the
-     * v2 zh-TW fine-tune keeps all five names — so without this an existing install silently stays
-     * on the old weights.
+     * Sentinels are filenames and do not change when weights are re-pinned — a same-name weight
+     * swap keeps every sentinel — so without this an existing install silently stays on the old
+     * weights.
      *
      * Fast path is a marker written at download time. When it is absent (installs predating the
      * marker) we hash what is on disk against the pinned SHAs rather than re-downloading blindly,
@@ -251,7 +212,7 @@ class ModelManager(appFilesDir: File) {
         val vad = vadLiteModel
         // The revision marker is part of "ready": callers gate provisioning on this
         // (`if (!asrReady(b)) ensureAsrModels(b)`), so a check performed only inside
-        // ensureAsrModels is never reached while the files exist — which is how the Nemotron v2
+        // ensureAsrModels is never reached while the files exist — which is how a past re-pin
         // re-pin shipped without reaching any device. Cheap: a small file read, no hashing. The
         // hash-and-adopt path lives in ensureAsrModels and runs at most once.
         return vad.exists() && spec.sentinels.all { File(d, it).exists() } && markerMatches(spec, d)
@@ -297,10 +258,11 @@ class ModelManager(appFilesDir: File) {
             if (backend == AsrBackend.XASR) {
                 LEGACY_ASR_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
             }
-            // q4-mix nemotron encoder superseded by q8 (same size, -5.4 en WER).
-            if (backend == AsrBackend.NEMOTRON) {
-                File(d, "nemotron_encoder_q4.tflite").takeIf(File::exists)?.delete()
-            }
+            // Nemotron dropped entirely 2026-08: a held-out zh-TW bench showed it ~2x worse
+            // CER than X-ASR, and the app targets zh-TW meetings only, not the 25-language
+            // coverage Nemotron traded accuracy for. Reclaim the whole dir on any install that
+            // ever downloaded it.
+            DROPPED_BACKEND_DIRS.forEach { File(modelsDir, it).takeIf(File::exists)?.deleteRecursively() }
         }
 
     /** Fetch the shared VAD model. HuggingFace first (reliable CDN), GitHub release as fallback. */
@@ -345,7 +307,7 @@ class ModelManager(appFilesDir: File) {
                 return
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                // HF-only specs (Nemotron) have no archive to fall back to. Rethrow the REAL
+                // HF-only specs (X-ASR) have no archive to fall back to. Rethrow the REAL
                 // error instead of falling through to download("") — that raises
                 // MalformedURLException, which the retry loop treats as transient and repeats
                 // six times before reporting a .tar.bz2 that was never meant to exist, with the
@@ -716,6 +678,7 @@ class ModelManager(appFilesDir: File) {
         // emitted ALL-CAPS, unpunctuated English and was replaced by the punct variant; since the
         // new dir name differs, the old folder would otherwise linger forever on existing installs.
         private val LEGACY_ASR_DIRS = listOf("sherpa-onnx-zipformer-zh-en-2023-11-22")
+        private val DROPPED_BACKEND_DIRS = listOf("nemotron-litert")
 
         private const val SENSE_VOICE_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" +

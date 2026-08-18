@@ -29,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
 import studio.voxsum.core.asr.AsrBackend
-import studio.voxsum.core.asr.NemotronLang
 import studio.voxsum.core.config.SummaryScript
 import studio.voxsum.core.config.TranscriptionConfig
 import studio.voxsum.core.models.LlmRegistry
@@ -56,7 +55,6 @@ fun SettingsDialog(
     }
     var preciseDiarization by remember { mutableStateOf(config.preciseDiarization) }
     var summaryScript by remember { mutableStateOf(SummaryScript.fromId(config.summaryScript)) }
-    var language by remember { mutableStateOf(config.language) }
     var style by remember { mutableStateOf(summaryStyle) }
     var useItn by remember { mutableStateOf(config.useItn) }
     var vadThreshold by remember { mutableStateOf(config.vadThreshold) }
@@ -103,15 +101,6 @@ fun SettingsDialog(
                             onClick = { asrBackend = b },
                         )
                     }
-                }
-                // Nemotron selects its language through a one-hot prompt slot rather than
-                // per-utterance detection, so it gets its own picker (the same 20 locales the
-                // Android build offers).
-                if (asrBackend == AsrBackend.NEMOTRON) {
-                    Text(Strings.language, color = pal.Slate400, modifier = Modifier.padding(top = 8.dp))
-                    val opts = NemotronLang.OPTIONS
-                    val selected = opts.firstOrNull { it.first == language } ?: opts.first()
-                    ChipRow(pal, opts, selected, { language = it.first }) { it.second }
                 }
                 // Hotword biasing is MOSS-only: it is an autoregressive LLM ASR, so the terms
                 // are appended to its prompt (upstream's `热词提示：a, b, c` form). The other
@@ -220,7 +209,6 @@ fun SettingsDialog(
                             numSpeakers = numSpeakersText.toIntOrNull()?.takeIf { it in 1..10 } ?: -1,
                             preciseDiarization = preciseDiarization,
                             summaryScript = summaryScript.id,
-                            language = language,
                             useItn = useItn,
                             vadThreshold = vadThreshold,
                             asrContext = asrContext,

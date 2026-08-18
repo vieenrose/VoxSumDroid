@@ -150,7 +150,6 @@ object Strings {
     // ---- Settings dialog ----
     val settings: String get() = t("Settings", "Paramètres", "設定")
     val speechRecognition: String get() = t("Speech recognition", "Reconnaissance vocale", "語音辨識")
-    val language: String get() = t("Language", "Langue", "語言")
     val itnCheckbox: String get() = t(
         "  Inverse text normalization (numbers, punctuation)",
         "  Normalisation inverse du texte (chiffres, ponctuation)",

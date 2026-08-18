@@ -21,7 +21,7 @@ object NativeLibs {
     /** True once libvoxsum-mosslite.so is in the process — gates the LiteRT backends. */
     @Volatile private var liteRtLoaded = false
 
-    /** Whether the LiteRT engines (Nemotron / X-ASR / MOSS-TD) are usable in this run. */
+    /** Whether the LiteRT engines (X-ASR / MOSS-TD) are usable in this run. */
     fun liteRtAvailable(): Boolean { ensureLoaded(); return liteRtLoaded }
 
     @Synchronized
@@ -33,7 +33,7 @@ object NativeLibs {
                 "flattens them), or set VOXSUM_NATIVE_LIB_DIR."
         }
         System.load(File(dir, "libvoxsum-llm.so").absolutePath)
-        // LiteRT engines (X-ASR / Nemotron / MOSS-TD + VAD/diarization pods), the same
+        // LiteRT engines (X-ASR / MOSS-TD + VAD/diarization pods), the same
         // app/src/main/cpp/mosslite sources Android builds. Every ASR backend runs on this
         // now, so a failure to load is fatal rather than something to degrade around.
         System.load(File(dir, "libvoxsum-mosslite.so").absolutePath)

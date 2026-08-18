@@ -9,10 +9,10 @@ import java.security.MessageDigest
 /**
  * Re-pinning weights must actually reach existing installs.
  *
- * Provisioning is gated on SENTINELS, which are filenames — and a re-pin keeps the filenames
- * (Nemotron v1.1 -> the v2 zh-TW fine-tune has the same five). Shipping the v2 pin without this
- * check left every existing install silently running v1.1: the app reported the model "ready" and
- * never downloaded the new weights.
+ * Provisioning is gated on SENTINELS, which are filenames — and a re-pin keeps the filenames.
+ * Shipping a same-name weight upgrade without this check once left an existing install
+ * silently running the old weights: the app reported the model "ready" and never
+ * downloaded the new ones.
  */
 class ModelRevisionTest {
 

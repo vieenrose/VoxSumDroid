@@ -28,7 +28,6 @@ object ConfigStore {
         return TranscriptionConfig(
             asrBackend = p.getString("asrBackend", d.asrBackend) ?: d.asrBackend,
             asrModelId = p.getString("asrModelId", d.asrModelId) ?: d.asrModelId,
-            language = p.getString("language", d.language) ?: d.language,
             useItn = p.getBoolean("useItn", d.useItn),
             vadThreshold = p.getFloat("vadThreshold", d.vadThreshold),
             asrContext = p.getString("asrContext", d.asrContext) ?: d.asrContext,
@@ -45,7 +44,6 @@ object ConfigStore {
     fun save(c: TranscriptionConfig) {
         store.putString("asrBackend", c.asrBackend)
         store.putString("asrModelId", c.asrModelId)
-        store.putString("language", c.language)
         store.putBoolean("useItn", c.useItn)
         store.putFloat("vadThreshold", c.vadThreshold)
         store.putString("asrContext", c.asrContext)

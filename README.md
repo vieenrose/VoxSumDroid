@@ -149,6 +149,10 @@ see the branch's commit history for the specific verification each one got.
 
 ## ASR benchmark (x86-64)
 
+**Nemotron was removed 2026-08-18** — this benchmark is what justified it. It ran ~2x worse
+CER than X-ASR on held-out zh-TW and the app targets zh-TW meetings only, not the 25-language
+coverage Nemotron traded accuracy for. The row stays below as the record of that decision.
+
 Every number below comes from the **byte-identical production pipeline** (the
 `--bench` headless entry drives the same `Pipeline.kt` path the app runs,
 diarization included) on two 5-minute clips — English and Taiwan-accented
@@ -201,10 +205,11 @@ archipelago, …”*
 | Nemotron | 這家也可以刷卡 外交與全球信議題 我們的人口結構急速老化 新電端 則正確的說明了星球的大小… |
 
 MOSS-TD is the accuracy pick and the only diarizing backend; X-ASR is the fast
-default; Nemotron is there for **language breadth (25 languages), not Chinese
-accuracy** — on held-out Taiwanese Mandarin it is ~2x worse than X-ASR and ~3x
-worse than MOSS-TD, and it collapses on classical text (44.8 CER on 三國演義
-against MOSS-TD's 2.2).
+default. Nemotron was kept for **language breadth (25 languages), not Chinese
+accuracy** — on held-out Taiwanese Mandarin it was ~2x worse than X-ASR and ~3x
+worse than MOSS-TD, and it collapsed on classical text (44.8 CER on 三國演義
+against MOSS-TD's 2.2) — not a trade worth keeping for an app targeting zh-TW
+meetings, so it's gone.
 Four fixes were landed against these clips: VAD tail amputation and pre-roll
 (both backends), head/tail silence context for Nemotron's strided encoder
 (en 26.2 → 17.3 combined; the zh half of that measurement is withdrawn), a
