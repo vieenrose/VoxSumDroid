@@ -11,12 +11,16 @@ import studio.voxsum.core.agentic.CursorTranscript.secToClock
  *    otherwise the bullet falls to the deterministic lexical matcher (logged).
  * 2. **Temporal guard** — ops touching DECISIONS/ACTIONS are checked against the existing
  *    timeline; asserting the opposite of a LATER bullet about the same subject is dropped.
- * 3. **Language guard** — on a zh transcript, a bullet with zero Han characters and 2+ Latin
- *    words is dropped. Measured basis: 7/25 (28%) of a real-ASR baseline flipped zh->English,
- *    spanning input Latin share from 1.9% to 22.1% with no threshold relationship — a prompt
- *    instruction alone does not hold, so the harness enforces it the same way it enforces
- *    anchors and the timeline. A single Latin word (a proper noun, an acronym) is legitimate
- *    code-switching and is NOT a flip; the signal is a whole phrase/sentence in the wrong script.
+ * 3. **Language guard** — on a zh transcript, a TITLE/SUMMARY/DECISIONS/ACTIONS/OPEN bullet
+ *    with zero Han characters and 2+ Latin words is dropped (TOPICS is exempt — see
+ *    [flipsLanguage]'s doc). Measured basis: 7/25 (28%) of a real-ASR baseline flipped
+ *    zh->English, spanning input Latin share from 1.9% to 22.1% with no threshold
+ *    relationship — a prompt instruction alone does not hold, so the harness enforces it the
+ *    same way it enforces anchors and the timeline. A single Latin word (a proper noun, an
+ *    acronym) is legitimate code-switching and is NOT a flip; the signal is a whole
+ *    phrase/sentence in the wrong script. TITLE was initially missed in the first cut of this
+ *    guard — caught by re-measuring after shipping: 2 of 4 residual "flips" in the follow-up
+ *    baseline were untouched English titles, not a gap in the section-level logic.
  * 4. **Category guard** — a DECISIONS/ACTIONS op whose evidence hedges (可以/should/might) with
  *    no decision-completion marker anywhere in the neighbourhood reads as advice or a described
  *    possibility, not something decided here, and is dropped. Narrower than it sounds: it does
@@ -221,7 +225,7 @@ internal object CursorGuards {
      *  picking one anyway would be curve-fitting two examples. TOPICS is also the lowest-stakes
      *  section — a discussion pointer, not a commitment — so an occasional uncaught flip there
      *  costs far less than rejecting real content would. */
-    private val FLIP_CHECKED_SECTIONS = setOf("SUMMARY", "DECISIONS", "ACTIONS", "OPEN")
+    private val FLIP_CHECKED_SECTIONS = setOf("TITLE", "SUMMARY", "DECISIONS", "ACTIONS", "OPEN")
 
     /**
      * Does [text] flip out of the zh transcript's language? Zero Han characters plus 2+ Latin
@@ -280,6 +284,10 @@ internal object CursorGuards {
                 is CursorOp.Malformed -> outcome.results.add(CursorAppliedOp(op, false, op.reason))
 
                 is CursorOp.Title -> {
+                    if (flipsLanguage(zh, "TITLE", op.title)) {
+                        outcome.results.add(CursorAppliedOp(op, false, "flips language (language guard)"))
+                        continue
+                    }
                     val reason = state.setTitle(op.title)
                     outcome.results.add(CursorAppliedOp(op, reason == null, reason))
                     substantive = substantive || reason == null
